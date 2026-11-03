@@ -153,8 +153,6 @@ fn mean_between(g: &Grid, a: f64, b: f64) -> Option<f64> {
 /// negative or unknown taken as 0.
 fn fit_line(g: &Grid, i0: usize, i1: usize, w: f64) -> Option<(f64, f64, f64, usize, f64)> {
     let tm = g.time((i0 + i1) / 2);
-    let mut ata = [[0.0; 4]; 4];
-    let mut aty = [0.0; 4];
     let mut rows = Vec::new();
     for i in i0..i1 {
         let y = g.y[i];
@@ -163,19 +161,13 @@ fn fit_line(g: &Grid, i0: usize, i1: usize, w: f64) -> Option<(f64, f64, f64, us
         }
         let t = g.time(i);
         let x = [1.0, t - tm, (w * t).cos(), (w * t).sin()];
-        for r in 0..4 {
-            for c in 0..4 {
-                ata[r][c] += x[r] * x[c];
-            }
-            aty[r] += x[r] * y;
-        }
         rows.push((i, x, y));
     }
     let n = rows.len();
     if n < 8 {
         return None;
     }
-    let p = solve4(ata, aty)?;
+    let p = crate::dsp::least_squares(rows.iter().map(|&(_, x, y)| (x, y, 1.0)), 1e-12)?;
     let res: Vec<(usize, f64)> = rows
         .iter()
         .map(|(i, x, y)| {
@@ -195,28 +187,6 @@ fn fit_line(g: &Grid, i0: usize, i1: usize, w: f64) -> Option<(f64, f64, f64, us
         .unwrap_or(0.0)
         .clamp(0.0, 0.99);
     Some((p[2], p[3], (rss / (n - 4) as f64).sqrt(), n, rho))
-}
-
-#[allow(clippy::needless_range_loop)]
-fn solve4(mut a: [[f64; 4]; 4], mut b: [f64; 4]) -> Option<[f64; 4]> {
-    for c in 0..4 {
-        let piv = (c..4).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
-        if a[piv][c].abs() < 1e-12 {
-            return None;
-        }
-        a.swap(c, piv);
-        b.swap(c, piv);
-        for r in 0..4 {
-            if r != c {
-                let f = a[r][c] / a[c][c];
-                for k in 0..4 {
-                    a[r][k] -= f * a[c][k];
-                }
-                b[r] -= f * b[c];
-            }
-        }
-    }
-    Some([0, 1, 2, 3].map(|i| b[i] / a[i][i]))
 }
 
 /// The line of `wheel` in `g` (with its slow change taken off), window

@@ -2652,37 +2652,13 @@ pub const ISO_MIN_READINGS: usize = 10;
 pub const ISO_MIN_BINS: usize = 3;
 
 /// Weighted least squares of y on 1, x, x²; returns the coefficients.
-#[allow(clippy::needless_range_loop)]
 fn wquad(x: &[f64], y: &[f64], w: &[f64]) -> Option<[f64; 3]> {
-    let mut a = [[0.0f64; 3]; 3];
-    let mut b = [0.0f64; 3];
-    for ((&xi, &yi), &wi) in x.iter().zip(y).zip(w) {
-        let r = [1.0, xi, xi * xi];
-        for i in 0..3 {
-            b[i] += wi * r[i] * yi;
-            for j in 0..3 {
-                a[i][j] += wi * r[i] * r[j];
-            }
-        }
-    }
-    for c in 0..3 {
-        let p = (c..3).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
-        a.swap(c, p);
-        b.swap(c, p);
-        if a[c][c].abs() < 1e-12 {
-            return None;
-        }
-        for r in 0..3 {
-            if r != c {
-                let f = a[r][c] / a[c][c];
-                for k in 0..3 {
-                    a[r][k] -= f * a[c][k];
-                }
-                b[r] -= f * b[c];
-            }
-        }
-    }
-    Some([b[0] / a[0][0], b[1] / a[1][1], b[2] / a[2][2]])
+    let rows = x
+        .iter()
+        .zip(y)
+        .zip(w)
+        .map(|((&xi, &yi), &wi)| ([1.0, xi, xi * xi], yi, wi));
+    crate::dsp::least_squares(rows, 1e-12)
 }
 
 /// The 2° bins of `(amplitude, rate, hours from wind)` from `lo` to `hi`

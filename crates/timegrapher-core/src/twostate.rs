@@ -634,7 +634,7 @@ pub fn describe(r: &TwoState, series: &str) -> String {
             format!("{x:.0}°")
         }
     };
-    let unit = if series == "rate" { " sec/day" } else { "" };
+    let unit = if series == "rate" { " s/d" } else { "" };
     let every = |s: f64| {
         if s >= 120.0 {
             format!("{:.0} minutes", s / 60.0)
