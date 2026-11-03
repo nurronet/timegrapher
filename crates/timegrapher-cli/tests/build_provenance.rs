@@ -32,10 +32,12 @@ fn git(dir: &Path, args: &[&str]) {
     );
 }
 
-/// Build the crate in `dir` and run it: what it prints.
-fn built(dir: &Path, target: &Path) -> String {
+/// Check the crate in `dir` (`cargo check`: its build script runs, as in
+/// any build, but nothing is compiled to code or linked, #907) and give the
+/// dirty flag its build script handed the compiler.
+fn checked(dir: &Path, target: &Path) -> String {
     let out = Command::new(env!("CARGO"))
-        .args(["run", "--quiet", "--offline"])
+        .args(["check", "--quiet", "--offline"])
         .current_dir(dir)
         .env("CARGO_TARGET_DIR", target)
         .env_remove("GIT_DIR")
@@ -48,14 +50,25 @@ fn built(dir: &Path, target: &Path) -> String {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    // The build script's run writes what it printed to `output` in a
+    // folder of its own under build/; the one probe crate has one such run.
+    let outputs: Vec<PathBuf> = std::fs::read_dir(target.join("debug").join("build"))
+        .unwrap()
+        .filter_map(|e| Some(e.ok()?.path().join("output")))
+        .filter(|p| p.is_file())
+        .collect();
+    assert_eq!(outputs.len(), 1, "{outputs:?}");
+    let printed = std::fs::read_to_string(&outputs[0]).unwrap();
+    printed
+        .lines()
+        .find_map(|l| l.strip_prefix("cargo:rustc-env=TIMEGRAPHER_GIT_DIRTY="))
+        .unwrap_or_else(|| panic!("no dirty flag in {printed}"))
+        .to_string()
 }
 
-fn main_rs(marker: &str) -> String {
-    format!(
-        "fn main() {{\n    println!(\"source={marker} dirty={{}}\", env!(\"TIMEGRAPHER_GIT_DIRTY\"));\n}}\n"
-    )
-}
+/// The probe's program: it uses the flag, so a build without it fails.
+const MAIN_RS: &str =
+    "fn main() {\n    println!(\"dirty={}\", env!(\"TIMEGRAPHER_GIT_DIRTY\"));\n}\n";
 
 #[test]
 fn a_source_edit_without_a_commit_builds_as_dirty() {
@@ -82,23 +95,23 @@ fn a_source_edit_without_a_commit_builds_as_dirty() {
     .unwrap();
     std::fs::write(krate.join("build.rs"), "include!(\"../build_info.rs\");\n").unwrap();
     let main = krate.join("src").join("main.rs");
-    std::fs::write(&main, main_rs("original")).unwrap();
+    std::fs::write(&main, MAIN_RS).unwrap();
     std::fs::write(repo.join(".gitignore"), "Cargo.lock\n").unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "probe"]);
 
-    let clean = built(&krate, &target);
+    let clean = checked(&krate, &target);
     // A file's change is seen by its time, so let the clock move on first.
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    std::fs::write(&main, main_rs("modified")).unwrap();
-    let edited = built(&krate, &target);
+    std::fs::write(&main, format!("{MAIN_RS}// edited\n")).unwrap();
+    let edited = checked(&krate, &target);
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    std::fs::write(&main, main_rs("original")).unwrap();
-    let undone = built(&krate, &target);
+    std::fs::write(&main, MAIN_RS).unwrap();
+    let undone = checked(&krate, &target);
     let _ = std::fs::remove_dir_all(&root);
 
-    assert_eq!(clean, "source=original dirty=false");
-    assert_eq!(edited, "source=modified dirty=true");
-    assert_eq!(undone, "source=original dirty=false");
+    assert_eq!(clean, "false");
+    assert_eq!(edited, "true");
+    assert_eq!(undone, "false");
 }
