@@ -228,6 +228,30 @@ fn a_take_on_two_clock_logs_is_refused_as_the_command_line_refuses_it() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// Opening one recording of a folder of several reads that recording
+/// alone, however its session file's entries spell its name (#731).
+#[test]
+fn one_recording_of_a_folder_is_read_alone_however_its_entries_spell_it() {
+    let base = std::env::temp_dir().join(format!("tg-app-one-of-two-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    for name in ["audio-001.wav", "audio-002.wav"] {
+        std::fs::write(base.join(name), b"").unwrap();
+    }
+    std::fs::write(
+        base.join(MANIFEST),
+        "bph = 28800\n\n[[recording]]\nfile = 'audio-001.wav'\nposition = 'DU'\n\n\
+         [[recording]]\nfile = './audio-001.wav'\nposition = 'DD'\n",
+    )
+    .unwrap();
+    let path = base.join("audio-001.wav");
+    let manifest = read_manifest(&path).unwrap();
+    assert_eq!(manifest.as_ref().map(|(_, e)| e.len()), Some(2));
+    let (_, _, entry) = take_entry(&path, manifest.as_ref()).unwrap();
+    assert_eq!(entry.file, "audio-001.wav");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// Guided elapsed-time endpoints use the recorder timeline even when
 /// the watch never changes position and a pause spans an endpoint.
 #[test]
