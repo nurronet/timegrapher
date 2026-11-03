@@ -67,10 +67,6 @@ fn tool_error(text: String) -> CallToolResult {
         .expect("a text result")
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 async fn call(
     name: &str,
     args: &Map<String, Value>,
@@ -150,16 +146,7 @@ async fn call(
     let progress = (tool.name == "record_position")
         .then(|| progress::report(context, args, feed.as_ref().map(|f| f.path().to_path_buf())))
         .flatten();
-    let out = if let Some(takes::Target::Folder(folder)) = destination {
-        let mut native: Vec<std::ffi::OsString> =
-            line.iter().map(std::ffi::OsString::from).collect();
-        // record_position has at most one positional argument, its folder,
-        // and a folder makes it last.
-        *native.last_mut().expect("record folder argument") = folder.into_os_string();
-        scope.run(&native, None).await
-    } else {
-        scope.run(&line, None).await
-    };
+    let out = run_line(&scope, &line, destination).await;
     drop(progress);
     let out = match out {
         Ok(out) => out,
@@ -168,28 +155,7 @@ async fn call(
     // JSON may describe a partial result or diagnostics from a failed
     // command. Its presence never turns an unsuccessful exit into success.
     if out.exit_code != Some(0) || out.json.is_none() {
-        let code = out
-            .exit_code
-            .map_or("no exit code".to_string(), |c| format!("exit code {c}"));
-        let said = if out.stderr.is_empty() {
-            "nothing".to_string()
-        } else {
-            out.stderr
-        };
-        let mut result = json!({
-            "content": [{ "type": "text", "text": format!(
-                "timegrapher {} failed ({code}): {said}", line[0]
-            ) }],
-            "isError": true,
-        });
-        if let Some(doc) = out.json {
-            result["content"].as_array_mut().unwrap().push(json!({
-                "type": "text",
-                "text": serde_json::to_string(&doc).unwrap_or_default(),
-            }));
-            result["structuredContent"] = doc;
-        }
-        return complete(result);
+        return complete(failed(&line[0], out));
     }
     let doc = out
         .json
@@ -198,40 +164,16 @@ async fn call(
     let mut doc = doc;
     let series_charts =
         (tool.name == "check_steadiness").then(|| views::take_series_charts(&mut doc));
-    // The text blocks carry, first, a lead in plain words (the readings
-    // with their standard errors, what limits them, notes), so a model reads
-    // that before the numbers; then the same document as the structured
-    // content, for chat apps that show the model only text, with any
-    // warnings from stderr after it.
-    let mut lead: Vec<String> = summary::lead(&doc, args).into_iter().collect();
-    lead.extend(tools::notes(tool).into_iter().map(|n| format!("Note: {n}")));
-    let mut text = serde_json::to_string(&doc).unwrap_or_default();
-    if !out.stderr.is_empty() {
-        text.push_str("\n\nThe command also said:\n");
-        text.push_str(&out.stderr);
-    }
-    let mut content = Vec::new();
-    if !lead.is_empty() {
-        content.push(json!({ "type": "text", "text": lead.join("\n\n") }));
-    }
-    content.push(json!({ "type": "text", "text": text }));
     let mut result = json!({
-        "content": content,
+        "content": text_blocks(&doc, args, tool, &out.stderr),
         "structuredContent": doc,
     });
     if recording_view {
         let recording = line.last().cloned().unwrap_or_default();
-        let (charts, warning) =
-            match views::analyze_charts(&doc, &extras, &recording, &scope, policy.profile).await {
-                Ok(charts) => charts,
-                Err(e) => return Ok(tool_error(e.to_string())),
-            };
-        result["_meta"] = json!({ views::META_KEY: charts });
-        if let Some(warning) = warning {
-            result["content"]
-                .as_array_mut()
-                .unwrap()
-                .push(json!({ "type": "text", "text": warning }));
+        if let Err(e) =
+            recording_charts(&mut result, &doc, &extras, &recording, &scope, policy).await
+        {
+            return Ok(tool_error(e.to_string()));
         }
     }
     if let Some(charts) = series_charts {
@@ -242,6 +184,100 @@ async fn call(
         takes::remember(k, &result);
     }
     complete(result)
+}
+
+/// Run the command `line`, writing a recording to `destination`'s folder,
+/// when it names one, as the operating system spells it.
+async fn run_line(
+    scope: &cli::Scope<'_>,
+    line: &[String],
+    destination: Option<takes::Target>,
+) -> Result<cli::Outcome, cli::RunError> {
+    if let Some(takes::Target::Folder(folder)) = destination {
+        let mut native: Vec<std::ffi::OsString> =
+            line.iter().map(std::ffi::OsString::from).collect();
+        // record_position has at most one positional argument, its folder,
+        // and a folder makes it last.
+        *native.last_mut().expect("record folder argument") = folder.into_os_string();
+        scope.run(&native, None).await
+    } else {
+        scope.run(line, None).await
+    }
+}
+
+/// The Recording view's charts, from the same run, in the result's
+/// `_meta`, and any warning the charts gave beside the text.
+async fn recording_charts(
+    result: &mut Value,
+    doc: &Value,
+    extras: &[String],
+    recording: &str,
+    scope: &cli::Scope<'_>,
+    policy: &cli::Policy,
+) -> Result<(), cli::RunError> {
+    let (charts, warning) =
+        views::analyze_charts(doc, extras, recording, scope, policy.profile).await?;
+    result["_meta"] = json!({ views::META_KEY: charts });
+    if let Some(warning) = warning {
+        result["content"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "type": "text", "text": warning }));
+    }
+    Ok(())
+}
+
+/// A command that failed: what it said, and any JSON it left, which never
+/// turns its failure into success.
+fn failed(command: &str, out: cli::Outcome) -> Value {
+    let code = out
+        .exit_code
+        .map_or("no exit code".to_string(), |c| format!("exit code {c}"));
+    let said = if out.stderr.is_empty() {
+        "nothing".to_string()
+    } else {
+        out.stderr
+    };
+    let mut result = json!({
+        "content": [{ "type": "text", "text": format!(
+            "timegrapher {command} failed ({code}): {said}"
+        ) }],
+        "isError": true,
+    });
+    if let Some(doc) = out.json {
+        result["content"].as_array_mut().unwrap().push(json!({
+            "type": "text",
+            "text": serde_json::to_string(&doc).unwrap_or_default(),
+        }));
+        result["structuredContent"] = doc;
+    }
+    result
+}
+
+/// The text blocks carry, first, a lead in plain words (the readings
+/// with their standard errors, what limits them, notes), so a model reads
+/// that before the numbers; then the same document as the structured
+/// content, for chat apps that show the model only text, with any
+/// warnings from stderr after it.
+fn text_blocks(
+    doc: &Value,
+    args: &Map<String, Value>,
+    tool: &tools::ToolSpec,
+    stderr: &str,
+) -> Vec<Value> {
+    let mut lead: Vec<String> = summary::lead(doc, args).into_iter().collect();
+    lead.extend(tools::notes(tool).into_iter().map(|n| format!("Note: {n}")));
+    let mut text = serde_json::to_string(doc).unwrap_or_default();
+    if !stderr.is_empty() {
+        text.push_str("\n\nThe command also said:\n");
+        text.push_str(stderr);
+    }
+    let mut content = Vec::new();
+    if !lead.is_empty() {
+        content.push(json!({ "type": "text", "text": lead.join("\n\n") }));
+    }
+    content.push(json!({ "type": "text", "text": text }));
+    content
 }
 
 /// What the views say in core's words, put in the result's `_meta` beside
