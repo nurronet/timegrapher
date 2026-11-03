@@ -212,3 +212,78 @@ fn a_power_reserve_test_runs_in_the_cards_position() {
         painted_text(&out)
     );
 }
+
+/// The chart measured again as the run goes on keeps its whole hours and
+/// measures the rest on core's grid of true hours, so after several
+/// refreshes it holds the hours a fresh read of the run gives, across a
+/// pause ending on an hour or inside one (#642; the outside review of
+/// #876 found 30 min left out).
+#[test]
+fn the_live_hours_match_a_fresh_read_after_each_refresh() {
+    use timegrapher_core::{beats::Beat, breaks::Break, stream::BeatLog};
+    let log = |duration_s: f64| BeatLog {
+        sample_rate: 48_000,
+        duration_s,
+        bph: 28_800,
+        lift_deg: 52.0,
+        beats: (0..(duration_s * 8.0) as i64)
+            .map(|index| Beat {
+                index,
+                time: index as f64 * 0.125,
+                quality: 1.0,
+            })
+            .collect(),
+        amplitude_windows: vec![],
+        clipped_beats: vec![],
+        clipped_samples: 0,
+        jumps: vec![],
+        sided: vec![],
+        by_count: vec![],
+        snippets: vec![],
+    };
+    for gap_s in [1800.0, 2700.0] {
+        let breaks = vec![Break {
+            audio_s: 1800.0,
+            gap_s,
+        }];
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        app.reserve = Some(reserve::Test::new(
+            Position::DialUp,
+            true,
+            String::new(),
+            0.0,
+        ));
+        app.reserve_read_s = 0.0;
+        app.reserve_hours_s = f64::NEG_INFINITY;
+        app.put_take_clock(None, None);
+        app.put_take_breaks(Some(breaks.clone()), None);
+        let ctx = egui::Context::default();
+        let mut last = 0.0;
+        for duration_s in [5000.0, 5060.0, 6800.0, 6860.0] {
+            app.live = Some(LiveAnalyzer::from_log(
+                log(duration_s),
+                LiveConfig::default(),
+            ));
+            app.reserve_tick(&ctx);
+            last = duration_s;
+        }
+        let t = app.reserve.as_ref().unwrap();
+        let fresh = power_reserve::hours(
+            &log(last),
+            None,
+            &breaks,
+            &[],
+            t.heard.first_s.unwrap(),
+            t.heard.last_s.unwrap(),
+        );
+        let live: Vec<_> = t.so_far.iter().map(|h| (h.hour, h.span_s)).collect();
+        let want: Vec<_> = fresh.iter().map(|h| (h.hour, h.span_s)).collect();
+        assert_eq!(live.len(), want.len(), "gap {gap_s}: {live:?} vs {want:?}");
+        for (a, b) in live.iter().zip(&want) {
+            assert!(
+                a.0 == b.0 && (a.1 - b.1).abs() < 1e-3,
+                "gap {gap_s}: {live:?} vs {want:?}"
+            );
+        }
+    }
+}

@@ -163,10 +163,6 @@ impl Mark {
 }
 
 /// Draw the rows one above the other, sharing a time axis.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
     let pal = theme::pal(ui);
     let avail = ui.available_size();
@@ -180,38 +176,7 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
     let (before, _) = zoom.window(beat_s);
     let span = zoom.span_ms(beat_s);
     let x_of = |ms: f64| plot.left() + ((ms + before * 1000.0) / span) as f32 * plot.width();
-    // Grid and the time axis, in ms from the drop.
-    let step = zoom.step_ms(beat_s);
-    let mut ms = -(before * 1000.0 / step).floor() * step + 0.0;
-    while ms <= span - before * 1000.0 + 1e-9 {
-        let x = x_of(ms);
-        painter.line_segment(
-            [egui::pos2(x, plot.top()), egui::pos2(x, plot.bottom())],
-            egui::Stroke::new(1.0_f32, pal.separator),
-        );
-        // Room left at the right for the unit; no "-0".
-        if x < plot.right() - 22.0 {
-            painter.text(
-                egui::pos2(x, plot.bottom() + 3.0),
-                egui::Align2::CENTER_TOP,
-                if step < 1.0 {
-                    format!("{:.1}", ms + 0.0)
-                } else {
-                    format!("{:.0}", ms + 0.0)
-                },
-                egui::FontId::proportional(11.0),
-                pal.text_tertiary,
-            );
-        }
-        ms += step;
-    }
-    painter.text(
-        egui::pos2(plot.right(), plot.bottom() + 3.0),
-        egui::Align2::RIGHT_TOP,
-        "ms",
-        egui::FontId::proportional(11.0),
-        pal.text_tertiary,
-    );
+    time_axis(&painter, plot, pal, zoom, beat_s, x_of);
     let n = rows.len().max(1);
     let gap = 6.0;
     // With the marks on, each row keeps a lane of one row of names above
@@ -260,30 +225,14 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
             .fold(0.0f32, |m, &v| m.max(v.abs()))
             .max(1e-6);
         let half = r.height() * 0.48;
-        let cols = r.width().max(1.0) as usize;
         let count = row.traces.len();
         // Each column's highest point over every trace, for the names
         // inside a short row to keep clear of.
-        let mut tops: Vec<(f32, f32)> = Vec::new();
-        if inside {
-            for col in 0..cols {
-                let x = r.left() + col as f32 + 0.5;
-                let hi = row
-                    .traces
-                    .iter()
-                    .filter_map(|t| {
-                        let per = t.len() as f32 / cols as f32;
-                        let j0 = (col as f32 * per) as usize;
-                        let j1 = (((col + 1) as f32 * per).ceil() as usize).min(t.len());
-                        t.get(j0..j1)?.iter().copied().reduce(f32::max)
-                    })
-                    .fold(f32::MIN, f32::max);
-                if hi > f32::MIN {
-                    let y = mid - (hi / top).clamp(-1.0, 1.0) * half;
-                    tops.push((x, y));
-                }
-            }
-        }
+        let tops = if inside {
+            column_tops(row, r, (mid, top, half))
+        } else {
+            Vec::new()
+        };
         if inside {
             // Over the lines, under the trace.
             inside_names(ui, &painter, r, &edges, &tops, names_id.with(k));
@@ -296,37 +245,9 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
                 0.15 + 0.45 * (i as f32 + 1.0) / count as f32
             };
             let c = row.color.gamma_multiply(a);
-            let per = (t.len() as f32 / cols as f32).max(1.0);
-            let y = |v: f32| mid - (v / top).clamp(-1.0, 1.0) * half;
-            if per <= 1.5 {
-                let pts: Vec<egui::Pos2> = t
-                    .iter()
-                    .enumerate()
-                    .map(|(j, &v)| {
-                        let ms = j as f64 / fs * 1000.0 - before * 1000.0;
-                        egui::pos2(x_of(ms), y(v))
-                    })
-                    .collect();
-                painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2_f32, c)));
-            } else {
-                // Too many samples for the width: each column from its
-                // lowest to its highest.
-                for col in 0..cols {
-                    let j0 = (col as f32 * per) as usize;
-                    let j1 = (((col + 1) as f32 * per) as usize).min(t.len());
-                    if j0 >= j1 {
-                        continue;
-                    }
-                    let (lo, hi) = t[j0..j1]
-                        .iter()
-                        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-                    let x = r.left() + col as f32 + 0.5;
-                    painter.line_segment(
-                        [egui::pos2(x, y(hi)), egui::pos2(x, y(lo) + 0.5)],
-                        egui::Stroke::new(1.0_f32, c),
-                    );
-                }
-            }
+            draw_trace(&painter, t, r, c, (mid, top, half), |j| {
+                x_of(j as f64 / fs * 1000.0 - before * 1000.0)
+            });
         }
         if row.traces.is_empty() {
             painter.text(
@@ -338,17 +259,134 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
             );
         }
         if !inside {
-            let named: Vec<marks::Named> = edges
+            lane_names(ui, r, &edges, names_id.with(k));
+        }
+    }
+}
+
+/// The edges' names in the lane above the row `r`.
+fn lane_names(ui: &mut egui::Ui, r: egui::Rect, edges: &[(f32, &Mark)], id: egui::Id) {
+    let named: Vec<marks::Named> = edges
+        .iter()
+        .map(|(x, m)| marks::Named {
+            x: *x,
+            name: m.name.to_string(),
+            rank: Rank::Strong,
+            ink: m.color,
+            hover: m.hover(),
+        })
+        .collect();
+    marks::lane_above_one(ui, r, &named, id);
+}
+
+/// The grid and the time axis under the rows, in ms from the drop.
+fn time_axis(
+    painter: &egui::Painter,
+    plot: egui::Rect,
+    pal: &theme::Palette,
+    zoom: Zoom,
+    beat_s: f64,
+    x_of: impl Fn(f64) -> f32,
+) {
+    let (before, _) = zoom.window(beat_s);
+    let span = zoom.span_ms(beat_s);
+    let step = zoom.step_ms(beat_s);
+    let mut ms = -(before * 1000.0 / step).floor() * step + 0.0;
+    while ms <= span - before * 1000.0 + 1e-9 {
+        let x = x_of(ms);
+        painter.line_segment(
+            [egui::pos2(x, plot.top()), egui::pos2(x, plot.bottom())],
+            egui::Stroke::new(1.0_f32, pal.separator),
+        );
+        // Room left at the right for the unit; no "-0".
+        if x < plot.right() - 22.0 {
+            painter.text(
+                egui::pos2(x, plot.bottom() + 3.0),
+                egui::Align2::CENTER_TOP,
+                if step < 1.0 {
+                    format!("{:.1}", ms + 0.0)
+                } else {
+                    format!("{:.0}", ms + 0.0)
+                },
+                egui::FontId::proportional(11.0),
+                pal.text_tertiary,
+            );
+        }
+        ms += step;
+    }
+    painter.text(
+        egui::pos2(plot.right(), plot.bottom() + 3.0),
+        egui::Align2::RIGHT_TOP,
+        "ms",
+        egui::FontId::proportional(11.0),
+        pal.text_tertiary,
+    );
+}
+
+/// Each column's highest point over every trace in the row `r`, for
+/// names inside a short row to keep clear of. `(mid, top, half)` place a
+/// value: the row's middle, the largest size and half the row's height.
+fn column_tops(row: &Row, r: egui::Rect, (mid, top, half): (f32, f32, f32)) -> Vec<(f32, f32)> {
+    let cols = r.width().max(1.0) as usize;
+    let mut tops: Vec<(f32, f32)> = Vec::new();
+    for col in 0..cols {
+        let x = r.left() + col as f32 + 0.5;
+        let hi = row
+            .traces
+            .iter()
+            .filter_map(|t| {
+                let per = t.len() as f32 / cols as f32;
+                let j0 = (col as f32 * per) as usize;
+                let j1 = (((col + 1) as f32 * per).ceil() as usize).min(t.len());
+                t.get(j0..j1)?.iter().copied().reduce(f32::max)
+            })
+            .fold(f32::MIN, f32::max);
+        if hi > f32::MIN {
+            let y = mid - (hi / top).clamp(-1.0, 1.0) * half;
+            tops.push((x, y));
+        }
+    }
+    tops
+}
+
+/// One trace across the row `r` in colour `c`, each sample `j` at
+/// `x_of(j)`; with too many samples for the width, each column from its
+/// lowest to its highest.
+fn draw_trace(
+    painter: &egui::Painter,
+    t: &[f32],
+    r: egui::Rect,
+    c: Color32,
+    (mid, top, half): (f32, f32, f32),
+    x_of: impl Fn(usize) -> f32,
+) {
+    let cols = r.width().max(1.0) as usize;
+    let per = (t.len() as f32 / cols as f32).max(1.0);
+    let y = |v: f32| mid - (v / top).clamp(-1.0, 1.0) * half;
+    if per <= 1.5 {
+        let pts: Vec<egui::Pos2> = t
+            .iter()
+            .enumerate()
+            .map(|(j, &v)| egui::pos2(x_of(j), y(v)))
+            .collect();
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.2_f32, c)));
+    } else {
+        // Too many samples for the width: each column from its
+        // lowest to its highest.
+        for col in 0..cols {
+            let j0 = (col as f32 * per) as usize;
+            let j1 = (((col + 1) as f32 * per) as usize).min(t.len());
+            if j0 >= j1 {
+                continue;
+            }
+            let (lo, hi) = t[j0..j1]
                 .iter()
-                .map(|(x, m)| marks::Named {
-                    x: *x,
-                    name: m.name.to_string(),
-                    rank: Rank::Strong,
-                    ink: m.color,
-                    hover: m.hover(),
-                })
-                .collect();
-            marks::lane_above_one(ui, r, &named, names_id.with(k));
+                .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+            let x = r.left() + col as f32 + 0.5;
+            painter.line_segment(
+                [egui::pos2(x, y(hi)), egui::pos2(x, y(lo) + 0.5)],
+                egui::Stroke::new(1.0_f32, c),
+            );
         }
     }
 }
