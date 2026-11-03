@@ -840,10 +840,6 @@ pub struct EntryRead {
 /// found: the seconds of sound read, and the seconds of sound there are
 /// in all (`done_s` reaches `total_s` at the end); a take kept as its
 /// analysis alone has no sound to go through.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn open_entry(
     base: &Path,
     m: &Manifest,
@@ -851,117 +847,37 @@ pub fn open_entry(
     s: &EntrySettings,
     usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
     correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
-    mut progress: impl FnMut(f64, f64),
+    progress: impl FnMut(f64, f64),
 ) -> Result<OpenedEntry, String> {
     let path = base.join(&e.file);
-    // A take kept as its analysis alone: its beats are read, not found.
-    let kept = if analysis_take::is_analysis_only(&path) {
-        if m.audio != Some(false) {
-            return Err(format!(
-                "{}: it has an {}/ folder, but {MANIFEST} doesn't say audio = false",
-                e.file,
-                analysis_take::DIR
-            ));
-        }
-        if has_sound(&path) {
-            return Err(format!(
-                "{}: it holds both sound and an {}/ folder: a take is kept either with its \
-                 sound or as its analysis alone",
-                e.file,
-                analysis_take::DIR
-            ));
-        }
-        Some(analysis_take::read(&path).map_err(|err| format!("{}: {err}", e.file))?)
-    } else if m.audio == Some(false) {
-        return Err(format!(
-            "{}: {MANIFEST} says audio = false, but there is no {}/ folder to read",
-            e.file,
-            analysis_take::DIR
-        ));
-    } else {
-        None
-    };
+    let kept = kept_take(&path, m, e)?;
     let files = match &kept {
         Some(_) => Vec::new(),
         None => sound_files(std::slice::from_ref(&path))?,
     };
-    let cfg = &s.stream;
     let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
-    let mut log = match &kept {
-        Some(k) => kept_at_lift(&k.log, cfg.analysis.amplitude.lift_deg),
-        None => {
-            let mut total_s = 0.0;
-            for p in &paths {
-                let i = crate::audio::info(p).map_err(|err| format!("{}: {err}", p.display()))?;
-                total_s += i.frames.unwrap_or(0) as f64 / i.sample_rate as f64;
-            }
-            stream::analyze_files(&paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
-                .map_err(|err| format!("{}: {err}", e.file))?
-        }
-    };
-    let clock_text = match &e.clock {
-        Some(p) => {
-            let f = base.join(p);
-            Some(fs::read_to_string(&f).map_err(|err| format!("{}: {err}", f.display()))?)
-        }
+    let mut log = entry_log(kept.as_ref(), &paths, &s.stream, &e.file, progress)?;
+    let clock_path = e.clock.as_ref().map(|p| base.join(p));
+    let clock_text = match &clock_path {
+        Some(f) => Some(fs::read_to_string(f).map_err(|err| format!("{}: {err}", f.display()))?),
         None => None,
     };
-    let named = |err: String| match &e.clock {
-        Some(p) => format!("{}: {err}", base.join(p).display()),
-        None => err,
-    };
-    let has_log = clock_text.is_some();
-    let (mut fit, clock_from, usb_known, correction_known) = match &kept {
-        _ if s.card_clock => (None, None, None, None),
-        // Read as it was recorded: its sound is not here.
-        Some(k) => {
-            let usb_known = k.header.usb_clock.map(|u| {
-                crate::usbclock::UsbClock {
-                    ppm: u.ppm,
-                    lines: u.lines,
-                    spread_ppm: u.spread_ppm,
-                }
-                .correction()
-            });
-            let usb_ppm = usb_known.as_ref().map(|(p, _)| *p);
-            let correction_known = m
-                .card_ppm
-                .map(|p| (p, format!("card_ppm {p} in {MANIFEST}")));
-            let fit = clock(
-                clock_text.as_deref(),
-                k.header.sample_rate,
-                k.header.bytes_per_frame,
-                usb_ppm,
-                m.card_ppm,
-                log.duration_s,
-            )
-            .map_err(named)?;
-            let from = clock_from(has_log, usb_ppm, m.card_ppm);
-            (fit, from, usb_known, correction_known)
-        }
-        None => {
-            let info = crate::audio::info(&files[0])
-                .map_err(|err| format!("{}: {err}", files[0].display()))?;
-            let correction_known = match &clock_text {
-                Some(_) => None,
-                None => correction(&files[0])?,
-            };
-            let usb_known = usb(&files)?;
-            let usb_ppm = usb_known.as_ref().map(|(p, _)| *p);
-            let correction_ppm = correction_known.as_ref().map(|(p, _)| *p);
-            let fit = clock(
-                clock_text.as_deref(),
-                info.sample_rate,
-                info.bytes_per_frame,
-                usb_ppm,
-                correction_ppm,
-                log.duration_s,
-            )
-            .map_err(named)?;
-            let from = clock_from(has_log, usb_ppm, correction_ppm);
-            (fit, from, usb_known, correction_known)
-        }
-    };
+    let EntryClock {
+        mut fit,
+        from: clock_from,
+        usb_known,
+        correction_known,
+    } = entry_clock(
+        kept.as_ref(),
+        &files,
+        m,
+        s.card_clock,
+        clock_text.as_deref(),
+        clock_path.as_deref(),
+        log.duration_s,
+        usb,
+        correction,
+    )?;
     let clock_from = clock_from.filter(|_| fit.is_some());
     // The steady error the clock puts on the take, and where it came from
     // in words, said once for every surface.
@@ -975,7 +891,7 @@ pub fn open_entry(
             from,
             usb_known.as_ref().map(|(_, t)| t.as_str()),
             correction_known.as_ref().map(|(_, t)| t.as_str()),
-            e.clock.as_ref().map(|p| base.join(p)).as_deref(),
+            clock_path.as_deref(),
         )
     });
     // A take kept as its analysis alone: every part of the take was in
@@ -1006,6 +922,160 @@ pub fn open_entry(
         breaks,
         unlisted,
         masked,
+    })
+}
+
+/// The take at `path` kept as its analysis alone, read; `None` for a
+/// take with its sound. Refused when the folder and `audio = false` in
+/// the manifest disagree, or when it holds both.
+fn kept_take(
+    path: &Path,
+    m: &Manifest,
+    e: &RecordingEntry,
+) -> Result<Option<analysis_take::Stored>, String> {
+    if analysis_take::is_analysis_only(path) {
+        if m.audio != Some(false) {
+            return Err(format!(
+                "{}: it has an {}/ folder, but {MANIFEST} doesn't say audio = false",
+                e.file,
+                analysis_take::DIR
+            ));
+        }
+        if has_sound(path) {
+            return Err(format!(
+                "{}: it holds both sound and an {}/ folder: a take is kept either with its \
+                 sound or as its analysis alone",
+                e.file,
+                analysis_take::DIR
+            ));
+        }
+        Ok(Some(
+            analysis_take::read(path).map_err(|err| format!("{}: {err}", e.file))?,
+        ))
+    } else if m.audio == Some(false) {
+        Err(format!(
+            "{}: {MANIFEST} says audio = false, but there is no {}/ folder to read",
+            e.file,
+            analysis_take::DIR
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
+/// The entry's beats: read from the take `kept` as its analysis alone,
+/// or found in its sound `paths`, telling `progress` how far through.
+fn entry_log(
+    kept: Option<&analysis_take::Stored>,
+    paths: &[&Path],
+    cfg: &StreamConfig,
+    file: &str,
+    mut progress: impl FnMut(f64, f64),
+) -> Result<BeatLog, String> {
+    match kept {
+        Some(k) => Ok(kept_at_lift(&k.log, cfg.analysis.amplitude.lift_deg)),
+        None => {
+            let mut total_s = 0.0;
+            for p in paths {
+                let i = crate::audio::info(p).map_err(|err| format!("{}: {err}", p.display()))?;
+                total_s += i.frames.unwrap_or(0) as f64 / i.sample_rate as f64;
+            }
+            stream::analyze_files(paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
+                .map_err(|err| format!("{file}: {err}"))
+        }
+    }
+}
+
+/// The clock an entry is read on ([`entry_clock`]): its fit, where it
+/// came from, and the USB and correction readings it was given, each
+/// with its words.
+struct EntryClock {
+    fit: Option<ClockFit>,
+    from: Option<ClockFrom>,
+    usb_known: Option<(f64, String)>,
+    correction_known: Option<(f64, String)>,
+}
+
+/// The clock of an entry, from its clock log `clock_text` (read from
+/// `clock_path`), the USB clock and the card correction: as it was
+/// recorded for a take `kept` as its analysis alone, or from its sound
+/// `files`. None of it when the rates stay on the card's own clock.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the parts of one entry open_entry has already read"
+)]
+fn entry_clock(
+    kept: Option<&analysis_take::Stored>,
+    files: &[PathBuf],
+    m: &Manifest,
+    card_clock: bool,
+    clock_text: Option<&str>,
+    clock_path: Option<&Path>,
+    duration_s: f64,
+    usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
+    correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
+) -> Result<EntryClock, String> {
+    let named = |err: String| match clock_path {
+        Some(p) => format!("{}: {err}", p.display()),
+        None => err,
+    };
+    let has_log = clock_text.is_some();
+    let (rate, bytes, usb_known, correction_known, card_ppm) = match kept {
+        _ if card_clock => {
+            return Ok(EntryClock {
+                fit: None,
+                from: None,
+                usb_known: None,
+                correction_known: None,
+            })
+        }
+        // Read as it was recorded: its sound is not here.
+        Some(k) => {
+            let usb_known = k.header.usb_clock.map(|u| {
+                crate::usbclock::UsbClock {
+                    ppm: u.ppm,
+                    lines: u.lines,
+                    spread_ppm: u.spread_ppm,
+                }
+                .correction()
+            });
+            let correction_known = m
+                .card_ppm
+                .map(|p| (p, format!("card_ppm {p} in {MANIFEST}")));
+            let h = &k.header;
+            (
+                h.sample_rate,
+                h.bytes_per_frame,
+                usb_known,
+                correction_known,
+                m.card_ppm,
+            )
+        }
+        None => {
+            let info = crate::audio::info(&files[0])
+                .map_err(|err| format!("{}: {err}", files[0].display()))?;
+            let correction_known = match clock_text {
+                Some(_) => None,
+                None => correction(&files[0])?,
+            };
+            let usb_known = usb(files)?;
+            let correction_ppm = correction_known.as_ref().map(|(p, _)| *p);
+            (
+                info.sample_rate,
+                info.bytes_per_frame,
+                usb_known,
+                correction_known,
+                correction_ppm,
+            )
+        }
+    };
+    let usb_ppm = usb_known.as_ref().map(|(p, _)| *p);
+    let fit = clock(clock_text, rate, bytes, usb_ppm, card_ppm, duration_s).map_err(named)?;
+    Ok(EntryClock {
+        fit,
+        from: clock_from(has_log, usb_ppm, card_ppm),
+        usb_known,
+        correction_known,
     })
 }
 

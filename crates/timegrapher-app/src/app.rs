@@ -4278,14 +4278,8 @@ use timegrapher_core::take::MANIFEST;
 /// for that recording: none when there is no session file or it doesn't
 /// list the recording.
 fn read_manifest(path: &Path) -> Result<Option<(Manifest, Vec<RecordingEntry>)>, String> {
-    let dir = if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        match path.parent() {
-            Some(p) => p.to_path_buf(),
-            None => return Ok(None),
-        }
-    };
+    let dir = path.is_dir().then_some(path).or_else(|| path.parent());
+    let Some(dir) = dir else { return Ok(None) };
     let file = dir.join(MANIFEST);
     if !file.is_file() {
         return Ok(None);
@@ -4296,7 +4290,7 @@ fn read_manifest(path: &Path) -> Result<Option<(Manifest, Vec<RecordingEntry>)>,
     let entries: Vec<RecordingEntry> = m
         .recordings
         .iter()
-        .filter(|e| lists(&dir, &e.file, path))
+        .filter(|e| lists(dir, &e.file, path))
         .cloned()
         .collect();
     if entries.is_empty() {
@@ -4432,6 +4426,8 @@ fn lists(dir: &Path, file: &str, path: &Path) -> bool {
     };
     let named = dir.join(file);
     same(&named, path)
+        || (path.is_dir()
+            && recordings_in(path).is_ok_and(|files| files.iter().any(|p| same(p, &named))))
         || (!path.is_dir()
             && named.is_dir()
             && path.parent().is_some_and(|p| same(p, &named))

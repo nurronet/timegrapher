@@ -626,9 +626,8 @@ fn valid_absent_and_unrelated_manifests_keep_actual_open_paths() {
         if text == Some(unrelated) {
             assert!(read_manifest(&path).unwrap().is_none());
         }
-        // Existing exact-path applicability does not attach child-file
-        // metadata to the folder view itself.
-        assert!(read_manifest(&root).unwrap().is_none());
+        // A folder reads its own manifest when it names its recording (#655).
+        assert_eq!(read_manifest(&root).unwrap().is_some(), text == Some(valid));
         for replay in [true, false] {
             let mut app = TimegrapherApp::with_devices(Vec::new(), None);
             if replay {
