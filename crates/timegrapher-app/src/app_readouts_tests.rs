@@ -134,6 +134,17 @@ fn a_beat_error_says_where_its_sides_were_named_by_count() {
     assert!(reading_limits("Amplitude", &caveats, 52.0, 30).is_empty());
 }
 
+#[test]
+fn a_drop_beat_error_caveat_belongs_only_on_beat_error() {
+    let caveats = [Caveat::BeatErrorFromDrop];
+    let be = reading_limits("Beat Error", &caveats, 52.0, 30);
+    assert_eq!(be.len(), 1);
+    assert_eq!(be[0].0, "beat error from the drop");
+    assert!(be[0].1.contains("unlock was not found"));
+    assert!(reading_limits("Rate", &caveats, 52.0, 30).is_empty());
+    assert!(reading_limits("Amplitude", &caveats, 52.0, 30).is_empty());
+}
+
 /// Words in a reading's place on a narrow card show whole: "No
 /// Regular Beat" takes the dash's room rather than being cut.
 #[test]
