@@ -16,8 +16,14 @@ The full guides are in the repository, and they win over this summary:
 
 ## How work reaches you, and how review works
 
+- **Issues labelled `for Astra` are yours to pick up.** Work only on open issues
+  with that label. Skip one that already has an open PR that names it (`Closes #N`
+  or `Part of #N`), and skip one whose newest comment says to wait. The label is
+  added only once an issue has a scope comment and no collision with other work;
+  never add or remove it yourself.
 - **You work from a GitHub issue.** Read the whole issue, including every comment,
-  before you start. The newest comment wins over the issue body.
+  before you start. The newest comment wins over the issue body; the scope comment
+  from the maintainer's team sets the files and tests for the task.
 - **One issue, one branch, one pull request.** Branch from current `main` as
   `codex/<issue number>-<short-name>` (for example `codex/638-saved-gap-cuts`). Open the PR ready for review, not as a draft.
 - **Stay inside the files the issue or your brief names.** If you truly need another
