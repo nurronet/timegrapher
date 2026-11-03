@@ -10,10 +10,11 @@ use crate::longterm::{self, Grid};
 use crate::steadiness::{chi2_tail, drop_outliers, finite_or_nan, p_text, Config};
 use serde::Serialize;
 
-/// The noise in each reading `steadiness` averages `fine`'s windows into: the variance of
-/// its windows' mean, from the scatter between neighbouring windows in it
-/// (½·mean of squared differences, so a slow change across the reading
-/// is not counted), over how many it holds. The windows' noise is taken
+/// The noise in each reading `steadiness` takes as the median of `fine`'s
+/// windows: the variance of that median, from the scatter between
+/// neighbouring windows in it (½·mean of squared differences, so a slow
+/// change across the reading is not counted), over how many it holds,
+/// times [`crate::dsp::median_variance_factor`] of that count (#656). The windows' noise is taken
 /// as independent from one to the next. NaN for a reading of under three
 /// windows.
 pub(crate) fn reading_noise(fine: &Grid, t0: f64, step: f64, n: usize) -> Vec<f64> {
@@ -39,6 +40,7 @@ pub(crate) fn reading_noise(fine: &Grid, t0: f64, step: f64, n: usize) -> Vec<f6
         .map(|b| {
             if count[b] >= 3 && diffs[b] >= 2 {
                 0.5 * sq[b] / diffs[b] as f64 / count[b] as f64
+                    * crate::dsp::median_variance_factor(count[b])
             } else {
                 f64::NAN
             }

@@ -222,6 +222,25 @@ pub fn median(v: &mut [f64]) -> f64 {
     middle(v, f64::total_cmp).map_or(f64::NAN, |(lo, hi)| if odd { hi } else { 0.5 * (lo + hi) })
 }
 
+/// How much more a [`median`] of `k` independent normal values scatters
+/// than their mean: its variance is `c(k)·σ²/k`. Exact normal order
+/// statistics for k ≤ 10, by integration (an even count averages the two
+/// middle values, so it scatters less than the odd count either side);
+/// π/2, the large-k limit, beyond. 1 for k of 1 or 2, where the median
+/// is the mean (#656).
+pub const MEDIAN_VARIANCE_FACTOR: [f64; 10] = [
+    1.0, 1.0, 1.3460, 1.1928, 1.4342, 1.2885, 1.4731, 1.3454, 1.4949, 1.3833,
+];
+
+/// [`MEDIAN_VARIANCE_FACTOR`] for `k` values (1 for none).
+pub fn median_variance_factor(k: usize) -> f64 {
+    match k {
+        0 => 1.0,
+        1..=10 => MEDIAN_VARIANCE_FACTOR[k - 1],
+        _ => std::f64::consts::FRAC_PI_2,
+    }
+}
+
 /// The value `q` (0 to 1) of the way through `sorted` (ascending),
 /// interpolated linearly between the two values either side: the one
 /// percentile rule in core (math guide section 8, #512). Unlike the
@@ -374,6 +393,29 @@ pub fn least_squares<const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The table matches 200,000 simulated medians of k normal values
+    /// each to 1% (k = 3: 1.349; 4: 1.194; 5: 1.432; 10: 1.387), and a
+    /// median of two is their mean.
+    #[test]
+    fn a_median_of_k_scatters_as_the_table_says() {
+        for (k, sim) in [(3, 1.349), (4, 1.194), (5, 1.432), (10, 1.387)] {
+            let c = median_variance_factor(k);
+            assert!((c / sim - 1.0).abs() < 0.01, "{k}: {c}");
+        }
+        assert_eq!(median_variance_factor(2), 1.0);
+        assert_eq!(median_variance_factor(1000), std::f64::consts::FRAC_PI_2);
+        // Seeded here too: 20,000 medians of 5.
+        let mut z = crate::synth::Rng::new(3);
+        let m: Vec<f64> = (0..20_000)
+            .map(|_| median(&mut (0..5).map(|_| z.normal()).collect::<Vec<_>>()))
+            .collect();
+        let var = m.iter().map(|v| v * v).sum::<f64>() / m.len() as f64;
+        assert!(
+            (var * 5.0 / median_variance_factor(5) - 1.0).abs() < 0.03,
+            "{var}"
+        );
+    }
 
     /// The one percentile rule: linear between neighbours at q·(n − 1)
     /// (Hyndman–Fan type 7), q clamped to 0 to 1, non-finite values left
