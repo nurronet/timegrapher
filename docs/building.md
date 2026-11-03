@@ -39,7 +39,7 @@ all-target checks and the workspace release-profile tests with locked
 dependencies/default features. This includes the app's source and test targets;
 it does not launch an interactive desktop. The Windows and macOS platform jobs
 continue using current stable Rust. The floor check adds no CI job and does
-not change the seven-job release gate. These checks establish the
+not change the eight-job release gate. These checks establish the
 configurations they execute, not every optional feature, cross target or older compiler on every operating system.
 Release packaging continues using current stable and records its build output;
 the supported-floor check is a separate part of the candidate's required CI.
