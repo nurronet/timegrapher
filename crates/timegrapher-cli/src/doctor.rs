@@ -170,6 +170,16 @@ fn gap_rise_line(gap_rise_db: Option<f64>) -> String {
     }
 }
 
+/// The quick look's line: the rate signed as every surface signs it, so
+/// one that rounds to zero reads 0.0, never -0.0 (#815,
+/// [`timegrapher_core::library::signed_text`]).
+fn quick_look_line(rate_s_per_day: f64, beat_error_ms: f64) -> String {
+    format!(
+        "Quick look   rate {} s/d, beat error {beat_error_ms:.1} ms (on the sound card's clock)",
+        timegrapher_core::library::signed_text(rate_s_per_day, 1)
+    )
+}
+
 fn print_check(c: &SignalCheck) {
     println!(
         "Level        peak {:.1} dBFS, RMS {:.1} dBFS, {} clipped samples",
@@ -190,7 +200,7 @@ fn print_check(c: &SignalCheck) {
     println!("{}", signal_line(c.signal_x));
     println!("{}", gap_rise_line(c.gap_rise_db));
     if let (Some(r), Some(b)) = (c.rate_s_per_day, c.beat_error_ms) {
-        println!("Quick look   rate {r:+.1} s/d, beat error {b:.1} ms (on the sound card's clock)");
+        println!("{}", quick_look_line(r, b));
     }
     if c.issues.is_empty() {
         println!("None of the checked conditions detected.");
@@ -262,7 +272,7 @@ fn print_report(r: &Report, apply: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{gap_rise_line, opt, signal_line};
+    use super::{gap_rise_line, opt, quick_look_line, signal_line};
 
     #[test]
     fn no_gap_rise_says_why_rather_than_a_dash() {
@@ -273,6 +283,15 @@ mod tests {
         let none = gap_rise_line(None);
         assert!(none.contains("not measured"), "{none}");
         assert!(!none.contains(" - "), "{none}");
+    }
+
+    /// The quick look's rate reads as other surfaces read it: a plus on a
+    /// gaining watch, and no sign where it rounds to zero (#815).
+    #[test]
+    fn the_quick_look_rate_has_no_minus_zero() {
+        assert!(quick_look_line(-0.04, 0.3).starts_with("Quick look   rate 0.0 s/d, "));
+        assert!(quick_look_line(2.36, 0.3).starts_with("Quick look   rate +2.4 s/d, "));
+        assert!(quick_look_line(-2.36, 0.3).starts_with("Quick look   rate -2.4 s/d, "));
     }
 
     #[test]
