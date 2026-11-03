@@ -1572,10 +1572,6 @@ fn folder_label(p: &std::path::Path) -> String {
 
 /// The window asking `ask`: `Some(true)` when the user goes ahead,
 /// `Some(false)` when they cancel.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn ask_dialog(
     ctx: &egui::Context,
     ask: &mut Ask,
@@ -1584,7 +1580,6 @@ pub fn ask_dialog(
     let mut answer = None;
     let modal = egui::Modal::new(egui::Id::new("take question")).show(ctx, |ui| {
         ui.set_width(420.0);
-        let pal = theme::pal(ui);
         let (go, ready, red) = match ask {
             Ask::Delete { take, bytes } => {
                 ui.label(
@@ -1607,29 +1602,7 @@ pub fn ask_dialog(
                 ("Delete", true, true)
             }
             Ask::Keep { take, bytes, sound } => {
-                ui.label(
-                    RichText::new(format!(
-                        "Delete the Sound of \"{}\" and Keep Its Analysis?",
-                        folder_label(take)
-                    ))
-                    .font(theme::semibold(15.0)),
-                );
-                ui.label(format!(
-                    "This take uses {}, and {} of that is sound. The app reads the sound one \
-                     last time to save the analysis, checks what it saved, and then deletes \
-                     the sound.",
-                    size_text(*bytes),
-                    size_text(*sound)
-                ));
-                ui.label(
-                    RichText::new(
-                        "Without its sound, this take can't be analysed again, by a later \
-                         version of the app or with other settings, and the Scope won't work \
-                         on it. The readings, charts, Steadiness and Positions Test will still \
-                         work. You can't undo this.",
-                    )
-                    .color(pal.text_secondary),
-                );
+                keep_question(ui, take, *bytes, *sound);
                 ("Keep Analysis Only", true, true)
             }
             Ask::Add {
@@ -1637,42 +1610,7 @@ pub fn ask_dialog(
                 watch,
                 keep_original,
             } => {
-                ui.label(
-                    RichText::new(format!("Add \"{}\" to a Watch", folder_label(from)))
-                        .font(theme::semibold(15.0)),
-                );
-                let shown = watch
-                    .as_ref()
-                    .and_then(|id| watches.iter().find(|(w, _)| w == id))
-                    .map_or("Choose a Watch", |(_, n)| n.as_str());
-                theme::row(ui, "Watch", Some("The watch the take is added to"), |ui| {
-                    egui::ComboBox::from_id_salt("add to watch")
-                        .width(ui.available_width())
-                        .selected_text(shown)
-                        .show_ui(ui, |ui| {
-                            for (id, name) in watches {
-                                ui.selectable_value(watch, Some(id.clone()), name);
-                            }
-                        });
-                });
-                theme::row(ui, "", None, |ui| {
-                    theme::segmented(
-                        ui,
-                        keep_original,
-                        &[
-                            (
-                                true,
-                                "Copy",
-                                "Copy the take in; the original stays where it is",
-                            ),
-                            (
-                                false,
-                                "Move",
-                                "Move the take in; the original is gone from where it was",
-                            ),
-                        ],
-                    );
-                });
+                add_question(ui, from, watch, keep_original, watches);
                 ("Add", watch.is_some(), false)
             }
         };
@@ -1699,6 +1637,81 @@ pub fn ask_dialog(
         answer = Some(false);
     }
     answer
+}
+
+/// The question before a take's sound is deleted and its analysis kept:
+/// the take uses `bytes`, `sound` of them sound.
+fn keep_question(ui: &mut egui::Ui, take: &Path, bytes: u64, sound: u64) {
+    ui.label(
+        RichText::new(format!(
+            "Delete the Sound of \"{}\" and Keep Its Analysis?",
+            folder_label(take)
+        ))
+        .font(theme::semibold(15.0)),
+    );
+    ui.label(format!(
+        "This take uses {}, and {} of that is sound. The app reads the sound one \
+         last time to save the analysis, checks what it saved, and then deletes \
+         the sound.",
+        size_text(bytes),
+        size_text(sound)
+    ));
+    ui.label(
+        RichText::new(
+            "Without its sound, this take can't be analysed again, by a later \
+             version of the app or with other settings, and the Scope won't work \
+             on it. The readings, charts, Steadiness and Positions Test will still \
+             work. You can't undo this.",
+        )
+        .color(theme::pal(ui).text_secondary),
+    );
+}
+
+/// The question before a take from outside is added to a watch: which of
+/// `watches`, and copied or moved.
+fn add_question(
+    ui: &mut egui::Ui,
+    from: &Path,
+    watch: &mut Option<String>,
+    keep_original: &mut bool,
+    watches: &[(String, String)],
+) {
+    ui.label(
+        RichText::new(format!("Add \"{}\" to a Watch", folder_label(from)))
+            .font(theme::semibold(15.0)),
+    );
+    let shown = watch
+        .as_ref()
+        .and_then(|id| watches.iter().find(|(w, _)| w == id))
+        .map_or("Choose a Watch", |(_, n)| n.as_str());
+    theme::row(ui, "Watch", Some("The watch the take is added to"), |ui| {
+        egui::ComboBox::from_id_salt("add to watch")
+            .width(ui.available_width())
+            .selected_text(shown)
+            .show_ui(ui, |ui| {
+                for (id, name) in watches {
+                    ui.selectable_value(watch, Some(id.clone()), name);
+                }
+            });
+    });
+    theme::row(ui, "", None, |ui| {
+        theme::segmented(
+            ui,
+            keep_original,
+            &[
+                (
+                    true,
+                    "Copy",
+                    "Copy the take in; the original stays where it is",
+                ),
+                (
+                    false,
+                    "Move",
+                    "Move the take in; the original is gone from where it was",
+                ),
+            ],
+        );
+    });
 }
 
 /// A watch's details being written: a new watch or one being edited.
