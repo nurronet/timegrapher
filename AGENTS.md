@@ -19,7 +19,7 @@ The full guides are in the repository, and they win over this summary:
 - **You work from a GitHub issue.** Read the whole issue, including every comment,
   before you start. The newest comment wins over the issue body.
 - **One issue, one branch, one pull request.** Branch from current `main` as
-  `codex/<short-name>-<issue number>`. Open the PR ready for review, not as a draft.
+  `codex/<issue number>-<short-name>` (for example `codex/638-saved-gap-cuts`). Open the PR ready for review, not as a draft.
 - **Stay inside the files the issue or your brief names.** If you truly need another
   file, say which and why in the PR body under **Shared files**. Other agents are
   working on the repository at the same time, so an unexpected file can collide
@@ -87,8 +87,10 @@ move.
 
 ## Tests
 
-- **Every new test must fail on `main`.** Check that it does, and say so in the PR.
-- **Every new test must fail if you remove the line that does the work**, not only
+- **Every test for a fix must fail on `main`.** Check that it does, and say so in the PR.
+  A test that pins existing behaviour (for example on a change that only moves code)
+  passes on `main` by design; say which tests are of that kind.
+- **Every test for a fix must also fail if you remove the line that does the work**, not only
   an error message after it. Try it and report it.
 - **Never remove, skip, loosen or edit an existing test** to get green. A test may
   go only with the feature it covers, and the PR body names both.
