@@ -201,15 +201,27 @@ fn new_id() -> String {
 }
 
 /// Write `bytes` to a file beside `p`, then move it over `p`, so a reader
-/// never sees half of it.
+/// never sees half of it. Each write has a file of its own, created new
+/// ([`new_id`]), so two writes at once can't write into each other's,
+/// and one that fails removes only its own (#872).
 pub fn write_atomic(p: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = p.with_extension("tmp");
-    fs::write(&tmp, bytes)
-        .and_then(|_| fs::rename(&tmp, p))
-        .map_err(|e| {
-            let _ = fs::remove_file(&tmp);
-            format!("{}: {e}", p.display())
-        })
+    use std::io::Write;
+    let name = p
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let tmp = p.with_file_name(format!(".{name}.{}.tmp", new_id()));
+    let failed = |e: std::io::Error| format!("{}: {e}", p.display());
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(failed)?;
+    let written = f.write_all(bytes).and_then(|_| f.sync_all());
+    drop(f);
+    written.and_then(|_| fs::rename(&tmp, p)).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        failed(e)
+    })
 }
 
 /// A folder name for `name` that every system accepts: the characters
@@ -1798,6 +1810,39 @@ mod tests {
         let a = read_take(&dir, 0).unwrap().at_end.unwrap();
         assert_eq!(a.beat_error_ms, Some(-0.4));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A write that another writer's file beside it can't reach: one
+    /// still holding the shared `.tmp` name open (as each save once did)
+    /// writes into that file, never into the one just put in place, and
+    /// a write leaves no file of its own behind (#872).
+    #[test]
+    fn an_atomic_write_has_a_file_of_its_own() {
+        let dir = std::env::temp_dir().join(format!("tg-write-atomic-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("clocks.json");
+        let mut other = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(p.with_extension("tmp"))
+            .unwrap();
+        write_atomic(&p, b"{\"whole\": true}\n").unwrap();
+        std::io::Write::write_all(&mut other, b"{\"half").unwrap();
+        drop(other);
+        let kept = fs::read(&p).unwrap();
+        let left: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(kept, b"{\"whole\": true}\n");
+        assert!(
+            left.iter().all(|n| n == "clocks.json" || n == "clocks.tmp"),
+            "{left:?}"
+        );
     }
 
     /// A kept reading holds the very correction it was read with: one

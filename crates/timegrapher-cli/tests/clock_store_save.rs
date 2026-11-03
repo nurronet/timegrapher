@@ -10,8 +10,9 @@ fn a_failed_clock_save_keeps_the_stored_corrections() {
     std::fs::create_dir_all(&dir).unwrap();
     let run = |args: &[&str], limited: bool| {
         let mut c = if limited {
-            // Files may grow to 512 bytes; a write past that fails
-            // instead of stopping the program.
+            // Files may grow to one block (512 bytes, or 1024 in macOS's
+            // sh); a write past that fails instead of stopping the
+            // program.
             let mut c = Command::new("sh");
             c.args(["-c", "trap '' XFSZ; ulimit -f 1; exec \"$0\" \"$@\""])
                 .arg(env!("CARGO_BIN_EXE_timegrapher"));
@@ -24,12 +25,9 @@ fn a_failed_clock_save_keeps_the_stored_corrections() {
             .output()
             .unwrap()
     };
-    for (device, ppm) in [
-        ("Known Mic", "12.5"),
-        ("Second Mic", "-3"),
-        ("Third Mic", "40"),
-    ] {
-        let out = run(&["clock", "set", device, ppm], false);
+    for k in 0..16 {
+        let (device, ppm) = (format!("Stored Mic {k}"), format!("{k}.5"));
+        let out = run(&["clock", "set", &device, &ppm], false);
         assert!(
             out.status.success(),
             "{}",
@@ -38,7 +36,8 @@ fn a_failed_clock_save_keeps_the_stored_corrections() {
     }
     let store = dir.join("clocks.json");
     let before = std::fs::read(&store).unwrap();
-    assert!(before.len() > 512 - 64, "the store nearly fills the limit");
+    // Past the limit, however big the shell's block is.
+    assert!(before.len() > 2048, "{} bytes", before.len());
 
     let failed = run(
         &["clock", "set", "A Microphone With A Long Name", "25"],
