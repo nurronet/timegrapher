@@ -1722,7 +1722,6 @@ mod manifest_input_tests {
         assert!(window_in(&w(19.0), 20.0, 30.0));
     }
 
-    /// With no timing scatter the sentence is beats.rs's own, as with one.
     #[test]
     fn no_regular_beat_without_a_set_rate_keeps_only_the_scatter_in_ms() {
         assert_eq!(
@@ -1739,6 +1738,7 @@ mod manifest_input_tests {
         );
     }
 
+    /// With no timing scatter the sentence is beats.rs's own, as with one.
     #[test]
     fn no_regular_beat_is_the_one_sentence_without_a_scatter() {
         let none = crate::beats::no_regular_beat_text(None, None);

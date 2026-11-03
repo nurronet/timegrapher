@@ -1371,7 +1371,6 @@ fn conditions(label: &str, bph_set: Option<u32>, m: &Measurement) -> Vec<String>
             session::no_regular_beat_in(m, bph_set)
         ));
     }
-
     if m.clipped_beats > 0 {
         let pct = m.clipped_fraction * 100.0;
         out.push(if pct < 0.5 {

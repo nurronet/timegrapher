@@ -22,6 +22,7 @@ notes
 owner
 readings
 readings[].bph
+readings[].bph_set
 readings[].cycles
 readings[].cycles[].explained
 readings[].cycles[].fraction_of

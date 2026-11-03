@@ -1032,9 +1032,7 @@ fn print_report(r: &Report) {
 mod tests {
     use super::*;
 
-    /// A Power Reserve take's hours are read across the pauses its
-    /// session.json lists, as `session` reads a take: an hour's span is
-    /// true time, the pause's included.
+    /// A noisy recording gives a percentage only when its beat rate was supplied.
     #[test]
     fn noise_without_a_set_rate_has_no_guessed_percent_in_the_quick_check() {
         let dir =
@@ -1080,6 +1078,9 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A Power Reserve take's hours are read across the pauses its
+    /// session.json lists, as `session` reads a take: an hour's span is
+    /// true time, the pause's included.
     #[test]
     fn a_power_reserve_hour_spans_the_pauses_its_take_lists() {
         use timegrapher_core::synth::{generate, SynthConfig};

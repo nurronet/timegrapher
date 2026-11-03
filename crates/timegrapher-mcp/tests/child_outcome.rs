@@ -228,23 +228,33 @@ fn no_regular_beat_reaches_the_view_in_cores_words() {
     let dir = Scratch(
         std::env::temp_dir().join(format!("timegrapher-mcp-no-beat-{}", std::process::id())),
     );
-    let doc = json!({
-        "schema": "timegrapher.analyze/2", "watch_heard": false,
-        "duration_s": 60, "bph": 28800, "lift_deg": 52, "jitter_us": 8600.0,
-    });
-    let cli = analysis_double(&dir.0.join("cli"), &doc);
-    let mut client = Client::start(&cli, &dir.0.join("config"));
-    let result = client.request(
-        "tools/call",
-        json!({ "name": "analyze_recording",
-            "arguments": { "recording": dir.0.join("unused.wav").to_string_lossy() } }),
-    );
-    assert_ne!(result["isError"], true, "{result}");
-    assert_eq!(
-        result["_meta"]["timegrapher/no_beat"],
-        "No regular beat found (timing scatter 8.6 ms, 6.9% of a beat). There are no rate, \
-         amplitude or beat error readings."
-    );
+    for (name, bph_set, scatter) in [
+        ("auto", None, "8.6 ms"),
+        ("supplied", Some(28800), "8.6 ms, 6.9% of a beat"),
+    ] {
+        let mut doc = json!({
+            "schema": "timegrapher.analyze/2", "watch_heard": false,
+            "duration_s": 60, "bph": 28800, "lift_deg": 52, "jitter_us": 8600.0,
+        });
+        if let Some(bph) = bph_set {
+            doc["bph_set"] = json!(bph);
+        }
+        let cli = analysis_double(&dir.0.join(name), &doc);
+        let mut client = Client::start(&cli, &dir.0.join("config"));
+        let result = client.request(
+            "tools/call",
+            json!({ "name": "analyze_recording",
+                "arguments": { "recording": dir.0.join("unused.wav").to_string_lossy() } }),
+        );
+        assert_ne!(result["isError"], true, "{result}");
+        assert_eq!(
+            result["_meta"]["timegrapher/no_beat"],
+            format!(
+                "No regular beat found (timing scatter {scatter}). There are no rate, \
+                     amplitude or beat error readings."
+            )
+        );
+    }
 }
 
 #[test]
