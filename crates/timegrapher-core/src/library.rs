@@ -807,6 +807,17 @@ pub fn signed_text(x: f64, digits: usize) -> String {
     }
 }
 
+/// A figure to `digits` decimals with its sign as it is, but one that
+/// rounds to zero written without a minus (`0.0`, never `-0.0`): the one
+/// rule for that (#815). [`signed_text`] also adds a plus.
+pub fn fixed_text(x: f64, digits: usize) -> String {
+    let text = format!("{x:.digits$}");
+    match text.strip_prefix('-') {
+        Some(rest) if rest.bytes().all(|b| b == b'0' || b == b'.') => rest.to_string(),
+        _ => text,
+    }
+}
+
 /// A standard error as every surface writes it after "±": to at least
 /// `digits` decimals, and more, up to 3, until its first figure that
 /// isn't zero shows (#806). So with `digits` 0 an amplitude's 0.4° reads
@@ -2901,5 +2912,19 @@ value = "£9,000"
         assert_eq!(signed_text(-0.4, 0), "0");
         assert_eq!(signed_text(0.0, 2), "0.00");
         assert_eq!(signed_text(-0.006, 2), "-0.01");
+    }
+
+    /// A figure keeps its own sign, but one that rounds to zero has no
+    /// minus, whatever its decimals (#815).
+    #[test]
+    fn a_fixed_figure_has_no_minus_at_zero() {
+        assert_eq!(fixed_text(1.24, 1), "1.2");
+        assert_eq!(fixed_text(-1.24, 1), "-1.2");
+        assert_eq!(fixed_text(-0.04, 1), "0.0");
+        assert_eq!(fixed_text(-0.0, 1), "0.0");
+        assert_eq!(fixed_text(-0.4, 0), "0");
+        assert_eq!(fixed_text(-0.004, 2), "0.00");
+        assert_eq!(fixed_text(-0.006, 2), "-0.01");
+        assert_eq!(fixed_text(-10.0, 0), "-10");
     }
 }
