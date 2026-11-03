@@ -291,11 +291,6 @@ fn synth(cli: &Path, out: &Path, rate: &str) {
 }
 
 #[test]
-#[expect(
-    clippy::cognitive_complexity,
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn a_chat_app_reads_a_watch() {
     let cli = cli();
     let dir = std::env::temp_dir().join(format!("timegrapher-mcp-test-{}", std::process::id()));
@@ -306,7 +301,6 @@ fn a_chat_app_reads_a_watch() {
     for (pos, rate) in [("DU", "4"), ("DD", "6"), ("CU", "-2")] {
         synth(&cli, &dir.join(format!("session/watch_{pos}.wav")), rate);
     }
-    let path = |p: &Path| p.to_string_lossy().into_owned();
     let mut c = Client::start(&cli, &take);
 
     let tools = c.request("tools/list", json!({}));
@@ -325,11 +319,27 @@ fn a_chat_app_reads_a_watch() {
         assert!(names.contains(&want), "{want} missing from {names:?}");
     }
 
+    analyze_gives_the_clis_document(&mut c, &take);
+    sessions_checks_and_mistakes(&mut c, &dir, &take);
+    recorded_position_by_position(&mut c, &dir);
+    the_view_skill_and_prompt(&mut c, &tools);
+
+    drop(c);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A path as the tools take it.
+fn path(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
+}
+
+/// `analyze_recording` on one take.
+fn analyze_gives_the_clis_document(c: &mut Client, take: &Path) {
     // The CLI's own document comes back unchanged, as structured content
     // and as text.
     let r = c.call(
         "analyze_recording",
-        json!({ "recording": path(&take), "bph": 28800 }),
+        json!({ "recording": path(take), "bph": 28800 }),
     );
     assert!(r.get("isError").is_none(), "{r}");
     let doc = &r["structuredContent"];
@@ -374,7 +384,10 @@ fn a_chat_app_reads_a_watch() {
         ),
         "{said}"
     );
+}
 
+/// A session, a check of the recording, and mistakes.
+fn sessions_checks_and_mistakes(c: &mut Client, dir: &Path, take: &Path) {
     let r = c.call(
         "run_session",
         json!({ "paths": [path(&dir.join("session"))] }),
@@ -389,7 +402,7 @@ fn a_chat_app_reads_a_watch() {
     assert!(said.starts_with("Readings by position:"), "{said}");
     assert!(said.contains("(dvh_amplitude)"), "{said}");
 
-    let r = c.call("check_recording", json!({ "recording": path(&take) }));
+    let r = c.call("check_recording", json!({ "recording": path(take) }));
     assert_eq!(r["structuredContent"]["schema"], "timegrapher.doctor/2");
 
     // Mistakes come back as results the agent can read, not protocol errors.
@@ -404,7 +417,10 @@ fn a_chat_app_reads_a_watch() {
         json!({ "recording": path(&dir.join("missing.wav")) }),
     );
     assert_eq!(r["isError"], true);
+}
 
+/// Takes recorded one position at a time.
+fn recorded_position_by_position(c: &mut Client, dir: &Path) {
     // A test recorded position by position, then read as a session (the
     // server reads the take in place of the microphone here).
     let folder = dir.join("recorded");
@@ -450,7 +466,10 @@ fn a_chat_app_reads_a_watch() {
         json!({ "folder": path(&folder), "position": "upside down" }),
     );
     assert_eq!(r["isError"], true);
+}
 
+/// The charts view, the skill, the guide and the prompt.
+fn the_view_skill_and_prompt(c: &mut Client, tools: &Value) {
     // The skill is there to read, and the prompt points at it.
     // The tools that draw charts name the view, and the view is there to read.
     let linked: Vec<&str> = tools["tools"]
@@ -500,16 +519,9 @@ fn a_chat_app_reads_a_watch() {
     );
     let said = prompt["messages"][0]["content"]["text"].as_str().unwrap();
     assert!(said.contains("ETA 2824-2") && said.contains("read_guide"));
-
-    drop(c);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn a_chat_app_finds_a_watchs_takes_in_the_library() {
     use timegrapher_core::library::{Library, Watch, TAKES};
     let cli = cli();
@@ -543,6 +555,15 @@ fn a_chat_app_finds_a_watchs_takes_in_the_library() {
     synth(&cli, &sound, "6");
     let mut c = Client::start(&cli, &sound);
     let library = root.to_str().unwrap();
+    the_library_lists_and_shows_its_watches(&mut c, library, &take);
+    a_watchs_take_goes_among_its_takes(&mut c, library, &takes);
+    calibres_are_searched_and_a_missing_library_said(&mut c, &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `list_watches` and `show_watch` on the library at `library`, whose
+/// Pepsi has the one take `take`.
+fn the_library_lists_and_shows_its_watches(c: &mut Client, library: &str, take: &Path) {
     let r = c.call("list_watches", json!({ "library": library }));
     assert_ne!(r["isError"], true, "{r}");
     let doc = &r["structuredContent"];
@@ -575,7 +596,10 @@ fn a_chat_app_finds_a_watchs_takes_in_the_library() {
 
     let r = c.call("show_watch", json!({ "name": "Omega", "library": library }));
     assert_eq!(r["isError"], true, "{r}");
+}
 
+/// `record_position` by a watch's name, into its `takes` folder.
+fn a_watchs_take_goes_among_its_takes(c: &mut Client, library: &str, takes: &Path) {
     // With no folder, a take goes into a new test among the watch's takes,
     // and a retry finds it by the watch's name in any case.
     let r = c.call(
@@ -611,18 +635,17 @@ fn a_chat_app_finds_a_watchs_takes_in_the_library() {
         .as_str()
         .unwrap()
         .contains("nothing was recorded again"));
-    assert_eq!(
-        std::fs::read_dir(&takes).unwrap().count(),
-        2,
-        "one new test"
-    );
+    assert_eq!(std::fs::read_dir(takes).unwrap().count(), 2, "one new test");
     let r = c.call("record_position", json!({ "position": "DU" }));
     assert_eq!(r["isError"], true, "{r}");
     assert!(r["content"][0]["text"]
         .as_str()
         .unwrap()
         .contains("give folder, or watch"));
+}
 
+/// A calibre search, and a library that isn't there.
+fn calibres_are_searched_and_a_missing_library_said(c: &mut Client, dir: &Path) {
     // A search finds calibres by any of their names.
     let r = c.call("list_calibres", json!({ "search": "2824" }));
     assert_ne!(r["isError"], true, "{r}");
@@ -637,5 +660,4 @@ fn a_chat_app_finds_a_watchs_takes_in_the_library() {
         json!({ "library": dir.join("none").to_str().unwrap() }),
     );
     assert_eq!(r["isError"], true, "{r}");
-    let _ = std::fs::remove_dir_all(&dir);
 }
