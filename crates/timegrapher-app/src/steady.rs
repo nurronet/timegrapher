@@ -842,12 +842,7 @@ fn state_levels(t: Option<&timegrapher_core::twostate::TwoState>) -> Option<[f64
 
 /// One series' title and plot. Its findings and statistics are in the
 /// Info panel.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View, opts: Opts) {
-    let db = opts.periods_db;
     let pal = theme::pal(ui);
     // A map's key names its series ("Timing Swing (ms)"), so the map
     // takes the title's line for its picture.
@@ -881,582 +876,750 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         .y_axis_min_width(64.0)
         .height(ui.available_height().max(40.0));
     let dashed = LineStyle::Dashed { length: 6.0 };
+    let r = Row {
+        s,
+        i,
+        c,
+        view,
+        opts,
+        k,
+        colour,
+        weak,
+        id,
+        plot_w,
+        base,
+        dashed,
+        pal,
+    };
     match view {
-        View::Readings => {
-            let g = &s.grids[i];
-            let n = g.y.len();
-            let stride = n.div_ceil(steady_views::MAX_READINGS).max(1);
-            let pts: Vec<[f64; 2]> = (0..n)
-                .step_by(stride)
-                .filter(|&j| g.y[j].is_finite())
-                .map(|j| [g.time(j), g.y[j]])
-                .collect();
-            let range = spread(&pts);
-            let mut plot = base
-                .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
-                .x_axis_formatter(clear_of_edge(plot_w, length_text))
-                .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-                .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size));
-            if let Some((lo, hi)) = range {
-                plot = plot.default_y_bounds(lo, hi);
+        View::Readings => readings_plot(ui, r),
+        View::Periods => periods_plot(ui, r),
+        View::Cycle => cycle_plot(ui, r),
+        View::Autocorrelation => autocorrelation_plot(ui, r),
+        View::Allan => allan_plot(ui, r),
+        View::Cusum => cusum_plot(ui, r),
+        View::Stft | View::Wavelet => map_plot(ui, r),
+        View::Fft => fft_plot(ui, r),
+    }
+}
+
+/// What every view of a series' row draws with.
+struct Row<'a> {
+    s: &'a Steadiness,
+    i: usize,
+    c: &'a SeriesCheck,
+    view: View,
+    opts: Opts,
+    k: SeriesKind,
+    colour: Color32,
+    weak: Color32,
+    id: (&'static str, usize, View),
+    plot_w: f64,
+    base: Plot<'static>,
+    dashed: LineStyle,
+    pal: &'static theme::Palette,
+}
+
+/// The readings over the session, with the level changes and the two levels.
+fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        s,
+        i,
+        c,
+        k,
+        colour,
+        plot_w,
+        base,
+        dashed,
+        pal,
+        ..
+    } = r;
+    let g = &s.grids[i];
+    let n = g.y.len();
+    let stride = n.div_ceil(steady_views::MAX_READINGS).max(1);
+    let pts: Vec<[f64; 2]> = (0..n)
+        .step_by(stride)
+        .filter(|&j| g.y[j].is_finite())
+        .map(|j| [g.time(j), g.y[j]])
+        .collect();
+    let range = spread(&pts);
+    let mut plot = base
+        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+        .x_axis_formatter(clear_of_edge(plot_w, length_text))
+        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
+        .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size));
+    if let Some((lo, hi)) = range {
+        plot = plot.default_y_bounds(lo, hi);
+    }
+    // What a dot is, and how many are drawn, as Charts' key.
+    let key = format!("{} ({})", kind_of(g.step), pts.len());
+    let resp = plot.show(ui, |p| {
+        p.points(Points::new("readings", pts).color(colour).radius(1.4_f32));
+        if let Some(ch) = &c.changes {
+            if ch.segments.len() > 1 {
+                for seg in &ch.segments {
+                    p.line(
+                        Line::new(
+                            "level",
+                            vec![[seg.start_s, seg.mean], [seg.end_s, seg.mean]],
+                        )
+                        .color(pal.text)
+                        .width(1.8_f32),
+                    );
+                }
             }
-            // What a dot is, and how many are drawn, as Charts' key.
-            let key = format!("{} ({})", kind_of(g.step), pts.len());
-            let resp = plot.show(ui, |p| {
-                p.points(Points::new("readings", pts).color(colour).radius(1.4_f32));
-                if let Some(ch) = &c.changes {
-                    if ch.segments.len() > 1 {
-                        for seg in &ch.segments {
-                            p.line(
-                                Line::new(
-                                    "level",
-                                    vec![[seg.start_s, seg.mean], [seg.end_s, seg.mean]],
-                                )
-                                .color(pal.text)
-                                .width(1.8_f32),
-                            );
-                        }
-                    }
-                }
-                if let Some(levels) = state_levels(c.two_state.as_ref()) {
-                    for v in levels {
-                        p.hline(
-                            HLine::new("state", v)
-                                .color(pal.text)
-                                .style(dashed)
-                                .width(1.0_f32),
-                        );
-                    }
-                }
-            });
-            crate::app::paint_key(
-                ui.painter(),
-                resp.transform.frame().to_owned(),
-                &[(key.as_str(), colour, None)],
-                ui,
-                pal,
+        }
+        if let Some(levels) = state_levels(c.two_state.as_ref()) {
+            for v in levels {
+                p.hline(
+                    HLine::new("state", v)
+                        .color(pal.text)
+                        .style(dashed)
+                        .width(1.0_f32),
+                );
+            }
+        }
+    });
+    crate::app::paint_key(
+        ui.painter(),
+        resp.transform.frame().to_owned(),
+        &[(key.as_str(), colour, None)],
+        ui,
+        pal,
+    );
+}
+
+/// The period found: its dot on the scores, and its note.
+fn period_found(c: &SeriesCheck, pts: &[[f64; 2]]) -> Option<([f64; 2], String)> {
+    c.period.as_ref().map(|per| {
+        let x = per.period_s.log10();
+        let y = pts
+            .iter()
+            .min_by(|a, b| (a[0] - x).abs().total_cmp(&(b[0] - x).abs()))
+            .map_or(0.0, |q| q[1]);
+        let mut t = secs(per.period_s);
+        if let Some(w) = &per.wheel {
+            t += &format!(", {}", marks::title_case(w));
+        }
+        ([x, y], t)
+    })
+}
+
+/// The period search's scores, with the threshold, the wheels' periods and the period found.
+fn periods_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let db = r.opts.periods_db;
+    let Row {
+        s,
+        i,
+        c,
+        view,
+        opts,
+        colour,
+        plot_w,
+        base,
+        dashed,
+        pal,
+        ..
+    } = r;
+    let Some(search) = s.searches[i].as_ref().filter(|x| !x.period_s.is_empty()) else {
+        return note(ui, "The period search needs a longer session.");
+    };
+    let pts: Vec<[f64; 2]> = search
+        .period_s
+        .iter()
+        .zip(&search.score)
+        .filter(|(p, v)| **p > 0.0 && v.is_finite())
+        .map(|(p, v)| [p.log10(), *v])
+        .collect();
+    // The search runs from long periods to short.
+    let (x_lo, x_hi) = s.period_span.unwrap_or((
+        pts.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
+        pts.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
+    ));
+    if x_lo.partial_cmp(&x_hi) != Some(std::cmp::Ordering::Less) {
+        return note(ui, "The period search needs a longer session.");
+    }
+    // In dB the scores are drawn below the tallest, 0 dB, down to
+    // a thousandth of it, −30 dB (a score of 0 sits on that floor):
+    // a score is a power, so ten times its log.
+    let tallest = pts.iter().map(|p| p[1]).fold(search.threshold, f64::max);
+    let floor = tallest * 1e-3;
+    let y_of = move |v: f64| {
+        if db {
+            10.0 * (v.max(floor) / tallest).log10()
+        } else {
+            v
+        }
+    };
+    let pts: Vec<[f64; 2]> = pts.iter().map(|q| [q[0], y_of(q[1])]).collect();
+    let (y_lo, top) = if db {
+        (-30.0, 0.5)
+    } else {
+        (0.0, tallest * 1.03)
+    };
+    let threshold = y_of(search.threshold);
+    let lines = wheel_lines(marked(s, opts), (x_lo, x_hi));
+    let names = WheelNames::reserve(ui, (i, view), opts.wheels);
+    // The period found, its dot and note; the note is hover only on
+    // a short plot, where the names are inside it on its top.
+    let found = period_found(c, &pts);
+    let short = note_short(ui, &names, (i, view));
+    let top = if found.is_some() && !short {
+        let hi = pts.iter().map(|q| q[1]).fold(y_lo, f64::max);
+        marks::room_above(y_lo, hi, top, ui.available_height() - AXIS_H)
+    } else {
+        top
+    };
+    let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
+    let mut plot = base
+        .height(ui.available_height().max(40.0))
+        .x_grid_spacer(period_grid(ui.available_width()))
+        .x_axis_formatter(clear_of_edge(plot_w, period_label))
+        .default_x_bounds(x_lo, x_hi)
+        .default_y_bounds(y_lo, top);
+    plot = if db {
+        plot.y_grid_spacer(db_grid)
+            .y_axis_formatter(|m, _| db_label(m.value))
+    } else {
+        plot.y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
+            .y_axis_formatter(|m, _| plain(m.value, m.step_size))
+    };
+    let resp = plot.show(ui, |p| {
+        wheel_marks(p, &lines, pal);
+        p.hline(
+            HLine::new("threshold", threshold)
+                .color(pal.text_secondary)
+                .style(dashed)
+                .width(1.0_f32),
+        );
+        // Over the lines, under the trace.
+        if let Some(n) = &names {
+            n.inside(p, &lines, &pts, fill);
+        }
+        p.line(Line::new("score", pts.clone()).color(colour).width(1.5_f32));
+        if let Some((at, _)) = &found {
+            p.points(Points::new("peak", vec![*at]).color(colour).radius(3.5_f32));
+        }
+    });
+    if let Some(n) = &names {
+        n.draw(ui, &resp.transform, &lines, &pts);
+    }
+    if let Some((at, t)) = &found {
+        let id = ui.id().with(("point note", i, view));
+        marks::beside(ui, &resp.transform, *at, t, &pts, &[], fill, short, id);
+    }
+}
+
+/// The note above a cycle plot: what it is folded at, and how much the
+/// median line and the boxes swing.
+fn cycle_label(
+    s: &Steadiness,
+    i: usize,
+    c: &SeriesCheck,
+    f: &Fold,
+    boxes: &[Option<[f64; 3]>],
+) -> String {
+    let k = c.series;
+    let label = match &s.fold_from[i] {
+        FoldFrom::Own => {
+            let mut t = format!("{} cycle", secs(f.period_s));
+            let found = [
+                c.cycle.as_ref().map(|c| (c.period_s, c.wheel.as_deref())),
+                c.period.as_ref().map(|p| (p.period_s, p.wheel.as_deref())),
+            ];
+            let found: Vec<_> = found.into_iter().flatten().collect();
+            if let Some(w) = fold_wheel(&found, f.period_s) {
+                t += &format!(", {}", marks::title_case(w));
+            }
+            t + &format!(", {} cycles folded", f.raster.len())
+        }
+        FoldFrom::Series(j) => format!(
+            "Folded at the {}'s {} cycle, {} cycles",
+            s.report
+                .series
+                .get(*j)
+                .map_or("other", |o| title(o.series))
+                .to_lowercase(),
+            secs(f.period_s),
+            f.raster.len()
+        ),
+        FoldFrom::Wheel(w) => format!(
+            "Folded at the {}'s {} turn, {} cycles",
+            marks::title_case(w).to_lowercase(),
+            secs(f.period_s),
+            f.raster.len()
+        ),
+    };
+    match steady_views::fold_spread(f, boxes) {
+        Some((swing, middle)) => format!(
+            "{label}\nThe median line swings {}; the boxes' median height is {}",
+            value_text(k, swing, swing.abs().min(middle.abs()) / 10.0),
+            value_text(k, middle, swing.abs().min(middle.abs()) / 10.0),
+        ),
+        None => label,
+    }
+}
+
+/// The readings folded at a cycle, banded by when each came, with the boxes and the shape.
+fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        s,
+        i,
+        c,
+        k,
+        colour,
+        weak,
+        plot_w,
+        base,
+        pal,
+        ..
+    } = r;
+    let Some(f) = &s.folds[i] else {
+        return note(ui, "No cycle found to fold these readings at.");
+    };
+    let bins = f.profile.len();
+    let x = |b: usize| (b as f64 + 0.5) / bins as f64 * f.period_s;
+    // The dots go in bands by when their cycle came, first to
+    // last, so slow wander shows as a run of colour. The map's
+    // ends are left off so both themes' cards keep every dot seen.
+    let rows = f.raster.len();
+    let bands = rows.clamp(1, TIME_BANDS);
+    let mut by_time: Vec<Vec<[f64; 2]>> = vec![Vec::new(); bands];
+    for (row, r) in f.raster.iter().enumerate() {
+        let band = row * bands / rows.max(1);
+        by_time[band].extend(
+            r.iter()
+                .enumerate()
+                .filter(|(_, v)| v.is_finite())
+                .map(|(b, v)| [x(b), *v]),
+        );
+    }
+    let boxes = steady_views::fold_columns(f);
+    let box_w = 0.3 * f.period_s / bins as f64;
+    let shape: Vec<[f64; 2]> = f
+        .profile
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.is_finite())
+        .map(|(b, v)| [x(b), *v])
+        .collect();
+    let range = steady_views::fold_range(f);
+    let mut plot = base
+        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+        .x_axis_formatter(clear_of_edge(plot_w, lag_text))
+        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
+        .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size))
+        .default_x_bounds(0.0, f.period_s);
+    if let Some((lo, hi)) = range {
+        plot = plot.default_y_bounds(lo, hi);
+    }
+    let label = cycle_label(s, i, c, f, &boxes);
+    // Above the plot, wrapped to its width, so it never sits on the
+    // axis or runs past the plot's edges.
+    ui.add(egui::Label::new(RichText::new(label).small().color(pal.text_secondary)).wrap());
+    let plot = plot.height(ui.available_height().max(40.0));
+    plot.show(ui, |p| {
+        for (band, pts) in by_time.into_iter().enumerate() {
+            if pts.is_empty() {
+                continue;
+            }
+            let t = if bands > 1 {
+                band as f32 / (bands - 1) as f32
+            } else {
+                0.5
+            };
+            p.points(
+                Points::new("cycles", pts)
+                    .color(crate::tfmap::viridis(0.15 + 0.75 * t))
+                    .radius(1.4_f32),
             );
         }
-        View::Periods => {
-            let Some(search) = s.searches[i].as_ref().filter(|x| !x.period_s.is_empty()) else {
-                return note(ui, "The period search needs a longer session.");
-            };
-            let pts: Vec<[f64; 2]> = search
-                .period_s
-                .iter()
-                .zip(&search.score)
-                .filter(|(p, v)| **p > 0.0 && v.is_finite())
-                .map(|(p, v)| [p.log10(), *v])
-                .collect();
-            // The search runs from long periods to short.
-            let (x_lo, x_hi) = s.period_span.unwrap_or((
-                pts.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
-                pts.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
-            ));
-            if x_lo.partial_cmp(&x_hi) != Some(std::cmp::Ordering::Less) {
-                return note(ui, "The period search needs a longer session.");
-            }
-            // In dB the scores are drawn below the tallest, 0 dB, down to
-            // a thousandth of it, −30 dB (a score of 0 sits on that floor):
-            // a score is a power, so ten times its log.
-            let tallest = pts.iter().map(|p| p[1]).fold(search.threshold, f64::max);
-            let floor = tallest * 1e-3;
-            let y_of = move |v: f64| {
-                if db {
-                    10.0 * (v.max(floor) / tallest).log10()
-                } else {
-                    v
-                }
-            };
-            let pts: Vec<[f64; 2]> = pts.iter().map(|q| [q[0], y_of(q[1])]).collect();
-            let (y_lo, top) = if db {
-                (-30.0, 0.5)
-            } else {
-                (0.0, tallest * 1.03)
-            };
-            let threshold = y_of(search.threshold);
-            let lines = wheel_lines(marked(s, opts), (x_lo, x_hi));
-            let names = WheelNames::reserve(ui, (i, view), opts.wheels);
-            // The period found, its dot and note; the note is hover only on
-            // a short plot, where the names are inside it on its top.
-            let found = c.period.as_ref().map(|per| {
-                let x = per.period_s.log10();
-                let y = pts
-                    .iter()
-                    .min_by(|a, b| (a[0] - x).abs().total_cmp(&(b[0] - x).abs()))
-                    .map_or(0.0, |q| q[1]);
-                let mut t = secs(per.period_s);
-                if let Some(w) = &per.wheel {
-                    t += &format!(", {}", marks::title_case(w));
-                }
-                ([x, y], t)
-            });
-            let short = note_short(ui, &names, (i, view));
-            let top = if found.is_some() && !short {
-                let hi = pts.iter().map(|q| q[1]).fold(y_lo, f64::max);
-                marks::room_above(y_lo, hi, top, ui.available_height() - AXIS_H)
-            } else {
-                top
-            };
-            let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-            let mut plot = base
-                .height(ui.available_height().max(40.0))
-                .x_grid_spacer(period_grid(ui.available_width()))
-                .x_axis_formatter(clear_of_edge(plot_w, period_label))
-                .default_x_bounds(x_lo, x_hi)
-                .default_y_bounds(y_lo, top);
-            plot = if db {
-                plot.y_grid_spacer(db_grid)
-                    .y_axis_formatter(|m, _| db_label(m.value))
-            } else {
-                plot.y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-                    .y_axis_formatter(|m, _| plain(m.value, m.step_size))
-            };
-            let resp = plot.show(ui, |p| {
-                wheel_marks(p, &lines, pal);
+        for (b, q) in boxes.iter().enumerate() {
+            let Some([q1, _, q3]) = *q else { continue };
+            let (l, r) = (x(b) - box_w, x(b) + box_w);
+            p.polygon(
+                Polygon::new("middle half", vec![[l, q1], [r, q1], [r, q3], [l, q3]])
+                    .fill_color(Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::new(1.0_f32, weak)),
+            );
+        }
+        p.line(Line::new("shape", shape).color(colour).width(2.0_f32));
+    });
+}
+
+/// The autocorrelation by lag, with its band and where it repeats.
+fn autocorrelation_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        i,
+        c,
+        view,
+        colour,
+        weak,
+        plot_w,
+        base,
+        dashed,
+        pal,
+        ..
+    } = r;
+    let Some(a) = &c.autocorrelation else {
+        return note(ui, "Too few readings for the autocorrelation.");
+    };
+    let pts: Vec<[f64; 2]> = a
+        .lag_s
+        .iter()
+        .zip(&a.r)
+        .filter(|(_, r)| r.is_finite())
+        .map(|(l, r)| [*l, *r])
+        .collect();
+    let x_hi = pts.last().map_or(1.0, |p| p[0]);
+    let lo = pts.iter().map(|p| p[1]).fold(-a.band, f64::min).min(-0.2);
+    let short = note_short(ui, &None, (i, view));
+    let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
+    let ljung = format!("Ljung–Box p = {} ", steadiness::p_text(a.p_value));
+    let resp = base
+        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+        .x_axis_formatter(clear_of_edge(plot_w, lag_text))
+        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
+        .y_axis_formatter(|m, _| plain(m.value, m.step_size))
+        .default_x_bounds(0.0, x_hi)
+        // Room above the curve for the Ljung–Box note.
+        .default_y_bounds(lo - 0.05, 1.35)
+        .show(ui, |p| {
+            p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
+            for b in [a.band, -a.band] {
                 p.hline(
-                    HLine::new("threshold", threshold)
+                    HLine::new("band", b)
                         .color(pal.text_secondary)
                         .style(dashed)
                         .width(1.0_f32),
                 );
-                // Over the lines, under the trace.
-                if let Some(n) = &names {
-                    n.inside(p, &lines, &pts, fill);
-                }
-                p.line(Line::new("score", pts.clone()).color(colour).width(1.5_f32));
-                if let Some((at, _)) = &found {
-                    p.points(Points::new("peak", vec![*at]).color(colour).radius(3.5_f32));
-                }
-            });
-            if let Some(n) = &names {
-                n.draw(ui, &resp.transform, &lines, &pts);
             }
-            if let Some((at, t)) = &found {
-                let id = ui.id().with(("point note", i, view));
-                marks::beside(ui, &resp.transform, *at, t, &pts, &[], fill, short, id);
-            }
-        }
-        View::Cycle => {
-            let Some(f) = &s.folds[i] else {
-                return note(ui, "No cycle found to fold these readings at.");
-            };
-            let bins = f.profile.len();
-            let x = |b: usize| (b as f64 + 0.5) / bins as f64 * f.period_s;
-            // The dots go in bands by when their cycle came, first to
-            // last, so slow wander shows as a run of colour. The map's
-            // ends are left off so both themes' cards keep every dot seen.
-            let rows = f.raster.len();
-            let bands = rows.clamp(1, TIME_BANDS);
-            let mut by_time: Vec<Vec<[f64; 2]>> = vec![Vec::new(); bands];
-            for (row, r) in f.raster.iter().enumerate() {
-                let band = row * bands / rows.max(1);
-                by_time[band].extend(
-                    r.iter()
-                        .enumerate()
-                        .filter(|(_, v)| v.is_finite())
-                        .map(|(b, v)| [x(b), *v]),
-                );
-            }
-            let boxes = steady_views::fold_columns(f);
-            let box_w = 0.3 * f.period_s / bins as f64;
-            let shape: Vec<[f64; 2]> = f
-                .profile
-                .iter()
-                .enumerate()
-                .filter(|(_, v)| v.is_finite())
-                .map(|(b, v)| [x(b), *v])
-                .collect();
-            let range = steady_views::fold_range(f);
-            let mut plot = base
-                .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
-                .x_axis_formatter(clear_of_edge(plot_w, lag_text))
-                .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-                .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size))
-                .default_x_bounds(0.0, f.period_s);
-            if let Some((lo, hi)) = range {
-                plot = plot.default_y_bounds(lo, hi);
-            }
-            let label = match &s.fold_from[i] {
-                FoldFrom::Own => {
-                    let mut t = format!("{} cycle", secs(f.period_s));
-                    let found = [
-                        c.cycle.as_ref().map(|c| (c.period_s, c.wheel.as_deref())),
-                        c.period.as_ref().map(|p| (p.period_s, p.wheel.as_deref())),
-                    ];
-                    let found: Vec<_> = found.into_iter().flatten().collect();
-                    if let Some(w) = fold_wheel(&found, f.period_s) {
-                        t += &format!(", {}", marks::title_case(w));
-                    }
-                    t + &format!(", {} cycles folded", f.raster.len())
-                }
-                FoldFrom::Series(j) => format!(
-                    "Folded at the {}'s {} cycle, {} cycles",
-                    s.report
-                        .series
-                        .get(*j)
-                        .map_or("other", |o| title(o.series))
-                        .to_lowercase(),
-                    secs(f.period_s),
-                    f.raster.len()
-                ),
-                FoldFrom::Wheel(w) => format!(
-                    "Folded at the {}'s {} turn, {} cycles",
-                    marks::title_case(w).to_lowercase(),
-                    secs(f.period_s),
-                    f.raster.len()
-                ),
-            };
-            let label = match steady_views::fold_spread(f, &boxes) {
-                Some((swing, middle)) => format!(
-                    "{label}\nThe median line swings {}; the boxes' median height is {}",
-                    value_text(k, swing, swing.abs().min(middle.abs()) / 10.0),
-                    value_text(k, middle, swing.abs().min(middle.abs()) / 10.0),
-                ),
-                None => label,
-            };
-            // Above the plot, wrapped to its width, so it never sits on the
-            // axis or runs past the plot's edges.
-            ui.add(egui::Label::new(RichText::new(label).small().color(pal.text_secondary)).wrap());
-            let plot = plot.height(ui.available_height().max(40.0));
-            plot.show(ui, |p| {
-                for (band, pts) in by_time.into_iter().enumerate() {
-                    if pts.is_empty() {
-                        continue;
-                    }
-                    let t = if bands > 1 {
-                        band as f32 / (bands - 1) as f32
-                    } else {
-                        0.5
-                    };
-                    p.points(
-                        Points::new("cycles", pts)
-                            .color(crate::tfmap::viridis(0.15 + 0.75 * t))
-                            .radius(1.4_f32),
-                    );
-                }
-                for (b, q) in boxes.iter().enumerate() {
-                    let Some([q1, _, q3]) = *q else { continue };
-                    let (l, r) = (x(b) - box_w, x(b) + box_w);
-                    p.polygon(
-                        Polygon::new("middle half", vec![[l, q1], [r, q1], [r, q3], [l, q3]])
-                            .fill_color(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::new(1.0_f32, weak)),
-                    );
-                }
-                p.line(Line::new("shape", shape).color(colour).width(2.0_f32));
-            });
-        }
-        View::Autocorrelation => {
-            let Some(a) = &c.autocorrelation else {
-                return note(ui, "Too few readings for the autocorrelation.");
-            };
-            let pts: Vec<[f64; 2]> = a
-                .lag_s
-                .iter()
-                .zip(&a.r)
-                .filter(|(_, r)| r.is_finite())
-                .map(|(l, r)| [*l, *r])
-                .collect();
-            let x_hi = pts.last().map_or(1.0, |p| p[0]);
-            let lo = pts.iter().map(|p| p[1]).fold(-a.band, f64::min).min(-0.2);
-            let short = note_short(ui, &None, (i, view));
-            let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-            let ljung = format!("Ljung–Box p = {} ", steadiness::p_text(a.p_value));
-            let resp = base
-                .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
-                .x_axis_formatter(clear_of_edge(plot_w, lag_text))
-                .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-                .y_axis_formatter(|m, _| plain(m.value, m.step_size))
-                .default_x_bounds(0.0, x_hi)
-                // Room above the curve for the Ljung–Box note.
-                .default_y_bounds(lo - 0.05, 1.35)
-                .show(ui, |p| {
-                    p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
-                    for b in [a.band, -a.band] {
-                        p.hline(
-                            HLine::new("band", b)
-                                .color(pal.text_secondary)
-                                .style(dashed)
-                                .width(1.0_f32),
-                        );
-                    }
-                    p.line(Line::new("r", pts.clone()).color(colour).width(1.5_f32));
-                    if let (Some(l), Some(r)) = (a.repeat_lag_s, a.repeat_r) {
-                        p.points(
-                            Points::new("repeat", vec![[l, r]])
-                                .color(colour)
-                                .radius(3.5_f32),
-                        );
-                    }
-                    p.text(
-                        Text::new("ljung box", PlotPoint::new(x_hi, 1.35), ljung.clone())
-                            .color(pal.text_secondary)
-                            .anchor(egui::Align2::RIGHT_TOP),
-                    );
-                });
+            p.line(Line::new("r", pts.clone()).color(colour).width(1.5_f32));
             if let (Some(l), Some(r)) = (a.repeat_lag_s, a.repeat_r) {
-                // The Ljung–Box note's place, kept clear of the repeat's.
-                let t = &resp.transform;
-                let font = egui::TextStyle::Small.resolve(ui.style());
-                let w = ui.fonts_mut(|f| f.layout_no_wrap(ljung, font, pal.text_secondary));
-                let corner = t.position_from_point(&PlotPoint::new(x_hi, 1.35));
-                let ljung =
-                    egui::Rect::from_min_size(corner - egui::vec2(w.size().x, 0.0), w.size());
-                let note = format!("repeats at {}", secs(l));
-                let id = ui.id().with(("point note", i, view));
-                marks::beside(ui, t, [l, r], &note, &pts, &[ljung], fill, short, id);
-            }
-        }
-        View::Allan => {
-            let Some(a) = &c.allan else {
-                return note(ui, "Too few readings for the Allan deviation.");
-            };
-            let both = |v: &[f64]| -> Vec<[f64; 2]> {
-                a.tau_s
-                    .iter()
-                    .zip(v)
-                    .filter(|(t, d)| **t > 0.0 && **d > 0.0 && d.is_finite())
-                    .map(|(t, d)| [t.log10(), d.log10()])
-                    .collect()
-            };
-            let dev = both(&a.deviation);
-            let white = both(&a.white);
-            base.x_grid_spacer(period_grid(ui.available_width()))
-                .x_axis_formatter(clear_of_edge(plot_w, period_label))
-                .y_grid_spacer(log_grid)
-                .y_axis_formatter(move |m, r| log_label(m, r, |v| unit_sig(k, v)))
-                .show(ui, |p| {
-                    let last = white.last().copied();
-                    p.line(
-                        Line::new("independent", white)
-                            .color(pal.text_secondary)
-                            .style(dashed)
-                            .width(1.0_f32),
-                    );
-                    // Name the dashed line where it ends.
-                    if let Some(at) = last {
-                        mark_label(
-                            p,
-                            at,
-                            "if the readings were independent".into(),
-                            pal.text_secondary,
-                            false,
-                        );
-                    }
-                    p.line(
-                        Line::new("deviation", dev.clone())
-                            .color(colour)
-                            .width(1.5_f32),
-                    );
-                    p.points(
-                        Points::new("deviation points", dev)
-                            .color(colour)
-                            .radius(2.0_f32),
-                    );
-                    if let (Some(t), Some(d)) = (a.best_tau_s, a.best_deviation) {
-                        if t > 0.0 && d > 0.0 {
-                            let at = [t.log10(), d.log10()];
-                            mark_label(
-                                p,
-                                at,
-                                format!("least scatter at {}: {}", secs(t), unit_sig(k, d)),
-                                pal.text,
-                                false,
-                            );
-                        }
-                    }
-                });
-        }
-        View::Cusum => {
-            let Some(cu) = &c.cusum else {
-                return note(ui, "Too few readings for the CUSUM.");
-            };
-            let pts: Vec<[f64; 2]> = cu
-                .t_s
-                .iter()
-                .zip(&cu.s)
-                .filter(|(_, v)| v.is_finite())
-                .map(|(t, v)| [*t, *v])
-                .collect();
-            let m = pts.iter().map(|p| p[1].abs()).fold(1.6, f64::max) * 1.1;
-            base.x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
-                .x_axis_formatter(clear_of_edge(plot_w, length_text))
-                .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-                .y_axis_formatter(|m, _| plain(m.value, m.step_size))
-                .default_y_bounds(-m, m)
-                .show(ui, |p| {
-                    p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
-                    for b in [cu.band, -cu.band] {
-                        p.hline(
-                            HLine::new("95%", b)
-                                .color(pal.text_secondary)
-                                .style(dashed)
-                                .width(1.0_f32),
-                        );
-                    }
-                    p.line(Line::new("cusum", pts.clone()).color(colour).width(1.5_f32));
-                    if cu.shift {
-                        let y = cu.at;
-                        p.points(
-                            Points::new("corner", vec![[cu.at_s, y]])
-                                .color(colour)
-                                .radius(3.5_f32),
-                        );
-                        mark_label(
-                            p,
-                            [cu.at_s, y],
-                            format!("level changes near {}", length_text(cu.at_s)),
-                            pal.text,
-                            y >= 0.0,
-                        );
-                    }
-                });
-        }
-        View::Stft | View::Wavelet => {
-            let name = match k {
-                SeriesKind::Rate => "rate",
-                SeriesKind::Amplitude => "amplitude",
-                _ => "beat_error",
-            };
-            let method = if view == View::Stft { "stft" } else { "sst" };
-            let Some(m) = s
-                .maps
-                .iter()
-                .find(|m| m.series == name && m.method == method)
-            else {
-                return note(
-                    ui,
-                    if view == View::Stft {
-                        "The STFT Map needs 20 minutes of readings with none missing."
-                    } else {
-                        "The wavelet map needs a longer stretch of unbroken readings."
-                    },
+                p.points(
+                    Points::new("repeat", vec![[l, r]])
+                        .color(colour)
+                        .radius(3.5_f32),
                 );
-            };
-            crate::tfmap::draw(
-                ui,
-                base,
-                egui::Id::new(id),
-                m,
-                s.upto_s,
-                opts.maps_db,
-                marked(s, opts),
-                length_text,
-                secs,
-            );
-        }
-        View::Fft => {
-            let name = match k {
-                SeriesKind::Rate => "rate",
-                SeriesKind::Amplitude => "amplitude",
-                _ => "beat_error",
-            };
-            let Some(sp) = s
-                .report
-                .spectra
-                .iter()
-                .find(|x| x.series == name && !x.period_s.is_empty())
-            else {
-                return note(ui, "The spectrum needs a longer session.");
-            };
-            // Rate's spectrum is of the beat timing, in ms: drawn unless
-            // asked as the swing it makes in the rate readings, peak to
-            // peak in s/d, over the periods those readings can show.
-            let swing = sp.reading_swing.as_ref().filter(|_| !opts.fft_timing);
-            let as_rate = swing.is_some();
-            let (periods, sizes) = match swing {
-                Some(s) => (&s.period_s, &s.swing_s_per_day),
-                None => (&sp.period_s, &sp.amplitude),
-            };
-            let pts: Vec<[f64; 2]> = periods
-                .iter()
-                .zip(sizes)
-                .map(|(&p, &a)| (p, a))
-                .filter(|(p, a)| *p > 0.0 && *a > 0.0 && a.is_finite())
-                .map(|(p, a)| [p.log10(), a.log10()])
-                .collect();
-            if pts.len() < 2 {
-                return note(ui, "The spectrum needs a longer session.");
             }
-            ui.label(
-                RichText::new(sp.support.description())
-                    .small()
-                    .color(pal.text_tertiary),
+            p.text(
+                Text::new("ljung box", PlotPoint::new(x_hi, 1.35), ljung.clone())
+                    .color(pal.text_secondary)
+                    .anchor(egui::Align2::RIGHT_TOP),
             );
-            let (x_lo, x_hi) = pts
-                .iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                    (lo.min(p[0]), hi.max(p[0]))
-                });
-            let (y_lo, y_hi) = pts
-                .iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                    (lo.min(p[1]), hi.max(p[1]))
-                });
-            let top = y_hi + (y_hi - y_lo).max(0.5) * 0.05;
-            let unit = match sp.unit {
-                _ if as_rate => " s/d",
-                "deg" => "°",
-                _ => " ms",
-            };
-            let size =
-                move |v: f64| format!("{}{unit}", timegrapher_core::timefreq::size_number(v));
-            let peak = tallest_peak(&pts);
-            let lines = wheel_lines(marked(s, opts), (x_lo, x_hi));
-            let names = WheelNames::reserve(ui, (i, view), opts.wheels);
-            let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-            let tops = pts.clone();
-            // The tallest peak's dot and note; the note is hover only on a
-            // short plot, where the names are inside it on its top.
-            let tallest = peak.map(|peak| {
-                (
-                    peak,
-                    format!(
-                        "tallest peak at {}: {}{}",
-                        secs(10f64.powf(peak[0])),
-                        size(10f64.powf(peak[1])),
-                        if as_rate { " peak to peak" } else { "" }
-                    ),
-                )
-            });
-            let short = note_short(ui, &names, (i, view));
-            let top = if tallest.is_some() && !short {
-                let hi = pts.iter().map(|q| q[1]).fold(y_lo, f64::max);
-                marks::room_above(y_lo, hi, top, ui.available_height() - AXIS_H)
+        });
+    if let (Some(l), Some(r)) = (a.repeat_lag_s, a.repeat_r) {
+        // The Ljung–Box note's place, kept clear of the repeat's.
+        let t = &resp.transform;
+        let font = egui::TextStyle::Small.resolve(ui.style());
+        let w = ui.fonts_mut(|f| f.layout_no_wrap(ljung, font, pal.text_secondary));
+        let corner = t.position_from_point(&PlotPoint::new(x_hi, 1.35));
+        let ljung = egui::Rect::from_min_size(corner - egui::vec2(w.size().x, 0.0), w.size());
+        let note = format!("repeats at {}", secs(l));
+        let id = ui.id().with(("point note", i, view));
+        marks::beside(ui, t, [l, r], &note, &pts, &[ljung], fill, short, id);
+    }
+}
+
+/// The Allan deviation by averaging time, against independent readings.
+fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        c,
+        k,
+        colour,
+        plot_w,
+        base,
+        dashed,
+        pal,
+        ..
+    } = r;
+    let Some(a) = &c.allan else {
+        return note(ui, "Too few readings for the Allan deviation.");
+    };
+    let both = |v: &[f64]| -> Vec<[f64; 2]> {
+        a.tau_s
+            .iter()
+            .zip(v)
+            .filter(|(t, d)| **t > 0.0 && **d > 0.0 && d.is_finite())
+            .map(|(t, d)| [t.log10(), d.log10()])
+            .collect()
+    };
+    let dev = both(&a.deviation);
+    let white = both(&a.white);
+    base.x_grid_spacer(period_grid(ui.available_width()))
+        .x_axis_formatter(clear_of_edge(plot_w, period_label))
+        .y_grid_spacer(log_grid)
+        .y_axis_formatter(move |m, r| log_label(m, r, |v| unit_sig(k, v)))
+        .show(ui, |p| {
+            let last = white.last().copied();
+            p.line(
+                Line::new("independent", white)
+                    .color(pal.text_secondary)
+                    .style(dashed)
+                    .width(1.0_f32),
+            );
+            // Name the dashed line where it ends.
+            if let Some(at) = last {
+                mark_label(
+                    p,
+                    at,
+                    "if the readings were independent".into(),
+                    pal.text_secondary,
+                    false,
+                );
+            }
+            p.line(
+                Line::new("deviation", dev.clone())
+                    .color(colour)
+                    .width(1.5_f32),
+            );
+            p.points(
+                Points::new("deviation points", dev)
+                    .color(colour)
+                    .radius(2.0_f32),
+            );
+            if let (Some(t), Some(d)) = (a.best_tau_s, a.best_deviation) {
+                if t > 0.0 && d > 0.0 {
+                    let at = [t.log10(), d.log10()];
+                    mark_label(
+                        p,
+                        at,
+                        format!("least scatter at {}: {}", secs(t), unit_sig(k, d)),
+                        pal.text,
+                        false,
+                    );
+                }
+            }
+        });
+}
+
+/// The CUSUM over the session, with its band and where the level changes.
+fn cusum_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        c,
+        colour,
+        weak,
+        plot_w,
+        base,
+        dashed,
+        pal,
+        ..
+    } = r;
+    let Some(cu) = &c.cusum else {
+        return note(ui, "Too few readings for the CUSUM.");
+    };
+    let pts: Vec<[f64; 2]> = cu
+        .t_s
+        .iter()
+        .zip(&cu.s)
+        .filter(|(_, v)| v.is_finite())
+        .map(|(t, v)| [*t, *v])
+        .collect();
+    let m = pts.iter().map(|p| p[1].abs()).fold(1.6, f64::max) * 1.1;
+    base.x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+        .x_axis_formatter(clear_of_edge(plot_w, length_text))
+        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
+        .y_axis_formatter(|m, _| plain(m.value, m.step_size))
+        .default_y_bounds(-m, m)
+        .show(ui, |p| {
+            p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
+            for b in [cu.band, -cu.band] {
+                p.hline(
+                    HLine::new("95%", b)
+                        .color(pal.text_secondary)
+                        .style(dashed)
+                        .width(1.0_f32),
+                );
+            }
+            p.line(Line::new("cusum", pts.clone()).color(colour).width(1.5_f32));
+            if cu.shift {
+                let y = cu.at;
+                p.points(
+                    Points::new("corner", vec![[cu.at_s, y]])
+                        .color(colour)
+                        .radius(3.5_f32),
+                );
+                mark_label(
+                    p,
+                    [cu.at_s, y],
+                    format!("level changes near {}", length_text(cu.at_s)),
+                    pal.text,
+                    y >= 0.0,
+                );
+            }
+        });
+}
+
+/// The STFT or wavelet map of the series.
+fn map_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        s,
+        view,
+        opts,
+        k,
+        id,
+        base,
+        ..
+    } = r;
+    let name = series_name(k);
+    let method = if view == View::Stft { "stft" } else { "sst" };
+    let Some(m) = s
+        .maps
+        .iter()
+        .find(|m| m.series == name && m.method == method)
+    else {
+        return note(
+            ui,
+            if view == View::Stft {
+                "The STFT Map needs 20 minutes of readings with none missing."
             } else {
-                top
-            };
-            let resp = base
-                .height(ui.available_height().max(40.0))
-                .x_grid_spacer(period_grid(ui.available_width()))
-                .x_axis_formatter(clear_of_edge(plot_w, period_label))
-                .y_grid_spacer(log_grid)
-                .y_axis_formatter(move |m, r| log_label(m, r, size))
-                .default_x_bounds(x_lo, x_hi)
-                .default_y_bounds(y_lo, top)
-                .show(ui, |p| {
-                    wheel_marks(p, &lines, pal);
-                    if let Some(n) = &names {
-                        n.inside(p, &lines, &tops, fill);
-                    }
-                    p.line(Line::new("spectrum", pts).color(colour).width(1.5_f32));
-                    if let Some((at, _)) = &tallest {
-                        p.points(
-                            Points::new("tallest", vec![*at])
-                                .color(colour)
-                                .radius(3.5_f32),
-                        );
-                    }
-                });
+                "The wavelet map needs a longer stretch of unbroken readings."
+            },
+        );
+    };
+    crate::tfmap::draw(
+        ui,
+        base,
+        egui::Id::new(id),
+        m,
+        s.upto_s,
+        opts.maps_db,
+        marked(s, opts),
+        length_text,
+        secs,
+    );
+}
+
+/// A series' name in the report's spectra and maps.
+fn series_name(k: SeriesKind) -> &'static str {
+    match k {
+        SeriesKind::Rate => "rate",
+        SeriesKind::Amplitude => "amplitude",
+        _ => "beat_error",
+    }
+}
+
+/// Periods and sizes as log points, leaving out any that can't be.
+fn log_points(periods: &[f64], sizes: &[f64]) -> Vec<[f64; 2]> {
+    periods
+        .iter()
+        .zip(sizes)
+        .map(|(&p, &a)| (p, a))
+        .filter(|(p, a)| *p > 0.0 && *a > 0.0 && a.is_finite())
+        .map(|(p, a)| [p.log10(), a.log10()])
+        .collect()
+}
+
+/// The lowest and highest of the points on one axis (0 across, 1 up).
+fn span(pts: &[[f64; 2]], axis: usize) -> (f64, f64) {
+    pts.iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+            (lo.min(p[axis]), hi.max(p[axis]))
+        })
+}
+
+/// The series' spectrum, with the wheels' periods and its tallest peak.
+fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
+    let Row {
+        s,
+        i,
+        view,
+        opts,
+        k,
+        colour,
+        plot_w,
+        base,
+        pal,
+        ..
+    } = r;
+    let name = series_name(k);
+    let Some(sp) = s
+        .report
+        .spectra
+        .iter()
+        .find(|x| x.series == name && !x.period_s.is_empty())
+    else {
+        return note(ui, "The spectrum needs a longer session.");
+    };
+    // Rate's spectrum is of the beat timing, in ms: drawn unless
+    // asked as the swing it makes in the rate readings, peak to
+    // peak in s/d, over the periods those readings can show.
+    let swing = sp.reading_swing.as_ref().filter(|_| !opts.fft_timing);
+    let as_rate = swing.is_some();
+    let (periods, sizes) = match swing {
+        Some(s) => (&s.period_s, &s.swing_s_per_day),
+        None => (&sp.period_s, &sp.amplitude),
+    };
+    let pts = log_points(periods, sizes);
+    if pts.len() < 2 {
+        return note(ui, "The spectrum needs a longer session.");
+    }
+    ui.label(
+        RichText::new(sp.support.description())
+            .small()
+            .color(pal.text_tertiary),
+    );
+    let ((x_lo, x_hi), (y_lo, y_hi)) = (span(&pts, 0), span(&pts, 1));
+    let top = y_hi + (y_hi - y_lo).max(0.5) * 0.05;
+    let unit = match sp.unit {
+        _ if as_rate => " s/d",
+        "deg" => "°",
+        _ => " ms",
+    };
+    let size = move |v: f64| format!("{}{unit}", timegrapher_core::timefreq::size_number(v));
+    let peak = tallest_peak(&pts);
+    let lines = wheel_lines(marked(s, opts), (x_lo, x_hi));
+    let names = WheelNames::reserve(ui, (i, view), opts.wheels);
+    let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
+    let tops = pts.clone();
+    // The tallest peak's dot and note; the note is hover only on a
+    // short plot, where the names are inside it on its top.
+    let tallest = peak.map(|peak| {
+        (
+            peak,
+            format!(
+                "tallest peak at {}: {}{}",
+                secs(10f64.powf(peak[0])),
+                size(10f64.powf(peak[1])),
+                if as_rate { " peak to peak" } else { "" }
+            ),
+        )
+    });
+    let short = note_short(ui, &names, (i, view));
+    let top = if tallest.is_some() && !short {
+        let hi = pts.iter().map(|q| q[1]).fold(y_lo, f64::max);
+        marks::room_above(y_lo, hi, top, ui.available_height() - AXIS_H)
+    } else {
+        top
+    };
+    let resp = base
+        .height(ui.available_height().max(40.0))
+        .x_grid_spacer(period_grid(ui.available_width()))
+        .x_axis_formatter(clear_of_edge(plot_w, period_label))
+        .y_grid_spacer(log_grid)
+        .y_axis_formatter(move |m, r| log_label(m, r, size))
+        .default_x_bounds(x_lo, x_hi)
+        .default_y_bounds(y_lo, top)
+        .show(ui, |p| {
+            wheel_marks(p, &lines, pal);
             if let Some(n) = &names {
-                n.draw(ui, &resp.transform, &lines, &tops);
+                n.inside(p, &lines, &tops, fill);
             }
-            if let Some((at, t)) = &tallest {
-                let id = ui.id().with(("point note", i, view));
-                marks::beside(ui, &resp.transform, *at, t, &tops, &[], fill, short, id);
+            p.line(Line::new("spectrum", pts).color(colour).width(1.5_f32));
+            if let Some((at, _)) = &tallest {
+                p.points(
+                    Points::new("tallest", vec![*at])
+                        .color(colour)
+                        .radius(3.5_f32),
+                );
             }
-        }
+        });
+    if let Some(n) = &names {
+        n.draw(ui, &resp.transform, &lines, &tops);
+    }
+    if let Some((at, t)) = &tallest {
+        let id = ui.id().with(("point note", i, view));
+        marks::beside(ui, &resp.transform, *at, t, &tops, &[], fill, short, id);
     }
 }
 

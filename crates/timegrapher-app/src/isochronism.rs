@@ -61,34 +61,11 @@ fn rate_label(v: f64, step: f64) -> String {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32) {
     let pal = theme::pal(ui);
-    let colour = pal.trace_rate;
-    let (Some(first), Some(last)) = (c.bins.first(), c.bins.last()) else {
+    let Some((curve, x_bounds, y_bounds)) = curve_and_bounds(c) else {
         return;
     };
-    let (a_lo, a_hi) = (first.amplitude_deg, last.amplitude_deg);
-    let curve: Vec<[f64; 2]> = (0..=60)
-        .map(|i| {
-            let a = a_lo + (a_hi - a_lo) * i as f64 / 60.0;
-            [a, curve_at(c, a)]
-        })
-        .collect();
-    // Scale to the bars and the curve, padded by 15% as the charts are.
-    let (lo, hi) = c
-        .bins
-        .iter()
-        .flat_map(|b| [b.rate_q25, b.rate_q75])
-        .chain(curve.iter().map(|p| p[1]))
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
-            (l.min(v), h.max(v))
-        });
-    let pad = ((hi - lo) * 0.15).max(0.05);
-    let a_pad = ((a_hi - a_lo) * 0.05).max(c.bin_deg);
     // The turn is named in a lane of one row above the plot, as every
     // named line is (see `marks`); on a short plot, inside along its top.
     let names_id = ui.id().with("turn");
@@ -119,7 +96,67 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32) {
         .collect();
     let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
     let h = (h - lane).max(40.0);
-    let resp = Plot::new("isochronism")
+    let resp = chart_plot(h, x_bounds, y_bounds).show(ui, |p| {
+        chart_items(p, c, curve, pal);
+        if inside {
+            p.add(marks::InsideNames {
+                base: egui_plot::PlotItemBase::new("turn name".into()),
+                names: names.clone(),
+                tops: tops.clone(),
+                fill,
+            });
+        }
+    });
+    let hover = |t: f64| format!("Turn: {t:.0}°");
+    if inside {
+        let placed = marks::inside_placed(ui, &resp.transform, &names, &tops);
+        let hover_of = |_: &str| c.turn_deg.map_or_else(String::new, hover);
+        marks::inside_hovers(ui, *resp.transform.frame(), &placed, &hover_of, names_id);
+    } else if let Some(t) = c.turn_deg {
+        let turn = marks::Named {
+            x: resp.transform.position_from_point_x(t),
+            name: "Turn".into(),
+            rank: marks::Rank::Strong,
+            ink: pal.text_secondary,
+            hover: hover(t),
+        };
+        marks::lane_above_one(ui, *resp.transform.frame(), &[turn], names_id);
+    }
+}
+
+/// A low and high bound on one axis.
+type Span = (f64, f64);
+
+/// The fitted curve across the bins' amplitudes, and the chart's
+/// amplitude and rate bounds; none with no bins.
+fn curve_and_bounds(c: &IsochronismCurve) -> Option<(Vec<[f64; 2]>, Span, Span)> {
+    let (Some(first), Some(last)) = (c.bins.first(), c.bins.last()) else {
+        return None;
+    };
+    let (a_lo, a_hi) = (first.amplitude_deg, last.amplitude_deg);
+    let curve: Vec<[f64; 2]> = (0..=60)
+        .map(|i| {
+            let a = a_lo + (a_hi - a_lo) * i as f64 / 60.0;
+            [a, curve_at(c, a)]
+        })
+        .collect();
+    // Scale to the bars and the curve, padded by 15% as the charts are.
+    let (lo, hi) = c
+        .bins
+        .iter()
+        .flat_map(|b| [b.rate_q25, b.rate_q75])
+        .chain(curve.iter().map(|p| p[1]))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+            (l.min(v), h.max(v))
+        });
+    let pad = ((hi - lo) * 0.15).max(0.05);
+    let a_pad = ((a_hi - a_lo) * 0.05).max(c.bin_deg);
+    Some((curve, (a_lo - a_pad, a_hi + a_pad), (lo - pad, hi + pad)))
+}
+
+/// The chart's plot, fixed in place, `h` high over the given bounds.
+fn chart_plot(h: f32, (x_lo, x_hi): Span, (y_lo, y_hi): Span) -> Plot<'static> {
+    Plot::new("isochronism")
         .allow_scroll(false)
         .allow_zoom(false)
         .allow_drag(false)
@@ -136,61 +173,46 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32) {
         })
         .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(|m, _| rate_label(m.value, m.step_size))
-        .default_x_bounds(a_lo - a_pad, a_hi + a_pad)
-        .default_y_bounds(lo - pad, hi + pad)
-        .show(ui, |p| {
-            for b in &c.bins {
-                p.line(
-                    Line::new(
-                        "middle half",
-                        vec![[b.amplitude_deg, b.rate_q25], [b.amplitude_deg, b.rate_q75]],
-                    )
-                    .color(colour)
-                    .width(1.2_f32),
-                );
-            }
-            p.line(Line::new("curve", curve).color(colour).width(1.2_f32));
-            p.points(
-                Points::new(
-                    "median",
-                    c.bins
-                        .iter()
-                        .map(|b| [b.amplitude_deg, b.rate_s_per_day])
-                        .collect::<Vec<_>>(),
-                )
-                .color(colour)
-                .radius(3.0_f32),
-            );
-            if let Some(t) = c.turn_deg {
-                p.vline(
-                    VLine::new("turn", t)
-                        .color(pal.text_secondary)
-                        .width(1.0_f32),
-                );
-            }
-            if inside {
-                p.add(marks::InsideNames {
-                    base: egui_plot::PlotItemBase::new("turn name".into()),
-                    names: names.clone(),
-                    tops: tops.clone(),
-                    fill,
-                });
-            }
-        });
-    let hover = |t: f64| format!("Turn: {t:.0}°");
-    if inside {
-        let placed = marks::inside_placed(ui, &resp.transform, &names, &tops);
-        let hover_of = |_: &str| c.turn_deg.map_or_else(String::new, hover);
-        marks::inside_hovers(ui, *resp.transform.frame(), &placed, &hover_of, names_id);
-    } else if let Some(t) = c.turn_deg {
-        let turn = marks::Named {
-            x: resp.transform.position_from_point_x(t),
-            name: "Turn".into(),
-            rank: marks::Rank::Strong,
-            ink: pal.text_secondary,
-            hover: hover(t),
-        };
-        marks::lane_above_one(ui, *resp.transform.frame(), &[turn], names_id);
+        .default_x_bounds(x_lo, x_hi)
+        .default_y_bounds(y_lo, y_hi)
+}
+
+/// The bins' middle halves, the curve, the medians and the turn's line.
+fn chart_items(
+    p: &mut egui_plot::PlotUi,
+    c: &IsochronismCurve,
+    curve: Vec<[f64; 2]>,
+    pal: &theme::Palette,
+) {
+    let colour = pal.trace_rate;
+    for b in &c.bins {
+        p.line(
+            Line::new(
+                "middle half",
+                vec![[b.amplitude_deg, b.rate_q25], [b.amplitude_deg, b.rate_q75]],
+            )
+            .color(colour)
+            .width(1.2_f32),
+        );
+    }
+    p.line(Line::new("curve", curve).color(colour).width(1.2_f32));
+    p.points(
+        Points::new(
+            "median",
+            c.bins
+                .iter()
+                .map(|b| [b.amplitude_deg, b.rate_s_per_day])
+                .collect::<Vec<_>>(),
+        )
+        .color(colour)
+        .radius(3.0_f32),
+    );
+    if let Some(t) = c.turn_deg {
+        p.vline(
+            VLine::new("turn", t)
+                .color(pal.text_secondary)
+                .width(1.0_f32),
+        );
     }
 }
 
