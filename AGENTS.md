@@ -130,7 +130,8 @@ names in backticks:
 - **What moves:** every output, figure or message that changes, and what stays the
   same. Write "Nothing a user sees changes" if that is true.
 - **Tests:** each new test by name, what it proves, and how you confirmed it fails on
-  `main` and without the fix. State that no existing test was changed.
+  `main` and without the fix (or that it pins existing behaviour). State that no
+  existing test was changed.
 - **Shared files:** any file outside the task's list, and why. "None" if none.
 - **Checks:** the commands you ran, at which commit, and their results.
 - `Closes #N` on its own line, or `Part of #N` when the issue needs more than one PR.
