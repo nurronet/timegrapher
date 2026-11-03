@@ -60,27 +60,27 @@ The evidence includes both groups and their unlock/drop event times separately.
 Intervals are seconds from the start of each source video. Values with an extra
 decimal are replay arithmetic, not claims of sub-degree physical precision.
 
-| Take / video interval | Frozen optical | Audio at 55° | Audio at 58° | Audio at 59° |
-| --- | ---: | ---: | ---: | ---: |
-| high / 5–7 s | 261° ± 4° | 241.9° | 255.1° | 259.5° |
-| high / 20–22 s | 267° ± 4° | 249.4° | 263.0° | 267.5° |
-| high / 30–32 s | 255° ± 4° | 238.8° | 251.9° | 256.1° |
-| high / 40–42 s | 254° ± 4° | 236.6° | 249.5° | 253.8° |
-| high / 60–62 s | 260° ± 4° | 243.2° | 256.5° | 260.9° |
-| high / 65–67 s | 265° ± 4° | 247.8° | 261.4° | 265.9° |
-| low / 5–7 s | 181° ± 4° | 171.9° | 181.2° | 184.4° |
-| low / 15–17 s | 183° ± 4° | 174.2° | 183.8° | 186.9° |
-| low / 25–27 s | 188° ± 4° | 179.2° | 188.9° | 192.2° |
-| low / 35–37 s | 180° ± 4° | 171.2° | 180.5° | 183.6° |
-| intermediate / 5–7 s | 206° ± 4° | 192.3° | 202.8° | 206.3° |
-| intermediate / 15–17 s | 205° ± 5° | 192.0° | 202.5° | 205.9° |
-| intermediate / 25–27 s | 206° ± 4° | 193.1° | 203.7° | 207.2° |
-| intermediate / 32–34 s | 209° ± 4° | 196.8° | 207.6° | 211.2° |
-| final / 5–7 s | 240° ± 5° | 226.9° | 239.3° | 243.4° |
-| final / 15–17 s | 249° ± 5° | 235.8° | 248.7° | 252.9° |
-| final / 25–27 s | 244° ± 5° | 229.6° | 242.1° | 246.2° |
-| final / 35–37 s | 243° ± 5° | 228.9° | 241.4° | 245.6° |
-| final / 43–45 s | 242° ± 5° | 228.8° | 241.4° | 245.6° |
+| Take / video interval | Frozen optical | Allowance | Audio at 55° | Audio at 58° | Audio at 59° |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| high / 5–7 s | 261° | 4° | 241.9° | 255.1° | 259.5° |
+| high / 20–22 s | 267° | 4° | 249.4° | 263.0° | 267.5° |
+| high / 30–32 s | 255° | 4° | 238.8° | 251.9° | 256.1° |
+| high / 40–42 s | 254° | 4° | 236.6° | 249.5° | 253.8° |
+| high / 60–62 s | 260° | 4° | 243.2° | 256.5° | 260.9° |
+| high / 65–67 s | 265° | 4° | 247.8° | 261.4° | 265.9° |
+| low / 5–7 s | 181° | 4° | 171.9° | 181.2° | 184.4° |
+| low / 15–17 s | 183° | 4° | 174.2° | 183.8° | 186.9° |
+| low / 25–27 s | 188° | 4° | 179.2° | 188.9° | 192.2° |
+| low / 35–37 s | 180° | 4° | 171.2° | 180.5° | 183.6° |
+| intermediate / 5–7 s | 206° | 4° | 192.3° | 202.8° | 206.3° |
+| intermediate / 15–17 s | 205° | 5° | 192.0° | 202.5° | 205.9° |
+| intermediate / 25–27 s | 206° | 4° | 193.1° | 203.7° | 207.2° |
+| intermediate / 32–34 s | 209° | 4° | 196.8° | 207.6° | 211.2° |
+| final / 5–7 s | 240° | 5° | 226.9° | 239.3° | 243.4° |
+| final / 15–17 s | 249° | 5° | 235.8° | 248.7° | 252.9° |
+| final / 25–27 s | 244° | 5° | 229.6° | 242.1° | 246.2° |
+| final / 35–37 s | 243° | 5° | 228.9° | 241.4° | 245.6° |
+| final / 43–45 s | 242° | 5° | 228.8° | 241.4° | 245.6° |
 
 The per-take effective setting is calculated for each interval as
 `55 × optical amplitude / acoustic pair mean at 55°`, then averaged descriptively:
@@ -155,7 +155,11 @@ or limiting upstream of the recorded samples.
    the rim marker is not clearly exposed at both endpoints at these amplitudes.
 5. Fit local quadratics to the neighboring frame positions to interpolate the
    reversal. For the selected features, the tracked full revolution gives
-   `amplitude = (360° + endpoint_max − endpoint_min) / 2`.
+   `amplitude = (360° + endpoint_max − endpoint_min) / 2`. This branch applies
+   to total travel from 360° to 720° (amplitudes from 180° to 360°); it is not
+   a general formula for arbitrary wrapped endpoints. The low take lies near
+   the 180° boundary (unrounded means 180.2°–188.5°), so its branch assignment
+   depends on the intervening arm-motion fit in step 3.
 6. Average opposite-reversal pairs. For the arm method, reject an edge's pair if
    either fitted vertex lies outside ±2.5 frames of its search center; average
    each edge's accepted pairs, then give the two edge means equal weight.
@@ -166,8 +170,8 @@ The final leading-edge crosscheck uses different arms separated by a nominal 90�
 it is not a second independent marker. Trailing-edge fits affected by fixed
 hardware are kept as diagnostics rather than averaged into the marker result.
 
-The **±4°, ±5° allowances have no demonstrated statistical coverage**. They reflect
-edge disagreement, repeated-cycle scatter, changes of radial sampling band and
+The **4° and 5° allowances in either direction have no demonstrated statistical
+coverage**. They reflect edge disagreement, repeated-cycle scatter, changes of radial sampling band and
 ±2-pixel changes to the estimated center, plus uncalibrated optics. They are not
 standard errors and were not reduced by the number of cycles. No production
 uncertainty statistic or automatic regression tolerance is introduced here.
