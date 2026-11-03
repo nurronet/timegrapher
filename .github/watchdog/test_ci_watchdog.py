@@ -50,8 +50,10 @@ class FakeAPI:
             return {"jobs": self.jobs}
         if path.startswith("/check-runs/"):
             return self.annotations.get(int(path.split("/")[2]), [])
-        if path.startswith("/actions/workflows/ci.yml/runs?event=pull_request"):
-            return {"workflow_runs": [self.run] + self.newer}
+        if path.startswith("/actions/workflows/ci.yml/runs?event="):
+            event = path.split("event=")[1].split("&")[0]
+            runs = [self.run] + self.newer
+            return {"workflow_runs": [run for run in runs if run.get("event") == event]}
         if path.startswith("/actions/workflows/ci.yml/runs?status="):
             status = path.split("status=")[1].split("&")[0]
             return {"workflow_runs": [self.run] if status == self.run["status"] else []}
@@ -307,6 +309,30 @@ class Sweep(unittest.TestCase):
         api = FakeAPI(run, jobs, limit)
         watchdog.completed(api, 50, log=quiet)
         self.assertEqual([path for path, _ in api.posts], ["/issues"])
+
+    def test_a_main_run_a_newer_merge_cancelled_is_left_alone(self):
+        run = ci_run(event="push", head_branch="main", pull_requests=[], conclusion="cancelled")
+        newer = ci_run(id=51, event="push", head_branch="main", pull_requests=[], status="in_progress")
+        jobs = [job(1, "test (ubuntu-24.04)"), job(2, "regress (mcp)", "cancelled"),
+                job(3, "test (macos-latest)", "cancelled")]
+        # Not re-run (that would cancel the newer run) and not flagged.
+        api = FakeAPI(run, jobs, {3: [dict(message=NOT_ACQUIRED)]}, newer=[newer])
+        self.assertEqual(watchdog.completed(api, 50, log=quiet), "skip")
+        self.assertEqual(api.posts, [])
+        # A job that failed before the newer merge cancelled the rest is flagged.
+        jobs.append(job(4, "regress (app)", "failure"))
+        api = FakeAPI(run, jobs, {4: []}, newer=[newer])
+        watchdog.completed(api, 50, log=quiet)
+        [(path, body)] = api.posts
+        self.assertEqual(path, "/issues")
+        self.assertIn("`regress (app)` failed", body["body"])
+        self.assertNotIn("regress (mcp)", body["body"])
+
+    def test_a_pull_request_run_does_not_count_as_newer_on_main(self):
+        jobs, annotations = macos_stall()
+        run = ci_run(event="push", head_branch="main", pull_requests=[])
+        api = FakeAPI(run, jobs, annotations, newer=[ci_run(id=51)])
+        self.assertEqual(watchdog.completed(api, 50, log=quiet), "rerun")
 
     def test_a_real_failure_on_a_pull_request_is_not_flagged(self):
         api = FakeAPI(ci_run(), [job(1, "regress (app)", "failure")], {1: []})
