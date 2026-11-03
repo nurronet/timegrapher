@@ -955,6 +955,9 @@ pub struct Reading {
     pub notes: Option<String>,
     pub duration_s: f64,
     pub bph: u32,
+    /// The supplied beat rate (option, calibre or session file), never a guess.
+    /// With no supplied rate, no-watch text gives scatter only in ms (#857).
+    pub bph_set: Option<u32>,
     pub measurement: Measurement,
     pub cycles: Vec<Cycle>,
     pub shape: Option<ShapeSummary>,
@@ -1333,20 +1336,24 @@ const SHORT_MEASURE_S: f64 = 40.0;
 
 /// The sentence for a recording with no regular beat, e.g. "No regular
 /// beat found (timing scatter 8.6 ms, 6.9% of a beat)", as every surface
-/// states it.
-pub fn no_regular_beat(jitter_us: Option<f64>, bph: u32) -> String {
+/// states it. `bph_set` is supplied by the user, calibre or session file;
+/// without it, only ms are shown, never a percent of a guessed beat.
+pub fn no_regular_beat(jitter_us: Option<f64>, bph_set: Option<u32>) -> String {
     let j = jitter_us.filter(|j| j.is_finite());
-    crate::beats::no_regular_beat_text(j, crate::beats::timing_scatter_fraction(j, bph))
+    crate::beats::no_regular_beat_text(
+        j,
+        bph_set.and_then(|b| crate::beats::timing_scatter_fraction(j, b)),
+    )
 }
 
 /// [`no_regular_beat`] for a measurement, or, when its beats' sound shows
 /// no unlock or drop on either side, that fact.
-pub fn no_regular_beat_in(m: &Measurement, bph: u32) -> String {
+pub fn no_regular_beat_in(m: &Measurement, bph_set: Option<u32>) -> String {
     match crate::measure::no_watch_reason_in(&m.caveats) {
         Some(r @ crate::measure::NoWatchReason::NoBeatSound) => {
             crate::measure::no_watch_text(r, None, None)
         }
-        _ => no_regular_beat(m.jitter_us, bph),
+        _ => no_regular_beat(m.jitter_us, bph_set),
     }
 }
 
@@ -1383,7 +1390,7 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
             push(
                 "no_regular_beat",
                 ri,
-                no_regular_beat_in(m, r.bph),
+                no_regular_beat_in(m, r.bph_set),
                 format!("in {}; rate, amplitude and beat error are not shown", at(r)),
             );
             continue;
@@ -1715,14 +1722,30 @@ mod manifest_input_tests {
         assert!(window_in(&w(19.0), 20.0, 30.0));
     }
 
+    #[test]
+    fn no_regular_beat_without_a_set_rate_keeps_only_the_scatter_in_ms() {
+        assert_eq!(
+            no_regular_beat(Some(8600.0), None),
+            "No regular beat found (timing scatter 8.6 ms)"
+        );
+        assert_eq!(
+            crate::measure::no_watch_text(
+                crate::measure::NoWatchReason::Scatter,
+                Some(8600.0),
+                None
+            ),
+            no_regular_beat(Some(8600.0), None)
+        );
+    }
+
     /// With no timing scatter the sentence is beats.rs's own, as with one.
     #[test]
     fn no_regular_beat_is_the_one_sentence_without_a_scatter() {
         let none = crate::beats::no_regular_beat_text(None, None);
-        assert_eq!(no_regular_beat(None, 28800), none);
-        assert_eq!(no_regular_beat(Some(f64::NAN), 28800), none);
+        assert_eq!(no_regular_beat(None, Some(28800)), none);
+        assert_eq!(no_regular_beat(Some(f64::NAN), Some(28800)), none);
         assert_eq!(
-            no_regular_beat(Some(8600.0), 28800),
+            no_regular_beat(Some(8600.0), Some(28800)),
             "No regular beat found (timing scatter 8.6 ms, 6.9% of a beat)"
         );
     }

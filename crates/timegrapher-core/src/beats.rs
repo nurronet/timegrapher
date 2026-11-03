@@ -443,15 +443,20 @@ pub fn timing_scatter_fraction(jitter_us: Option<f64>, bph: u32) -> Option<f64> 
 /// The words for no regular beat found, from the timing scatter in µs
 /// and as a share of the beat (see [`timing_scatter_fraction`]): "No
 /// regular beat found (timing scatter 8.6 ms, 5.2% of a beat)". Without a
-/// scatter (too few beats to fit), just the fact.
+/// fraction (no supplied rate), only ms; without a scatter (too few
+/// beats to fit), just the fact.
 pub fn no_regular_beat_text(jitter_us: Option<f64>, fraction: Option<f64>) -> String {
-    match jitter_us.zip(fraction) {
-        Some((j, f)) => format!(
+    match (jitter_us, fraction) {
+        (Some(j), Some(f)) => format!(
             "No regular beat found (timing scatter {:.1} ms, {:.1}% of a beat)",
             j / 1000.0,
             f * 100.0
         ),
-        None => "No regular beat found (too few beats to time)".to_string(),
+        (Some(j), None) => format!(
+            "No regular beat found (timing scatter {:.1} ms)",
+            j / 1000.0
+        ),
+        (None, _) => "No regular beat found (too few beats to time)".to_string(),
     }
 }
 

@@ -38,10 +38,11 @@ pub fn no_regular_beat(m: &Value, bph: Option<f64>) -> String {
             None,
             None,
         ),
-        Some(b) => {
-            timegrapher_core::session::no_regular_beat(m["jitter_us"].as_f64(), b.round() as u32)
-        }
-        None => timegrapher_core::session::no_regular_beat(None, 0),
+        Some(b) => timegrapher_core::session::no_regular_beat(
+            m["jitter_us"].as_f64(),
+            Some(b.round() as u32),
+        ),
+        None => timegrapher_core::session::no_regular_beat(m["jitter_us"].as_f64(), None),
     };
     format!("{said}. There are no rate, amplitude or beat error readings.")
 }
@@ -55,7 +56,7 @@ pub const NO_BEAT_KEY: &str = "timegrapher/no_beat";
 pub fn no_beat(doc: &Value) -> Option<String> {
     let schema = doc["schema"].as_str().unwrap_or("");
     if schema.starts_with("timegrapher.analyze/") && doc["watch_heard"] == false {
-        return Some(no_regular_beat(doc, doc["bph"].as_f64()));
+        return Some(no_regular_beat(doc, doc["bph_set"].as_f64()));
     }
     let c = &doc["check"];
     if schema.starts_with("timegrapher.record/") && c["watch_heard"] == false {
@@ -64,7 +65,7 @@ pub fn no_beat(doc: &Value) -> Option<String> {
             "jitter_us": c["timing_scatter_ms"].as_f64().map(|ms| ms * 1000.0),
             "caveats": c["caveats"],
         });
-        return Some(no_regular_beat(&m, c["bph"].as_f64()));
+        return Some(no_regular_beat(&m, c["bph_set"].as_f64()));
     }
     None
 }
@@ -90,11 +91,11 @@ pub fn limits(doc: &Value) -> Vec<Value> {
     let lift = doc["input"]["settings"]["lift_deg"]
         .as_f64()
         .or(doc["lift_deg"].as_f64());
-    let bph = doc["bph"].as_f64();
+    let bph = doc["bph_set"].as_f64();
     // No regular beat is said with the measurement's own timing scatter.
-    let say = |c: &Value, m: &Value| match c["code"].as_str() {
+    let say = |c: &Value, m: &Value, bph: Option<f64>| match c["code"].as_str() {
         Some("no_watch") if c["reason"] == "no_beat_sound" => fact(c, lift),
-        Some("no_watch") => Some(no_regular_beat(m, m["bph"].as_f64().or(bph))),
+        Some("no_watch") => Some(no_regular_beat(m, bph)),
         _ => fact(c, lift),
     };
     if schema.starts_with("timegrapher.analyze/") {
@@ -115,7 +116,7 @@ pub fn limits(doc: &Value) -> Vec<Value> {
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|c| say(c, doc))
+            .filter_map(|c| say(c, doc, bph))
             .map(|text| json!({ "where": null, "text": text }))
             .collect();
     }
@@ -138,13 +139,16 @@ pub fn limits(doc: &Value) -> Vec<Value> {
 }
 
 /// Each reading's caveats as sentences, with the readings each is about.
-fn by_reading(readings: &[Value], say: impl Fn(&Value, &Value) -> Option<String>) -> Vec<Value> {
+fn by_reading(
+    readings: &[Value],
+    say: impl Fn(&Value, &Value, Option<f64>) -> Option<String>,
+) -> Vec<Value> {
     // Each sentence once, with the readings it applies to, in the order
     // first seen.
     let mut out: Vec<(String, Vec<String>)> = Vec::new();
     for r in readings {
         for c in r["measurement"]["caveats"].as_array().into_iter().flatten() {
-            let Some(text) = say(c, &r["measurement"]) else {
+            let Some(text) = say(c, &r["measurement"], r["bph_set"].as_f64()) else {
                 continue;
             };
             let name = reading_name(r);
@@ -345,8 +349,27 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_rate_never_becomes_a_percent_from_the_detected_bph() {
+        for bph in [28800, 72000] {
+            let analyze = json!({"schema": "timegrapher.analyze/2", "bph": bph, "bph_set": null, "jitter_us": 8600.0, "watch_heard": false, "caveats": [{"code": "no_watch"}]});
+            let record = json!({"schema": "timegrapher.record/2", "check": {"bph": bph, "bph_set": null, "timing_scatter_ms": 8.6, "watch_heard": false}});
+            let said = no_beat(&analyze).unwrap();
+            assert!(said.contains("timing scatter 8.6 ms)"), "{said}");
+            assert!(!said.contains("%"), "{said}");
+            assert_eq!(no_beat(&record).unwrap(), said);
+            assert_eq!(notes(&analyze), std::slice::from_ref(&said));
+            let mut session = json!({"schema": "timegrapher.session/1", "bph_set": 28800, "readings": [{"position": "DU", "bph": bph, "bph_set": null, "measurement": analyze}]});
+            let notes = notes(&session);
+            assert_eq!(notes.len(), 1);
+            assert!(!notes[0].contains("%"));
+            session["readings"][0]["bph_set"] = json!(28800);
+            assert!(super::notes(&session)[0].contains("6.9% of a beat"));
+        }
+    }
+
+    #[test]
     fn no_regular_beat_gives_the_timing_scatter() {
-        let doc = json!({ "schema": "timegrapher.analyze/2", "bph": 28800, "jitter_us": 8600.0,
+        let doc = json!({ "schema": "timegrapher.analyze/2", "bph": 28800, "bph_set": 28800, "jitter_us": 8600.0,
             "watch_heard": false, "caveats": [{ "code": "no_watch" }] });
         assert_eq!(
             notes(&doc),
@@ -366,11 +389,11 @@ mod tests {
     fn the_views_get_the_no_regular_beat_sentence() {
         let said = "No regular beat found (timing scatter 8.6 ms, 6.9% of a beat). There are \
                     no rate, amplitude or beat error readings.";
-        let analyze = json!({ "schema": "timegrapher.analyze/2", "bph": 28800,
+        let analyze = json!({ "schema": "timegrapher.analyze/2", "bph": 28800, "bph_set": 28800,
             "jitter_us": 8600.0, "watch_heard": false });
         assert_eq!(no_beat(&analyze).as_deref(), Some(said));
         let record = json!({ "schema": "timegrapher.record/2",
-            "check": { "bph": 28800, "timing_scatter_ms": 8.6, "watch_heard": false } });
+            "check": { "bph": 28800, "bph_set": 28800, "timing_scatter_ms": 8.6, "watch_heard": false } });
         assert_eq!(no_beat(&record).as_deref(), Some(said));
         assert_eq!(
             no_beat(&json!({ "schema": "timegrapher.analyze/2", "watch_heard": true })),

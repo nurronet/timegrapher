@@ -83,6 +83,9 @@ pub struct LiveReading {
     /// Audio time of the reading, seconds from the start.
     pub time_s: f64,
     pub bph: Option<u32>,
+    /// The supplied beat rate (option, calibre or session file), never a guess.
+    /// With no supplied rate, no-watch text gives scatter only in ms (#857).
+    pub bph_set: Option<u32>,
     pub rate_s_per_day: Option<f64>,
     /// Signed beat error from the fit to the beat times (near the drop), ms.
     pub beat_error_ms: Option<f64>,
@@ -1048,6 +1051,7 @@ impl LiveAnalyzer {
         }
         let whole = holes.whole(&self.beats, window_from, end_s, GAP_S);
         LiveReading {
+            bph_set: self.cfg.analysis.bph,
             time_s: end_s,
             bph,
             rate_s_per_day: heard(fit.map(|f| f.rate_s_per_day)).map(|v| {
@@ -1347,6 +1351,26 @@ mod tests {
             live.sides_known_at(live.duration_s()),
             "{case}: sides never checked"
         );
+    }
+
+    #[test]
+    fn a_live_reading_keeps_the_supplied_rate_separate_from_detection() {
+        for bph_set in [None, Some(28800)] {
+            let mut cfg = LiveConfig::default();
+            cfg.analysis.bph = bph_set;
+            let mut live = LiveAnalyzer::new(48000, cfg);
+            // A detector's guess does not become a user-supplied rate.
+            live.bph = Some(72000);
+            let reading = live.reading(30.0);
+            assert_eq!(reading.bph_set, bph_set);
+            let text = crate::measure::no_watch_text(
+                crate::measure::NoWatchReason::Scatter,
+                Some(8600.0),
+                reading.bph_set,
+            );
+            assert_eq!(text.contains("% of a beat"), bph_set.is_some());
+            assert!(text.contains("8.6 ms"));
+        }
     }
 
     #[test]
