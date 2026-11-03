@@ -11,7 +11,7 @@ only when every file it changes is Markdown that nothing compiles in and no
 test reads, edited or added in place: never a deletion or rename, never the
 watchmaker skill, packaging, or a document the MCP server compiles in
 (MCP_DOCS, kept equal to guidance.rs by the offline tests). In a light run
-all seven CI jobs still run and report: the test jobs run only their offline
+all eight CI jobs still run and report: the test jobs run only their offline
 Python tests, the three regress jobs skip their corpus and engine steps, and mcp-renderer
 runs as usual. If git fails, this exits with an error and the job fails.
 

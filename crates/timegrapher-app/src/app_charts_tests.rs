@@ -38,7 +38,7 @@ fn rate_distribution_counts_two_second_stretches() {
         let b = a + RateTwoS::STEP_S;
         assert!(!(a < 15.0 && 15.0 < b), "across the break at {a}");
         assert!(!(a < 7.5 && b > 5.0), "into the mask at {a}");
-        assert!((v - 12.0).abs() < 20.0, "{v} s/day at {a}");
+        assert!((v - 12.0).abs() < 20.0, "{v} s/d at {a}");
     }
     // Refreshing again adds nothing; a change of mask starts again.
     let n = r.values.len();
@@ -106,12 +106,14 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
     for t in [
         "Charts",
         "Distributions",
-        "s/day",
+        "s/d",
         "Beat Error:",
         "Amplitude:",
     ] {
         assert!(text.contains(t), "{t}: {text}");
     }
+    // Rates in s/d, as everywhere else (#815).
+    assert!(!text.contains("s/day"), "{text}");
     assert!(!text.contains("Match Strip"), "{text}");
     app.chart_series = RATE_ONLY;
     // The last one on stays on; another comes on beside it.
@@ -121,4 +123,58 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
     assert_eq!(app.chart_series, [true, false, true]);
     steady::flip_series(&mut app.chart_series, 0);
     assert_eq!(app.chart_series, [false, false, true]);
+}
+
+/// No two words a Distributions plot draws lie on one another: the first
+/// value along the bottom stays clear of the lowest share up the side.
+#[test]
+fn a_distributions_axis_labels_stay_apart() {
+    let mut app = synthetic(300.0, 12.0);
+    // Readings spread across a second a day, as a watch's are.
+    for (i, p) in app.trend.iter_mut().enumerate() {
+        p.rate_s_per_day = Some(-0.45 + 0.7 * ((i * 7) % 30) as f64 / 29.0);
+    }
+    app.hist_readings = true;
+    let ctx = themed();
+    fn texts(shape: &egui::Shape, into: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(t) => into.push((
+                t.galley.text().to_string(),
+                t.galley.rect.translate(t.pos.to_vec2()),
+            )),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, into)),
+            _ => {}
+        }
+    }
+    for w in [360.0, 700.0, 1400.0] {
+        let mut all = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(w, 260.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.histogram(ui, SeriesKind::Rate));
+            });
+            all.clear();
+            out.shapes.iter().for_each(|c| texts(&c.shape, &mut all));
+        }
+        assert!(all.iter().any(|(t, _)| t.ends_with('%')), "{all:?}");
+        assert!(all.iter().any(|(t, _)| t.ends_with("s/d")), "{all:?}");
+        // None runs off the plot's right end either.
+        for (t, r) in &all {
+            assert!(r.right() <= w, "at {w}: {t:?} {r:?} runs off the pane");
+        }
+        for (i, (a, ra)) in all.iter().enumerate() {
+            for (b, rb) in &all[i + 1..] {
+                assert!(
+                    !ra.shrink(0.5).intersects(rb.shrink(0.5)),
+                    "at {w}: {a:?} {ra:?} lies on {b:?} {rb:?}"
+                );
+            }
+        }
+    }
 }

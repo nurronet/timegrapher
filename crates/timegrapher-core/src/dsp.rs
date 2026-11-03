@@ -325,6 +325,52 @@ pub fn detrend_line(y: &mut [f64]) {
     }
 }
 
+/// Solves `a x = b` by Gauss–Jordan elimination with partial pivoting:
+/// the one linear solve in core (#512). `None` when a pivot is smaller
+/// than `tiny`, the caller's own scale for "singular".
+#[allow(clippy::needless_range_loop)]
+pub fn solve<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N], tiny: f64) -> Option<[f64; N]> {
+    for c in 0..N {
+        let p = (c..N).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
+        if a[p][c].abs() < tiny {
+            return None;
+        }
+        a.swap(c, p);
+        b.swap(c, p);
+        for r in 0..N {
+            if r != c {
+                let f = a[r][c] / a[c][c];
+                for k in 0..N {
+                    a[r][k] -= f * a[c][k];
+                }
+                b[r] -= f * b[c];
+            }
+        }
+    }
+    Some(std::array::from_fn(|i| b[i] / a[i][i]))
+}
+
+/// Weighted least squares: the coefficients `x` that minimise
+/// `sum w (y - row . x)^2` over the `(row, y, w)` given, through the
+/// normal equations and [`solve`] (`None` as there).
+#[allow(clippy::needless_range_loop)]
+pub fn least_squares<const N: usize>(
+    rows: impl IntoIterator<Item = ([f64; N], f64, f64)>,
+    tiny: f64,
+) -> Option<[f64; N]> {
+    let mut a = [[0.0f64; N]; N];
+    let mut b = [0.0f64; N];
+    for (r, y, w) in rows {
+        for i in 0..N {
+            b[i] += w * r[i] * y;
+            for j in 0..N {
+                a[i][j] += w * r[i] * r[j];
+            }
+        }
+    }
+    solve(a, b, tiny)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,5 +547,36 @@ mod tests {
         assert!(moving_average(&x, 7)
             .iter()
             .all(|&v| (v - 2.0).abs() < 1e-6));
+    }
+
+    /// The one linear solve: a pivot that needs a row swap, a weighted
+    /// quadratic recovered exactly, and a singular system refused at the
+    /// caller's own scale (#512).
+    #[test]
+    fn one_solve_reads_fits_and_refuses_a_singular_system() {
+        let x = solve(
+            [[0.0, 2.0, 1.0], [1.0, 1.0, 0.0], [2.0, 0.0, 3.0]],
+            [7.0, 3.0, 11.0],
+            1e-12,
+        )
+        .unwrap();
+        for (got, want) in x.iter().zip([1.0, 2.0, 3.0]) {
+            assert!((got - want).abs() < 1e-12, "{x:?}");
+        }
+        let rows = (0..9).map(|i| {
+            let t = f64::from(i) - 4.0;
+            (
+                [1.0, t, t * t],
+                0.5 - 2.0 * t + 0.25 * t * t,
+                1.0 + f64::from(i % 3),
+            )
+        });
+        let c = least_squares(rows, 1e-12).unwrap();
+        for (got, want) in c.iter().zip([0.5, -2.0, 0.25]) {
+            assert!((got - want).abs() < 1e-9, "{c:?}");
+        }
+        assert_eq!(solve([[1.0, 2.0], [2.0, 4.0]], [1.0, 2.0], 1e-12), None);
+        let flat = (0..5).map(|_| ([1.0, 3.0, 9.0], 1.0, 1.0));
+        assert_eq!(least_squares(flat, 1e-12), None);
     }
 }

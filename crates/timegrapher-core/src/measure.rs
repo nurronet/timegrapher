@@ -247,6 +247,10 @@ pub enum Caveat {
     /// The take's entries name `count` positions, so what goes with the
     /// amplitude across it may go with the position instead (#651).
     Positions { count: usize },
+    /// The first `seconds` of the stretch were noise before the watch was
+    /// heard, and are left out of the readings
+    /// ([`crate::session::watch_lead_s`], #844).
+    LeadLeftOut { seconds: f64 },
 }
 
 impl Caveat {
@@ -288,6 +292,7 @@ impl Caveat {
             Caveat::Positions { count } => format!(
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
+            Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
         })
     }
 
@@ -378,6 +383,10 @@ impl Caveat {
                 "The take holds {count} positions, so a rate that changes with the \
                  position can show as one that goes with the amplitude."
             ),
+            Caveat::LeadLeftOut { seconds } => format!(
+                "The first {seconds:.0} s held no regular beat before the watch was heard, \
+                 and are left out of the readings."
+            ),
         })
     }
 
@@ -428,6 +437,7 @@ impl Caveat {
             Caveat::Masked { .. } => 12,
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
+            Caveat::LeadLeftOut { .. } => 15,
         }
     }
 }
@@ -588,13 +598,12 @@ pub fn assess(
         caveats.push(Caveat::BeatErrorAsSize);
     }
     let confidence = c.watch_heard.then(|| {
-        let amps: Vec<f64> = amplitude_windows.iter().filter_map(|w| w.mean()).collect();
         Confidence::new(
             match c.average_s {
                 Some(t) => rate_se_over(rate_windows, t),
                 None => confidence::rate_se(rate_windows),
             },
-            confidence::standard_error(&amps),
+            confidence::amplitude_windows_se(amplitude_windows.iter().copied(), |w| w.mean()),
             confidence::beat_error_se(amplitude_windows.iter().copied(), c.beat_error_as_size),
         )
     });

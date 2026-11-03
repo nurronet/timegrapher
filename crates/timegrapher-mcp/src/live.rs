@@ -131,7 +131,7 @@ pub fn status() -> Value {
 }
 
 /// One line for the progress messages and the status text, e.g.
-/// "Recording CD: 72 of 120 s · +4.1 s/day · 268° · 0.3 ms".
+/// "Recording CD: 72 of 120 s · +4.1 s/d · 268° · 0.3 ms".
 pub fn summary(doc: &Value) -> String {
     if doc["recording"] == false {
         return "No recording is running.".into();
@@ -148,7 +148,7 @@ pub fn summary(doc: &Value) -> String {
     let r = &doc["reading"];
     if r["beats_used"].as_u64().unwrap_or(0) > 0 {
         if let Some(v) = r["rate_s_per_day"].as_f64() {
-            s += &format!(" · {v:+.1} s/day");
+            s += &format!(" · {v:+.1} s/d");
         }
         if let Some(v) = r["amplitude_deg"].as_f64() {
             s += &format!(" · {v:.0}°");
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(s["structuredContent"]["recorded_s"], 72.0);
         assert_eq!(
             s["content"][0]["text"],
-            "Recording CD: 72 of 120 s · +4.1 s/day · 268° · 0.3 ms"
+            "Recording CD: 72 of 120 s · +4.1 s/d · 268° · 0.3 ms"
         );
         drop(feed);
         assert!(!path.exists());
