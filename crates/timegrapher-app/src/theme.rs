@@ -1110,6 +1110,26 @@ pub fn clear_of_right_edge(
     }
 }
 
+/// An axis label along the bottom of a plot `plot_w` points wide, or none
+/// where, centred on its mark, it would run past either end: off the right
+/// of the pane, or into the labels up the left.
+pub fn clear_of_ends(
+    text: String,
+    value: f64,
+    range: &std::ops::RangeInclusive<f64>,
+    plot_w: f64,
+) -> String {
+    let (a, b) = (*range.start(), *range.end());
+    let x = (value - a) / (b - a).max(f64::EPSILON) * plot_w;
+    // Half the label: a small axis character is about 7 points wide.
+    let half = text.chars().count() as f64 * 3.5;
+    if x < half || plot_w - x < half {
+        String::new()
+    } else {
+        text
+    }
+}
+
 /// Steps for a time axis in seconds: whole seconds, minutes and hours.
 pub const TIME_STEPS: [f64; 22] = [
     0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0,

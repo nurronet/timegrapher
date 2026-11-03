@@ -120,6 +120,7 @@ impl TimegrapherApp {
         let (x_lo, x_hi) = (d.edges[0], d.edges[d.edges.len() - 1]);
         let unit_owned = kind.suffix.to_string();
         let cumulative = self.hist_cumulative;
+        let plot_w = f64::from(ui.available_width() - 44.0);
         let plot = Plot::new(format!("{} Distribution", steady::title(reading)))
             // As short as its share of the pane, rather than spilling out.
             .min_size(Vec2::new(64.0, 24.0))
@@ -132,9 +133,9 @@ impl TimegrapherApp {
             .show_x(false)
             .show_y(false)
             .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
-            .x_axis_formatter(move |m, _| {
+            .x_axis_formatter(move |m, r| {
                 let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
-                format!("{v}{unit_owned}")
+                theme::clear_of_ends(format!("{v}{unit_owned}"), m.value, r, plot_w)
             })
             .y_axis_min_width(44.0)
             .default_x_bounds(x_lo, x_hi);
