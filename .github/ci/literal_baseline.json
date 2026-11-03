@@ -1,5 +1,5 @@
 {
- "copies": 16,
+ "copies": 15,
  "crates": {
   "timegrapher-app": {
    "files": {
@@ -60,7 +60,7 @@
     "crates/timegrapher-app/src/app/scope_panes.rs": {
      "bounds": 1,
      "comparisons": 2,
-     "constants": 0,
+     "constants": 2,
      "defaults": 1
     },
     "crates/timegrapher-app/src/app/settings_pane.rs": {
@@ -223,7 +223,7 @@
    "total": {
     "bounds": 107,
     "comparisons": 109,
-    "constants": 54,
+    "constants": 56,
     "defaults": 4
    }
   },
@@ -339,7 +339,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 5364,
-  "crates/timegrapher-app/src/calibre_ui.rs": 3186
+  "crates/timegrapher-app/src/app.rs": 5364
  }
 }

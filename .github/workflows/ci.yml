@@ -1,8 +1,8 @@
 name: CI
 
-# Every push to main and every pull request runs all seven jobs. A pull
+# Every push to main and every pull request runs all eight jobs. A pull
 # request that only edits or adds Markdown nothing compiles in or tests read
-# is a light run (.github/ci/changes.py): all seven jobs still run and report,
+# is a light run (.github/ci/changes.py): all eight jobs still run and report,
 # the test jobs run only their offline Python tests, the three regress jobs
 # skip their corpus and engine steps, and mcp-renderer runs as usual. The
 # watchmaker skill and the docs the MCP server compiles in always run in full. A pull request that
@@ -22,10 +22,26 @@ concurrency:
 
 jobs:
   test:
+    name: test (${{ matrix.os }}${{ matrix.part && format(' {0}', matrix.part) || '' }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest, macos-latest]
+        # Windows runs its tests as two halves on two runners (nextest's
+        # --partition), as `test (windows-latest 1/2)` and `2/2`: its job
+        # finished last in 17 of 33 green PR runs on 2-3 Nov, about 13
+        # minutes, 5 of them a CPU-bound test run (#907). Each half builds
+        # the tests (about 4 minutes) and runs half of them. Only 1/2 runs
+        # fmt, clippy and the doc tests, and saves the rust cache.
+        part: ['']
+        exclude:
+          - os: windows-latest
+            part: ''
+        include:
+          - os: windows-latest
+            part: 1/2
+          - os: windows-latest
+            part: 2/2
     runs-on: ${{ matrix.os }}
     # Time limits count from when a runner starts the job, not the queue, and
     # sit well above the slowest recent run (test 18 minutes, regress 7) so a
@@ -48,7 +64,7 @@ jobs:
         id: changes
         shell: bash
         run: python3 .github/ci/changes.py "${{ github.event_name }}" HEAD^1 HEAD | tee -a "$GITHUB_OUTPUT"
-      # Offline tests of the publishing gate; keep its seven-job/step contract
+      # Offline tests of the publishing gate; keep its eight-job/step contract
       # in .github/scripts/release_ci_gate.py synchronized with this workflow.
       - name: Release CI gate tests (offline)
         run: python3 -m unittest discover -s .github/scripts -p 'test_release_ci_gate.py' -v
@@ -82,13 +98,15 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         if: steps.changes.outputs.full != 'false'
+        with:
+          save-if: ${{ matrix.part != '2/2' }}
       - name: ALSA headers for sound input
         if: runner.os == 'Linux' && steps.changes.outputs.full != 'false'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo fmt --check
-        if: steps.changes.outputs.full != 'false'
+        if: matrix.part != '2/2' && steps.changes.outputs.full != 'false'
       - run: cargo clippy --locked --all-targets -- -D warnings
-        if: steps.changes.outputs.full != 'false'
+        if: matrix.part != '2/2' && steps.changes.outputs.full != 'false'
       # nextest runs the tests of every test program side by side, one to
       # a core, where cargo test runs the programs one after another (about
       # 7 of the job's 12 minutes on 1 Nov). Each test runs in a process
@@ -107,9 +125,9 @@ jobs:
         # edge-take comparisons the regress checks run.
         env:
           TIMEGRAPHER_MCP_TEST_CLI: ${{ github.workspace }}/target/release/timegrapher${{ runner.os == 'Windows' && '.exe' || '' }}
-        run: cargo nextest run --locked --release --no-fail-fast
+        run: cargo nextest run --locked --release --no-fail-fast ${{ matrix.part && format('--partition count:{0}', matrix.part) || '' }}
       - name: Doc tests
-        if: steps.changes.outputs.full != 'false'
+        if: matrix.part != '2/2' && steps.changes.outputs.full != 'false'
         run: cargo test --locked --release --doc
       # Unused dependencies and libraries' licences (architecture guide,
       # section 12; deny.toml). Each takes seconds.
@@ -163,7 +181,7 @@ jobs:
       # As in the test job: no debug info in CI's release builds.
       CARGO_PROFILE_RELEASE_DEBUG: "0"
       # Reviewed with the engine baseline; update through docs/regress.md.
-      CORPUS_REVISION: f85f586d55fba3ea3475c23b539f105df7b89490
+      CORPUS_REVISION: 738010e6a6ca244ddd14a9893754af6c0a1d7acb
       TIMEGRAPHER_CORPUS: ${{ github.workspace }}/corpus
       TIMEGRAPHER_REQUIRE_CORPUS: "1"
       TIMEGRAPHER_CLI: ${{ github.workspace }}/target/release/timegrapher
