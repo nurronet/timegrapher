@@ -17,7 +17,8 @@ REPOSITORY = "peterhudson/timegrapher"
 WORKFLOW = ".github/workflows/ci.yml"
 REQUIRED_JOBS = (
     "test (ubuntu-24.04)",
-    "test (windows-latest)",
+    "test (windows-latest 1/2)",
+    "test (windows-latest 2/2)",
     "test (macos-latest)",
     "mcp-renderer",
     "regress (app)",

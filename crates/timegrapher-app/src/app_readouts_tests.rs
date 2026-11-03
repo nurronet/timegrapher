@@ -757,3 +757,60 @@ fn draws_the_empty_and_error_states() {
     app.input = Input::File;
     frames(&mut app, &ctx, 1);
 }
+
+/// A long run keeps the tick and tock sound every 2 s for its last hour
+/// and one a minute before that (#483): 80 h of it is under 7,000
+/// sounds, about 45 MB, where every 2 s was 144,000, about 1 GB.
+#[test]
+fn a_long_runs_sound_is_kept_thinned_before_its_last_hour() {
+    use scope_panes::{kept_sound, thin_sound, SOUND_FULL_S, SOUND_OLD_EVERY_S};
+    let sides: Profiles = [None, None];
+    let mut h: Vec<(f64, Profiles)> = Vec::new();
+    let mut t = 0.0;
+    while t <= 80.0 * 3600.0 {
+        h.push((t, sides.clone()));
+        thin_sound(&mut h);
+        t += SOUND_EVERY_S;
+    }
+    assert!(h.len() < 7_000, "{}", h.len());
+    let last = h.last().unwrap().0;
+    let full: Vec<f64> = h
+        .iter()
+        .map(|e| e.0)
+        .filter(|&t| t >= last - SOUND_FULL_S)
+        .collect();
+    assert_eq!(full.len(), 1801);
+    assert!(full
+        .windows(2)
+        .all(|w| (w[1] - w[0] - SOUND_EVERY_S).abs() < 1e-9));
+    assert!(h
+        .windows(2)
+        .filter(|w| w[1].0 < last - SOUND_FULL_S)
+        .all(|w| (w[1].0 - w[0].0 - SOUND_OLD_EVERY_S).abs() < 1e-6));
+    assert_eq!(h[0].0, 0.0);
+
+    // A moment of the last hour shows the sound of its 2 s; an older one
+    // the sound of its minute, at the time it was kept.
+    assert_eq!(kept_sound(&h, last - 1.0).map(|e| e.0), Some(last - 2.0));
+    assert_eq!(kept_sound(&h, 3600.0 + 59.0).map(|e| e.0), Some(3600.0));
+    assert_eq!(kept_sound(&h, 3600.0 + 61.0).map(|e| e.0), Some(3660.0));
+    // A moment beyond what was kept shows none.
+    assert!(kept_sound(&h, last + 3.0).is_none());
+    assert!(kept_sound(&h, -1.0).is_none());
+}
+
+/// Within the last hour a gap in the sound kept is not filled by the
+/// sound before it, as before (#483): only an older moment reaches back
+/// up to a minute.
+#[test]
+fn a_recent_gap_in_the_sound_kept_shows_none() {
+    use scope_panes::kept_sound;
+    let sides: Profiles = [None, None];
+    let h: Vec<(f64, Profiles)> = [0.0, 2.0, 4.0, 30.0, 32.0]
+        .into_iter()
+        .map(|t| (t, sides.clone()))
+        .collect();
+    assert_eq!(kept_sound(&h, 5.0).map(|e| e.0), Some(4.0));
+    assert!(kept_sound(&h, 20.0).is_none());
+    assert_eq!(kept_sound(&h, 31.0).map(|e| e.0), Some(30.0));
+}

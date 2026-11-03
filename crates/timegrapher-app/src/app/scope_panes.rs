@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// How long the tick and tock sound is kept every [`SOUND_EVERY_S`], back
+/// from the latest kept; before that, one a minute ([`SOUND_OLD_EVERY_S`]),
+/// so a run of days keeps tens of megabytes, not a gigabyte (#483).
+pub(super) const SOUND_FULL_S: f64 = 3600.0;
+/// How often the sound is kept before the last [`SOUND_FULL_S`].
+pub(super) const SOUND_OLD_EVERY_S: f64 = 60.0;
+
+/// Thin `history` (times rising) to one sound a [`SOUND_OLD_EVERY_S`]
+/// before the last [`SOUND_FULL_S`], keeping the first.
+pub(super) fn thin_sound(history: &mut Vec<(f64, Profiles)>) {
+    let Some(&(last, _)) = history.last() else {
+        return;
+    };
+    let old = last - SOUND_FULL_S;
+    let mut kept: Option<f64> = None;
+    history.retain(|(t, _)| {
+        let keep = *t >= old || kept.is_none_or(|k| t - k >= SOUND_OLD_EVERY_S - 1e-6);
+        if keep {
+            kept = Some(*t);
+        }
+        keep
+    });
+}
+
+/// The sound `history` kept nearest before `end`, if it is the one shown
+/// for that moment: within a step of it, as often as it is kept there.
+pub(super) fn kept_sound(history: &[(f64, Profiles)], end: f64) -> Option<&(f64, Profiles)> {
+    let i = history.partition_point(|h| h.0 <= end + 1e-9);
+    let h = &history[i.checked_sub(1)?];
+    let full_from = history.last().map_or(0.0, |l| l.0 - SOUND_FULL_S);
+    let step = if h.0 >= full_from {
+        SOUND_EVERY_S
+    } else {
+        SOUND_OLD_EVERY_S
+    };
+    (end - h.0 <= step + 0.5).then_some(h)
+}
+
 impl TimegrapherApp {
     pub(super) fn profile_settings(&mut self, ui: &mut egui::Ui) {
         let accent = theme::pal(ui).accent;
@@ -91,9 +129,8 @@ impl TimegrapherApp {
         } else {
             // Stopped: what the session kept nearest before the end,
             // else work it out from the file.
-            let i = self.sound_history.partition_point(|h| h.0 <= end + 1e-9);
-            match i.checked_sub(1).map(|i| &self.sound_history[i]) {
-                Some((t, p)) if end - t <= SOUND_EVERY_S + 0.5 => {
+            match kept_sound(&self.sound_history, end) {
+                Some((t, p)) => {
                     note = Some(format!("At {}", length_text(*t)));
                     p.clone()
                 }
@@ -132,12 +169,7 @@ impl TimegrapherApp {
     /// out from the recording (none until that is done).
     fn profiles_at(&mut self, end: f64) -> Profiles {
         let latest = self.running();
-        let i = self.sound_history.partition_point(|h| h.0 <= end + 1e-9);
-        let kept = i
-            .checked_sub(1)
-            .map(|i| &self.sound_history[i])
-            .filter(|(t, _)| end - t <= SOUND_EVERY_S + 0.5)
-            .map(|(_, p)| p.clone());
+        let kept = kept_sound(&self.sound_history, end).map(|(_, p)| p.clone());
         match kept {
             _ if latest => self
                 .live
