@@ -323,8 +323,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
 
     let jitter_us = crate::session::scatter_jitter_us(&rate_windows);
     let se = |f: &dyn Fn(&AmplitudeWindow) -> Option<f64>| {
-        let v: Vec<f64> = clear.iter().filter_map(f).collect();
-        crate::confidence::standard_error(&v)
+        crate::confidence::amplitude_windows_se(clear.iter(), f)
     };
     let no_watch = crate::measure::no_watch_reason(jitter_us, bph, duration, beat_sound);
     let watch_heard = no_watch.is_none();

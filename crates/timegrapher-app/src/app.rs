@@ -1666,7 +1666,7 @@ struct ChartLine {
 }
 
 /// The rate over each 2 seconds of beats, on a grid from the first beat,
-/// worked out on as beats arrive: (start, s/day). Whatever it was worked
+/// worked out on as beats arrive: (start, s/d). Whatever it was worked
 /// out from is kept, so it starts again when that changes.
 #[derive(Debug, Default)]
 struct RateTwoS {

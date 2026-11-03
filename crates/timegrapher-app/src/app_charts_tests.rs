@@ -38,7 +38,7 @@ fn rate_distribution_counts_two_second_stretches() {
         let b = a + RateTwoS::STEP_S;
         assert!(!(a < 15.0 && 15.0 < b), "across the break at {a}");
         assert!(!(a < 7.5 && b > 5.0), "into the mask at {a}");
-        assert!((v - 12.0).abs() < 20.0, "{v} s/day at {a}");
+        assert!((v - 12.0).abs() < 20.0, "{v} s/d at {a}");
     }
     // Refreshing again adds nothing; a change of mask starts again.
     let n = r.values.len();
@@ -106,12 +106,14 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
     for t in [
         "Charts",
         "Distributions",
-        "s/day",
+        "s/d",
         "Beat Error:",
         "Amplitude:",
     ] {
         assert!(text.contains(t), "{t}: {text}");
     }
+    // Rates in s/d, as everywhere else (#815).
+    assert!(!text.contains("s/day"), "{text}");
     assert!(!text.contains("Match Strip"), "{text}");
     app.chart_series = RATE_ONLY;
     // The last one on stays on; another comes on beside it.

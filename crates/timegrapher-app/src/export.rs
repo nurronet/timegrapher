@@ -511,7 +511,7 @@ mod tests {
         let _ = ctx.run(egui::RawInput::default(), |ctx| {
             let galley = ctx.fonts_mut(|f| {
                 f.layout_no_wrap(
-                    "Rate <s/day>".into(),
+                    "Rate <s/d>".into(),
                     egui::FontId::proportional(12.0),
                     Color32::from_rgb(200, 30, 40),
                 )
@@ -563,7 +563,7 @@ mod tests {
             "{s}"
         );
         assert!(s.contains(r#"fill-opacity="0.5""#), "{s}");
-        assert!(s.contains("Rate &lt;s/day&gt;"), "{s}");
+        assert!(s.contains("Rate &lt;s/d&gt;"), "{s}");
         // Each run of text placed on its own <text>, which SVG Tiny viewers
         // read too.
         assert!(!s.contains("tspan"), "{s}");
