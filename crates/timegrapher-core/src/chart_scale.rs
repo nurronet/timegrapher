@@ -80,12 +80,7 @@ pub fn axis_decimals(step: f64) -> usize {
 /// An axis value as text, to [`axis_decimals`] of the step. A value that
 /// rounds to zero is written `0`, never `-0` (#815).
 pub fn axis_number(v: f64, step: f64) -> String {
-    let d = axis_decimals(step);
-    let text = format!("{v:.d$}");
-    match text.strip_prefix('-') {
-        Some(rest) if rest.bytes().all(|b| b == b'0' || b == b'.') => rest.to_string(),
-        _ => text,
-    }
+    crate::library::fixed_text(v, axis_decimals(step))
 }
 
 #[cfg(test)]

@@ -139,12 +139,11 @@ fn save(p: &Path, a: &Audio, source: &Value, mixer: Option<&Mixer>) -> Result<()
 }
 
 /// One decimal place, or "-" with no value. A value that rounds to zero
-/// prints as 0.0, not -0.0 (#810).
+/// prints as 0.0, not -0.0 (#810), by core's one rule
+/// ([`timegrapher_core::library::fixed_text`], #815).
 fn opt(v: Option<f64>, unit: &str) -> String {
     v.map_or("-".into(), |x| {
-        let text = format!("{x:.1}");
-        let text = if text == "-0.0" { "0.0".into() } else { text };
-        format!("{text}{unit}")
+        format!("{}{unit}", timegrapher_core::library::fixed_text(x, 1))
     })
 }
 

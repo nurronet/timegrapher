@@ -138,15 +138,12 @@ pub fn svg(shapes: &[ClippedShape], rect: Rect, background: Color32) -> String {
     out
 }
 
-/// A number short enough to read: two decimals at most.
+/// A number short enough to read: two decimals at most, and one that
+/// rounds to zero written `0`, never `-0`, by core's one rule
+/// ([`timegrapher_core::library::fixed_text`], #815).
 fn n(v: f32) -> String {
-    let s = format!("{v:.2}");
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s == "-0" {
-        "0".into()
-    } else {
-        s.into()
-    }
+    let s = timegrapher_core::library::fixed_text(f64::from(v), 2);
+    s.trim_end_matches('0').trim_end_matches('.').into()
 }
 
 /// ` fill="#rrggbb"` with its opacity, or ` fill="none"` when clear.
@@ -457,6 +454,19 @@ fn text(out: &mut String, t: &TextShape) {
 mod tests {
     use super::*;
     use eframe::egui::{Stroke, Vec2};
+
+    /// An SVG number has at most two decimals, none it doesn't need, and
+    /// no "-0" (#815).
+    #[test]
+    fn an_svg_number_is_short_and_has_no_minus_zero() {
+        assert_eq!(n(10.0), "10");
+        assert_eq!(n(2.5), "2.5");
+        assert_eq!(n(1.234), "1.23");
+        assert_eq!(n(-0.5), "-0.5");
+        assert_eq!(n(-0.004), "0");
+        assert_eq!(n(-0.0), "0");
+        assert_eq!(n(0.0), "0");
+    }
 
     #[test]
     fn a_png_is_written_and_read_back() {
