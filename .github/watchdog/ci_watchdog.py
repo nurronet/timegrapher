@@ -43,6 +43,9 @@ MAIN_ISSUE = "<!-- ci-watchdog:main -->"
 MAIN_FAILED_ISSUE = "<!-- ci-watchdog:main-failed -->"
 # GitHub's annotation on a job someone cancelled by hand.
 HAND_CANCEL = "was canceled by"
+# GitHub's annotation on a job cancelled at its timeout-minutes: a hang, never
+# a cancel for a newer run.
+TIME_LIMIT = "exceeded the maximum execution time"
 
 
 class API:
@@ -144,8 +147,10 @@ def failed_on_its_own(jobs, annotations, replaced=False):
     someone cancelled by hand, nor a newer run replaced (replaced: a newer run
     exists, so a cancelled job here was cancelled for it)."""
     def hand_cancelled(job):
-        return job.get("conclusion") == "cancelled" and (replaced or any(
-            HAND_CANCEL in (a.get("message") or "") for a in annotations.get(job["id"], [])))
+        messages = [a.get("message") or "" for a in annotations.get(job["id"], [])]
+        if job.get("conclusion") != "cancelled" or any(TIME_LIMIT in m for m in messages):
+            return False
+        return replaced or any(HAND_CANCEL in m for m in messages)
     return [job["name"] for job in jobs if job.get("conclusion") in FAILED
             and infra_message(annotations.get(job["id"], [])) is None
             and not hand_cancelled(job)]

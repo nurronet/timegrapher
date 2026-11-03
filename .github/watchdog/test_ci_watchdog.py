@@ -327,6 +327,14 @@ class Sweep(unittest.TestCase):
         self.assertEqual(path, "/issues")
         self.assertIn("`regress (app)` failed", body["body"])
         self.assertNotIn("regress (mcp)", body["body"])
+        # A job that hit its time limit is a hang, flagged even with a newer run.
+        limit = {2: [dict(message="The job has exceeded the maximum execution time of 45m0s")]}
+        api = FakeAPI(run, jobs[:3], limit, newer=[newer])
+        watchdog.completed(api, 50, log=quiet)
+        [(path, body)] = api.posts
+        self.assertEqual(path, "/issues")
+        self.assertIn("`regress (mcp)` failed", body["body"])
+        self.assertNotIn("test (macos-latest)", body["body"])
 
     def test_a_pull_request_run_does_not_count_as_newer_on_main(self):
         jobs, annotations = macos_stall()
