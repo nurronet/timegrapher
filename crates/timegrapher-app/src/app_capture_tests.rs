@@ -5,6 +5,37 @@ use super::tests::{queued_capture, save_failure_fixture};
 use super::*;
 use std::sync::mpsc::Sender;
 
+/// Pause and Stop keep the sound the input had already sent: the blocks
+/// still queued when the input closes are saved and read too (#873).
+#[test]
+fn pause_and_stop_keep_sound_already_queued() {
+    for stop in [false, true] {
+        let (mut app, base) =
+            save_failure_fixture(if stop { "stop-queued" } else { "pause-queued" });
+        let tx = queued_capture(&mut app, &base);
+        let saved = |a: &TimegrapherApp| a.session.recorder.as_ref().unwrap().duration_s();
+        let before = saved(&app);
+        // 10 s in 20 ms blocks, all queued before the input closes.
+        for k in 0..500u64 {
+            tx.send(block(2000 + 20 * k)).unwrap();
+        }
+        if stop {
+            app.stop_listening();
+        } else {
+            app.pause();
+        }
+        let after = saved(&app);
+        drop(app);
+        drop(tx);
+        let _ = std::fs::remove_dir_all(base);
+        assert!(
+            (after - before - 10.0).abs() < 1e-6,
+            "stop {stop}: 10 s were queued, {} s more were saved",
+            after - before
+        );
+    }
+}
+
 /// With the window drawing no frames at all (a locked screen, a
 /// minimised window), the sound is still saved and read as it comes in.
 #[test]

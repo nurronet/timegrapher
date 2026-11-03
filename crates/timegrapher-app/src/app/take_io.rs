@@ -232,16 +232,36 @@ impl TimegrapherApp {
         }
     }
 
+    /// The blocks a live input has already sent and the window hasn't
+    /// taken yet, through core's gap rule as listening takes them. Returns
+    /// what the gap rule lets through. A replayed file is left as it was.
+    fn queued_blocks(&mut self) -> Vec<Live> {
+        let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
+        let mut lives = Vec::new();
+        // Taken faster than a live input sends, so this ends.
+        while let Some(Ok(Event::Audio(b))) = self
+            .capture
+            .as_ref()
+            .filter(|c| !c.is_file)
+            .map(|c| c.rx.try_recv())
+        {
+            lives.extend(self.gaps.get_or_insert_with(|| GapWatch::new(rate)).push(b));
+        }
+        lives
+    }
+
     /// Stop listening for now, keeping everything.
     pub(super) fn pause(&mut self) {
         if self.capture.is_none() {
             return;
         }
-        // The sound core's gap rule still holds is the take's too.
+        // The blocks the input already sent are the take's too (#873), and
+        // so is the sound core's gap rule still holds.
+        let queued = self.queued_blocks();
         let held = self.gaps.as_mut().map(GapWatch::finish);
-        if let Err(CaptureFailure::Recording(e)) = held
+        if let Err(CaptureFailure::Recording(e)) = queued
             .into_iter()
-            .flatten()
+            .chain(held.into_iter().flatten())
             .try_for_each(|l| self.take_live(l))
         {
             return self.recording_failed(e);
