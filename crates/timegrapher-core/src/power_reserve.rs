@@ -240,7 +240,11 @@ impl Results {
 }
 
 /// The run from audio second `first_s` to `last_s` of `log`, hour by
-/// hour from the first beat (the last hour as long as is left). Each hour
+/// hour of true time from the first beat (the last hour as long as is
+/// left): each boundary is 3600 s of true time on from the last, taken
+/// back to the sound's seconds ([`crate::clean::Cuts::audio_time`]), so a
+/// card running fast or slow, or a pause, doesn't stretch an hour
+/// (#642). Each hour
 /// is measured as `timegrapher session` measures a stretch
 /// ([`crate::session::measure_masked`], with the take's `clock`, `breaks`
 /// and `masked` stretches), and `read_s` counts its whole 10 s bins
@@ -260,8 +264,9 @@ pub fn hours(
     let mut a = first_s;
     let mut hour = 0u32;
     while a < last_s {
-        let b = (a + 3600.0).min(last_s);
-        let (ta, tb) = (cuts.true_time(a), cuts.true_time(b));
+        let ta = cuts.true_time(a);
+        let b = cuts.audio_time(ta + 3600.0, a, last_s);
+        let tb = cuts.true_time(b);
         let n = ((tb - ta) / 10.0).floor() as usize;
         let read_s = cuts
             .bins(&on_true, ta, 10.0, n, 2.0)
@@ -436,6 +441,39 @@ mod tests {
         assert_eq!(m.beat_error_unlock_ms, None);
         assert!(m.beat_error_ms.is_some());
         assert_eq!(h[0].beat_error_ms, m.beat_error_ms);
+    }
+
+    /// Hours are cut on true time: a listed 30 min pause half an hour in
+    /// makes the first hour 30 min of sound, not 60, and every whole hour
+    /// spans 3600 s of true time (#642).
+    #[test]
+    fn hours_are_cut_on_true_time_across_a_pause() {
+        let p = 0.125;
+        let log = crate::stream::BeatLog {
+            sample_rate: 48_000,
+            duration_s: 5400.0,
+            bph: 28_800,
+            lift_deg: 52.0,
+            beats: beats(0.0, 5400.0, p, 1.0),
+            amplitude_windows: Vec::new(),
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        };
+        let pause = [crate::breaks::Break {
+            audio_s: 1800.0,
+            gap_s: 1800.0,
+        }];
+        let h = hours(&log, None, &pause, &[], 0.0, 5000.0);
+        let spans: Vec<f64> = h.iter().map(|x| x.span_s).collect();
+        assert_eq!(h.len(), 2, "{spans:?}");
+        assert!((h[0].span_s - 3600.0).abs() < 1e-3, "{spans:?}");
+        assert!(h[0].whole() && !h[1].whole(), "{spans:?}");
+        let total: f64 = spans.iter().sum();
+        assert!((total - (5000.0 + 1800.0)).abs() < 1e-3, "{spans:?}");
     }
 
     #[test]
