@@ -1200,10 +1200,6 @@ fn take_menu(
 /// The watch's takes as a table, newest first: a click picks a row, a
 /// double click opens it (unless `busy` says why not), a right click
 /// offers the rest. Nothing is inserted between rows.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn takes_table(
     ui: &mut egui::Ui,
     e: &WatchEntry,
@@ -1227,111 +1223,15 @@ pub fn takes_table(
     let mut act = None;
     panel(ui, |ui| {
         let w = ui.available_width();
-        // Each column as wide as its heading or its widest cell; Started
-        // takes what the others leave.
-        let rows: Vec<[String; 7]> = e
-            .takes
-            .iter()
-            .map(|t| {
-                let dir = e.take_dir(t);
-                take_cells(
-                    t,
-                    positions_means(&dir).map(|m| m.1),
-                    cx.readings.reading(&dir),
-                )
-            })
-            .collect();
-        // Its state after the date, in small grey words.
-        let tags_of = |t: &Take| {
-            let mut tags = Vec::new();
-            if cx.on_show == Some(e.take_dir(t).as_path()) {
-                tags.push("On Show");
-            }
-            if !t.audio {
-                tags.push("Analysis Only");
-            }
-            if t.incomplete {
-                tags.push("Incomplete");
-            }
-            tags.join(" · ")
-        };
+        let widths = take_widths(ui, e, cx, w);
+        let tags_of = |t: &Take| take_tags(e, t, cx);
         let ctx = ui.ctx().clone();
-        let text_w = |t: &str, size: f32| {
-            ctx.fonts_mut(|f| {
-                f.layout_no_wrap(t.to_string(), egui::FontId::proportional(size), pal.text)
-                    .size()
-                    .x
-            })
-        };
-        // Started's tags count in its width.
-        let tags_w = |tags: &str| {
-            if tags.is_empty() {
-                0.0
-            } else {
-                text_w(tags, 11.0) + 10.0
-            }
-        };
-        let natural: Vec<f32> = (0..7)
-            .map(|i| {
-                rows.iter()
-                    .zip(&e.takes)
-                    .map(|(r, t)| {
-                        text_w(&r[i], 12.5) + if i == 0 { tags_w(&tags_of(t)) } else { 0.0 }
-                    })
-                    .fold(text_w(TAKE_HEADS[i], 11.5), f32::max)
-                    + 18.0
-            })
-            .collect();
-        let others: f32 = natural[1..].iter().sum();
-        // Started gives way when the figures need the room, so Size never
-        // runs past the table; a name cut short ends in "…".
-        let first = (w - others).max(80.0);
-        let widths: Vec<f32> = std::iter::once(first)
-            .chain(natural[1..].iter().copied())
-            .collect();
-        let fit = |t: &str, room: f32, font: &egui::FontId| {
-            let w = |t: &str| {
-                ctx.fonts_mut(|f| {
-                    f.layout_no_wrap(t.to_string(), font.clone(), pal.text)
-                        .size()
-                        .x
-                })
-            };
-            if w(t) <= room {
-                return t.to_string();
-            }
-            let chars: Vec<char> = t.chars().collect();
-            let mut n = chars.len();
-            while n > 0 && w(&format!("{}…", chars[..n].iter().collect::<String>())) > room {
-                n -= 1;
-            }
-            format!("{}…", chars[..n].iter().collect::<String>().trim_end())
-        };
+        let text_w = |t: &str, size: f32| text_width(&ctx, t, size, pal.text);
+        let fit = |t: &str, room: f32, font: &egui::FontId| fit_text(&ctx, t, room, font, pal.text);
         let row_h = 24.0;
         let font = egui::FontId::proportional(12.5);
-        let draw = |ui: &egui::Ui,
-                    rect: egui::Rect,
-                    cells: &[String],
-                    color: egui::Color32,
-                    dim: Option<egui::Color32>,
-                    font: &egui::FontId| {
-            let p = ui.painter_at(rect);
-            let mut x = rect.left() + 6.0;
-            for (i, (c, w)) in cells.iter().zip(&widths).enumerate() {
-                // Started and Position read from the left, the figures from the right.
-                let (pos, align) = if i < 2 {
-                    (egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER)
-                } else {
-                    (
-                        egui::pos2(x + w - 12.0, rect.center().y),
-                        egui::Align2::RIGHT_CENTER,
-                    )
-                };
-                // A Power Reserve Test's figures are a dim dash.
-                let color = dim.filter(|_| (3..6).contains(&i)).unwrap_or(color);
-                p.text(pos, align, c, font.clone(), color);
-                x += w;
-            }
+        let draw = |ui: &egui::Ui, rect, cells: &[String], color, dim, font: &egui::FontId| {
+            draw_cells(ui, rect, cells, &widths, color, dim, font);
         };
         let (head, _) = ui.allocate_exact_size(Vec2::new(w, row_h), Sense::hover());
         draw(
@@ -1344,10 +1244,8 @@ pub fn takes_table(
         );
         for t in &e.takes {
             let dir = e.take_dir(t);
-            let on_show = cx.on_show == Some(dir.as_path());
             let picked = cx.picked == Some(dir.as_path());
             let means = positions_means(&dir);
-            let test = means.is_some();
             let (rect, r) = ui.allocate_exact_size(Vec2::new(w, row_h), Sense::click());
             if picked {
                 ui.painter().rect_filled(rect, 4.0, pal.control_active);
@@ -1389,28 +1287,7 @@ pub fn takes_table(
                     pal.text_secondary,
                 );
             }
-            let mut figures = figures_hover(means.map(|m| m.0), reserve);
-            match cx.readings.of(&dir) {
-                Some(TakeReading::Reading) => figures.push_str(
-                    "\n\nRate, Amplitude and Beat Error: being read from the take's sound.",
-                ),
-                Some(TakeReading::Read(Err(why))) => figures.push_str(&format!(
-                    "\n\nRate, Amplitude and Beat Error: the take couldn't be read: {why}"
-                )),
-                _ => {}
-            }
-            let r = r.on_hover_text(format!(
-                "{}{figures}\n\n{}",
-                take_line(t, test, reading),
-                if on_show {
-                    "This take is on show on the Bench. Right-click for more."
-                } else if t.incomplete {
-                    "Files this take lists are missing (still syncing, or copied in part): it \
-                     is left as it is. Double-click to open what is there."
-                } else {
-                    "Click to pick this take, double-click to open it. Right-click for more."
-                }
-            ));
+            let r = r.on_hover_text(take_hover(t, cx, &dir, means.map(|m| m.0), reading));
             if r.double_clicked() && busy.is_none() {
                 act = Some(TakeAction::Open(dir.clone()));
             } else if r.clicked() || r.secondary_clicked() {
@@ -1427,28 +1304,206 @@ pub fn takes_table(
     });
     // A take whose sound is being removed: under the table, never between
     // its rows.
-    if let Some((k, done)) = cx.keeping {
-        if e.takes.iter().any(|t| e.take_dir(t) == k) {
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::ProgressBar::new(done)
-                        .desired_width(ui.available_width() - 70.0)
-                        .text("Keeping its analysis"),
-                )
-                .on_hover_text(
-                    "Reading the take's sound again for its analysis. Its sound is deleted \
-                     only once the analysis is written and reads back.",
-                );
-                if ui
-                    .button("Cancel")
-                    .on_hover_text("Stop, and keep the take with its sound as it was")
-                    .clicked()
-                {
-                    act = Some(TakeAction::CancelKeep);
-                }
-            });
-        }
+    if let Some(a) = keeping_bar(ui, e, cx) {
+        act = Some(a);
     }
+    act
+}
+
+/// The takes table's column widths in `w` points: each as wide as its
+/// heading or its widest cell, Started taking what the others leave.
+fn take_widths(ui: &egui::Ui, e: &WatchEntry, cx: &TakesContext, w: f32) -> Vec<f32> {
+    // Each column as wide as its heading or its widest cell; Started
+    // takes what the others leave.
+    let rows: Vec<[String; 7]> = e
+        .takes
+        .iter()
+        .map(|t| {
+            let dir = e.take_dir(t);
+            take_cells(
+                t,
+                positions_means(&dir).map(|m| m.1),
+                cx.readings.reading(&dir),
+            )
+        })
+        .collect();
+    let pal = theme::pal(ui);
+    let text_w = |t: &str, size: f32| text_width(ui.ctx(), t, size, pal.text);
+    // Started's tags count in its width.
+    let tags_w = |tags: &str| {
+        if tags.is_empty() {
+            0.0
+        } else {
+            text_w(tags, 11.0) + 10.0
+        }
+    };
+    let natural: Vec<f32> = (0..7)
+        .map(|i| {
+            rows.iter()
+                .zip(&e.takes)
+                .map(|(r, t)| {
+                    text_w(&r[i], 12.5)
+                        + if i == 0 {
+                            tags_w(&take_tags(e, t, cx))
+                        } else {
+                            0.0
+                        }
+                })
+                .fold(text_w(TAKE_HEADS[i], 11.5), f32::max)
+                + 18.0
+        })
+        .collect();
+    let others: f32 = natural[1..].iter().sum();
+    // Started gives way when the figures need the room, so Size never
+    // runs past the table; a name cut short ends in "…".
+    let first = (w - others).max(80.0);
+    std::iter::once(first)
+        .chain(natural[1..].iter().copied())
+        .collect()
+}
+
+/// `t`'s width in the proportional font of `size`.
+fn text_width(ctx: &egui::Context, t: &str, size: f32, color: egui::Color32) -> f32 {
+    ctx.fonts_mut(|f| {
+        f.layout_no_wrap(t.to_string(), egui::FontId::proportional(size), color)
+            .size()
+            .x
+    })
+}
+
+/// A row of the takes table, its `cells` in columns `widths` wide.
+fn draw_cells(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    cells: &[String],
+    widths: &[f32],
+    color: egui::Color32,
+    dim: Option<egui::Color32>,
+    font: &egui::FontId,
+) {
+    let p = ui.painter_at(rect);
+    let mut x = rect.left() + 6.0;
+    for (i, (c, w)) in cells.iter().zip(widths).enumerate() {
+        // Started and Position read from the left, the figures from the right.
+        let (pos, align) = if i < 2 {
+            (egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER)
+        } else {
+            (
+                egui::pos2(x + w - 12.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+            )
+        };
+        // A Power Reserve Test's figures are a dim dash.
+        let color = dim.filter(|_| (3..6).contains(&i)).unwrap_or(color);
+        p.text(pos, align, c, font.clone(), color);
+        x += w;
+    }
+}
+
+/// A take's state, shown after its date in small grey words.
+fn take_tags(e: &WatchEntry, t: &Take, cx: &TakesContext) -> String {
+    let mut tags = Vec::new();
+    if cx.on_show == Some(e.take_dir(t).as_path()) {
+        tags.push("On Show");
+    }
+    if !t.audio {
+        tags.push("Analysis Only");
+    }
+    if t.incomplete {
+        tags.push("Incomplete");
+    }
+    tags.join(" · ")
+}
+
+/// `t` as it fits in `room` points of `font` (laid out in `color`), cut
+/// short with "…" if not.
+fn fit_text(
+    ctx: &egui::Context,
+    t: &str,
+    room: f32,
+    font: &egui::FontId,
+    color: egui::Color32,
+) -> String {
+    let w = |t: &str| {
+        ctx.fonts_mut(|f| {
+            f.layout_no_wrap(t.to_string(), font.clone(), color)
+                .size()
+                .x
+        })
+    };
+    if w(t) <= room {
+        return t.to_string();
+    }
+    let chars: Vec<char> = t.chars().collect();
+    let mut n = chars.len();
+    while n > 0 && w(&format!("{}…", chars[..n].iter().collect::<String>())) > room {
+        n -= 1;
+    }
+    format!("{}…", chars[..n].iter().collect::<String>().trim_end())
+}
+
+/// A take's row as its hover says it: the take, its figures, where its
+/// reading is, and what a click does. `count` is the positions test's
+/// count of positions, where it is one.
+fn take_hover(
+    t: &Take,
+    cx: &TakesContext,
+    dir: &Path,
+    count: Option<usize>,
+    reading: Option<&Reading>,
+) -> String {
+    let reserve = t.power_reserve.is_some();
+    let on_show = cx.on_show == Some(dir);
+    let test = count.is_some();
+    let mut figures = figures_hover(count, reserve);
+    match cx.readings.of(dir) {
+        Some(TakeReading::Reading) => figures
+            .push_str("\n\nRate, Amplitude and Beat Error: being read from the take's sound."),
+        Some(TakeReading::Read(Err(why))) => figures.push_str(&format!(
+            "\n\nRate, Amplitude and Beat Error: the take couldn't be read: {why}"
+        )),
+        _ => {}
+    }
+    format!(
+        "{}{figures}\n\n{}",
+        take_line(t, test, reading),
+        if on_show {
+            "This take is on show on the Bench. Right-click for more."
+        } else if t.incomplete {
+            "Files this take lists are missing (still syncing, or copied in part): it \
+             is left as it is. Double-click to open what is there."
+        } else {
+            "Click to pick this take, double-click to open it. Right-click for more."
+        }
+    )
+}
+
+/// The progress of a take of `e` whose sound is being removed, with its
+/// Cancel.
+fn keeping_bar(ui: &mut egui::Ui, e: &WatchEntry, cx: &TakesContext) -> Option<TakeAction> {
+    let (k, done) = cx.keeping?;
+    if !e.takes.iter().any(|t| e.take_dir(t) == k) {
+        return None;
+    }
+    let mut act = None;
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::ProgressBar::new(done)
+                .desired_width(ui.available_width() - 70.0)
+                .text("Keeping its analysis"),
+        )
+        .on_hover_text(
+            "Reading the take's sound again for its analysis. Its sound is deleted \
+             only once the analysis is written and reads back.",
+        );
+        if ui
+            .button("Cancel")
+            .on_hover_text("Stop, and keep the take with its sound as it was")
+            .clicked()
+        {
+            act = Some(TakeAction::CancelKeep);
+        }
+    });
     act
 }
 
