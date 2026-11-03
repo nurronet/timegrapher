@@ -282,11 +282,9 @@ impl TimegrapherApp {
         }) else {
             return;
         };
-        let from = first + 3600.0 * whole as f64;
-        let mut fresh = self.reserve_hours(from, last);
-        for h in &mut fresh {
-            h.hour += whole as u32;
-        }
+        // On core's grid of true hours, so a pause or a card running
+        // fast or slow doesn't shift the hours measured again (#642).
+        let fresh = self.reserve_hours(first, last, whole as u32);
         let mut first_chart = false;
         if let Some(t) = self.reserve.as_mut() {
             t.so_far.truncate(whole);
@@ -300,10 +298,11 @@ impl TimegrapherApp {
         }
     }
 
-    /// The run's hours from audio second `from` to `to`, as `timegrapher
-    /// session` reads each stretch, on the session's clock, breaks and
-    /// masks.
-    fn reserve_hours(&self, from: f64, to: f64) -> Vec<power_reserve::Hour> {
+    /// The run's hours from its first beat at audio second `first` to
+    /// `to`, from hour `from_hour` on ([`power_reserve::hours_from`]), as
+    /// `timegrapher session` reads each stretch, on the session's clock,
+    /// breaks and masks.
+    fn reserve_hours(&self, first: f64, to: f64, from_hour: u32) -> Vec<power_reserve::Hour> {
         let Some(log) = self.live.as_ref().and_then(steady::log_of) else {
             return Vec::new();
         };
@@ -313,7 +312,15 @@ impl TimegrapherApp {
             .and_then(|c| c.fit.clone())
             .or_else(|| self.reading_clock(log.duration_s));
         let breaks = self.reading_breaks(&log);
-        power_reserve::hours(&log, fit.as_ref(), &breaks, &self.masked, from, to)
+        power_reserve::hours_from(
+            &log,
+            fit.as_ref(),
+            &breaks,
+            &self.masked,
+            first,
+            to,
+            from_hour,
+        )
     }
 
     /// The test has ended: stop listening, keep the take in the watch's
@@ -330,7 +337,7 @@ impl TimegrapherApp {
         let mut results = t.finish(to_true).cloned();
         // Hour by hour, as `timegrapher session` reads each stretch.
         if let Some(r) = results.as_mut() {
-            r.hours = self.reserve_hours(r.first_beat_s, r.last_beat_s);
+            r.hours = self.reserve_hours(r.first_beat_s, r.last_beat_s, 0);
         }
         // The results go into the take with its sound, through
         // `results_files`.

@@ -199,6 +199,26 @@ impl<'a> Cuts<'a> {
         true_time(self.clock, &self.breaks, t)
     }
 
+    /// The first audio second in `from..=to` at which [`Self::true_time`]
+    /// reaches `true_s` (`to` when it never does): the inverse of true
+    /// time, found by halving, to a microsecond. True time never runs
+    /// back, so a point inside a break's gap falls on the break.
+    pub fn audio_time(&self, true_s: f64, from: f64, to: f64) -> f64 {
+        if self.true_time(to) < true_s {
+            return to;
+        }
+        let (mut lo, mut hi) = (from, to);
+        while hi - lo > 1e-6 {
+            let mid = 0.5 * (lo + hi);
+            if self.true_time(mid) >= true_s {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        hi
+    }
+
     /// The breaks, sorted, a negative gap taken as none.
     pub fn breaks(&self) -> &[Break] {
         &self.breaks
