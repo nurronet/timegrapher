@@ -542,6 +542,20 @@ pub fn reading(take_dir: &Path) -> Result<Reading, String> {
 /// ([`crate::take::measure_entry`]). Also what it was worked out from
 /// outside the take's folder ([`Outside`]).
 fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
+    measure_take_with(dir, |m, first| {
+        crate::take::correction_for(m, first, None, None)
+    })
+}
+
+/// [`measure_take`], with the correction for the take's first sound file
+/// from `correction`. The [`Outside`] it gives holds the very correction
+/// the reading used, not one looked up again after, so a correction
+/// changed while the take is read can't be kept beside a reading made
+/// without it.
+fn measure_take_with(
+    dir: &Path,
+    correction: impl FnOnce(&Manifest, &Path) -> Result<Option<(f64, String)>, String>,
+) -> Result<(Reading, Outside), String> {
     let m = manifest_of(dir)?;
     let Some(e) = m
         .recordings
@@ -560,10 +574,13 @@ fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
         card_clock: false,
         settle_s: None,
     };
-    let mut asked = None;
+    let mut used = None;
     let read = crate::take::measure_entry(dir, &m, e, &settings, crate::take::usb, |first| {
-        asked = Some(first.to_path_buf());
-        crate::take::correction_for(&m, first, None, None)
+        let c = correction(&m, first);
+        if let Ok(c) = &c {
+            used = Some((first.to_path_buf(), c.clone()));
+        }
+        c
     })?;
     let x = &read.measurement;
     let reading = Reading {
@@ -574,7 +591,16 @@ fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
         beat_error_ms: x.beat_error_signed(),
         watch_heard: x.watch_heard,
     };
-    Ok((reading, outside_of(&m, cal.as_ref(), asked)?))
+    let (first, correction) = used.unzip();
+    Ok((
+        reading,
+        Outside {
+            engine: ENGINE.into(),
+            calibre: cal.map(|c| format!("{c:?}")),
+            first,
+            correction: correction.flatten(),
+        },
+    ))
 }
 
 /// The take in `dir`'s session file.
@@ -595,32 +621,22 @@ fn calibre_of(m: &Manifest) -> Result<Option<crate::take::Calibre>, String> {
         .and_then(|n| crate::take::calibre_named(n, &user)))
 }
 
-/// What a reading of the take with session file `m` reads outside its
-/// folder ([`Outside`]), when the correction was asked for `first`.
-fn outside_of(
-    m: &Manifest,
-    cal: Option<&crate::take::Calibre>,
-    first: Option<PathBuf>,
-) -> Result<Outside, String> {
-    let correction = match &first {
-        Some(f) => crate::take::correction_for(m, f, None, None)?,
+/// What a reading of the take in `dir` would read outside its folder
+/// now, the correction looked up afresh for `first` as the kept reading's
+/// was asked for: quick, it reads no sound.
+fn outside(dir: &Path, first: Option<&Path>) -> Result<Outside, String> {
+    let m = manifest_of(dir)?;
+    let cal = calibre_of(&m)?;
+    let correction = match first {
+        Some(f) => crate::take::correction_for(&m, f, None, None)?,
         None => None,
     };
     Ok(Outside {
         engine: ENGINE.into(),
         calibre: cal.map(|c| format!("{c:?}")),
-        first,
+        first: first.map(Path::to_path_buf),
         correction,
     })
-}
-
-/// What a reading of the take in `dir` would read outside its folder
-/// now, the correction asked for `first` as the kept reading's was: quick,
-/// it reads no sound.
-fn outside(dir: &Path, first: Option<&Path>) -> Result<Outside, String> {
-    let m = manifest_of(dir)?;
-    let cal = calibre_of(&m)?;
-    outside_of(&m, cal.as_ref(), first.map(Path::to_path_buf))
 }
 
 /// Whether the take in the folder `take_dir` is a Positions Test's: it
@@ -1773,6 +1789,43 @@ mod tests {
         let a = read_take(&dir, 0).unwrap().at_end.unwrap();
         assert_eq!(a.beat_error_ms, Some(-0.4));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A kept reading holds the very correction it was read with: one
+    /// that changes while the take is read (here the store gives another
+    /// from the one the reading used) is never kept beside it, so the next
+    /// look sees the change and reads the take again (audit F1 review).
+    #[test]
+    fn a_kept_reading_holds_the_correction_it_was_read_with() {
+        let dir = std::env::temp_dir().join(format!("tg-reading-used-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        crate::audio::write_wav(
+            &dir.join("audio-001.wav"),
+            &crate::synth::generate(
+                &crate::synth::SynthConfig {
+                    duration_s: 40.0,
+                    rate_s_per_day: 5.0,
+                    ..Default::default()
+                },
+                |_| 270.0,
+                |_| 0.0,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("session.toml"),
+            "bph = 28800\n\n[[recording]]\nfile = '.'\nposition = 'DU'\n",
+        )
+        .unwrap();
+        let used = (50.0, "used by the reading".to_string());
+        let (r, kept) = measure_take_with(&dir, |_, _| Ok(Some(used.clone()))).unwrap();
+        let now = outside(&dir, kept.first.as_deref()).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(r.calibrated, "{r:?}");
+        assert!(kept.first.is_some(), "the correction was asked for");
+        assert_eq!(kept.correction, Some(used));
+        assert_ne!(now, kept, "a different correction now: read it again");
     }
 
     /// A take's facts give the readings it ended on, but not for a test:
