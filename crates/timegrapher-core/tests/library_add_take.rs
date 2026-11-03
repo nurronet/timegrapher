@@ -201,13 +201,11 @@ fn a_take_naming_a_file_elsewhere_from_the_root_is_added() {
 /// leaves it in Unsorted as readable as before (#882).
 #[test]
 fn filing_an_unsorted_take_with_files_outside_its_folder_is_refused() {
-    let r = root("move-outside");
+    let r = fs::canonicalize(root("move-outside")).unwrap();
     let (mut lib, id) = library_at(&r);
     let unsorted = lib.unsorted_dir().unwrap();
     fs::create_dir_all(&unsorted).unwrap();
-    let take = fs::canonicalize(&unsorted)
-        .unwrap()
-        .join("2026-11-03 09.00 Dial Up");
+    let take = unsorted.join("2026-11-03 09.00 Dial Up");
     fs::create_dir_all(&take).unwrap();
     wav(&unsorted.join("audio.wav"));
     wav(&take.join("audio.wav"));
