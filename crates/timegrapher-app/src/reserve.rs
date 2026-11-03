@@ -181,10 +181,6 @@ impl Test {
 /// and scroll in it. `card` is the position card's title as drawn,
 /// `watch` the watch the take is kept in (none: Unsorted), and `ready`
 /// whether a run is set up, waiting for Start Test on the Listen card.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn pane(
     ui: &mut egui::Ui,
     test: Option<&Test>,
@@ -193,39 +189,9 @@ pub fn pane(
     watch: &str,
     ready: bool,
 ) {
-    let pal = theme::pal(ui);
     ui.spacing_mut().item_spacing.y = 6.0;
     let Some(t) = test else {
-        let words = if ready {
-            format!("Wind fully, set the position on the {card} card, then press Start Test.")
-        } else {
-            "New Test sets a run up on a clear Bench.".to_string()
-        };
-        let mut line =
-            ui.add(egui::Label::new(RichText::new(words).color(pal.text_secondary)).truncate());
-        if let Some((have, need)) = free {
-            let room = format!(
-                "{} free where the take is kept; a run of up to {} writes up to {} of sound.",
-                gb(have),
-                timegrapher_core::power_reserve::limit_text(),
-                gb(need)
-            );
-            if have >= need {
-                line = line.on_hover_text(room);
-            } else {
-                theme::alert_label(
-                    ui,
-                    theme::Alert::Warning,
-                    &format!(
-                        "Only {} free where the take is kept: a long run could fill the disk.",
-                        gb(have)
-                    ),
-                    true,
-                )
-                .on_hover_text(room);
-            }
-        }
-        let _ = line;
+        before_line(ui, free, card, ready);
         return;
     };
     let pauses = (!t.heard.pauses.is_empty()).then(|| {
@@ -240,34 +206,84 @@ pub fn pane(
          near the end can stop and start again with a knock",
         power_reserve::PAUSE_S
     );
+    let pauses = pauses.map(|words| (words, pause_hint));
     if t.running() {
-        // One line, then the hours so far as when it ends.
-        let state = match t.heard.silent_s(t.now_s) {
-            None => "Waiting for the first beats…".to_string(),
-            Some(s) if s >= power_reserve::PAUSE_S => format!(
-                "No beat heard for {}; the run ends after {} min with none.",
-                length_text(s),
-                power_reserve::STOP_AFTER_S / 60.0
-            ),
-            Some(_) => format!("Running, in {}.", t.position.label()),
-        };
-        let line = format!(
-            "{} · {state}{}",
-            power_reserve::run_text(t.run_so_far_s()),
-            pauses.as_deref().unwrap_or("")
-        );
-        let mut hover = "The run so far, from the first beat heard to now".to_string();
-        if pauses.is_some() {
-            hover.push_str(&format!(". {pause_hint}"));
-        }
-        ui.add(egui::Label::new(RichText::new(line).color(pal.text)).truncate())
-            .on_hover_text(hover);
-        if !t.so_far.is_empty() {
-            hour_area(ui, &t.so_far, true);
-        }
-        return;
+        running_line(ui, t, pauses.as_ref());
+    } else {
+        ended_line(ui, t, watch, pauses.as_ref());
     }
-    // Ended: one line of the result.
+}
+
+/// Before a run: one line of what to do, with a warning when the disk
+/// where the take is kept has too little room for a long run.
+fn before_line(ui: &mut egui::Ui, free: Option<(u64, u64)>, card: &str, ready: bool) {
+    let pal = theme::pal(ui);
+    let words = if ready {
+        format!("Wind fully, set the position on the {card} card, then press Start Test.")
+    } else {
+        "New Test sets a run up on a clear Bench.".to_string()
+    };
+    let mut line =
+        ui.add(egui::Label::new(RichText::new(words).color(pal.text_secondary)).truncate());
+    if let Some((have, need)) = free {
+        let room = format!(
+            "{} free where the take is kept; a run of up to {} writes up to {} of sound.",
+            gb(have),
+            timegrapher_core::power_reserve::limit_text(),
+            gb(need)
+        );
+        if have >= need {
+            line = line.on_hover_text(room);
+        } else {
+            theme::alert_label(
+                ui,
+                theme::Alert::Warning,
+                &format!(
+                    "Only {} free where the take is kept: a long run could fill the disk.",
+                    gb(have)
+                ),
+                true,
+            )
+            .on_hover_text(room);
+        }
+    }
+    let _ = line;
+}
+
+/// While a run goes on: the run time and how the beats stand, then the
+/// hours so far as when it ends. `pauses`: the words for the beats'
+/// pauses on the way and their hover.
+fn running_line(ui: &mut egui::Ui, t: &Test, pauses: Option<&(String, String)>) {
+    let pal = theme::pal(ui);
+    let state = match t.heard.silent_s(t.now_s) {
+        None => "Waiting for the first beats…".to_string(),
+        Some(s) if s >= power_reserve::PAUSE_S => format!(
+            "No beat heard for {}; the run ends after {} min with none.",
+            length_text(s),
+            power_reserve::STOP_AFTER_S / 60.0
+        ),
+        Some(_) => format!("Running, in {}.", t.position.label()),
+    };
+    let line = format!(
+        "{} · {state}{}",
+        power_reserve::run_text(t.run_so_far_s()),
+        pauses.map_or("", |p| p.0.as_str())
+    );
+    let mut hover = "The run so far, from the first beat heard to now".to_string();
+    if let Some((_, pause_hint)) = pauses {
+        hover.push_str(&format!(". {pause_hint}"));
+    }
+    ui.add(egui::Label::new(RichText::new(line).color(pal.text)).truncate())
+        .on_hover_text(hover);
+    if !t.so_far.is_empty() {
+        hour_area(ui, &t.so_far, true);
+    }
+}
+
+/// Once a run has ended: one line of the result, over the hour charts
+/// and table. `pauses`: as for [`running_line`].
+fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String, String)>) {
+    let pal = theme::pal(ui);
     let run = power_reserve::run_text(t.results.as_ref().map_or(t.run_so_far_s(), |r| r.run_s));
     let ending = t
         .ending
@@ -297,14 +313,14 @@ pub fn pane(
             }
         ));
     }
-    if pauses.is_some() {
+    if let Some((_, pause_hint)) = pauses {
         hover.push_str(&format!(". {pause_hint}"));
     }
     ui.add(
         egui::Label::new(
             RichText::new(format!(
                 "Ran {run}{ending}{kept}.{}",
-                pauses.as_deref().unwrap_or("")
+                pauses.map_or("", |p| p.0.as_str())
             ))
             .color(pal.text),
         )
