@@ -195,10 +195,11 @@ pub enum Listed<'a> {
     /// when they are that take's segments, else the clock log's steps
     /// ([`breaks::of_files`]).
     Files(&'a [&'a Path]),
-    /// A `session.json` already read, for the whole of the take's sound
-    /// (a take kept as its analysis alone): its list, else the clock log's
-    /// steps ([`breaks::for_take`]).
-    Session(Option<&'a serde_json::Value>),
+    /// A `session.json` already read ([`breaks::read_session`]), for the
+    /// whole of the take's sound (a take kept as its analysis alone): its
+    /// list, else the clock log's steps ([`breaks::for_take`]); one that
+    /// couldn't be read leaves them to the clock log, and says so.
+    Session(Result<Option<&'a serde_json::Value>, breaks::Unlisted>),
 }
 
 /// A take's breaks, as every reading of it uses them, with `log`'s beats
@@ -223,7 +224,10 @@ pub fn breaks(
             breaks::of_files_on_clock(files, clock.as_deref_mut(), log.sample_rate)
         }
         Listed::Session(json) => {
-            let found = breaks::for_take(json, clock.as_deref(), log.sample_rate);
+            let found = match json {
+                Ok(json) => breaks::for_take(json, clock.as_deref(), log.sample_rate),
+                Err(why) => breaks::of_clock(clock.as_deref(), why),
+            };
             breaks::Found {
                 breaks: breaks::on_clock(found.breaks, clock.as_deref_mut()),
                 ..found
@@ -976,13 +980,14 @@ pub fn open_entry(
     });
     // A take kept as its analysis alone: every part of the take was in
     // it, so its session.json lists its breaks for the whole take's sound.
-    let json = kept.as_ref().and_then(|_| {
-        fs::read_to_string(path.join(RECORD))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-    });
+    // One that is there but can't be read is said, as for a take with its
+    // sound ([`breaks::Unlisted::Unreadable`]), never taken for none.
+    let json = match &kept {
+        Some(_) => breaks::read_session(&path.join(RECORD)),
+        None => Ok(None),
+    };
     let listed = match &kept {
-        Some(_) => Listed::Session(json.as_ref()),
+        Some(_) => Listed::Session(json.as_ref().map(Option::as_ref).map_err(|w| *w)),
         None => Listed::Files(&paths),
     };
     let breaks::Found { breaks, unlisted } = breaks(&mut log, listed, fit.as_mut());
@@ -1691,7 +1696,7 @@ mod tests {
             by_count: Vec::new(),
             snippets: Vec::new(),
         };
-        let found = breaks(&mut log, Listed::Session(Some(&json)), Some(&mut fit));
+        let found = breaks(&mut log, Listed::Session(Ok(Some(&json))), Some(&mut fit));
         let at: Vec<f64> = found.breaks.iter().map(|b| b.audio_s).collect();
         assert_eq!(at.len(), 2, "{at:?}");
         assert!(
@@ -1740,7 +1745,7 @@ mod tests {
                 by_count: Vec::new(),
                 snippets: Vec::new(),
             };
-            let found = breaks(&mut log, Listed::Session(Some(&json)), Some(&mut fit));
+            let found = breaks(&mut log, Listed::Session(Ok(Some(&json))), Some(&mut fit));
             let lead = |b: &crate::beats::Beat| {
                 crate::clean::true_time(Some(&fit), &found.breaks, b.time) - b.index as f64 * p
             };
