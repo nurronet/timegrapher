@@ -70,6 +70,11 @@ pub struct Config {
     /// A trend or a set of steps is what the headline names when it
     /// explains this share of the variance.
     pub min_explained: f64,
+    /// A trend's p must be below this too; 0 where Holm drops it (#659).
+    pub trend_alpha: f64,
+    /// Whether an autocorrelation peak may name a cycle the period search
+    /// did not keep: off in the pane, whose cycles meet Holm's (#659).
+    pub acf_alone: bool,
     /// Readings further than this many short-term σ from the running
     /// median are left out as outliers.
     pub outlier_sigma: f64,
@@ -95,6 +100,8 @@ impl Default for Config {
             change_block_s: 30.0,
             change_min_segment_s: 300.0,
             min_explained: 0.2,
+            trend_alpha: 0.01,
+            acf_alone: true,
             outlier_sigma: 6.0,
             max_points: 600,
             wind_h: 0.0,
@@ -250,6 +257,9 @@ pub struct Trend {
     pub start: f64,
     pub end: f64,
     pub turn: Option<(f64, f64)>,
+    /// The quadratic's F test against the mean on n(1 − ρ)/(1 + ρ)
+    /// readings, ρ as `confidence::long_run_rho` reads it (#651, #659).
+    pub p_value: f64,
 }
 
 /// Where a cycle was found.
@@ -1076,6 +1086,7 @@ pub fn check_series(
             && vertex > t_a + 0.1 * (t_b - t_a)
             && vertex < t_b - 0.1 * (t_b - t_a))
             .then(|| (vertex, curve_at(vertex))),
+        p_value: family::trend_p(y, explained(y, &curve)),
     };
 
     // Change points on block medians.
@@ -1315,6 +1326,9 @@ fn cycle(
             }
         }
     }
+    // In the pane, the autocorrelation only refines a cycle the period
+    // search kept: its peaks carry no p-value for Holm's correction (#659).
+    let ac = ac.filter(|_| cfg.acf_alone || s.period.is_some());
     if let Some(l) = ac.and_then(|a| a.repeat_lag_s) {
         // The lag is only as fine as one reading: try around it.
         cands.push((refine(&d, l, 0.2), CycleSource::Autocorrelation));
@@ -1786,13 +1800,13 @@ fn lead(s: &SeriesCheck, cfg: &Config) -> Lead {
         .map_or(0.0, |t| t.explained.max(t.curve_explained));
     if let Some(ch) = level_moves(s, cfg) {
         // A slide cut into steps is still a slide.
-        return if trend >= 0.8 * ch.explained {
+        return if trend >= 0.8 * ch.explained && family::trend_holds(s, cfg) {
             Lead::Drifting
         } else {
             Lead::ShiftingMean
         };
     }
-    if trend >= cfg.min_explained {
+    if trend >= cfg.min_explained && family::trend_holds(s, cfg) {
         return Lead::Drifting;
     }
     let ac = s.autocorrelation.as_ref();
@@ -2249,6 +2263,12 @@ pub fn check(
     long_cfg: &LongConfig,
     cfg: &Config,
 ) -> Report {
+    // The pane names only cycles that meet Holm's (#659); the report
+    // states the setting it ran with.
+    let cfg = &Config {
+        acf_alone: false,
+        ..cfg.clone()
+    };
     let holes = Cuts::new(clock, &long.breaks, &[]);
     let map = |t: f64| holes.true_time(t);
     let r = cfg.rate_reading_s;
