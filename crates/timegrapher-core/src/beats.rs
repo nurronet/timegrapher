@@ -18,7 +18,7 @@ pub const STANDARD_BPH: [u32; 11] = [
     12000, 14400, 17280, 18000, 19800, 21600, 25200, 28800, 36000, 43200, 72000,
 ];
 
-/// Fractional rate slack for the full oscillation in rate inference.
+/// Fractional rate slack for beat and full-oscillation rate inference.
 /// Beat error moves alternating intervals, but not their sum.
 const GUESS_RATE_SLACK: f64 = 0.004;
 /// Search alternating intervals up to 10 ms either side of one beat,
@@ -94,7 +94,7 @@ pub fn guess_bph(env: &[f32], fs: f64) -> u32 {
         // watch, and for beat error, which moves the tick-to-toc lag by
         // the beat error either way (Witschi's example fault is 3 ms).
         let c = lag.round() as usize;
-        let w = (lag * 0.004 + 0.004 * fs).ceil() as usize + 1;
+        let w = (lag * GUESS_RATE_SLACK + 0.004 * fs).ceil() as usize + 1;
         (c.saturating_sub(w)..=c + w)
             .filter_map(|i| buf.get(i).copied())
             .fold(f64::NEG_INFINITY, f64::max)
