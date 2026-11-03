@@ -449,7 +449,7 @@ function stripCards(strip) {
   if (has("rate")) {
     const clock = Number.isFinite(strip.clock_ppm) ? `${signed(strip.clock_ppm, 1)} ppm` : "";
     cards.push(["Rate", over(`The rate over the whole recording, ${rateBasis(!!clock, clock)}`), lineChart({
-      title: "Rate", time: true, yRange: range("rate"), unit: " s/day", decimals: 1,
+      title: "Rate", time: true, yRange: range("rate"), unit: " s/d", decimals: 1,
       series: [{ name: average ? `Rate in seconds per day, ${average}` : "Rate in seconds per day", color: "--rate", points: strip.rate }],
     })]);
   }
@@ -651,7 +651,7 @@ function sessionView(doc, limits) {
     const name = (r) => ((POSITIONS || {})[r.position] || [r.position, r.position])[1];
     const rate = heard.map((r) => ({ label: name(r), value: r.measurement.rate_s_per_day }));
     const amp = heard.map((r) => ({ label: name(r), value: r.measurement.amplitude_deg }));
-    if (rate.every((r) => Number.isFinite(r.value))) html += `<div class="card"><h2>Rate by Position</h2><p class="hint">Each position's rate</p>${bars(rate, "--rate", " s/day", 1)}</div>`;
+    if (rate.every((r) => Number.isFinite(r.value))) html += `<div class="card"><h2>Rate by Position</h2><p class="hint">Each position's rate</p>${bars(rate, "--rate", " s/d", 1)}</div>`;
     if (amp.every((r) => Number.isFinite(r.value))) html += `<div class="card"><h2>Amplitude by Position</h2><p class="hint">Each position's amplitude</p>${bars(amp, "--amplitude", "°", 0)}</div>`;
   }
   return html;
@@ -1705,7 +1705,7 @@ function paintMaps(root) {
 // core histogram::normal_quantile. The server fills the list in.
 const PROBABILITY_MARKS = /*PROBABILITY_MARKS*/null;
 const DISTRIBUTIONS = {
-  rate: ["Rate Distribution", "--rate", " s/day",
+  rate: ["Rate Distribution", "--rate", " s/d",
     "The rate readings on probability paper: one steady rate falls on a straight line, two states bend it"],
   amplitude: ["Amplitude Distribution", "--amplitude", "°",
     "The amplitude readings on probability paper: a balance swinging between a high and a low state bends the line"],

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use timegrapher_core::{audio, library, session::Manifest, synth, take};
 
-/// 45 s of a watch running 10 s/day fast.
+/// 45 s of a watch running 10 s/d fast.
 fn wav(p: &Path) {
     let cfg = synth::SynthConfig {
         duration_s: 45.0,

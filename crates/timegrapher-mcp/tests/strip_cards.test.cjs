@@ -52,7 +52,7 @@ test("a line lifts where a reading has no figure, as the app leaves a cut empty"
   vm.runInContext(["DASH", "TIME_STEPS", "charts"].map(constant).join("\n") + "\n" +
     ["plotArea", "lineSample", "lineChart", "nearest", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   const svg = real.lineChart({
-    title: "Rate", time: true, yRange: [4, 5], unit: " s/day", decimals: 1,
+    title: "Rate", time: true, yRange: [4, 5], unit: " s/d", decimals: 1,
     series: [{ name: "Rate", color: "--rate", points: [[1, 4.5], [2, 4.6], [3, null], [6, 4.7], [7, 4.8]] }],
   });
   const d = svg.match(/<path d="([^"]*)"/)[1];

@@ -186,9 +186,9 @@ fn a_step_is_a_shifting_mean() {
     assert!((s.cusum.unwrap().at_s - 2000.0).abs() < 90.0);
 }
 
-/// Twelve hours of rate readings 10 s apart drifting from 0 to 6 s/day,
+/// Twelve hours of rate readings 10 s apart drifting from 0 to 6 s/d,
 /// as a mainspring running down does, with independent scatter and
-/// `cycle` s/day of a 60 s line on top.
+/// `cycle` s/d of a 60 s line on top.
 fn drifting_rate(cycle: f64) -> SeriesCheck {
     let mut z = Noise(7);
     let y: Vec<f64> = (0..4320)

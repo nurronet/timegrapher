@@ -321,7 +321,7 @@ fn indices_table(states: &[StateIndices]) -> String {
 
 fn readings_table(sn: &Session) -> String {
     let mut s = String::from(
-        r#"<table class="data"><thead><tr><th>Position</th><th title="Hours since the watch was fully wound (wind_h in the session file). Where it is not given, the reading is taken as fully wound.">Wind</th><th class="num" title="Fitted over every beat: the average the hands keep.">Rate<br>sec/day</th><th class="num" title="Median of the 10 s rates. Where the rate wanders with dips, as tg's median reading does, it sits above the fitted rate.">10 s median<br>sec/day</th><th class="num">Amplitude<br>deg</th><th class="num">Tick / Tock<br>deg</th><th class="num" title="The size of the difference between Tick and Tock, from the unlock where it was found. Which beat is longer is not shown: it depends on the beat the analysis locked on first, so it can change from one run to the next.">Beat error<br>ms</th><th class="num" title="The same size, measured from the drop.">from the drop<br>ms</th><th class="num" title="How much each beat strays from a steady rhythm: the median beat-to-beat timing scatter over 10 s, in millionths of a second. A noisy recording raises it too.">Jitter<br>µs</th><th class="num">10 s rates<br>sec/day</th><th class="num" title="Share of the 2 s windows that found the unlock on both sides. Amplitude and the beat error from the unlock rest on those windows.">Unlock<br>found</th><th class="num" title="Share of the beats with a clipped sample. Clipping flattens the loudest part of the tick.">Clipped</th><th class="num">Measured</th><th>Recording</th></tr></thead><tbody>"#,
+        r#"<table class="data"><thead><tr><th>Position</th><th title="Hours since the watch was fully wound (wind_h in the session file). Where it is not given, the reading is taken as fully wound.">Wind</th><th class="num" title="Fitted over every beat: the average the hands keep.">Rate<br>s/d</th><th class="num" title="Median of the 10 s rates. Where the rate wanders with dips, as tg's median reading does, it sits above the fitted rate.">10 s median<br>s/d</th><th class="num">Amplitude<br>deg</th><th class="num">Tick / Tock<br>deg</th><th class="num" title="The size of the difference between Tick and Tock, from the unlock where it was found. Which beat is longer is not shown: it depends on the beat the analysis locked on first, so it can change from one run to the next.">Beat error<br>ms</th><th class="num" title="The same size, measured from the drop.">from the drop<br>ms</th><th class="num" title="How much each beat strays from a steady rhythm: the median beat-to-beat timing scatter over 10 s, in millionths of a second. A noisy recording raises it too.">Jitter<br>µs</th><th class="num">10 s rates<br>s/d</th><th class="num" title="Share of the 2 s windows that found the unlock on both sides. Amplitude and the beat error from the unlock rest on those windows.">Unlock<br>found</th><th class="num" title="Share of the beats with a clipped sample. Clipping flattens the loudest part of the tick.">Clipped</th><th class="num">Measured</th><th>Recording</th></tr></thead><tbody>"#,
     );
     for r in &sn.readings {
         let m = &r.measurement;
@@ -387,7 +387,7 @@ fn reference_table(sn: &Session) -> String {
         return String::new();
     }
     let mut s = String::from(
-        r#"<h2>Against the reference timegrapher</h2><table class="data"><thead><tr><th>Position</th><th class="num">Rate sec/day<br>here / ref</th><th class="num">Difference</th><th class="num">Amplitude deg<br>here / ref</th><th class="num">Difference</th><th class="num">Beat error ms<br>here / ref</th><th class="num">Here from<br>the drop</th><th>Reference</th><th>Recording</th></tr></thead><tbody>"#,
+        r#"<h2>Against the reference timegrapher</h2><table class="data"><thead><tr><th>Position</th><th class="num">Rate s/d<br>here / ref</th><th class="num">Difference</th><th class="num">Amplitude deg<br>here / ref</th><th class="num">Difference</th><th class="num">Beat error ms<br>here / ref</th><th class="num">Here from<br>the drop</th><th>Reference</th><th>Recording</th></tr></thead><tbody>"#,
     );
     for r in with {
         let f = r.reference.as_ref().unwrap();
@@ -624,7 +624,7 @@ pub fn html(sn: &Session) -> String {
     body.push_str("<h2>Characteristic values</h2>");
     body.push_str(&indices_table(&r.states));
     if !r.isochronism.is_empty() {
-        body.push_str(r#"<h3>Isochronism</h3><table class="data"><thead><tr><th>Position</th><th class="num">From</th><th class="num">To</th><th class="num">Rate change<br>sec/day</th><th class="num">Amplitude change<br>deg</th><th class="num">Beat error change<br>ms</th></tr></thead><tbody>"#);
+        body.push_str(r#"<h3>Isochronism</h3><table class="data"><thead><tr><th>Position</th><th class="num">From</th><th class="num">To</th><th class="num">Rate change<br>s/d</th><th class="num">Amplitude change<br>deg</th><th class="num">Beat error change<br>ms</th></tr></thead><tbody>"#);
         for i in &r.isochronism {
             let _ = write!(
                 body,

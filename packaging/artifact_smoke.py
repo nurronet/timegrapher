@@ -51,7 +51,7 @@ def validate_analysis(document):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise SmokeError(f"Missing/nonfinite synthetic {name}: {value!r}")
     if abs(values["rate_s_per_day"] - 6.0) >= 1.0:
-        raise SmokeError("Synthetic rate outside existing MCP stdio test margin (+6 +/-1 s/day)")
+        raise SmokeError("Synthetic rate outside existing MCP stdio test margin (+6 +/-1 s/d)")
     return values
 
 
