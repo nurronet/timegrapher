@@ -43,6 +43,9 @@ MAIN_ISSUE = "<!-- ci-watchdog:main -->"
 MAIN_FAILED_ISSUE = "<!-- ci-watchdog:main-failed -->"
 # GitHub's annotation on a job someone cancelled by hand.
 HAND_CANCEL = "was canceled by"
+# GitHub's annotation on a job cancelled at its timeout-minutes: a hang, never
+# a cancel for a newer run.
+TIME_LIMIT = "exceeded the maximum execution time"
 
 
 class API:
@@ -100,11 +103,13 @@ def infra_message(annotations):
 
 
 def superseded(api, run):
-    """A newer CI run for the same pull-request branch replaced this one."""
-    if run.get("event") != "pull_request":
+    """A newer CI run for the same pull-request branch, or a newer push run on
+    main, replaced this one. ci.yml cancels such a run when the newer one
+    starts; re-running it would cancel the newer one in turn."""
+    if run.get("event") not in {"pull_request", "push"}:
         return False
     branch = urllib.parse.quote(run.get("head_branch") or "", safe="")
-    newer = pages(api, f"/actions/workflows/ci.yml/runs?event=pull_request&branch={branch}",
+    newer = pages(api, f"/actions/workflows/ci.yml/runs?event={run['event']}&branch={branch}",
                   "workflow_runs")
     head = run.get("head_repository", {}).get("full_name")
     return any(other["id"] > run["id"] and other.get("head_repository", {}).get("full_name") == head
@@ -137,12 +142,15 @@ def plan(run, jobs, annotations, newer):
     return "rerun", why
 
 
-def failed_on_its_own(jobs, annotations):
+def failed_on_its_own(jobs, annotations, replaced=False):
     """The names of the failed jobs that neither GitHub's runners failed nor
-    someone cancelled by hand."""
+    someone cancelled by hand, nor a newer run replaced (replaced: a newer run
+    exists, so a cancelled job here was cancelled for it)."""
     def hand_cancelled(job):
-        return job.get("conclusion") == "cancelled" and any(
-            HAND_CANCEL in (a.get("message") or "") for a in annotations.get(job["id"], []))
+        messages = [a.get("message") or "" for a in annotations.get(job["id"], [])]
+        if job.get("conclusion") != "cancelled" or any(TIME_LIMIT in m for m in messages):
+            return False
+        return replaced or any(HAND_CANCEL in m for m in messages)
     return [job["name"] for job in jobs if job.get("conclusion") in FAILED
             and infra_message(annotations.get(job["id"], [])) is None
             and not hand_cancelled(job)]
@@ -225,13 +233,14 @@ def completed(api, run_id, log=print):
     jobs = pages(api, f"/actions/runs/{run_id}/jobs?filter=latest", "jobs")
     annotations = {job["id"]: pages(api, f"/check-runs/{job['id']}/annotations")
                    for job in jobs if job.get("conclusion") in FAILED}
-    action, why = plan(run, jobs, annotations, superseded(api, run))
+    replaced = superseded(api, run)
+    action, why = plan(run, jobs, annotations, replaced)
     log(f"run {run_id} attempt {run.get('run_attempt')}: {action}: {why}")
     if action == "rerun":
         # The Release gate wants every job from one attempt on main.
         api.post(f"/actions/runs/{run_id}/{'rerun' if on_main(run) else 'rerun-failed-jobs'}")
     elif on_main(run) and run.get("conclusion") in FAILED:
-        names = failed_on_its_own(jobs, annotations)
+        names = failed_on_its_own(jobs, annotations, replaced)
         if names:
             jobs_text = ", ".join(f"`{name}`" for name in names)
             log(flag(api, run, "failed",

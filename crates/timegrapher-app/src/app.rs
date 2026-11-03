@@ -4962,10 +4962,9 @@ fn reading_limits(
         .collect()
 }
 
-/// Whether a card titled `title` names caveat `c` beside its figure. No
-/// regular beat, the clock sources apart and a beat error given as a size
-/// are said elsewhere; so are the lift angle, on the Calibre card, and
-/// the input's clock, on the Rate's controls row.
+/// Whether a card titled `title` names caveat `c` beside its figure.
+/// No regular beat, clock disagreement and beat error as a size are said elsewhere;
+/// so are the lift angle (Calibre card) and input clock (Rate controls row).
 fn shown_on(c: &Caveat, title: &str) -> bool {
     match c {
         Caveat::NoWatch { .. }
@@ -4974,7 +4973,7 @@ fn shown_on(c: &Caveat, title: &str) -> bool {
         | Caveat::LiftUnknown
         | Caveat::ClockUnknown => false,
         Caveat::Clipped { .. } => matches!(title, "Amplitude" | "Beat Error"),
-        Caveat::SidesByCount { .. } => title == "Beat Error",
+        Caveat::SidesByCount { .. } | Caveat::BeatErrorFromDrop => title == "Beat Error",
         _ => true,
     }
 }

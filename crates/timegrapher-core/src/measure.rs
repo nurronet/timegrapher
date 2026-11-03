@@ -241,6 +241,8 @@ pub enum Caveat {
     /// ([`crate::timing::sign_turns`]), so it is given as a size, positive,
     /// rather than signed.
     BeatErrorAsSize,
+    /// The unlock was not found; the selected beat error comes from the drop.
+    BeatErrorFromDrop,
     /// Stretches of the take were masked out of the readings by hand;
     /// `seconds` is their total within the stretch.
     Masked { seconds: f64 },
@@ -262,6 +264,7 @@ impl Caveat {
     pub fn short(&self, lift_deg: f64, beats: usize) -> Option<String> {
         Some(match self {
             Caveat::NoWatch { .. } => return None,
+            Caveat::BeatErrorFromDrop => "beat error from the drop".to_string(),
             Caveat::SetRateDisagrees { heard } => format!("{heard} bph heard"),
             Caveat::ShortSpan { span_s } => format!("{span_s:.0} s of beats"),
             Caveat::Clipped { fraction } => format!("{:.0}% clipped", fraction * 100.0),
@@ -303,6 +306,9 @@ impl Caveat {
     pub fn long(&self, lift_deg: Option<f64>) -> Option<String> {
         Some(match self {
             Caveat::NoWatch { .. } => return None,
+            Caveat::BeatErrorFromDrop => {
+                "The unlock was not found; the beat error is measured from the drop.".to_string()
+            }
             Caveat::SetRateDisagrees { heard } => {
                 format!("The beat rate set differs from the {heard} bph heard.")
             }
@@ -438,6 +444,7 @@ impl Caveat {
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
+            Caveat::BeatErrorFromDrop => 16,
         }
     }
 }

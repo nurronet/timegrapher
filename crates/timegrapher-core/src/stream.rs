@@ -212,9 +212,7 @@ impl State {
         let beat = 3600.0 / self.bph as f64;
 
         // Number the chunk's beats on from the last beat kept so far.
-        let Some(anchor) = local
-            .iter()
-            .position(|b| b.time + off >= core_a && b.time + off < core_b)
+        let Some(anchor) = beats::anchor_of(&local, off, core_a, core_b, self.beats.last(), beat)
         else {
             return;
         };

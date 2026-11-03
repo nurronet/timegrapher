@@ -98,6 +98,23 @@ fn watch_wav(path: &Path, seconds: f64) {
     timegrapher_core::audio::write_wav(path, &audio).unwrap();
 }
 
+/// The watch of [`watch_wav`] with its rate swinging 40 s/d peak to
+/// peak every 12 s, a cycle the session names, so that its cycles and
+/// findings keep their fields.
+fn cycling_watch_wav(path: &Path, seconds: f64) {
+    let audio = generate(
+        &SynthConfig {
+            duration_s: seconds,
+            rate_s_per_day: 6.0,
+            beat_error_ms: 0.4,
+            ..Default::default()
+        },
+        |_| 275.0,
+        |t| 20.0 * (std::f64::consts::TAU * t / 12.0).sin(),
+    );
+    timegrapher_core::audio::write_wav(path, &audio).unwrap();
+}
+
 #[test]
 fn analyze_shape_and_profile_keep_their_fields() {
     let dir = scratch("analyze");
@@ -163,7 +180,7 @@ fn analyze_reads_its_file_beside_a_session_file_it_cannot_read() {
 #[test]
 fn session_keeps_its_fields() {
     let dir = scratch("session");
-    watch_wav(&dir.join("du.wav"), 60.0);
+    cycling_watch_wav(&dir.join("du.wav"), 60.0);
     watch_wav(&dir.join("cu.wav"), 60.0);
     std::fs::write(
         dir.join("session.toml"),

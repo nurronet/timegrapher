@@ -1,6 +1,6 @@
 //! The pane's tests as one family (#659): every p-value that can name
 //! something on the pane, each series' period search lines and its
-//! Ljung–Box test, is held to Holm's correction at [`FAMILY_ALPHA`], so
+//! Ljung–Box test and its trend's F test, is held to Holm's correction at [`FAMILY_ALPHA`], so
 //! a steady watch shows nothing in at least 95 takes in 100. Tests with
 //! no p-value (the change finder's penalty, the two-state finder's BIC,
 //! a fold's share) keep their own bars, and each test's own figures stay
@@ -11,6 +11,10 @@ use crate::clock::ClockFit;
 use crate::longrun::LongReport;
 use crate::longterm::LongConfig;
 use crate::stream::BeatLog;
+
+/// The trend's place in a series' tests, beside the Ljung–Box test
+/// (`None`) and the search lines (`Some(line)`, `usize::MAX` for none).
+const TREND: usize = usize::MAX - 1;
 
 /// The chance, over the whole pane, of naming anything on a steady
 /// watch.
@@ -65,6 +69,8 @@ pub(super) fn check_all(
     for (k, (i, s)) in inputs.iter().zip(&first).enumerate() {
         tests.push((k, None));
         p.push(s.autocorrelation.as_ref().map_or(1.0, |a| a.p_value));
+        tests.push((k, Some(TREND)));
+        p.push(s.trend.as_ref().map_or(1.0, |t| t.p_value));
         if i.4.is_empty() {
             tests.push((k, Some(usize::MAX)));
             p.push(1.0);
@@ -94,9 +100,11 @@ pub(super) fn check_all(
         .map(|(k, ((kind, grid, fine, period, sig, two_state), s))| {
             let lines = &named[k];
             let memory = keeps(k, None);
+            let trend = keeps(k, Some(TREND));
             if lines.len() == sig.len()
                 && lines.iter().all(|&x| x)
                 && (memory || !named_memory(&s, cfg))
+                && (trend || !trend_holds(&s, cfg))
             {
                 return s;
             }
@@ -110,6 +118,7 @@ pub(super) fn check_all(
                 });
             let cfg = Config {
                 alpha: if memory { cfg.alpha } else { 0.0 },
+                trend_alpha: if trend { cfg.trend_alpha } else { 0.0 },
                 ..cfg.clone()
             };
             check_series(kind, grid, fine, period, two_state, wheels, &cfg)
@@ -148,6 +157,25 @@ pub fn family_long(
     hold_to_family(long, &rep);
 }
 
+/// Whether the trend's own test clears `cfg.trend_alpha` (#659).
+pub(super) fn trend_holds(s: &SeriesCheck, cfg: &Config) -> bool {
+    s.trend
+        .as_ref()
+        .is_some_and(|t| t.p_value < cfg.trend_alpha)
+}
+
+/// [`super::Trend::p_value`] for readings `y` (NaN a gap) whose quadratic
+/// explains `r2` of their variance.
+pub(super) fn trend_p(y: &[f64], r2: f64) -> f64 {
+    let n = y.iter().filter(|v| v.is_finite()).count() as f64;
+    let rho = crate::confidence::long_run_rho(y, crate::confidence::Slow::Line);
+    let n_eff = n * (1.0 - rho) / (1.0 + rho);
+    if n_eff <= 3.0 || !r2.is_finite() {
+        return 1.0;
+    }
+    (1.0 - r2.clamp(0.0, 1.0)).powf((n_eff - 3.0) / 2.0)
+}
+
 /// Whether the Ljung–Box test at the series' own α names memory.
 fn named_memory(s: &SeriesCheck, cfg: &Config) -> bool {
     s.autocorrelation
@@ -166,6 +194,29 @@ fn pick<T: Clone>(v: &[T], keep: &[bool]) -> Vec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The trend's F test with two terms is (1 − R²)^((n_eff − 3)/2):
+    /// on independent readings n_eff is their count, and readings that
+    /// follow themselves count for fewer, so the same R² is likelier.
+    #[test]
+    fn a_trend_s_p_counts_readings_that_follow_themselves_as_fewer() {
+        let mut z = crate::synth::Rng::new(5);
+        let white: Vec<f64> = (0..360).map(|_| z.normal()).collect();
+        let rho = crate::confidence::long_run_rho(&white, crate::confidence::Slow::Line);
+        let n_eff = 360.0 * (1.0 - rho) / (1.0 + rho);
+        let p = super::trend_p(&white, 0.05);
+        assert!((p - 0.95f64.powf((n_eff - 3.0) / 2.0)).abs() < 1e-12, "{p}");
+        let mut x = 0.0;
+        let red: Vec<f64> = (0..360)
+            .map(|_| {
+                x = 0.9 * x + z.normal();
+                x
+            })
+            .collect();
+        assert!(super::trend_p(&red, 0.05) > 100.0 * p);
+        // Three readings and fewer leave nothing to test.
+        assert_eq!(super::trend_p(&[1.0, 2.0, 3.0], 0.9), 1.0);
+    }
 
     /// Holm keeps the smallest p while each is under α over the tests
     /// left, and stops at the first that is not.

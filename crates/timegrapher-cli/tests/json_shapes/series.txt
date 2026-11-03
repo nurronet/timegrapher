@@ -2,6 +2,7 @@ bph
 caveats
 clock
 config
+config.acf_alone
 config.alpha
 config.change_block_s
 config.change_min_segment_s
@@ -14,6 +15,7 @@ config.outlier_sigma
 config.periodic_min_explained
 config.rate_reading_s
 config.stretch_s
+config.trend_alpha
 config.wind_h
 distributions
 distributions.overall

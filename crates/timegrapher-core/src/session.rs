@@ -277,6 +277,8 @@ pub struct Measurement {
     /// Signed beat error from the unlock, the figure checked against tg's
     /// beat error in regress (median of the amplitude windows), ms.
     pub beat_error_unlock_ms: Option<f64>,
+    /// Source of the selected beat error, absent when neither event was read.
+    pub beat_error_source: Option<BeatErrorSource>,
     pub amplitude_deg: Option<f64>,
     pub amplitude_even_deg: Option<f64>,
     pub amplitude_odd_deg: Option<f64>,
@@ -581,13 +583,38 @@ pub fn lead_s(
         .map(|b| b.time)
 }
 
+/// The event used for a reading's selected beat error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BeatErrorSource {
+    Unlock,
+    Drop,
+}
+
+impl BeatErrorSource {
+    /// The factual caveat for falling back to the drop.
+    pub fn caveat(self) -> Option<crate::measure::Caveat> {
+        (self == Self::Drop).then_some(crate::measure::Caveat::BeatErrorFromDrop)
+    }
+}
+
+/// Choose the unlock where found, otherwise the drop, retaining its source.
+pub fn chosen_beat_error(
+    unlock_ms: Option<f64>,
+    drop_ms: Option<f64>,
+) -> Option<(f64, BeatErrorSource)> {
+    unlock_ms
+        .map(|v| (v, BeatErrorSource::Unlock))
+        .or_else(|| drop_ms.map(|v| (v, BeatErrorSource::Drop)))
+}
+
 /// The beat error a reading gives, from its signed beat errors: from the
 /// unlock (`unlock_ms`) where it was found, else from the drop
 /// (`drop_ms`). Signed, ms; both sides are named alike, so the sign means
 /// the same from either. Every beat error a take's reading gives is read
 /// here or through [`beat_error_size`].
 pub fn beat_error_signed(unlock_ms: Option<f64>, drop_ms: Option<f64>) -> Option<f64> {
-    unlock_ms.or(drop_ms)
+    chosen_beat_error(unlock_ms, drop_ms).map(|(value, _)| value)
 }
 
 /// The beat error a reading shows: [`beat_error_signed`]'s size, ms. The
@@ -748,6 +775,7 @@ pub fn measure_masked(
         rate_s_per_day: fit.map(|f| f.rate_s_per_day),
         beat_error_ms: fit.map(|f| f.beat_error_ms),
         beat_error_unlock_ms: figures.beat_error_unlock_ms,
+        beat_error_source: None,
         amplitude_deg: figures.amplitude_deg,
         amplitude_even_deg: figures.amplitude_even_deg,
         amplitude_odd_deg: figures.amplitude_odd_deg,
@@ -844,6 +872,11 @@ pub fn measure_masked(
         let none = twostate::find(&[], &twostate::Params::default());
         m.amplitude_states = none.clone();
         m.rate_states = none;
+    }
+    m.beat_error_source =
+        chosen_beat_error(m.beat_error_unlock_ms, m.beat_error_ms).map(|(_, source)| source);
+    if let Some(caveat) = m.beat_error_source.and_then(BeatErrorSource::caveat) {
+        crate::measure::add(&mut m.caveats, caveat);
     }
     m
 }
@@ -1974,5 +2007,89 @@ mod beat_error_tests {
         let unlock = heard.beat_error_unlock_ms.expect("the unlock's beat error");
         assert_eq!(heard.beat_error_signed(), Some(unlock));
         assert_eq!(unlock.signum(), drop.signum(), "{unlock} and {drop}");
+    }
+}
+
+#[cfg(test)]
+mod beat_error_source_tests {
+    use crate::{analyze, audio, library, power_reserve, session, stream, synth, AnalysisConfig};
+    use serde_json::Value;
+
+    fn check(audio: audio::Audio, source: &str) {
+        let log = stream::analyze_samples(
+            &audio.samples,
+            audio.sample_rate,
+            &stream::StreamConfig::default(),
+        );
+        let measurement = session::measure(&log, None, 0.0, log.duration_s);
+        let mut summary = analyze(&audio, &AnalysisConfig::default()).summary;
+        let hours = power_reserve::hours(&log, None, &[], &[], 0.0, log.duration_s);
+        let dir = std::env::temp_dir().join(format!("tg-source-{source}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        audio::write_wav(&dir.join("take.wav"), &audio).unwrap();
+        std::fs::write(
+            dir.join("session.toml"),
+            "[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\n",
+        )
+        .unwrap();
+        let kept = library::reading(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        old_reading(&kept);
+        old_reading(&hours[0]);
+        for (name, value) in [
+            ("measurement", serde_json::to_value(&measurement).unwrap()),
+            ("summary", serde_json::to_value(&summary).unwrap()),
+            ("hour", serde_json::to_value(&hours[0]).unwrap()),
+            ("library", serde_json::to_value(&kept).unwrap()),
+        ] {
+            assert_eq!(value["beat_error_source"], source, "{name}");
+            let drop = value["caveats"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["code"] == "beat_error_from_drop");
+            assert_eq!(drop, source == "drop", "{name}");
+        }
+        summary.withhold_readings();
+        let withheld = serde_json::to_value(summary).unwrap();
+        assert_eq!(withheld.get("beat_error_source"), Some(&Value::Null));
+        assert!(withheld["caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| { c["code"] != "beat_error_from_drop" }));
+    }
+
+    fn old_reading<T: serde::Serialize + serde::de::DeserializeOwned>(reading: &T) {
+        let mut old = serde_json::to_value(reading).unwrap();
+        let fields = old.as_object_mut().unwrap();
+        fields.remove("beat_error_source");
+        fields.remove("caveats");
+        let restored: T = serde_json::from_value(old).unwrap();
+        let restored = serde_json::to_value(restored).unwrap();
+        assert_eq!(restored.get("beat_error_source"), Some(&Value::Null));
+        assert_eq!(restored["caveats"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn unlock_source_travels_with_direct_readings() {
+        check(
+            synth::generate(
+                &synth::SynthConfig {
+                    duration_s: 30.0,
+                    beat_error_ms: 0.8,
+                    seed: 658,
+                    ..Default::default()
+                },
+                |_| 250.0,
+                |_| 0.0,
+            ),
+            "unlock",
+        );
+    }
+
+    #[test]
+    fn unheard_unlock_uses_drop_with_a_factual_caveat() {
+        check(synth::unlock_unheard(30.0, 0.8), "drop");
     }
 }

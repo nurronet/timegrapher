@@ -69,6 +69,8 @@ pub struct Summary {
     /// windows, ms. Positive means Tick comes late; each take starts
     /// positive ([`crate::beats::SideCheck`]).
     pub beat_error_unlock_ms: Option<f64>,
+    /// Source of the selected beat error, absent when neither event was read.
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
     /// Spread of the windowed rate (5th and 95th percentiles), s/d.
     pub rate_p05: Option<f64>,
     pub rate_p95: Option<f64>,
@@ -124,6 +126,9 @@ impl Summary {
     pub fn withhold_readings(&mut self) {
         self.overall = None;
         self.beat_error_unlock_ms = None;
+        self.beat_error_source = None;
+        self.caveats
+            .retain(|c| *c != crate::measure::Caveat::BeatErrorFromDrop);
         self.rate_p05 = None;
         self.rate_p95 = None;
         self.amplitude_deg = None;
@@ -389,6 +394,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         },
         watch_heard,
         overall,
+        beat_error_source: None,
         beat_error_unlock_ms: timing::median_signed(
             clear.iter().filter_map(|w| w.beat_error_unlock_ms),
             turned,
@@ -419,6 +425,17 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     };
     if !summary.watch_heard {
         summary.withhold_readings();
+    }
+    summary.beat_error_source = crate::session::chosen_beat_error(
+        summary.beat_error_unlock_ms,
+        summary.overall.map(|f| f.beat_error_ms),
+    )
+    .map(|(_, source)| source);
+    if let Some(caveat) = summary
+        .beat_error_source
+        .and_then(crate::session::BeatErrorSource::caveat)
+    {
+        crate::measure::add(&mut summary.caveats, caveat);
     }
     Analysis {
         summary,

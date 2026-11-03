@@ -419,6 +419,8 @@ pub fn finished_run(hours: u32) -> Test {
                 rate_s_per_day: Some(6.5),
                 amplitude_deg: Some(281.0),
                 beat_error_ms: Some(0.4),
+                beat_error_source: None,
+                caveats: Vec::new(),
                 read_s: 3500.0,
             })
             .collect();
@@ -695,6 +697,8 @@ mod tests {
             rate_s_per_day: Some(4.25),
             amplitude_deg: Some(281.4),
             beat_error_ms: Some(-0.4),
+            beat_error_source: None,
+            caveats: Vec::new(),
             read_s: 90.0,
         }];
         let text = results_text(&r, "Pepsi, 1972", ',');
@@ -730,6 +734,8 @@ mod tests {
                     rate_s_per_day: Some(6.5),
                     amplitude_deg: Some(281.0),
                     beat_error_ms: Some(0.4),
+                    beat_error_source: None,
+                    caveats: Vec::new(),
                     read_s: 3500.0,
                 })
                 .collect();
@@ -811,6 +817,8 @@ mod tests {
                         rate_s_per_day: Some(6.5),
                         amplitude_deg: Some(281.0),
                         beat_error_ms: Some(0.4),
+                        beat_error_source: None,
+                        caveats: Vec::new(),
                         read_s: 3500.0,
                     })
                     .collect();
@@ -982,6 +990,8 @@ mod tests {
             rate_s_per_day: Some(6.5),
             amplitude_deg: Some(281.0),
             beat_error_ms: Some(0.4),
+            beat_error_source: None,
+            caveats: Vec::new(),
             read_s: span_s - 100.0,
         };
         let mut t = Test::new(Position::DialUp, true, String::new(), 0.0);
@@ -1046,6 +1056,8 @@ mod tests {
             rate_s_per_day: Some(7.0),
             amplitude_deg: Some(281.0),
             beat_error_ms: Some(0.4),
+            beat_error_source: None,
+            caveats: Vec::new(),
             read_s: 30.0,
         }];
         let ctx = egui::Context::default();

@@ -161,6 +161,12 @@ pub struct Hour {
     /// Signed, Tick less Tock, as the take's readings give it
     /// ([`crate::session::beat_error_signed`]).
     pub beat_error_ms: Option<f64>,
+    /// Source of the selected beat error; absent in older saved readings.
+    #[serde(default)]
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    /// Factual conditions carried from the core measurement.
+    #[serde(default)]
+    pub caveats: Vec<crate::measure::Caveat>,
     /// Seconds of it read, out of `span_s`.
     pub read_s: f64,
 }
@@ -313,6 +319,8 @@ pub fn hours_from(
             rate_s_per_day: m.as_ref().and_then(|m| m.rate_s_per_day),
             amplitude_deg: m.as_ref().and_then(|m| m.amplitude_deg),
             beat_error_ms: m.as_ref().and_then(|m| m.beat_error_signed()),
+            beat_error_source: m.as_ref().and_then(|m| m.beat_error_source),
+            caveats: m.as_ref().map(|m| m.caveats.clone()).unwrap_or_default(),
             read_s,
         });
         hour += 1;
@@ -665,6 +673,8 @@ mod tests {
             rate_s_per_day: None,
             amplitude_deg: None,
             beat_error_ms: None,
+            beat_error_source: None,
+            caveats: Vec::new(),
             read_s: 0.0,
         };
         assert!(hour(3600.0).whole());
