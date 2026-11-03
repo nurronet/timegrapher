@@ -11,17 +11,17 @@ use super::*;
 fn a_readings_beat_error_falls_back_to_the_drop() {
     let point = |unlock, drop| TrendPoint {
         t: 0.0,
-        rate: None,
-        amplitude: None,
-        amplitude_a: None,
-        amplitude_b: None,
-        beat_error_unlock: unlock,
-        beat_error_drop: drop,
+        rate_s_per_day: None,
+        amplitude_deg: None,
+        amplitude_even_deg: None,
+        amplitude_odd_deg: None,
+        beat_error_unlock_ms: unlock,
+        beat_error_ms: drop,
         heard: true,
     };
-    assert_eq!(point(Some(-0.4), Some(0.5)).beat_error(), Some(-0.4));
-    assert_eq!(point(None, Some(0.5)).beat_error(), Some(0.5));
-    assert_eq!(point(None, None).beat_error(), None);
+    assert_eq!(trend_beat_error(&point(Some(-0.4), Some(0.5))), Some(-0.4));
+    assert_eq!(trend_beat_error(&point(None, Some(0.5))), Some(0.5));
+    assert_eq!(trend_beat_error(&point(None, None)), None);
 }
 
 /// The rate distribution's 2 s values are the rate over each 2 seconds

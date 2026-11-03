@@ -197,7 +197,12 @@ impl TimegrapherApp {
                 pal.trace_rate,
                 "2 s",
             ),
-            SeriesKind::Rate => (readings(|p| p.rate), RATE, pal.trace_rate, "readings"),
+            SeriesKind::Rate => (
+                readings(|p| p.rate_s_per_day),
+                RATE,
+                pal.trace_rate,
+                "readings",
+            ),
             SeriesKind::Amplitude if short => (
                 windows
                     .iter()
@@ -209,7 +214,7 @@ impl TimegrapherApp {
                 "2 s",
             ),
             SeriesKind::Amplitude => (
-                readings(|p| p.amplitude),
+                readings(|p| p.amplitude_deg),
                 AMPLITUDE,
                 pal.trace_amplitude,
                 "readings",
@@ -227,7 +232,7 @@ impl TimegrapherApp {
                 "2 s",
             ),
             SeriesKind::BeatError => (
-                readings(TrendPoint::beat_error),
+                readings(trend_beat_error),
                 BEAT_ERROR,
                 pal.trace_beat_error,
                 "readings",

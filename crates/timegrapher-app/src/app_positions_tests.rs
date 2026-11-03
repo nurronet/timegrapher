@@ -817,7 +817,7 @@ fn a_masked_stretch_leaves_the_readings_and_comes_back() {
     let heard = |app: &TimegrapherApp| {
         app.trend
             .iter()
-            .filter(|p| p.t > 30.0 && p.t < 40.0 && p.rate.is_some())
+            .filter(|p| p.t > 30.0 && p.t < 40.0 && p.rate_s_per_day.is_some())
             .count()
     };
     // The 2-second stretches the distributions count, too.

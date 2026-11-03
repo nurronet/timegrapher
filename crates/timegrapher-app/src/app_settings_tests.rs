@@ -955,7 +955,7 @@ fn a_long_take_still_draws_over_a_short_strip() {
     // the 7 h 28 min Pepsi take, the strip works out its own.
     let mut app = synthetic(40.0, 20.0);
     let thin = |app: &mut TimegrapherApp| {
-        let step = 26_880.0 / TREND_POINTS;
+        let step = 26_880.0 / timegrapher_core::live::TREND_POINTS;
         let mut t = 0.0;
         let mut thin = Vec::new();
         while t <= 40.0 {
@@ -970,10 +970,10 @@ fn a_long_take_still_draws_over_a_short_strip() {
     let (pts, spacing) = app.strip_trend(5.0, 40.0, app.average_s);
     assert_eq!(spacing, strip_step(35.0));
     assert!(pts.len() >= 60, "{} points", pts.len());
-    assert!(pts.iter().filter(|p| p.rate.is_some()).count() >= 40);
+    assert!(pts.iter().filter(|p| p.rate_s_per_day.is_some()).count() >= 40);
     // A new lift angle works the strip's readings out again, so the
     // amplitude line follows it at once.
-    let amplitude = |pts: &[TrendPoint]| pts.iter().find_map(|p| p.amplitude).unwrap();
+    let amplitude = |pts: &[TrendPoint]| pts.iter().find_map(|p| p.amplitude_deg).unwrap();
     let before = amplitude(&pts);
     app.set_lift(app.lift_deg + 10.0);
     assert!(app.strip_points.is_none());

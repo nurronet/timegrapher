@@ -284,7 +284,11 @@ fn a_takes_usb_lines_set_its_rate() {
     let rate = card(&app);
     let want = timegrapher_core::clockstore::correct_rate(heard, ppm);
     assert!((rate - want).abs() < 0.05, "{rate} {want}");
-    let last = app.trend.last().and_then(|p| p.rate).expect("charts");
+    let last = app
+        .trend
+        .last()
+        .and_then(|p| p.rate_s_per_day)
+        .expect("charts");
     assert!(
         (last - heard).abs() > 1.0,
         "the charts are on the lines' clock: {last} {heard}"
