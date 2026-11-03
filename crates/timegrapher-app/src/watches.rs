@@ -2193,6 +2193,8 @@ mod tests {
             calibrated: true,
             amplitude_deg: Some(287.2),
             beat_error_ms: Some(-0.21),
+            beat_error_source: None,
+            caveats: Vec::new(),
             watch_heard: true,
         };
         let r = Some(&reading);
@@ -2292,6 +2294,8 @@ mod tests {
             calibrated: true,
             amplitude_deg: Some(301.0),
             beat_error_ms: Some(0.3),
+            beat_error_source: None,
+            caveats: Vec::new(),
             watch_heard: true,
         };
         let e = WatchEntry {
@@ -2566,6 +2570,8 @@ mod tests {
             calibrated: true,
             amplitude_deg: Some(281.0),
             beat_error_ms: Some(-0.4),
+            beat_error_source: None,
+            caveats: Vec::new(),
             watch_heard: true,
         };
         let r = Some(&reading);

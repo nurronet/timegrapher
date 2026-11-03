@@ -9,6 +9,7 @@ amplitude_periods[].power
 amplitude_periods[].prominence
 amplitude_periods[].wheel
 amplitude_se_deg
+beat_error_source
 beat_error_unlock_ms
 beats_found
 beats_found_fraction
@@ -135,6 +136,7 @@ take.readings[].measurement.amplitude_states.two_levels
 take.readings[].measurement.amplitude_states.unlock_jump
 take.readings[].measurement.amplitude_windows
 take.readings[].measurement.beat_error_ms
+take.readings[].measurement.beat_error_source
 take.readings[].measurement.beat_error_unlock_ms
 take.readings[].measurement.beats
 take.readings[].measurement.calibrated

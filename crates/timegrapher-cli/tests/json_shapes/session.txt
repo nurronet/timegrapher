@@ -73,6 +73,7 @@ readings[].measurement.amplitude_states.two_levels
 readings[].measurement.amplitude_states.unlock_jump
 readings[].measurement.amplitude_windows
 readings[].measurement.beat_error_ms
+readings[].measurement.beat_error_source
 readings[].measurement.beat_error_unlock_ms
 readings[].measurement.beats
 readings[].measurement.calibrated
