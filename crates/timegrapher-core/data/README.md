@@ -11,6 +11,21 @@ Only lever escapements are listed. Co-axial calibres (Omega 8500, 8800
 and their kin) and other non-lever escapements are left out: the
 measurement assumes a Swiss lever's unlock and drop.
 
+## DD32xx and JH32xx empirical lift setting
+
+The [2026-11-03 DD3285 optical study](../../../docs/dd32xx-optical-amplitude-validation.md)
+supports a maintainer-selected **59°** default, replacing 55° in `Dandong 3235`
+and `JH3235`. All their existing DD/JH 3230, 3235, 3255, 3285 and 32xx aliases
+inherit it, including `VS3235` under the Dandong row. Four blind video/audio takes
+measured one DD3285; effective matching settings were roughly 58–59°. Applying
+59° to other DD variants and the JH family is an explicit extrapolation, not
+separate measurements or a definitive physical lift-angle determination.
+
+Genuine Rolex, VR, SH, DD31xx and DD324 settings are unchanged. Historical corpus
+and saved-session lift overrides remain historical inputs. The row's existing
+`confidence` describes train evidence; `notes` distinguish this empirical lift
+setting and its limits. No wheel count or period changes with this update.
+
 ## Shape
 
 A JSON array, one object per calibre:
