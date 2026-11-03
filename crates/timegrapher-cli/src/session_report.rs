@@ -43,11 +43,26 @@ struct Series<'a> {
     points: Vec<(Position, f64)>,
 }
 
+/// Where a value and a position fall on a position chart.
+struct Frame {
+    lo: f64,
+    hi: f64,
+    ph: f64,
+    col: f64,
+}
+
+impl Frame {
+    fn y(&self, v: f64) -> f64 {
+        MT + self.ph * (1.0 - (v - self.lo) / (self.hi - self.lo))
+    }
+
+    fn x(&self, p: Position) -> f64 {
+        let i = Position::ALL.iter().position(|q| *q == p).unwrap_or(0);
+        ML + self.col * (i as f64 + 0.5)
+    }
+}
+
 /// Values per position as dots.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn position_chart(unit: &str, series: &[Series], zero: bool) -> String {
     let vals: Vec<f64> = series
         .iter()
@@ -64,18 +79,32 @@ fn position_chart(unit: &str, series: &[Series], zero: bool) -> String {
     let step = nice_step(hi - lo);
     let (lo, hi) = ((lo / step).floor() * step, (hi / step).ceil() * step);
     let pw = W - ML - MR;
-    let ph = H - MT - MB;
-    let y = |v: f64| MT + ph * (1.0 - (v - lo) / (hi - lo));
-    let col = pw / Position::ALL.len() as f64;
-    let x = |p: Position| {
-        let i = Position::ALL.iter().position(|q| *q == p).unwrap_or(0);
-        ML + col * (i as f64 + 0.5)
+    let f = Frame {
+        lo,
+        hi,
+        ph: H - MT - MB,
+        col: pw / Position::ALL.len() as f64,
     };
     let mut s = String::new();
     let _ = write!(
         s,
         r#"<svg viewBox="0 0 {W} {H}" role="img" aria-label="{unit} by position">"#
     );
+    chart_axes(&mut s, &f, step, zero, unit);
+    chart_dots(&mut s, &f, series, unit);
+    s.push_str("</svg>");
+    if series.len() > 1 {
+        chart_legend(&mut s, series);
+    }
+    s
+}
+
+/// A position chart's value grid, its zero line, its position names and
+/// its unit.
+fn chart_axes(s: &mut String, f: &Frame, step: f64, zero: bool, unit: &str) {
+    let (lo, hi, ph) = (f.lo, f.hi, f.ph);
+    let y = |v: f64| f.y(v);
+    let x = |p: Position| f.x(p);
     let mut t = lo;
     while t <= hi + 1e-9 {
         let _ = write!(
@@ -121,6 +150,12 @@ fn position_chart(unit: &str, series: &[Series], zero: bool) -> String {
         MT + ph / 2.0,
         esc(unit)
     );
+}
+
+/// Each series' values as dots, side by side at each position.
+fn chart_dots(s: &mut String, f: &Frame, series: &[Series], unit: &str) {
+    let y = |v: f64| f.y(v);
+    let x = |p: Position| f.x(p);
     let n = series.len().max(1) as f64;
     for (k, ser) in series.iter().enumerate() {
         let dx = (k as f64 - (n - 1.0) / 2.0) * 14.0;
@@ -146,23 +181,23 @@ fn position_chart(unit: &str, series: &[Series], zero: bool) -> String {
             }
         }
     }
-    s.push_str("</svg>");
-    if series.len() > 1 {
-        s.push_str(r#"<p class="legend">"#);
-        for ser in series {
-            let sw = if ser.class == "ref" {
-                r#"<svg width="12" height="12" viewBox="0 0 12 12"><path class="ref" d="M6 0 l6 6 l-6 6 l-6 -6 z"/></svg>"#.to_string()
-            } else {
-                format!(
-                    r#"<svg width="12" height="12" viewBox="0 0 12 12"><circle class="{}" cx="6" cy="6" r="5"/></svg>"#,
-                    ser.class
-                )
-            };
-            let _ = write!(s, r#"<span>{sw} {}</span>"#, esc(ser.label));
-        }
-        s.push_str("</p>");
+}
+
+/// The legend naming each series by its mark.
+fn chart_legend(s: &mut String, series: &[Series]) {
+    s.push_str(r#"<p class="legend">"#);
+    for ser in series {
+        let sw = if ser.class == "ref" {
+            r#"<svg width="12" height="12" viewBox="0 0 12 12"><path class="ref" d="M6 0 l6 6 l-6 6 l-6 -6 z"/></svg>"#.to_string()
+        } else {
+            format!(
+                r#"<svg width="12" height="12" viewBox="0 0 12 12"><circle class="{}" cx="6" cy="6" r="5"/></svg>"#,
+                ser.class
+            )
+        };
+        let _ = write!(s, r#"<span>{sw} {}</span>"#, esc(ser.label));
     }
-    s
+    s.push_str("</p>");
 }
 
 fn charts(st: &StateIndices, readings: &[&Reading]) -> String {
@@ -551,18 +586,29 @@ fn kept_row(v: &serde_json::Value) -> String {
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn html(sn: &Session) -> String {
-    let r = &sn.report;
     let title = match (sn.watch, sn.calibre) {
         (Some(w), Some(c)) => format!("{w}, calibre {c}"),
         (Some(w), None) => w.to_string(),
         (None, Some(c)) => format!("Calibre {c}"),
         (None, None) => "Test session".to_string(),
     };
+    let mut body = facts_table(sn);
+    body.push_str(&findings_list(sn));
+    body.push_str(&readings_section(sn));
+    body.push_str("<h2>Characteristic values</h2>");
+    body.push_str(&indices_table(&sn.report.states));
+    body.push_str(&isochronism_section(sn));
+    body.push_str(&state_charts(sn));
+    body.push_str(&reference_table(sn));
+    body.push_str(&cycles_table(sn));
+    body.push_str(&states_lines(sn));
+    body.push_str(&shape_table(sn));
+    page(&title, sn.owner, &body)
+}
+
+/// The facts at the top: movement, recordings, clock, sound kept, notes.
+fn facts_table(sn: &Session) -> String {
     let mut body = String::new();
     let positions: Vec<&str> = {
         let mut p: Vec<Position> = sn.readings.iter().map(|r| r.position).collect();
@@ -597,7 +643,13 @@ pub fn html(sn: &Session) -> String {
             .map(|n| format!("<tr><th>Notes</th><td>{}</td></tr>", esc(n)))
             .unwrap_or_default()
     );
+    body
+}
 
+/// The findings, each with its evidence; nothing when there are none.
+fn findings_list(sn: &Session) -> String {
+    let r = &sn.report;
+    let mut body = String::new();
     if !r.findings.is_empty() {
         body.push_str(r#"<h2>Findings</h2><ul class="findings">"#);
         for f in &r.findings {
@@ -610,7 +662,12 @@ pub fn html(sn: &Session) -> String {
         }
         body.push_str("</ul>");
     }
+    body
+}
 
+/// The readings table, what was left out, and how a reading is made.
+fn readings_section(sn: &Session) -> String {
+    let mut body = String::new();
     body.push_str("<h2>Readings</h2>");
     body.push_str(&readings_table(sn));
     for l in &sn.left_out {
@@ -620,9 +677,13 @@ pub fn html(sn: &Session) -> String {
         ));
     }
     body.push_str(&format!(r#"<p class="note">Each reading starts after the settling time and runs to the end of the recording (or the measuring time set in the session file). 10 s rates: the 5th to 95th percentile of rate over 10 s windows, a measure of how steady the rate is. Beat error is a size: which beat is longer is not shown, because it depends on the beat the analysis locked on first. The settling time is left out, as the quick check <code>record</code> prints leaves it out. That check uses the session file's <code>settle_s</code> (20 s when the file has none, as this report does) and none of <code>--settle</code>, <code>--bph</code>, <code>--lift</code>, <code>--calibre</code>, a reading's own <code>settle_s</code>, <code>measure_s</code>, <code>start_s</code>, <code>end_s</code>, a clock log, <code>card_ppm</code> or a restart in listening, so a reading that uses one of these can differ from it.{}</p>"#, if sn.readings.iter().any(|r| r.measurement.calibrated) { " The sound card's clock error is corrected where a clock log or <code>card_ppm</code> is given." } else { "" }));
+    body
+}
 
-    body.push_str("<h2>Characteristic values</h2>");
-    body.push_str(&indices_table(&r.states));
+/// The isochronism table and Im, Im* and Ie; nothing without isochronism.
+fn isochronism_section(sn: &Session) -> String {
+    let r = &sn.report;
+    let mut body = String::new();
     if !r.isochronism.is_empty() {
         body.push_str(r#"<h3>Isochronism</h3><table class="data"><thead><tr><th>Position</th><th class="num">From</th><th class="num">To</th><th class="num">Rate change<br>s/d</th><th class="num">Amplitude change<br>deg</th><th class="num">Beat error change<br>ms</th></tr></thead><tbody>"#);
         for i in &r.isochronism {
@@ -645,6 +706,13 @@ pub fn html(sn: &Session) -> String {
             opt(r.ie, 1)
         );
     }
+    body
+}
+
+/// The rate and amplitude charts of each state of wind.
+fn state_charts(sn: &Session) -> String {
+    let r = &sn.report;
+    let mut body = String::new();
     for st in &r.states {
         if r.states.len() > 1 {
             let _ = write!(
@@ -666,12 +734,11 @@ pub fn html(sn: &Session) -> String {
             .collect();
         body.push_str(&charts(st, &rs));
     }
+    body
+}
 
-    body.push_str(&reference_table(sn));
-    body.push_str(&cycles_table(sn));
-    body.push_str(&states_lines(sn));
-    body.push_str(&shape_table(sn));
-
+/// The whole page around `body`, titled `title`.
+fn page(title: &str, owner: Option<&str>, body: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -722,11 +789,9 @@ code {{ font-size: 13px; }}
 {body}
 </body></html>
 "#,
-        esc(&title),
+        esc(title),
         env!("CARGO_PKG_VERSION"),
-        sn.owner
-            .map(|o| format!(" · {}", esc(o)))
-            .unwrap_or_default()
+        owner.map(|o| format!(" · {}", esc(o))).unwrap_or_default()
     )
 }
 
