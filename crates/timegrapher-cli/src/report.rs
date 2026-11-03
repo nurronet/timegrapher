@@ -123,10 +123,6 @@ struct VLine {
     label: String,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn chart(
     xa: &Axis,
     ya: &Axis,
@@ -142,6 +138,15 @@ fn chart(
         r#"<svg viewBox="0 0 {W} {H}" role="img" aria-label="{}">"#,
         esc(ylabel)
     );
+    axes(&mut s, xa, ya, xlabel, ylabel);
+    marks(&mut s, xa, ya, vlines, hline);
+    series(&mut s, xa, ya, lines);
+    s.push_str("</svg>");
+    s
+}
+
+/// The chart's grid, ticks, axes and their labels.
+fn axes(s: &mut String, xa: &Axis, ya: &Axis, xlabel: &str, ylabel: &str) {
     for t in ya.ticks() {
         let y = ya.y(t);
         let _ = write!(
@@ -184,6 +189,10 @@ fn chart(
         (MT + H - MB) / 2.0,
         esc(ylabel)
     );
+}
+
+/// The wheels' lines and the threshold, where they fall on the chart.
+fn marks(s: &mut String, xa: &Axis, ya: &Axis, vlines: &[VLine], hline: Option<(f64, &str)>) {
     for v in vlines {
         if v.x < xa.lo || v.x > xa.hi {
             continue;
@@ -211,6 +220,10 @@ fn chart(
             );
         }
     }
+}
+
+/// Each line, as dots or as a path broken where a value is missing.
+fn series(s: &mut String, xa: &Axis, ya: &Axis, lines: &[Line]) {
     for l in lines {
         if l.dots {
             for &(x, y) in &l.pts {
@@ -245,8 +258,6 @@ fn chart(
         }
         let _ = write!(s, r#"<path class="{}" d="{}"/>"#, l.class, d.trim());
     }
-    s.push_str("</svg>");
-    s
 }
 
 /// Time axis in minutes for runs under three hours, hours beyond.
@@ -573,12 +584,20 @@ fn rate_text(rate_s_per_day: f64) -> String {
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn html(title: &str, r: &LongReport, wheels: &[Wheel], clock_note: Option<&str>) -> String {
     let mut body = String::new();
+    facts(&mut body, r, clock_note);
+    body.push_str("<h2>Over the run</h2>");
+    body.push_str(&over_time(r));
+
+    rate_cycles(&mut body, r, wheels);
+    amplitude_cycles(&mut body, r, wheels);
+    page(title, &body)
+}
+
+/// The table of the run's facts: the recording, clock, rate, beat error,
+/// amplitude and their caveats.
+fn facts(body: &mut String, r: &LongReport, clock_note: Option<&str>) {
     let rate = r.overall.map_or("not enough clean beats".into(), |f| {
         rate_text(f.rate_s_per_day)
     });
@@ -635,9 +654,10 @@ pub fn html(title: &str, r: &LongReport, wheels: &[Wheel], clock_note: Option<&s
             .map(|(label, line)| format!("<tr><th>{label}</th><td>{}</td></tr>\n", esc(line)))
             .collect::<String>()
     );
-    body.push_str("<h2>Over the run</h2>");
-    body.push_str(&over_time(r));
+}
 
+/// The search for periodic changes in rate, and each one named.
+fn rate_cycles(body: &mut String, r: &LongReport, wheels: &[Wheel]) {
     body.push_str("<h2>Periodic changes in rate</h2>");
     body.push_str(r#"<p class="note">Each trial period is scored together with its harmonics against the noise around it. A peak above the dashed line has less than a 1% chance of being noise anywhere in the search. Grey lines mark the wheels' turn periods.</p>"#);
     body.push_str(&search_chart(&r.timing.search, wheels));
@@ -675,6 +695,11 @@ pub fn html(title: &str, r: &LongReport, wheels: &[Wheel], clock_note: Option<&s
             RasterKind::Rate,
         ));
     }
+}
+
+/// The search for periodic changes in amplitude, each one named, and how
+/// to read the rasters.
+fn amplitude_cycles(body: &mut String, r: &LongReport, wheels: &[Wheel]) {
     body.push_str("<h2>Periodic changes in amplitude</h2>");
     body.push_str(&search_chart(&r.amplitude.search, wheels));
     if r.amplitude.components.is_empty() {
@@ -692,6 +717,10 @@ pub fn html(title: &str, r: &LongReport, wheels: &[Wheel], clock_note: Option<&s
         ));
     }
     body.push_str(r#"<p class="note">In the rasters each row is one turn of the cycle. A change that repeats once per turn lines up at the same place in every row. Rows are merged when there are more than 240 cycles.</p>"#);
+}
+
+/// The whole page around `body`, with its light and dark styles.
+fn page(title: &str, body: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
