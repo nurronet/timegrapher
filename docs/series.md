@@ -38,12 +38,18 @@ The thresholds are detection thresholds, stated with each test below
 tolerance for a watch.
 
 The p-gated tests across the three series, each one's period search
-lines and its Ljung–Box test, are one family: a line or memory is named
-only when its own test and Holm's correction at 0.05 across the family
-both keep it (#659), so one take's several tests do not add up to a
-false alarm. Each test's own figures are given as they are. The target
-is a steady watch naming nothing on 95 takes in 100; on the seeded
-control scenario it names nothing on 192 takes in 200 (#723). `long` (its text,
+lines, its Ljung–Box test and its trend's F test, are one family: a
+line, memory or slide is named only when its own test and Holm's
+correction at 0.05 across the family both keep it (#659), so one take's
+several tests do not add up to a false alarm. A peak of the
+autocorrelation carries no p-value, so in the pane it only refines a
+cycle the period search kept. Each test's own figures are given as they
+are. The target is a steady watch naming nothing on 95 takes in 100; on
+the seeded control scenario it names nothing on 192 takes in 200 (#723).
+On steady takes whose readings follow themselves (AR(1), 100 seeds a
+cell) it names nothing but the correlation on 95 or more from 2 h to
+24 h at ρ 0 to 0.7, and from 8 h at ρ 0.9; on 30 min it names something
+on 8 to 33 in 100, and on 2 h at ρ 0.9 on 11 (#916, #917). `long` (its text,
 report and summary) and a session's cycles list the same lines: core
 decides the kept set once (`steadiness::hold_to_family`).
 
@@ -135,7 +141,12 @@ For each series:
   evidence against one level: the gain must exceed 3 ln n, and never be
   less than 15.
 - **Trend**: a straight line and a quadratic. The quadratic also covers a
-  rise followed by a fall.
+  rise followed by a fall. Its p-value is the F test of the quadratic
+  against the mean on n(1 − ρ)/(1 + ρ) readings, ρ their lag-one
+  correlation after their line, which comes to (1 − R²)^((n_eff − 3)/2):
+  readings that follow themselves wander far enough for a quadratic to
+  fit a fifth of them often (#659). A slide is named only when the trend
+  explains at least 20% and its p clears the family below.
 - **Period search**: the strongest component found by `long`'s search.
   It scores each period together with its harmonics against a
   false-alarm chance (see [long-runs.md](long-runs.md)).
@@ -251,8 +262,9 @@ them the whole-take slope and r, drift included.
 A cycle is reported when one that holds up when the readings are
 folded at its period. Candidates come from the two-state finder's
 regular low level, the autocorrelation's repeat, every later
-autocorrelation peak above three times its band, and every line of the
-period search, not only the strongest (a slow cycle can sit behind a
+autocorrelation peak above three times its band (in the pane, only when
+the period search kept a line: the peaks carry no p-value), and every
+line of the period search, not only the strongest (a slow cycle can sit behind a
 strong escape-wheel line). Each candidate's folded shape must explain at
 least 10% of the detrended variance beyond what noise would give. When a
 turn holds a whole number of readings (within a tenth of one) or more
@@ -434,7 +446,7 @@ Each entry of `series[]`:
 | `allan` | `tau_s[]`, `deviation[]`, `white[]`, `pairs[]`, `slope_short`, `best_tau_s`, `best_deviation`, `max_excess` (largest deviation over the white line) |
 | `cusum` | `t_s[]`, `s[]` (thinned, scaled by `long_run_sd`), `max`, `at_s`, `at` (the CUSUM there, signed), `p_value`, `band` (1.36: readings with no change of level, correlated or not, stay inside ±band about 95% of the time) and `shift` (the headline names a level change, so the level changes near `at_s`, the change finder's cut nearest `max`; `max` past the band alone does not set it). Without a cut, `at_s` and `at` are where `max` is |
 | `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained` |
-| `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null) |
+| `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null), `p_value` (the quadratic's F test on the readings' effective count, before Holm's correction) |
 | `period` | the period search's strongest component (`other_periods_s`: the weaker ones, each also tried as a cycle): `period_s`, `significance` (−log10 false alarm), `explained`, `peak_to_peak` (for the rate, the swing of the rate itself from the slope of the average cycle, which 10 s readings show less of; see [long-runs.md](long-runs.md)), `timing_peak_to_peak_ms` (rate only), `size` and `size_unit` (the figure to show: ms of timing for a rate cycle under 30 s, see [long-runs.md](long-runs.md)), `wheel`, `harmonic_of` and `other_harmonic_of[]` (one per `other_periods_s`): null, or `period_s` and `n` when a longer cycle the search also found is n times this period (n 2 to 8, when n times the longer cycle's frequency is within one resolution, 1/span, of this one's, and only when one n and one longer cycle fit: neighbouring n are 1/q apart, so two can fit only when the longer cycle is over half the span, and then none is told) |
 | `two_state` | the two-state finder's full result (rate and amplitude only) |
 | `cycle` | the cycle found, if any, from the 2 s windows for the amplitude and the beat error: `period_s`, `peak_to_peak`, `explained`, `source` (`two_state`, `autocorrelation`, `period_search`), `wheel`, and `inner_period_s`, `inner_explained`, `turns` when the period is a whole number of turns of a shorter cycle that explains at least half as much |

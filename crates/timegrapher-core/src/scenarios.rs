@@ -199,11 +199,48 @@ fn walk(v: f64, sd: f64, over: f64, duration: f64, seed: u64) -> Track {
             here
         })
         .collect();
+    second_by_second(path)
+}
+
+/// A track through `path`, one value a second, straight between them.
+fn second_by_second(path: Vec<f64>) -> Track {
     Box::new(move |t| {
         let i = (t.max(0.0) as usize).min(path.len() - 2);
         let f = t.max(0.0) - i as f64;
         path[i] + f * (path[i + 1] - path[i])
     })
+}
+
+/// A steady watch whose rate, amplitude and beat error each wander as
+/// AR(1) noise, no cycle, step or trend (#659): a step each second
+/// correlated `rho^(1/10)` with the last, so readings 10 s apart
+/// correlate at about `rho` (an Ornstein–Uhlenbeck path). Each size is
+/// about three times the readings' own scatter from beat-to-beat spread.
+pub fn steady_red(duration_s: f64, rho: f64, seed: u64) -> Scenario {
+    let phi = rho.powf(0.1);
+    let ar = |v: f64, sd: f64, salt: u64| -> Track {
+        let mut rng = Rng::new(seed ^ salt);
+        let innov = sd * (1.0 - phi * phi).sqrt();
+        let mut x = sd * rng.normal();
+        let path = (0..=duration_s.ceil() as usize + 1)
+            .map(|_| {
+                let here = v + x;
+                x = phi * x + innov * rng.normal();
+                here
+            })
+            .collect();
+        second_by_second(path)
+    };
+    Scenario {
+        name: "steady-red",
+        summary: "Steady, with AR(1) noise in every series and no cycle, step or trend.",
+        expect: "Nothing stands out but the correlation between readings.",
+        finds: &[],
+        duration_s,
+        rate: ar(RATE, 3.0, 0xa1),
+        amplitude: ar(AMPLITUDE, 1.5, 0xa2),
+        beat_error: ar(BEAT_ERROR, 0.15, 0xa3),
+    }
 }
 
 pub fn find(name: &str) -> Option<Scenario> {
@@ -553,5 +590,90 @@ mod tests {
                 assert!(!cycles.is_empty(), "{name} names its cycle");
             }
         }
+    }
+
+    /// How many of `seeds` steady takes of `duration_s`, their rate,
+    /// amplitude and beat error wandering as AR(1) noise of lag-one
+    /// correlation `rho` from reading to reading ([`super::steady_red`]),
+    /// name anything on the whole pane other than the correlation itself:
+    /// a finding (at ρ 0, "wandering" too, since nothing correlates) or a
+    /// line the period search "also finds".
+    fn red_pane_named(duration_s: f64, rho: f64, seeds: u64) -> usize {
+        use crate::longterm::LongConfig;
+        use crate::steadiness::{self, Config};
+        let lc = LongConfig {
+            wheels: crate::periodicity::standard_wheels(BPH, 20),
+            ..Default::default()
+        };
+        (1..=seeds)
+            .filter(|&seed| {
+                let log = beat_log(&super::steady_red(duration_s, rho, seed), seed);
+                let long = crate::longrun::analyse(&log, None, &lc);
+                let r = steadiness::check(&log, None, &long, &lc, &Config::default());
+                r.findings
+                    .iter()
+                    .any(|f| f.code != "wandering" || rho == 0.0)
+                    || r.series.iter().any(|c| c.headline.contains("also finds"))
+            })
+            .count()
+    }
+
+    /// Each cell's count against its cap, the cells run side by side.
+    fn red_pane_within(cells: &[(f64, f64, usize)]) {
+        let named: Vec<usize> = std::thread::scope(|sc| {
+            let runs: Vec<_> = cells
+                .iter()
+                .map(|&(d, rho, _)| sc.spawn(move || red_pane_named(d, rho, 100)))
+                .collect();
+            runs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for (&(d, rho, cap), n) in cells.iter().zip(named) {
+            assert!(
+                n <= cap,
+                "{d} s at ρ {rho}: {n} of 100 steady takes name something (cap {cap})"
+            );
+        }
+    }
+
+    /// The whole pane on steady watches whose readings follow themselves
+    /// (#659, R9): 100 seeds a cell, the trend's F test and the period
+    /// search held to Holm's correction, and the autocorrelation only
+    /// refining a cycle the search kept. Each cap is the count the pane
+    /// gives today and may only fall. The target is 5: 30 min misses it
+    /// at every ρ and 2 h at ρ 0.9 (#916, #917). 2 h at ρ 0 to 0.5 is the
+    /// control test above; 8 h and 24 h are the test below.
+    #[test]
+    fn a_steady_watch_with_red_noise_names_little_on_the_whole_pane() {
+        red_pane_within(&[
+            (1800.0, 0.0, 9),
+            (1800.0, 0.3, 9),
+            (1800.0, 0.5, 8),
+            (1800.0, 0.7, 19),
+            (1800.0, 0.9, 33),
+            (7200.0, 0.7, 2),
+            (7200.0, 0.9, 11),
+        ]);
+    }
+
+    /// The rest of the grid, too slow for every run (about 25 minutes on
+    /// one core): every cell meets the target of 5.
+    #[test]
+    #[ignore = "8 h and 24 h takes: run by hand"]
+    fn long_steady_watches_with_red_noise_name_little_on_the_whole_pane() {
+        red_pane_within(&[
+            (7200.0, 0.0, 4),
+            (7200.0, 0.3, 4),
+            (7200.0, 0.5, 3),
+            (28800.0, 0.0, 2),
+            (28800.0, 0.3, 3),
+            (28800.0, 0.5, 2),
+            (28800.0, 0.7, 2),
+            (28800.0, 0.9, 1),
+            (86400.0, 0.0, 1),
+            (86400.0, 0.3, 3),
+            (86400.0, 0.5, 3),
+            (86400.0, 0.7, 4),
+            (86400.0, 0.9, 1),
+        ]);
     }
 }
