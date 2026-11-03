@@ -114,42 +114,12 @@ fn solve(beats: &[&Beat]) -> Option<[f64; 3]> {
     // Centre k and t for numerical stability.
     let k0 = beats[0].index as f64;
     let t0 = beats[0].time;
-    let mut ata = [[0.0f64; 3]; 3];
-    let mut atb = [0.0f64; 3];
-    for b in beats {
+    let rows = beats.iter().map(|b| {
         let row = [1.0, b.index as f64 - k0, side(b.index)];
-        let y = b.time - t0;
-        for i in 0..3 {
-            atb[i] += row[i] * y;
-            for j in 0..3 {
-                ata[i][j] += row[i] * row[j];
-            }
-        }
-    }
-    let x = solve3(ata, atb)?;
+        (row, b.time - t0, 1.0)
+    });
+    let x = crate::dsp::least_squares(rows, 1e-300)?;
     Some([x[0] + t0 - x[1] * k0, x[1], x[2]])
-}
-
-#[allow(clippy::needless_range_loop)]
-fn solve3(mut a: [[f64; 3]; 3], mut b: [f64; 3]) -> Option<[f64; 3]> {
-    for c in 0..3 {
-        let p = (c..3).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
-        if a[p][c].abs() < 1e-300 {
-            return None;
-        }
-        a.swap(c, p);
-        b.swap(c, p);
-        for r in 0..3 {
-            if r != c {
-                let f = a[r][c] / a[c][c];
-                for k in 0..3 {
-                    a[r][k] -= f * a[c][k];
-                }
-                b[r] -= f * b[c];
-            }
-        }
-    }
-    Some([b[0] / a[0][0], b[1] / a[1][1], b[2] / a[2][2]])
 }
 
 /// Robust fit: beats with low template correlation are left out, then
