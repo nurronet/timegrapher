@@ -933,9 +933,8 @@ impl LiveAnalyzer {
         let wins = crate::session::stretch_windows(&holes, &self.amp, from, end_s);
         // One unbroken run of beats: its beat error's sign does not turn.
         let figures = crate::session::window_figures(&wins, false);
-        let amplitude_error_deg = crate::confidence::standard_error(
-            &wins.iter().filter_map(|w| w.mean()).collect::<Vec<_>>(),
-        );
+        let amplitude_error_deg =
+            crate::confidence::amplitude_windows_se(wins.iter().copied(), |w| w.mean());
         // Beats scattered like noise are no regular beat: no readings, as
         // `analyze` gives none. Under 10 s of sound it is not assessed.
         // The scatter is a saved reading's, from the 10 s windows over all
