@@ -711,10 +711,7 @@ impl LiveAnalyzer {
             return;
         }
         // Number this pass's beats on from the last settled beat.
-        let Some(anchor) = local.iter().position(|b| {
-            let t = b.time + off;
-            t >= from && t < to
-        }) else {
+        let Some(anchor) = beats::anchor_of(&local, off, from, to, self.beats.last(), beat) else {
             self.settled_to = to;
             return;
         };

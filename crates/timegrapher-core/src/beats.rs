@@ -1229,6 +1229,26 @@ const JUMP_SPAN: usize = 5;
 /// start.
 pub const JUMP_CONTEXT: usize = 2 * JUMP_SPAN + 2;
 
+/// Which of a pass's or chunk's `local` beats, at `off` seconds plus their
+/// own times, the count runs on from: the first in `from..to` that is a
+/// new beat, half a beat or more after the `last` beat kept. The last beat
+/// kept, found again a little moved by the next window, is not a new one:
+/// numbered on from, it would count that beat twice and call the next a
+/// jump (#733). The one choice for a whole file and for live listening.
+pub fn anchor_of(
+    local: &[Beat],
+    off: f64,
+    from: f64,
+    to: f64,
+    last: Option<&Beat>,
+    beat: f64,
+) -> Option<usize> {
+    local.iter().position(|b| {
+        let t = b.time + off;
+        t >= from && t < to && last.is_none_or(|l| t - l.time >= 0.5 * beat)
+    })
+}
+
 /// A pass's or chunk's beats numbered on from the `last` beat kept, `beat`
 /// seconds apart: `local[anchor]`, at `anchor_t` seconds, gets the whole
 /// number of beats since (at least one), and the rest follow it. The first
@@ -2340,5 +2360,40 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The last beat kept, found again 10 ms later by the next window, is
+    /// not where the count runs on from: the next beat is, a whole beat
+    /// on, so the count is not off and no jump is called (#733).
+    #[test]
+    fn the_last_beat_found_again_is_not_counted_twice() {
+        let beat = 0.125;
+        let last = Beat {
+            index: 100,
+            time: 10.0,
+            quality: 1.0,
+        };
+        let local: Vec<Beat> = [9.875, 10.010, 10.125, 10.250]
+            .iter()
+            .enumerate()
+            .map(|(i, &time)| Beat {
+                index: i as i64,
+                time,
+                quality: 1.0,
+            })
+            .collect();
+        let anchor = anchor_of(&local, 0.0, 9.95, 11.0, Some(&last), beat).unwrap();
+        assert_eq!(anchor, 2);
+        let (numbered, off) = number_on(&local, anchor, local[anchor].time, Some(&last), beat);
+        assert!(off.abs() < 1e-9, "{off}");
+        assert_eq!(numbered[2].index, 101);
+        assert_eq!(numbered[3].index, 102);
+        // With no beat kept yet, the first in the stretch is the anchor.
+        assert_eq!(anchor_of(&local, 0.0, 9.95, 11.0, None, beat), Some(1));
+        // A whole stretch of beats too close to the last: none.
+        assert_eq!(
+            anchor_of(&local[..2], 0.0, 9.95, 11.0, Some(&last), beat),
+            None
+        );
     }
 }
