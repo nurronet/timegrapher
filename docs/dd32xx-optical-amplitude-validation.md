@@ -6,6 +6,9 @@ records the balance settling after a nudge. The catalogue adopts **59°** as an
 empirical lift setting for the DD32xx and JH32xx families by maintainer decision.
 It is not a manufacturer specification or an exact physical lift-angle measurement.
 No JH specimen or other DD variant was separately measured.
+Internal part provenance was not independently authenticated. The catalogue's
+older note about a different recording with genuine escapement components is
+not treated as a description of this specimen.
 
 The selected 59° setting places the acoustic pair mean within the recorded
 practical optical allowance in **all 19 matched intervals**. The original 55°
