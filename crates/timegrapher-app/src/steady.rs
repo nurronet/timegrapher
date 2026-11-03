@@ -824,8 +824,7 @@ fn clear_of_edge(
     text: impl Fn(f64) -> String,
 ) -> impl Fn(egui_plot::GridMark, &std::ops::RangeInclusive<f64>) -> String {
     move |m, r| {
-        let span = (r.end() - r.start()).max(f64::EPSILON);
-        if (r.end() - m.value) / span * plot_w < 18.0 {
+        if theme::near_an_end(m.value, r, f64::NEG_INFINITY, 18.0 / plot_w) {
             String::new()
         } else {
             text(m.value)

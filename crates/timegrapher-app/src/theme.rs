@@ -1094,6 +1094,19 @@ pub fn short_y_grid(input: egui_plot::GridInput) -> Vec<egui_plot::GridMark> {
         .unwrap_or_else(|| at(30.0))
 }
 
+/// Whether an axis mark at `value` lies within `left` of the start of
+/// `range` or `right` of its end, each a fraction of the range: where a
+/// label on it would run past that end of the plot.
+pub fn near_an_end(
+    value: f64,
+    range: &std::ops::RangeInclusive<f64>,
+    left: f64,
+    right: f64,
+) -> bool {
+    let (a, b) = (*range.start(), *range.end());
+    b > a && ((value - a) < left * (b - a) || (b - value) < right * (b - a))
+}
+
 /// An axis label, or none when its mark is within `frac` of the plot's
 /// right end, where half of it would be cut off.
 pub fn clear_of_right_edge(
@@ -1102,8 +1115,7 @@ pub fn clear_of_right_edge(
     range: &std::ops::RangeInclusive<f64>,
     frac: f64,
 ) -> String {
-    let (a, b) = (*range.start(), *range.end());
-    if b > a && (b - value) < frac * (b - a) {
+    if near_an_end(value, range, f64::NEG_INFINITY, frac) {
         String::new()
     } else {
         text
@@ -1119,11 +1131,9 @@ pub fn clear_of_ends(
     range: &std::ops::RangeInclusive<f64>,
     plot_w: f64,
 ) -> String {
-    let (a, b) = (*range.start(), *range.end());
-    let x = (value - a) / (b - a).max(f64::EPSILON) * plot_w;
     // Half the label: a small axis character is about 7 points wide.
-    let half = text.chars().count() as f64 * 3.5;
-    if x < half || plot_w - x < half {
+    let half = text.chars().count() as f64 * 3.5 / plot_w;
+    if near_an_end(value, range, half, half) {
         String::new()
     } else {
         text
