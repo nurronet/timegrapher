@@ -190,6 +190,44 @@ fn a_take_refused_while_read_is_no_longer_opening() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A take is opened whole as the command line opens it (core's
+/// `take::whole_entry`), so one whose entries name two clock logs is
+/// refused with core's reason, not read on the first entry's (#731).
+#[test]
+fn a_take_on_two_clock_logs_is_refused_as_the_command_line_refuses_it() {
+    let base = std::env::temp_dir().join(format!("tg-app-two-clocks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&base.join("audio-001.wav"), &audio).unwrap();
+    std::fs::write(
+        base.join(MANIFEST),
+        "bph = 28800\nlift = 52.0\n\n[[recording]]\nfile = '.'\nposition = 'DU'\n\
+         clock = 'a.csv'\nstart_s = 0.0\nend_s = 10.0\nsettle_s = 0.0\n\n\
+         [[recording]]\nfile = '.'\nposition = 'DD'\nclock = 'b.csv'\nstart_s = 10.0\n\
+         settle_s = 0.0\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.start_batch(&base);
+    assert!(app.batch.is_none());
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|m| m.1 && m.0.contains("2 clock logs")),
+        "{:?}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// Guided elapsed-time endpoints use the recorder timeline even when
 /// the watch never changes position and a pause spans an endpoint.
 #[test]

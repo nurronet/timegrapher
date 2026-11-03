@@ -4186,33 +4186,25 @@ fn reading_clock(
     }
 }
 
-/// What core opens for the take at `path`, a recording or a take's
-/// folder: the folder its session file is read from, the session file
-/// (an empty one without), and one entry for the whole recording, on the
-/// clock log the first entry the session file gives it names. The entry
-/// leaves its masks to the window, which keeps them open to change.
+/// What core opens to read the take at `path` whole, as `analyze --trend`
+/// reads it (core's `take::whole_entry`): with its session file `manifest`
+/// (and that file's entries for the recording), one entry on the clock log
+/// the entries name, with every entry's masks. An error where core can't
+/// read the take whole: entries on different clock logs, or masks across
+/// several recordings. The entry leaves its masks to the window, which
+/// keeps them open to change and culls the same stretches from what it
+/// shows.
 fn take_entry(
     path: &Path,
     manifest: Option<&(Manifest, Vec<RecordingEntry>)>,
-) -> (PathBuf, Manifest, RecordingEntry) {
-    let (base, file) = if path.is_dir() {
-        (path.to_path_buf(), ".".to_string())
-    } else {
-        (
-            path.parent().unwrap_or(Path::new(".")).to_path_buf(),
-            file_name(path),
-        )
-    };
-    let (m, first) = match manifest {
-        Some((m, e)) => (m.clone(), e.first()),
-        None => (Manifest::default(), None),
-    };
-    let entry = RecordingEntry {
-        file,
-        clock: first.and_then(|e| e.clock.clone()),
-        ..Default::default()
-    };
-    (base, m, entry)
+) -> Result<(PathBuf, Manifest, RecordingEntry), String> {
+    let listed = manifest.map(|(m, entries)| Manifest {
+        recordings: entries.clone(),
+        ..m.clone()
+    });
+    let (base, m, mut entry) = timegrapher_core::take::whole_entry(path, listed.as_ref())?;
+    entry.masked.clear();
+    Ok((base, m, entry))
 }
 
 /// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`

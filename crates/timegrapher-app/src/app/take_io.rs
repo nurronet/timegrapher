@@ -1567,9 +1567,12 @@ impl TimegrapherApp {
         // angle, beat rate and positions, before the analysis uses them.
         // Nothing carries over from the take before.
         self.open_setup(manifest.is_some(), carried, path, &files);
-        // What core opens: the whole recording, on the clock log the
-        // take's first entry names, as the app has always read it.
-        let opening = take_entry(path, manifest.as_ref());
+        // What core opens: the whole recording, as the command line reads
+        // it whole.
+        let opening = match take_entry(path, manifest.as_ref()) {
+            Ok(o) => o,
+            Err(e) => return self.open_failed(e),
+        };
         let (stretches, settles) = match manifest {
             Some((m, entries)) => {
                 let length = info.frames.map(|f| f as f64 / f64::from(info.sample_rate));
@@ -1742,7 +1745,10 @@ impl TimegrapherApp {
         // Its beats, its own clock log with its USB lines' figure as
         // measured when it was kept, and the breaks its session.json
         // lists, read by core as `timegrapher session` reads such a take.
-        let opening = take_entry(path, Some(&(m, entries)));
+        let opening = match take_entry(path, Some(&(m, entries))) {
+            Ok(o) => o,
+            Err(e) => return self.open_failed(e),
+        };
         let settings = self.entry_settings(&opening.1);
         let (tx, rx) = std::sync::mpsc::channel();
         let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
