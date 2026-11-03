@@ -282,7 +282,7 @@ pub fn all() -> Vec<EdgeTake> {
             id: "edge_no_unlock",
             summary: "120 s of a watch whose unlock makes no sound: rate and the drop are \
                       heard, amplitude and the unlock's beat error are not",
-            caveats: &[&[]],
+            caveats: &[&["beat_error_from_drop"]],
             truth: Some(Truth {
                 amplitude: None,
                 beat_error: None,

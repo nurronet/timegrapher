@@ -451,6 +451,12 @@ pub struct Reading {
     /// Signed: from the unlock, else the drop
     /// ([`crate::session::beat_error_signed`]).
     pub beat_error_ms: Option<f64>,
+    /// Source of the selected beat error; absent in older saved readings.
+    #[serde(default)]
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    /// Factual conditions carried from the core measurement.
+    #[serde(default)]
+    pub caveats: Vec<crate::measure::Caveat>,
     /// False where no regular beat was found; the figures are then none.
     pub watch_heard: bool,
 }
@@ -624,6 +630,8 @@ fn measure_take_with(
         calibrated: x.calibrated,
         amplitude_deg: x.amplitude_deg,
         beat_error_ms: x.beat_error_signed(),
+        beat_error_source: x.beat_error_source,
+        caveats: x.caveats.clone(),
         watch_heard: x.watch_heard,
     };
     let (first, correction) = used.unzip();

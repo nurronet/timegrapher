@@ -90,6 +90,26 @@ Rates are seconds per day, positive gaining. Rates from a recording are on
 the sound card's clock unless `long` was given a clock log or a stored
 correction; a sound card can be tens of ppm off (1 ppm is 0.0864 s/d).
 
+### Beat-error provenance
+
+Direct readings carry `beat_error_source`: `"unlock"` when the unlock was
+found, `"drop"` when the reading falls back to the drop, and `null` when
+neither is read. It accompanies the analyze summary, session `measurement`,
+Watches `reading`, and Power Reserve `hours[]`. It describes the selected
+beat error; the separate raw unlock and drop fields retain their meanings.
+The choice and all measured figures are unchanged.
+
+A drop-derived reading carries `{"code":"beat_error_from_drop"}` in
+`caveats[]`. Library readings and Power Reserve hours now carry the core
+measurement's caveats as well as its source. Older saved versions of those
+two types can lack these additive fields; they read as a null source and an
+empty caveat list, without guessing provenance for an old value. Withheld
+readings have no source or drop-derived caveat.
+
+Position and state aggregates do not yet carry provenance; mixing their
+sources, and separating sources in charts and MCP views, remain follow-up
+work under #658.
+
 ## Calibres
 
 The lift angle sets the amplitude, so take it from the calibre, never
