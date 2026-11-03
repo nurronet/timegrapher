@@ -654,7 +654,6 @@ impl ReportDialog {
     }
 }
 
-/// The Downloads folder, where a browser looks first for a file to attach.
 /// Play or Stop for the part between the handles, and what it keeps.
 fn play_row(
     ui: &mut egui::Ui,
@@ -709,6 +708,7 @@ fn play_row(
     }
 }
 
+/// The Downloads folder, where a browser looks first for a file to attach.
 fn dirs_download() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
