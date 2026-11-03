@@ -461,18 +461,18 @@ fn characteristic_values(s: &Value) -> String {
             parts.push(format!("- {what}: {v}{unit} ({key})"));
         }
     };
-    say("x", "mean rate over the positions", " s/day", 1, true);
+    say("x", "mean rate over the positions", " s/d", 1, true);
     say(
         "d_rate",
         "largest rate difference between any two positions",
-        " s/day",
+        " s/d",
         1,
         false,
     );
     say(
         "dvh_rate",
         "vertical minus horizontal rate (mean of the crown positions minus mean of dial up and dial down)",
-        " s/day",
+        " s/d",
         1,
         true,
     );
@@ -669,10 +669,13 @@ mod tests {
             "readings": [{ "position": "CH", "measurement": { "rate_s_per_day": 6.0,
                 "amplitude_deg": 270.0, "beat_error_unlock_ms": 0.4 } }],
             "report": { "states": [{ "wind_h": 0.0, "d_amplitude": 28.4,
-                "dvh_amplitude": -15.6, "x": 2.7 }] },
+                "dvh_amplitude": -15.6, "x": 2.7, "d_rate": 4.2, "dvh_rate": -1.5 }] },
         });
         let s = lead(&doc, &Map::new()).unwrap();
         assert!(s.contains("- Dial Up (DU): rate +6.0 s/d"), "{s}");
+        for rate in ["+2.7 s/d (x)", "4.2 s/d (d_rate)", "-1.5 s/d (dvh_rate)"] {
+            assert!(s.contains(rate), "{s}");
+        }
         assert!(s.contains("largest amplitude difference between any two positions (not vertical against horizontal): 28.4° (d_amplitude)"), "{s}");
         assert!(s.contains("vertical minus horizontal amplitude (mean of the crown positions minus mean of dial up and dial down): -15.6° (dvh_amplitude)"), "{s}");
     }
