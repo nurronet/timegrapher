@@ -244,6 +244,124 @@ fn line_sd(p: &[(f64, f64)]) -> (f64, f64, f64) {
     (a, b, sd)
 }
 
+/// One log entry: (audio seconds, system seconds).
+type Entry = (f64, f64);
+
+/// The finite entries of `pairs` in audio order, measured from the first
+/// one, which is returned as the origin.
+fn from_origin(pairs: &[Entry]) -> Result<(Vec<Entry>, Entry), ClockError> {
+    let mut p: Vec<(f64, f64)> = pairs
+        .iter()
+        .copied()
+        .filter(|q| q.0.is_finite() && q.1.is_finite())
+        .collect();
+    if p.len() < 3 {
+        return Err(ClockError::TooFewPoints(p.len()));
+    }
+    p.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let origin = p[0];
+    for q in p.iter_mut() {
+        *q = (q.0 - origin.0, q.1 - origin.1);
+    }
+    if p[p.len() - 1].0 <= 0.0 || p[p.len() - 1].1 <= 0.0 {
+        return Err(ClockError::NotIncreasing);
+    }
+    if p[p.len() - 1].0 > MAX_SPAN_S {
+        return Err(ClockError::TooLong(p[p.len() - 1].0));
+    }
+    Ok((p, origin))
+}
+
+/// Brings each stretch between `gaps` down by its own offset, with one
+/// slope for all stretches, each with its own intercept: the slope from
+/// the scatter within each stretch alone. The gaps are set from where each
+/// stretch sits about that line.
+fn take_out_offsets(p: &mut [(f64, f64)], gaps: &mut [Break]) {
+    let mut offset: Vec<f64> = std::iter::once(0.0)
+        .chain(gaps.iter().scan(0.0, |acc, g| {
+            *acc += g.gap_s;
+            Some(*acc)
+        }))
+        .collect();
+    let mut per: Vec<Vec<(f64, f64)>> = vec![Vec::new(); offset.len()];
+    for q in p.iter() {
+        per[breaks::piece(gaps, q.0)].push(*q);
+    }
+    let means: Vec<(f64, f64)> = per
+        .iter()
+        .map(|r| {
+            let n = r.len().max(1) as f64;
+            (
+                r.iter().map(|q| q.0).sum::<f64>() / n,
+                r.iter().map(|q| q.1).sum::<f64>() / n,
+            )
+        })
+        .collect();
+    let (mut sxy, mut sxx) = (0.0, 0.0);
+    for (r, m) in per.iter().zip(&means) {
+        for q in r {
+            sxy += (q.0 - m.0) * (q.1 - m.1);
+            sxx += (q.0 - m.0) * (q.0 - m.0);
+        }
+    }
+    if sxx > 0.0 {
+        let b = sxy / sxx;
+        let a0 = means[0].1 - b * means[0].0;
+        for k in 1..offset.len() {
+            if !per[k].is_empty() {
+                offset[k] = means[k].1 - b * means[k].0 - a0;
+            }
+        }
+    }
+    for (k, g) in gaps.iter_mut().enumerate() {
+        g.gap_s = offset[k + 1] - offset[k];
+    }
+    for q in p.iter_mut() {
+        q.1 -= offset[breaks::piece(gaps, q.0)];
+    }
+}
+
+/// The local-fit points every 10 minutes along `p`, each from the entries
+/// within [`DRIFT_HALF_S`] of it, where there are at least three.
+fn drift_knots(p: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let step = 600.0;
+    let end = p[p.len() - 1].0;
+    let mut k = Vec::new();
+    for i in 0..=((end - p[0].0) / step).ceil() as usize {
+        let x = (p[0].0 + i as f64 * step).min(end);
+        let near: Vec<(f64, f64)> = p
+            .iter()
+            .copied()
+            .filter(|q| (q.0 - x).abs() <= DRIFT_HALF_S)
+            .collect();
+        if near.len() >= 3 {
+            let (la, lb) = line(&near);
+            k.push((x, la + lb * x));
+        }
+    }
+    k
+}
+
+/// The fitted `gaps` back on the run's own audio clock (`origin_s` added),
+/// none below zero, each moved to the entry before it when that entry is
+/// the recorder's pair at a pause (see [`ClockFit::fit_at`]).
+fn placed_breaks(gaps: Vec<Break>, entry_before: &[f64], origin_s: f64) -> Vec<Break> {
+    gaps.into_iter()
+        .zip(entry_before)
+        .map(|(g, &e)| {
+            let audio_s = g.audio_s + origin_s;
+            Break {
+                audio_s: if audio_s - e < PAUSE_PAIR_S {
+                    e
+                } else {
+                    audio_s
+                },
+                gap_s: g.gap_s.max(0.0),
+            }
+        })
+        .collect()
+}
+
 /// Standard error of the slope `b` shared by stretches that each have
 /// their own intercept (split at `gaps`): from the scatter within each
 /// stretch about its own mean, with a degree of freedom spent on each
@@ -430,30 +548,8 @@ impl ClockFit {
     /// [`ClockFit::new`], with a break also at the first entry after each of
     /// `at` (audio seconds; an entry at the same second is the last one
     /// before it), whatever the size of its step.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn fit_at(pairs: &[(f64, f64)], at: &[f64]) -> Result<ClockFit, ClockError> {
-        let mut p: Vec<(f64, f64)> = pairs
-            .iter()
-            .copied()
-            .filter(|q| q.0.is_finite() && q.1.is_finite())
-            .collect();
-        if p.len() < 3 {
-            return Err(ClockError::TooFewPoints(p.len()));
-        }
-        p.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let origin = p[0];
-        for q in p.iter_mut() {
-            *q = (q.0 - origin.0, q.1 - origin.1);
-        }
-        if p[p.len() - 1].0 <= 0.0 || p[p.len() - 1].1 <= 0.0 {
-            return Err(ClockError::NotIncreasing);
-        }
-        if p[p.len() - 1].0 > MAX_SPAN_S {
-            return Err(ClockError::TooLong(p[p.len() - 1].0));
-        }
+        let (mut p, origin) = from_origin(pairs)?;
         // A pause in listening steps the system time ahead of the audio.
         // Fitted across, it would read as a huge clock error, so each
         // stretch is brought down by its own offset first (the gaps), and
@@ -470,52 +566,8 @@ impl ClockFit {
                     + origin.0
             })
             .collect();
-        let piece = |gaps: &[Break], x: f64| breaks::piece(gaps, x);
-        let mut offset: Vec<f64> = std::iter::once(0.0)
-            .chain(gaps.iter().scan(0.0, |acc, g| {
-                *acc += g.gap_s;
-                Some(*acc)
-            }))
-            .collect();
         if !gaps.is_empty() {
-            // One slope for all stretches, each with its own intercept:
-            // the slope from the scatter within each stretch alone.
-            let mut per: Vec<Vec<(f64, f64)>> = vec![Vec::new(); offset.len()];
-            for q in &p {
-                per[piece(&gaps, q.0)].push(*q);
-            }
-            let means: Vec<(f64, f64)> = per
-                .iter()
-                .map(|r| {
-                    let n = r.len().max(1) as f64;
-                    (
-                        r.iter().map(|q| q.0).sum::<f64>() / n,
-                        r.iter().map(|q| q.1).sum::<f64>() / n,
-                    )
-                })
-                .collect();
-            let (mut sxy, mut sxx) = (0.0, 0.0);
-            for (r, m) in per.iter().zip(&means) {
-                for q in r {
-                    sxy += (q.0 - m.0) * (q.1 - m.1);
-                    sxx += (q.0 - m.0) * (q.0 - m.0);
-                }
-            }
-            if sxx > 0.0 {
-                let b = sxy / sxx;
-                let a0 = means[0].1 - b * means[0].0;
-                for k in 1..offset.len() {
-                    if !per[k].is_empty() {
-                        offset[k] = means[k].1 - b * means[k].0 - a0;
-                    }
-                }
-            }
-            for (k, g) in gaps.iter_mut().enumerate() {
-                g.gap_s = offset[k + 1] - offset[k];
-            }
-            for q in p.iter_mut() {
-                q.1 -= offset[piece(&gaps, q.0)];
-            }
+            take_out_offsets(&mut p, &mut gaps);
         }
         let total = p.len();
         let (a, b) = line(&p);
@@ -537,25 +589,11 @@ impl ClockFit {
             b_sd = slope_sd_within(&p, &gaps, b);
         }
         let span = p[p.len() - 1].0 - p[0].0;
-        let mut knots = Vec::new();
-        if span > DRIFT_SPAN_S {
-            let step = 600.0;
-            let end = p[p.len() - 1].0;
-            let mut k = Vec::new();
-            for i in 0..=((end - p[0].0) / step).ceil() as usize {
-                let x = (p[0].0 + i as f64 * step).min(end);
-                let near: Vec<(f64, f64)> = p
-                    .iter()
-                    .copied()
-                    .filter(|q| (q.0 - x).abs() <= DRIFT_HALF_S)
-                    .collect();
-                if near.len() >= 3 {
-                    let (la, lb) = line(&near);
-                    k.push((x, la + lb * x));
-                }
-            }
-            knots = k;
-        }
+        let mut knots = if span > DRIFT_SPAN_S {
+            drift_knots(&p)
+        } else {
+            Vec::new()
+        };
         // Entries too sparse for local fits (a stored correction gives
         // three points over the whole run) keep the one straight line.
         let tracks_drift = knots.len() >= 2;
@@ -596,21 +634,7 @@ impl ClockFit {
         // its line for the first block after the resume, written once that
         // block is in. The sound after the earlier line is already the
         // resumed sound, so the break goes there.
-        fit.breaks = gaps
-            .into_iter()
-            .zip(&fit.entry_before)
-            .map(|(g, &e)| {
-                let audio_s = g.audio_s + origin.0;
-                Break {
-                    audio_s: if audio_s - e < PAUSE_PAIR_S {
-                        e
-                    } else {
-                        audio_s
-                    },
-                    gap_s: g.gap_s.max(0.0),
-                }
-            })
-            .collect();
+        fit.breaks = placed_breaks(gaps, &fit.entry_before, origin.0);
         Ok(fit)
     }
 
@@ -951,16 +975,39 @@ pub fn usb_lines(
 /// is the one that makes it advance at one second per second. Only the
 /// slope of the mapping matters, so a constant offset in the audio count
 /// (a file header, a pipe buffer) does no harm.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn parse_log(
     text: &str,
     sample_rate: u32,
     bytes_per_frame: u32,
 ) -> Result<Vec<(f64, f64)>, String> {
     let fs = sample_rate as f64;
+    let (header, rows) = read_rows(text);
+    if rows.len() < 2 {
+        return Err(format!("{} entries; need at least 2", rows.len()));
+    }
+    let width = rows.iter().map(|r| r.len()).min().unwrap_or(0);
+    let (ai, ascale, ti, tscale) = if let Some(h) = &header {
+        columns_named(h, fs, bytes_per_frame)?
+    } else {
+        columns_guessed(&rows, width, sample_rate, bytes_per_frame)?
+    };
+    if ai >= width || ti >= width {
+        return Err("a row is missing a column".into());
+    }
+    Ok(rows
+        .iter()
+        .map(|r| (r[ai] * ascale, r[ti] * tscale))
+        .collect())
+}
+
+/// A log's (audio column, its scale to seconds, time column, its scale to
+/// seconds).
+type Columns = (usize, f64, usize, f64);
+
+/// A log's all-number rows, and its header if one names a time and an
+/// audio column before the first row. Blank lines, `#` comments and other
+/// notes are skipped.
+fn read_rows(text: &str) -> (Option<Vec<String>>, Vec<Vec<f64>>) {
     let mut header: Option<Vec<String>> = None;
     let mut rows: Vec<Vec<f64>> = Vec::new();
     for line in text.lines() {
@@ -988,98 +1035,101 @@ pub fn parse_log(
         }
         rows.push(nums.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect());
     }
-    if rows.len() < 2 {
-        return Err(format!("{} entries; need at least 2", rows.len()));
-    }
-    let width = rows.iter().map(|r| r.len()).min().unwrap_or(0);
-    let col = |i: usize| -> Vec<f64> { rows.iter().map(|r| r[i]).collect() };
+    (header, rows)
+}
 
-    // Scale a time column to seconds from the size of its values.
-    let time_scale = |v: &[f64]| -> Option<f64> {
-        let x = v[0].abs();
-        if (1e8..1e11).contains(&x) {
-            Some(1.0)
-        } else if (1e11..1e14).contains(&x) {
-            Some(1e-3)
-        } else if (1e17..1e20).contains(&x) {
-            Some(1e-9)
-        } else {
-            None
-        }
-    };
-
-    let (ai, ascale, ti, tscale) = if let Some(h) = &header {
-        let find = |pred: &dyn Fn(&str) -> bool| h.iter().position(|c| pred(c));
-        let ti = find(&|c| is_time_name(c))
-            .ok_or_else(|| format!("header has no time column: {}", h.join(",")))?;
-        let tscale = if h[ti].ends_with("_ns") {
-            1e-9
-        } else if h[ti].ends_with("_ms") {
-            1e-3
-        } else {
-            1.0
-        };
-        let (ai, ascale) = if let Some(i) = find(&|c| c == "audio_s" || c == "audio_seconds") {
-            (i, 1.0)
-        } else if let Some(i) = find(&|c| ["frames", "samples", "frame", "sample"].contains(&c)) {
-            (i, 1.0 / fs)
-        } else if let Some(i) = find(&|c| c.starts_with("bytes")) {
-            (i, 1.0 / (fs * bytes_per_frame as f64))
-        } else {
-            return Err(format!(
-                "header has no audio column (audio_s, frames or bytes): {}",
-                h.join(",")
-            ));
-        };
-        (ai, ascale, ti, tscale)
+/// The scale that takes a time column to seconds, from the size of its
+/// first value.
+fn time_scale(v: &[f64]) -> Option<f64> {
+    let x = v[0].abs();
+    if (1e8..1e11).contains(&x) {
+        Some(1.0)
+    } else if (1e11..1e14).contains(&x) {
+        Some(1e-3)
+    } else if (1e17..1e20).contains(&x) {
+        Some(1e-9)
     } else {
-        if width < 2 {
-            return Err("need two columns: system time and audio position".into());
-        }
-        let ti = (0..width)
-            .find(|&i| time_scale(&col(i)).is_some())
-            .ok_or("no column looks like a Unix time")?;
-        let tscale = time_scale(&col(ti)).unwrap_or(1.0);
-        let ai = (0..width)
-            .find(|&i| i != ti)
-            .ok_or("no audio position column")?;
-        let (a, t) = (col(ai), col(ti));
-        let (a0, a1) = (a[0], a[a.len() - 1]);
-        let dt = (t[t.len() - 1] - t[0]) * tscale;
-        if dt <= 0.0 {
-            return Err("times do not increase".into());
-        }
-        // The median step, so a pause in the log (time jumps, audio does
-        // not) doesn't hide the unit.
-        let mut steps: Vec<f64> = a
-            .windows(2)
-            .zip(t.windows(2))
-            .filter(|(_, tw)| tw[1] > tw[0])
-            .map(|(aw, tw)| (aw[1] - aw[0]) / ((tw[1] - tw[0]) * tscale))
-            .collect();
-        let per_s = if steps.is_empty() {
-            (a1 - a0) / dt
-        } else {
-            median(&mut steps)
-        };
-        let ascale = [1.0, fs, fs * bytes_per_frame as f64]
-            .into_iter()
-            .map(|u| (u, (per_s / u).ln().abs()))
-            .filter(|c| c.1.is_finite() && c.1 < 0.05)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|c| 1.0 / c.0)
-            .ok_or_else(|| {
-                format!("audio column advances {per_s:.1} per second: not seconds, frames or bytes at {sample_rate} Hz")
-            })?;
-        (ai, ascale, ti, tscale)
-    };
-    if ai >= width || ti >= width {
-        return Err("a row is missing a column".into());
+        None
     }
-    Ok(rows
-        .iter()
-        .map(|r| (r[ai] * ascale, r[ti] * tscale))
-        .collect())
+}
+
+/// The (audio column, its scale, time column, its scale) a header names.
+fn columns_named(h: &[String], fs: f64, bytes_per_frame: u32) -> Result<Columns, String> {
+    let find = |pred: &dyn Fn(&str) -> bool| h.iter().position(|c| pred(c));
+    let ti = find(&|c| is_time_name(c))
+        .ok_or_else(|| format!("header has no time column: {}", h.join(",")))?;
+    let tscale = if h[ti].ends_with("_ns") {
+        1e-9
+    } else if h[ti].ends_with("_ms") {
+        1e-3
+    } else {
+        1.0
+    };
+    let (ai, ascale) = if let Some(i) = find(&|c| c == "audio_s" || c == "audio_seconds") {
+        (i, 1.0)
+    } else if let Some(i) = find(&|c| ["frames", "samples", "frame", "sample"].contains(&c)) {
+        (i, 1.0 / fs)
+    } else if let Some(i) = find(&|c| c.starts_with("bytes")) {
+        (i, 1.0 / (fs * bytes_per_frame as f64))
+    } else {
+        return Err(format!(
+            "header has no audio column (audio_s, frames or bytes): {}",
+            h.join(",")
+        ));
+    };
+    Ok((ai, ascale, ti, tscale))
+}
+
+/// The (audio column, its scale, time column, its scale) of a log without
+/// a header: the time column looks like a Unix time, and the audio column's
+/// unit is the one that makes it advance at one second per second.
+fn columns_guessed(
+    rows: &[Vec<f64>],
+    width: usize,
+    sample_rate: u32,
+    bytes_per_frame: u32,
+) -> Result<Columns, String> {
+    let fs = sample_rate as f64;
+    let col = |i: usize| -> Vec<f64> { rows.iter().map(|r| r[i]).collect() };
+    if width < 2 {
+        return Err("need two columns: system time and audio position".into());
+    }
+    let ti = (0..width)
+        .find(|&i| time_scale(&col(i)).is_some())
+        .ok_or("no column looks like a Unix time")?;
+    let tscale = time_scale(&col(ti)).unwrap_or(1.0);
+    let ai = (0..width)
+        .find(|&i| i != ti)
+        .ok_or("no audio position column")?;
+    let (a, t) = (col(ai), col(ti));
+    let (a0, a1) = (a[0], a[a.len() - 1]);
+    let dt = (t[t.len() - 1] - t[0]) * tscale;
+    if dt <= 0.0 {
+        return Err("times do not increase".into());
+    }
+    // The median step, so a pause in the log (time jumps, audio does
+    // not) doesn't hide the unit.
+    let mut steps: Vec<f64> = a
+        .windows(2)
+        .zip(t.windows(2))
+        .filter(|(_, tw)| tw[1] > tw[0])
+        .map(|(aw, tw)| (aw[1] - aw[0]) / ((tw[1] - tw[0]) * tscale))
+        .collect();
+    let per_s = if steps.is_empty() {
+        (a1 - a0) / dt
+    } else {
+        median(&mut steps)
+    };
+    let ascale = [1.0, fs, fs * bytes_per_frame as f64]
+        .into_iter()
+        .map(|u| (u, (per_s / u).ln().abs()))
+        .filter(|c| c.1.is_finite() && c.1 < 0.05)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|c| 1.0 / c.0)
+        .ok_or_else(|| {
+            format!("audio column advances {per_s:.1} per second: not seconds, frames or bytes at {sample_rate} Hz")
+        })?;
+    Ok((ai, ascale, ti, tscale))
 }
 
 #[cfg(test)]
