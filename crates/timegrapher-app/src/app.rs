@@ -2513,7 +2513,7 @@ impl TimegrapherApp {
     /// devices from several test threads at once crashes on Windows.
     #[expect(
         clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
+        reason = "the app's one struct literal, a line a field: shorter needs its state grouped, which waits for a need (#514)"
     )]
     fn with_devices(devices: Vec<InputDevice>, file: Option<PathBuf>) -> Self {
         let device = capture::choices(&devices).first().map(|c| c.id.clone());
