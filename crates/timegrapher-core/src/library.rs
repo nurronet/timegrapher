@@ -706,6 +706,19 @@ fn named_outside(dir: &Path) -> Option<String> {
         .cloned()
 }
 
+/// Refuse a copy or move that would invalidate a session's file paths.
+fn check_take_paths(dir: &Path) -> Result<(), String> {
+    if let Some(f) = named_outside(dir) {
+        return Err(format!(
+            "{} names {f}, a path that won't lead to the file once the take is in the \
+             watch. Put the file in the take's folder, name it by its path there (such as \
+             audio.wav), and add the take again",
+            dir.join(take::MANIFEST).display()
+        ));
+    }
+    Ok(())
+}
+
 /// Whether the relative path `p` leads out of the folder it is taken
 /// from.
 fn leads_out(p: &Path) -> bool {
@@ -1184,6 +1197,7 @@ impl Library {
         if take.parent() == Some(takes.as_path()) {
             return Ok(take.to_path_buf());
         }
+        check_take_paths(take)?;
         fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
         let to = unused_dir(&takes, &file_name(take));
         fs::rename(take, &to).map_err(|e| format!("Moving {}: {e}", take.display()))?;
@@ -1314,14 +1328,7 @@ impl Library {
         if resolved(from).starts_with(resolved(&self.root)) {
             return Err(format!("{} is already in your watches", from.display()));
         }
-        if let Some(f) = named_outside(from) {
-            return Err(format!(
-                "{} names {f}, a path that won't lead to the file once the take is in the \
-                 watch. Put the file in the take's folder, name it by its path there (such as \
-                 audio.wav), and add the take again",
-                from.join(take::MANIFEST).display()
-            ));
-        }
+        check_take_paths(from)?;
         let to_watch = self
             .watches
             .iter()

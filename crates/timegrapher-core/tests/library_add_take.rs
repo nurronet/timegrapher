@@ -194,3 +194,74 @@ fn a_take_naming_a_file_elsewhere_from_the_root_is_added() {
     assert!(!source.exists());
     let _ = fs::remove_dir_all(&r);
 }
+
+/// Filing an Unsorted take must check the same paths as Add to Watch,
+/// before moving either its sound or its clock log (#882).
+#[test]
+fn filing_a_take_with_paths_that_would_break_leaves_it_readable_in_unsorted() {
+    let r = root("file-under-refused");
+    let (mut lib, id) = library_at(&r);
+    let unsorted = lib.unsorted_dir().unwrap();
+    let source = unsorted.join("source");
+    fs::create_dir_all(&source).unwrap();
+    wav(&source.join("audio.wav"));
+    clock_log(&source.join("clock.csv"));
+    fs::copy(source.join("audio.wav"), unsorted.join("audio.wav")).unwrap();
+    fs::copy(source.join("clock.csv"), unsorted.join("clock.csv")).unwrap();
+    let absolute = |name| {
+        fs::canonicalize(source.join(name))
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let sound = absolute("audio.wav");
+    let clock = absolute("clock.csv");
+    for (file, clock) in [
+        ("../audio.wav", None),
+        ("audio.wav", Some("../clock.csv")),
+        (sound.as_str(), None),
+        ("audio.wav", Some(clock.as_str())),
+    ] {
+        manifest(&source, file, clock);
+        lib.scan();
+        let before = fresh(&source).unwrap();
+        let error = lib.move_take(&source, &id).unwrap_err();
+        assert!(error.contains("won't lead to the file"), "{error}");
+        assert_eq!(fresh(&source), Ok(before));
+        assert!(lib.is_unsorted(&source));
+        assert_eq!(lib.unsorted.takes.len(), 1);
+        let destination = lib.find("Bench").unwrap().dir.join("takes");
+        assert!(!destination.join("source").exists());
+    }
+    let _ = fs::remove_dir_all(r);
+}
+
+#[test]
+fn filing_a_take_keeps_internal_relative_and_external_absolute_paths_readable() {
+    let r = root("file-under-readable");
+    let (mut lib, id) = library_at(&r);
+    let source = lib.unsorted_dir().unwrap().join("source");
+    fs::create_dir_all(&source).unwrap();
+    wav(&source.join("audio.wav"));
+    clock_log(&source.join("clock.csv"));
+    manifest(&source, "audio.wav", Some("clock.csv"));
+    let before = fresh(&source).unwrap();
+    let destination = lib.move_take(&source, &id).unwrap();
+    assert_eq!(fresh(&destination), Ok(before));
+    assert!(!source.exists());
+    // An unchanged destination is a no-op even with an absolute path
+    // to one of its own files: no reference would be invalidated.
+    let sound = fs::canonicalize(destination.join("audio.wav"))
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    manifest(&destination, &sound, Some("clock.csv"));
+    assert_eq!(lib.move_take(&destination, &id), Ok(destination.clone()));
+    fs::create_dir_all(&source).unwrap();
+    manifest(&source, &sound, None);
+    let before = fresh(&source).unwrap();
+    let filed = lib.move_take(&source, &id).unwrap();
+    assert_eq!(fresh(&filed), Ok(before));
+    assert!(!source.exists());
+    let _ = fs::remove_dir_all(r);
+}
