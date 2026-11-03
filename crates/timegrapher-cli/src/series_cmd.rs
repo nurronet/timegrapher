@@ -312,10 +312,6 @@ fn independence_line(a: &timegrapher_core::steadiness::Autocorrelation) -> Strin
     )
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn print_series(s: &SeriesCheck, outlier_sigma: f64) {
     let name = s.series.name();
     println!();
@@ -335,6 +331,21 @@ fn print_series(s: &SeriesCheck, outlier_sigma: f64) {
     if let Some(a) = &s.autocorrelation {
         println!("{}", independence_line(a));
     }
+    print_steadiness(s);
+    if let Some(t) = &s.trend {
+        println!(
+            "  {:<14} {:+.3} {}/h ({:.0}% explained)",
+            "trend",
+            t.per_hour,
+            s.unit,
+            t.explained * 100.0
+        );
+    }
+    print_cycles(s);
+}
+
+/// The Allan slope, the CUSUM and the stretches of one level.
+fn print_steadiness(s: &SeriesCheck) {
     if let Some(a) = &s.allan {
         println!(
             "  {:<14} slope {} (−0.5 independent); up to {:.1}× the independent line; steadiest averaging {} s ({} {})",
@@ -377,15 +388,10 @@ fn print_series(s: &SeriesCheck, outlier_sigma: f64) {
             );
         }
     }
-    if let Some(t) = &s.trend {
-        println!(
-            "  {:<14} {:+.3} {}/h ({:.0}% explained)",
-            "trend",
-            t.per_hour,
-            s.unit,
-            t.explained * 100.0
-        );
-    }
+}
+
+/// The cycle named and the period search's strongest period.
+fn print_cycles(s: &SeriesCheck) {
     if let Some(c) = &s.cycle {
         println!(
             "  {:<14} {:.1} s{}{}, {} {} p-p, explains {:.0}% (found by {})",

@@ -80,10 +80,6 @@ pub fn rename(components: &mut [Component], wheels: &[Wheel]) {
 /// one called NAME with each wheel's period and where it comes from, or
 /// those answering QUERY, best first. What the user added in the app
 /// (`calibre_store::default_path`) is read over the table.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn run(name: Option<&str>, search: Option<&str>, json: bool) -> Result<(), String> {
     let path = calibre_store::default_path();
     let user = match &path {
@@ -108,41 +104,7 @@ pub fn run(name: Option<&str>, search: Option<&str>, json: bool) -> Result<(), S
     };
     let everything = calibres::all().len();
     if json {
-        let table: Vec<&Calibre> = list
-            .iter()
-            .filter_map(|e| match e {
-                Entry::Table(c) => Some(*c),
-                Entry::Custom(_) => None,
-            })
-            .collect();
-        let custom: Vec<_> = list
-            .iter()
-            .filter_map(|e| match e {
-                Entry::Custom(c) => Some(*c),
-                Entry::Table(_) => None,
-            })
-            .collect();
-        let mut body = json!({
-            "calibres": table,
-            "custom": custom,
-            "listed": if name.is_none() && search.is_none() { "common" } else { "matching" },
-            "table_size": everything,
-        });
-        if name.is_some() {
-            body["slots"] = json!(cat.slots(list[0]));
-        }
-        return output::print(
-            "calibres",
-            output::input(
-                &[],
-                json!({
-                    "name": name,
-                    "search": search,
-                    "user_calibres": path.as_ref().map(|p| p.display().to_string()),
-                }),
-            ),
-            &body,
-        );
+        return print_json(&cat, &list, name, search, path.as_deref(), everything);
     }
     if name.is_some() {
         print_one(&cat, list[0]);
@@ -152,12 +114,71 @@ pub fn run(name: Option<&str>, search: Option<&str>, json: bool) -> Result<(), S
         println!("No calibre answers that; try fewer words, or the maker alone.");
         return Ok(());
     }
+    print_table(
+        &cat,
+        &list,
+        user.custom.len(),
+        everything,
+        name.is_none() && search.is_none(),
+    );
+    Ok(())
+}
+
+/// The calibres listed, as JSON: the table's and the user's apart, and a
+/// named one's wheel slots.
+fn print_json(
+    cat: &Catalog,
+    list: &[Entry],
+    name: Option<&str>,
+    search: Option<&str>,
+    path: Option<&std::path::Path>,
+    everything: usize,
+) -> Result<(), String> {
+    let table: Vec<&Calibre> = list
+        .iter()
+        .filter_map(|e| match e {
+            Entry::Table(c) => Some(*c),
+            Entry::Custom(_) => None,
+        })
+        .collect();
+    let custom: Vec<_> = list
+        .iter()
+        .filter_map(|e| match e {
+            Entry::Custom(c) => Some(*c),
+            Entry::Table(_) => None,
+        })
+        .collect();
+    let mut body = json!({
+        "calibres": table,
+        "custom": custom,
+        "listed": if name.is_none() && search.is_none() { "common" } else { "matching" },
+        "table_size": everything,
+    });
+    if name.is_some() {
+        body["slots"] = json!(cat.slots(list[0]));
+    }
+    output::print(
+        "calibres",
+        output::input(
+            &[],
+            json!({
+                "name": name,
+                "search": search,
+                "user_calibres": path.as_ref().map(|p| p.display().to_string()),
+            }),
+        ),
+        &body,
+    )
+}
+
+/// The calibres listed as a table, with what its columns mean.
+fn print_table(cat: &Catalog, list: &[Entry], yours: usize, everything: usize, common: bool) {
     println!(
         "{:<26} {:>7}  {:>5}  {:>6}  {:>6}  Also matches",
         "Calibre", "bph", "Lift", "Escape", "Wheels"
     );
     let dash = || "-".to_string();
-    for e in &list {
+    for e in list {
         let known = cat
             .slots(*e)
             .iter()
@@ -183,11 +204,11 @@ pub fn run(name: Option<&str>, search: Option<&str>, json: bool) -> Result<(), S
             also
         );
     }
-    if name.is_none() && search.is_none() {
+    if common {
         println!(
             "\nThe {} common calibres of the {everything} in the table, and yours. \
 `timegrapher calibres --search WORDS` finds any of them, by number, maker or other name.",
-            list.len() - user.custom.len()
+            list.len() - yours
         );
     }
     println!(
@@ -195,7 +216,6 @@ pub fn run(name: Option<&str>, search: Option<&str>, json: bool) -> Result<(), S
 are known; '-' where no source gives one. `timegrapher calibres NAME` shows one \
 calibre's wheels and sources."
     );
-    Ok(())
 }
 
 fn print_one(cat: &Catalog, e: Entry) {

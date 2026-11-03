@@ -950,11 +950,6 @@ fn paint_masked(
 /// across slides the trace, and a double click returns to the newest
 /// beats.
 #[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::cognitive_complexity,
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn draw_strip(
     ui: &mut egui::Ui,
     beats: &[Beat],
@@ -966,35 +961,74 @@ pub fn draw_strip(
     size: Vec2,
 ) -> StripInput {
     let (resp, painter) = ui.allocate_painter(size, Sense::click_and_drag());
-    let outer = resp.rect;
     let vis = ui.visuals().clone();
-    let pal = crate::theme::pal(ui);
-    let dark = vis.dark_mode;
-    painter.rect_filled(outer, 2.0, vis.extreme_bg_color);
-    let font = FontId::proportional(11.0);
-    let row_h = 15.0;
-    let half = view.half_width_ms;
+    painter.rect_filled(resp.rect, 2.0, vis.extreme_bg_color);
     let oldest = end_s - view.span_s;
     let overlays: Vec<(&Overlay, (f64, f64))> = extras
         .overlays
         .iter()
         .filter_map(|o| o.range(oldest, end_s).map(|r| (o, r)))
         .collect();
-    // The plotting area inside its axes: time labels down the left (or
-    // along the bottom when lying across), ms labels along the bottom (or
-    // down the left), and a scale for each overlay on top (or down the
-    // right). The track of positions runs along the top when the strip
-    // lies across, the key in the corners either side of it; else the
-    // track is a column on the right, under the key.
+    let row_h = 15.0;
+    let (r, lane) = strip_rects(resp.rect, view, extras.gutter, overlays.len(), row_h);
+    let f = Frame {
+        painter,
+        outer: resp.rect,
+        lane,
+        g: Geom {
+            r,
+            half: view.half_width_ms,
+            span: view.span_s,
+            end: end_s,
+            horizontal: view.horizontal,
+        },
+        view,
+        extras,
+        vis,
+        pal: crate::theme::pal(ui),
+        font: FontId::proportional(11.0),
+        row_h,
+        oldest,
+    };
+    let mut input = StripInput::default();
+    let drags = f.pointer(ui, &resp, &mut input);
+    let step = f.paint_ms_grid();
+    f.paint_time_grid();
+    f.paint_layers(&drags);
+    f.paint_key();
+    f.paint_scales(&overlays);
+    let Some(anchor) = anchor else {
+        return input;
+    };
+    f.paint_beats(beats, period_s, anchor);
+    f.paint_overlay_lines(&overlays);
+    f.paint_rate_line(beats, period_s, anchor, step);
+    f.paint_cursor();
+    input
+}
+
+/// The plotting area inside its axes, and the track's lane: time labels
+/// down the left (or along the bottom when lying across), ms labels along
+/// the bottom (or down the left), and a scale for each of `overlays` on
+/// top (or down the right). The track of positions runs along the top
+/// when the strip lies across, the key in the corners either side of it;
+/// else the track is a column on the right, under the key.
+fn strip_rects(
+    outer: Rect,
+    view: &StripView,
+    gutter: f32,
+    overlays: usize,
+    row_h: f32,
+) -> (Rect, Rect) {
     let lane_h = row_h + 4.0;
     let r = if view.horizontal {
         Rect::from_min_max(
-            outer.min + Vec2::new(extras.gutter.max(46.0), 3.0 + lane_h),
-            outer.max - Vec2::new(4.0 + 58.0 * overlays.len() as f32, row_h + 2.0),
+            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h),
+            outer.max - Vec2::new(4.0 + 58.0 * overlays as f32, row_h + 2.0),
         )
     } else {
         Rect::from_min_max(
-            outer.min + Vec2::new(36.0, row_h * (1.0 + overlays.len() as f32) + 4.0),
+            outer.min + Vec2::new(36.0, row_h * (1.0 + overlays as f32) + 4.0),
             outer.max - Vec2::new(8.0 + lane_h, row_h + 2.0),
         )
     };
@@ -1009,165 +1043,268 @@ pub fn draw_strip(
             Pos2::new(r.right() + lane_h, r.bottom()),
         )
     };
-    let g = Geom {
-        r,
-        half,
-        span: view.span_s,
-        end: end_s,
-        horizontal: view.horizontal,
-    };
-    let mut input = StripInput::default();
-    let at = |p: Option<Pos2>| p.map(|p| g.time_at(p).clamp(oldest, end_s));
-    // A change of position on the track within reach of `p`: its time.
-    let changes: Vec<f64> = extras.track.iter().skip(1).map(|s| s.0).collect();
-    let change_near = |p: Pos2| -> Option<f64> {
-        if !lane.expand(2.0).contains(p) {
+    (r, lane)
+}
+
+/// One frame of the strip: where it draws, and what with.
+struct Frame<'a> {
+    painter: egui::Painter,
+    outer: Rect,
+    /// The track's lane.
+    lane: Rect,
+    g: Geom,
+    view: &'a StripView,
+    extras: &'a Extras<'a>,
+    vis: egui::Visuals,
+    pal: &'static crate::theme::Palette,
+    font: FontId,
+    /// A line of the key's height.
+    row_h: f32,
+    /// The time at the strip's oldest end.
+    oldest: f64,
+}
+
+/// What a drag on the strip is doing this frame.
+#[derive(Default)]
+struct Drags {
+    /// The change of position being moved, where it was.
+    moving_change: Option<f64>,
+    /// Where that change is now.
+    change_now: Option<f64>,
+    /// The stretch being masked so far.
+    masking_now: Option<(f64, f64)>,
+    /// The masked stretch whose edge is being dragged.
+    reshaping: Option<(f64, f64)>,
+    /// The stretch the Position Brush is painting so far.
+    painting_now: Option<(f64, f64)>,
+}
+
+impl Frame<'_> {
+    /// The time at `p`, kept on the strip.
+    fn at(&self, p: Option<Pos2>) -> Option<f64> {
+        p.map(|p| self.g.time_at(p).clamp(self.oldest, self.g.end))
+    }
+
+    /// A change of position on the track within reach of `p`: its time.
+    fn change_near(&self, p: Pos2) -> Option<f64> {
+        if !self.lane.expand(2.0).contains(p) {
             return None;
         }
-        let along = |q: Pos2| if view.horizontal { q.x } else { q.y };
-        changes
+        let along = |q: Pos2| if self.view.horizontal { q.x } else { q.y };
+        self.extras
+            .track
             .iter()
-            .map(|&t| (t, (along(g.pos(0.0, t)) - along(p)).abs()))
+            .skip(1)
+            .map(|s| s.0)
+            .map(|t| (t, (along(self.g.pos(0.0, t)) - along(p)).abs()))
             .filter(|c| c.1 <= EDGE_REACH)
             .min_by(|x, y| x.1.total_cmp(&y.1))
             .map(|c| c.0)
-    };
-    // A drag that begins on a change of position in the track moves it,
-    // whatever tool is on, unless the Mask tool has a masked edge there.
-    let change_id = resp.id.with("change-edge");
-    if resp.drag_started_by(egui::PointerButton::Primary) {
-        let origin = ui.input(|i| i.pointer.press_origin());
-        if let Some(p) = origin.or(resp.interact_pointer_pos()) {
-            let mask_edge = extras.masking && edge_near(extras.masked, p, &g).is_some();
-            if let Some(t) = change_near(p).filter(|_| !mask_edge) {
-                ui.data_mut(|d| d.insert_temp(change_id, t));
-            }
-        }
     }
-    let moving_change: Option<f64> = ui.data(|d| d.get_temp(change_id));
-    // A drag moves the strip; with the Mask tool or the Position Brush on,
-    // or a change being moved, the left button does that and the right
-    // one still moves it.
-    let tool = extras.masking || extras.brush.is_some() || moving_change.is_some();
-    let d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
-        Vec2::ZERO
-    } else {
-        resp.drag_delta()
-    };
-    if view.horizontal {
-        input.time_shift_s = -(d.x / r.width().max(1.0)) as f64 * view.span_s;
-        input.lead_shift_ms = -(d.y / (r.height() / 2.0).max(1.0)) as f64 * view.half_width_ms;
-    } else {
-        input.time_shift_s = (d.y / r.height().max(1.0)) as f64 * view.span_s;
-        input.lead_shift_ms = (d.x / (r.width() / 2.0).max(1.0)) as f64 * view.half_width_ms;
-    }
-    if resp.hovered() {
-        let (scroll, zoom, shift) =
-            ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
-        let wheel = scroll.x + scroll.y;
-        if wheel != 0.0 && shift {
-            // Shift and the wheel zoom the width, as a pinch does.
-            input.width_factor = (-wheel as f64 * 0.003).exp();
-        } else if wheel != 0.0 {
-            input.span_factor = (-wheel as f64 * 0.003).exp();
-            input.zoom_at = resp
-                .hover_pos()
-                .filter(|p| r.contains(*p))
-                .map(|p| g.time_at(p));
-        }
-        if zoom != 1.0 {
-            input.width_factor = 1.0 / zoom as f64;
-        }
-    }
-    input.reset = resp.double_clicked();
-    // Over a settle band on the track: what it is and how long, whatever
-    // word fits it.
-    let band_at = |p: Pos2| -> Option<f64> {
-        if !lane.contains(p) {
+
+    /// Over a settle band on the track: how long it is.
+    fn band_at(&self, p: Pos2) -> Option<f64> {
+        if !self.lane.contains(p) {
             return None;
         }
-        let t = g.time_at(p);
-        extras.track.iter().find_map(|&(a, b, _, _)| {
-            let (s0, s1) = settle_band(a, b, extras.settles)?;
+        let t = self.g.time_at(p);
+        self.extras.track.iter().find_map(|&(a, b, _, _)| {
+            let (s0, s1) = settle_band(a, b, self.extras.settles)?;
             (t >= s0 && t < s1).then_some(s1 - s0)
         })
-    };
-    // Over a painted stretch on the track: the painting, and the way back.
-    let painted_at = |p: Pos2| -> Option<f64> {
-        let t = g.time_at(p);
-        (lane.contains(p) && extras.painted.iter().any(|&(a, b)| t >= a && t < b)).then_some(t)
-    };
-    if let Some(len) = resp.hover_pos().and_then(band_at) {
-        resp.clone()
-            .on_hover_text_at_pointer(format!("Settling, {}", crate::fields::duration(len)));
-    } else if resp.hover_pos().and_then(painted_at).is_some() {
-        resp.clone().on_hover_text_at_pointer(
-            "Painted with the Position Brush. Right-click to remove the painting and bring \
-             back the positions recorded.",
-        );
     }
-    input.hover_t = resp
-        .hover_pos()
-        .filter(|p| r.contains(*p))
-        .map(|p| g.time_at(p));
-    // A right click on a painted stretch in the track's lane takes the
-    // painting off; anywhere else, on a masked stretch, it brings that back,
-    // Mask on or off.
-    if resp.secondary_clicked() {
-        match resp.interact_pointer_pos().and_then(painted_at) {
-            Some(t) => input.unpaint_at = Some(t),
-            None => input.unmask_at = at(resp.interact_pointer_pos()),
-        }
+
+    /// Over a painted stretch on the track: the time there.
+    fn painted_at(&self, p: Pos2) -> Option<f64> {
+        let t = self.g.time_at(p);
+        (self.lane.contains(p) && self.extras.painted.iter().any(|&(a, b)| t >= a && t < b))
+            .then_some(t)
     }
-    // The Mask tool: where a drag began, kept between frames, and the
-    // stretch it covers so far. A drag that begins on the edge of a masked
-    // stretch moves that edge instead.
-    let mut masking_now: Option<(f64, f64)> = None;
-    let mut reshaping: Option<(f64, f64)> = None;
-    let mut painting_now: Option<(f64, f64)> = None;
-    let mut change_now: Option<f64> = None;
-    if let Some(was) = moving_change {
-        let now = at(resp.interact_pointer_pos());
-        change_now = now;
-        if resp.drag_stopped_by(egui::PointerButton::Primary) {
-            input.move_change = now.map(|t| (was, t));
-            ui.data_mut(|d| d.remove::<f64>(change_id));
-        }
-        ui.ctx().set_cursor_icon(if view.horizontal {
+
+    /// The two-way arrow along the time axis.
+    fn resize_cursor(&self, ui: &egui::Ui) {
+        ui.ctx().set_cursor_icon(if self.view.horizontal {
             egui::CursorIcon::ResizeHorizontal
         } else {
             egui::CursorIcon::ResizeVertical
         });
-    } else if let (Some(_), false) = (extras.brush, extras.masking) {
-        // The Position Brush: where a drag began, kept between frames.
+    }
+
+    /// What the mouse did to the strip, into `input`, and what a drag on
+    /// it is doing.
+    fn pointer(&self, ui: &egui::Ui, resp: &egui::Response, input: &mut StripInput) -> Drags {
+        let extras = self.extras;
+        let mut drags = Drags {
+            moving_change: self.change_drag(ui, resp),
+            ..Default::default()
+        };
+        self.pan_and_zoom(ui, resp, input, drags.moving_change.is_some());
+        self.hover(resp, input);
+        if let Some(was) = drags.moving_change {
+            let now = self.at(resp.interact_pointer_pos());
+            drags.change_now = now;
+            if resp.drag_stopped_by(egui::PointerButton::Primary) {
+                input.move_change = now.map(|t| (was, t));
+                ui.data_mut(|d| d.remove::<f64>(resp.id.with("change-edge")));
+            }
+            self.resize_cursor(ui);
+        } else if let (Some(_), false) = (extras.brush, extras.masking) {
+            drags.painting_now = self.brush_drag(ui, resp, input);
+        } else if extras.masking {
+            self.mask_drag(ui, resp, input, &mut drags);
+        } else if resp.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if resp
+            .hover_pos()
+            .is_some_and(|p| self.change_near(p).is_some())
+        {
+            self.resize_cursor(ui);
+        }
+        drags
+    }
+
+    /// A drag that begins on a change of position in the track moves it,
+    /// whatever tool is on, unless the Mask tool has a masked edge there.
+    /// The change being moved, where it was.
+    fn change_drag(&self, ui: &egui::Ui, resp: &egui::Response) -> Option<f64> {
+        let change_id = resp.id.with("change-edge");
+        if resp.drag_started_by(egui::PointerButton::Primary) {
+            let origin = ui.input(|i| i.pointer.press_origin());
+            if let Some(p) = origin.or(resp.interact_pointer_pos()) {
+                let mask_edge =
+                    self.extras.masking && edge_near(self.extras.masked, p, &self.g).is_some();
+                if let Some(t) = self.change_near(p).filter(|_| !mask_edge) {
+                    ui.data_mut(|d| d.insert_temp(change_id, t));
+                }
+            }
+        }
+        ui.data(|d| d.get_temp(change_id))
+    }
+
+    /// A drag moves the strip; with the Mask tool or the Position Brush
+    /// on, or a change being moved, the left button does that and the
+    /// right one still moves it. The wheel and a pinch zoom it, and a
+    /// double click resets it.
+    fn pan_and_zoom(
+        &self,
+        ui: &egui::Ui,
+        resp: &egui::Response,
+        input: &mut StripInput,
+        moving_change: bool,
+    ) {
+        let (r, view, g) = (self.g.r, self.view, &self.g);
+        let tool = self.extras.masking || self.extras.brush.is_some() || moving_change;
+        let d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
+            Vec2::ZERO
+        } else {
+            resp.drag_delta()
+        };
+        if view.horizontal {
+            input.time_shift_s = -(d.x / r.width().max(1.0)) as f64 * view.span_s;
+            input.lead_shift_ms = -(d.y / (r.height() / 2.0).max(1.0)) as f64 * view.half_width_ms;
+        } else {
+            input.time_shift_s = (d.y / r.height().max(1.0)) as f64 * view.span_s;
+            input.lead_shift_ms = (d.x / (r.width() / 2.0).max(1.0)) as f64 * view.half_width_ms;
+        }
+        if resp.hovered() {
+            let (scroll, zoom, shift) =
+                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
+            let wheel = scroll.x + scroll.y;
+            if wheel != 0.0 && shift {
+                // Shift and the wheel zoom the width, as a pinch does.
+                input.width_factor = (-wheel as f64 * 0.003).exp();
+            } else if wheel != 0.0 {
+                input.span_factor = (-wheel as f64 * 0.003).exp();
+                input.zoom_at = resp
+                    .hover_pos()
+                    .filter(|p| r.contains(*p))
+                    .map(|p| g.time_at(p));
+            }
+            if zoom != 1.0 {
+                input.width_factor = 1.0 / zoom as f64;
+            }
+        }
+        input.reset = resp.double_clicked();
+    }
+
+    /// Over a settle band on the track, what it is and how long, whatever
+    /// word fits it; over a painted stretch, the painting and the way back.
+    /// A right click on a painted stretch in the track's lane takes the
+    /// painting off; anywhere else, on a masked stretch, it brings that
+    /// back, Mask on or off.
+    fn hover(&self, resp: &egui::Response, input: &mut StripInput) {
+        if let Some(len) = resp.hover_pos().and_then(|p| self.band_at(p)) {
+            resp.clone()
+                .on_hover_text_at_pointer(format!("Settling, {}", crate::fields::duration(len)));
+        } else if resp.hover_pos().and_then(|p| self.painted_at(p)).is_some() {
+            resp.clone().on_hover_text_at_pointer(
+                "Painted with the Position Brush. Right-click to remove the painting and bring \
+                 back the positions recorded.",
+            );
+        }
+        input.hover_t = resp
+            .hover_pos()
+            .filter(|p| self.g.r.contains(*p))
+            .map(|p| self.g.time_at(p));
+        if resp.secondary_clicked() {
+            match resp.interact_pointer_pos().and_then(|p| self.painted_at(p)) {
+                Some(t) => input.unpaint_at = Some(t),
+                None => input.unmask_at = self.at(resp.interact_pointer_pos()),
+            }
+        }
+    }
+
+    /// The Position Brush: where a drag began, kept between frames. The
+    /// stretch it covers so far.
+    fn brush_drag(
+        &self,
+        ui: &egui::Ui,
+        resp: &egui::Response,
+        input: &mut StripInput,
+    ) -> Option<(f64, f64)> {
+        let mut painting_now = None;
         let id = resp.id.with("paint-from");
         if resp.drag_started_by(egui::PointerButton::Primary) {
             let origin = ui.input(|i| i.pointer.press_origin());
-            if let Some(t) = at(origin.or(resp.interact_pointer_pos())) {
+            if let Some(t) = self.at(origin.or(resp.interact_pointer_pos())) {
                 ui.data_mut(|d| d.insert_temp(id, t));
             }
         }
         let from: Option<f64> = ui.data(|d| d.get_temp(id));
-        if let (Some(a), Some(b)) = (from, at(resp.interact_pointer_pos())) {
+        if let (Some(a), Some(b)) = (from, self.at(resp.interact_pointer_pos())) {
             painting_now = Some((a.min(b), a.max(b)));
         }
         if resp.drag_stopped_by(egui::PointerButton::Primary) {
             input.paint = painting_now;
             ui.data_mut(|d| d.remove::<f64>(id));
         }
-        let on_change = resp.hover_pos().is_some_and(|p| change_near(p).is_some());
+        let on_change = resp
+            .hover_pos()
+            .is_some_and(|p| self.change_near(p).is_some());
         if resp.dragged_by(egui::PointerButton::Secondary) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if resp.hovered() && on_change {
-            ui.ctx().set_cursor_icon(if view.horizontal {
-                egui::CursorIcon::ResizeHorizontal
-            } else {
-                egui::CursorIcon::ResizeVertical
-            });
+            self.resize_cursor(ui);
         } else if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
-    } else if extras.masking {
+        painting_now
+    }
+
+    /// The Mask tool: where a drag began, kept between frames. A drag that
+    /// begins on the edge of a masked stretch moves that edge instead. The
+    /// stretch it covers so far, and the masked stretch being reshaped, go
+    /// in `drags`.
+    fn mask_drag(
+        &self,
+        ui: &egui::Ui,
+        resp: &egui::Response,
+        input: &mut StripInput,
+        drags: &mut Drags,
+    ) {
+        let (masked, g) = (self.extras.masked, &self.g);
+        let mut masking_now = None;
+        let mut reshaping = None;
         let id = resp.id.with("mask-from");
         let edge_id = resp.id.with("mask-edge");
         if resp.drag_started_by(egui::PointerButton::Primary) {
@@ -1175,10 +1312,10 @@ pub fn draw_strip(
             // pointer has moved a few points on, past an edge's reach.
             let origin = ui.input(|i| i.pointer.press_origin());
             if let Some(p) = origin.or(resp.interact_pointer_pos()) {
-                match edge_near(extras.masked, p, &g) {
+                match edge_near(masked, p, g) {
                     Some(e) => ui.data_mut(|d| d.insert_temp(edge_id, e)),
                     None => {
-                        if let Some(t) = at(Some(p)) {
+                        if let Some(t) = self.at(Some(p)) {
                             ui.data_mut(|d| d.insert_temp(id, t));
                         }
                     }
@@ -1187,7 +1324,7 @@ pub fn draw_strip(
         }
         let from: Option<f64> = ui.data(|d| d.get_temp(id));
         let edge: Option<(f64, f64, bool)> = ui.data(|d| d.get_temp(edge_id));
-        let now = at(resp.interact_pointer_pos());
+        let now = self.at(resp.interact_pointer_pos());
         if let (Some(a), Some(b)) = (from, now) {
             masking_now = Some((a.min(b), a.max(b)));
         }
@@ -1208,290 +1345,289 @@ pub fn draw_strip(
                 d.remove::<(f64, f64, bool)>(edge_id);
             });
         } else if resp.clicked() {
-            input.unmask_at = at(resp.interact_pointer_pos());
+            input.unmask_at = now;
         }
         let on_edge = resp
             .hover_pos()
-            .is_some_and(|p| edge_near(extras.masked, p, &g).is_some() || change_near(p).is_some());
+            .is_some_and(|p| edge_near(masked, p, g).is_some() || self.change_near(p).is_some());
         if resp.dragged_by(egui::PointerButton::Secondary) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         } else if resp.hovered() && (on_edge || edge.is_some()) {
-            ui.ctx().set_cursor_icon(if view.horizontal {
-                egui::CursorIcon::ResizeHorizontal
-            } else {
-                egui::CursorIcon::ResizeVertical
-            });
+            self.resize_cursor(ui);
         } else if resp.hovered() {
             // A cross for a new mask, unlike the edge's two-way arrow on
             // every system: on a Mac the column and two-way arrows look
             // the same.
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
-    } else if resp.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    } else if resp.hover_pos().is_some_and(|p| change_near(p).is_some()) {
-        ui.ctx().set_cursor_icon(if view.horizontal {
-            egui::CursorIcon::ResizeHorizontal
-        } else {
-            egui::CursorIcon::ResizeVertical
-        });
+        drags.masking_now = masking_now;
+        drags.reshaping = reshaping;
     }
 
-    let grid = Stroke::new(1.0_f32, vis.widgets.noninteractive.bg_stroke.color);
-    let text = vis.weak_text_color();
-
-    // Grid, every line alike: a nice step of ms along the strip, labelled
-    // on the ms axis, and a nice step of seconds across it, labelled on the
-    // time axis.
-    let step = nice_step(half / 4.0);
-    // On a strip too short for its labels to stand apart, only "Early"
-    // and "Late" are named.
-    let step_px = step / half
-        * f64::from(if view.horizontal {
-            r.height()
-        } else {
-            r.width()
-        })
-        / 2.0;
-    let labels = step_px as f32
-        > if view.horizontal {
-            2.0 * font.size + 4.0
-        } else {
-            60.0
-        };
-    let mut k = (-half / step).ceil() as i64;
-    while (k as f64) * step < half + 1e-9 {
-        let ms = k as f64 * step;
-        let (a, b) = (g.pos(ms, end_s), g.pos(ms, oldest));
-        if (k as f64) * step > -half + 1e-9 {
-            painter.line_segment([a, b], grid);
-        }
-        // Labels, leaving the ends for "Early" and "Late".
-        let (at, align, room) = if view.horizontal {
-            (
-                Pos2::new(r.left() - 4.0, a.y),
-                Align2::RIGHT_CENTER,
-                (a.y - r.top()).min(r.bottom() - a.y),
-            )
-        } else {
-            (
-                Pos2::new(a.x, r.bottom() + 2.0),
-                Align2::CENTER_TOP,
-                (a.x - r.left()).min(r.right() - a.x),
-            )
-        };
-        if labels && room > if view.horizontal { 14.0 } else { 34.0 } {
-            painter.text(at, align, axis_ms(ms), font.clone(), text);
-        }
-        k += 1;
-    }
-    let (early_at, early_align, late_at, late_align) = if view.horizontal {
-        (
-            Pos2::new(r.left() - 4.0, r.top()),
-            Align2::RIGHT_TOP,
-            Pos2::new(r.left() - 4.0, r.bottom()),
-            Align2::RIGHT_BOTTOM,
-        )
-    } else {
-        (
-            Pos2::new(r.right(), r.bottom() + 2.0),
-            Align2::RIGHT_TOP,
-            Pos2::new(r.left(), r.bottom() + 2.0),
-            Align2::LEFT_TOP,
-        )
-    };
-    // Too short a strip for both to stand apart names neither.
-    let ends = if view.horizontal {
-        r.height()
-    } else {
-        r.width()
-    } > 2.0 * font.size + 4.0;
-    if ends {
-        painter.text(early_at, early_align, "Early", font.clone(), text);
-        painter.text(late_at, late_align, "Late", font.clone(), text);
-    }
-    // Time lines at whole seconds, minutes or hours, about 90 points apart.
-    let along_px = if view.horizontal {
-        r.width()
-    } else {
-        r.height()
-    } as f64;
-    let want = view.span_s * 90.0 / along_px.max(1.0);
-    let tstep = crate::theme::TIME_STEPS
-        .iter()
-        .copied()
-        .find(|&s| s >= want)
-        .unwrap_or(172800.0);
-    let mut t = (end_s / tstep).floor() * tstep;
-    // Nothing before the session started.
-    while t > oldest && t >= -1e-9 {
-        let (a, b) = (g.pos(-half, t), g.pos(half, t));
-        painter.line_segment([a, b], grid);
-        let (at, align) = if view.horizontal {
-            (Pos2::new(a.x, r.bottom() + 2.0), Align2::CENTER_TOP)
-        } else {
-            (Pos2::new(r.left() - 4.0, a.y), Align2::RIGHT_CENTER)
-        };
-        painter.text(at, align, length_text(t), font.clone(), text);
-        t -= tstep;
-    }
-    let test = !extras.measured.is_empty();
-    let place = |t: f64| g.pos(0.0, t);
-    if test {
-        paint_phases(
-            &painter,
-            r,
-            extras.settles,
-            extras.measured,
-            place,
-            view.horizontal,
-            &vis,
-        );
-    } else {
-        // The track's teal washed faintly down the plot behind the beats.
-        let plot = painter.with_clip_rect(r);
-        for &(a, b, _, _) in extras.track {
-            let settled = settled_from(a, b, extras.settles);
-            paint_density(
-                &plot,
-                r,
-                a,
-                b,
-                settled,
-                pal.positions,
-                pal.track,
-                crate::theme::TRACK_WASH,
-                &place,
-                view.horizontal,
-            );
-        }
-    }
-    // A line at each change of position, where the one being dragged
-    // will be.
-    let bands: Vec<(f64, f64, &str)> = extras
-        .bands
-        .iter()
-        .map(|&(a, b, n)| match (moving_change, change_now) {
-            (Some(was), Some(now)) if (a - was).abs() < 1e-6 => (now, b, n),
-            _ => (a, b, n),
-        })
-        .collect();
-    paint_bands(
-        &painter,
-        r,
-        &bands,
-        place,
-        view.horizontal,
-        false,
-        false,
-        &vis,
-    );
-    // The stretch whose edge is being dragged is drawn as it will be.
-    let masked: Vec<(f64, f64)> = extras
-        .masked
-        .iter()
-        .copied()
-        .filter(|&m| Some(m) != reshaping)
-        .collect();
-    paint_masked(
-        &painter,
-        r,
-        &masked,
-        masking_now,
-        oldest,
-        end_s,
-        place,
-        view.horizontal,
-        &vis,
-    );
-    // The track, with a change being dragged where it will be.
-    let track: Vec<(f64, f64, &str, &str)> = match (moving_change, change_now) {
-        (Some(was), Some(now)) => {
-            let mut t: Vec<(f64, f64, &str, &str)> = extras.track.to_vec();
-            if let Some(i) = t.iter().position(|s| (s.0 - was).abs() < 1e-6) {
-                if i > 0 {
-                    let lo = t[i - 1].0 + 0.5;
-                    let hi = t[i].1 - 0.5;
-                    let now = now.clamp(lo, hi.max(lo));
-                    t[i].0 = now;
-                    t[i - 1].1 = now;
-                }
+    /// The grid along the strip, every line alike: a nice step of ms,
+    /// labelled on the ms axis, with "Early" and "Late" at its ends. The
+    /// step.
+    fn paint_ms_grid(&self) -> f64 {
+        let (painter, g, r, font) = (&self.painter, &self.g, self.g.r, &self.font);
+        let (half, horizontal) = (g.half, g.horizontal);
+        let grid = Stroke::new(1.0_f32, self.vis.widgets.noninteractive.bg_stroke.color);
+        let text = self.vis.weak_text_color();
+        let step = nice_step(half / 4.0);
+        // On a strip too short for its labels to stand apart, only "Early"
+        // and "Late" are named.
+        let step_px =
+            step / half * f64::from(if horizontal { r.height() } else { r.width() }) / 2.0;
+        let labels = step_px as f32
+            > if horizontal {
+                2.0 * font.size + 4.0
+            } else {
+                60.0
+            };
+        let mut k = (-half / step).ceil() as i64;
+        while (k as f64) * step < half + 1e-9 {
+            let ms = k as f64 * step;
+            let (a, b) = (g.pos(ms, g.end), g.pos(ms, self.oldest));
+            if (k as f64) * step > -half + 1e-9 {
+                painter.line_segment([a, b], grid);
             }
-            t
-        }
-        _ => extras.track.to_vec(),
-    };
-    let mut track_masked = masked.clone();
-    track_masked.extend(masking_now);
-    paint_track(
-        &painter,
-        lane,
-        &track,
-        extras.settles,
-        &track_masked,
-        painting_now.filter(|_| extras.brush.is_some()),
-        place,
-        view.horizontal,
-        &vis,
-        pal,
-    );
-    // The stretch being painted, in teal over the track and the plot,
-    // with the position and its times.
-    if let (Some(code), Some((a, b))) = (extras.brush, painting_now) {
-        if let Some(rect) = along_rect(r, a, b, &place, view.horizontal) {
-            painter.rect_filled(rect, 0.0, pal.positions.gamma_multiply(0.18));
-        }
-        if let Some(seg) = along_rect(lane, a, b, &place, view.horizontal) {
-            painter.rect_filled(seg, 0.0, pal.positions.gamma_multiply(0.85));
-            painter.rect_stroke(
-                seg,
-                0.0,
-                Stroke::new(1.0_f32, pal.positions),
-                egui::StrokeKind::Inside,
-            );
-            let words = format!("{code} {} to {}", length_text(a), length_text(b));
-            let galley = painter.layout_no_wrap(words, font.clone(), vis.strong_text_color());
-            let size = galley.size();
-            // Inside the plot, beside the stretch's newest end, on a backing.
-            let newest = place(b);
-            let pos = if view.horizontal {
-                Pos2::new(
-                    (newest.x - size.x).clamp(r.left() + 2.0, r.right() - size.x - 2.0),
-                    r.top() + 4.0,
+            // Labels, leaving the ends for "Early" and "Late".
+            let (at, align, room) = if horizontal {
+                (
+                    Pos2::new(r.left() - 4.0, a.y),
+                    Align2::RIGHT_CENTER,
+                    (a.y - r.top()).min(r.bottom() - a.y),
                 )
             } else {
-                Pos2::new(
-                    r.right() - size.x - 4.0,
-                    newest.y.clamp(r.top() + 2.0, r.bottom() - size.y - 2.0),
+                (
+                    Pos2::new(a.x, r.bottom() + 2.0),
+                    Align2::CENTER_TOP,
+                    (a.x - r.left()).min(r.right() - a.x),
                 )
             };
-            let back = Rect::from_min_size(pos, size).expand(3.0);
-            painter.rect_filled(back, 3.0, vis.extreme_bg_color.gamma_multiply(0.92));
-            painter.rect_stroke(
-                back,
-                3.0,
-                Stroke::new(1.0_f32, pal.positions),
-                egui::StrokeKind::Inside,
-            );
-            painter.galley(pos, galley, vis.strong_text_color());
+            if labels && room > if horizontal { 14.0 } else { 34.0 } {
+                painter.text(at, align, axis_ms(ms), font.clone(), text);
+            }
+            k += 1;
+        }
+        let (early_at, early_align, late_at, late_align) = if horizontal {
+            (
+                Pos2::new(r.left() - 4.0, r.top()),
+                Align2::RIGHT_TOP,
+                Pos2::new(r.left() - 4.0, r.bottom()),
+                Align2::RIGHT_BOTTOM,
+            )
+        } else {
+            (
+                Pos2::new(r.right(), r.bottom() + 2.0),
+                Align2::RIGHT_TOP,
+                Pos2::new(r.left(), r.bottom() + 2.0),
+                Align2::LEFT_TOP,
+            )
+        };
+        // Too short a strip for both to stand apart names neither.
+        let ends = if horizontal { r.height() } else { r.width() } > 2.0 * font.size + 4.0;
+        if ends {
+            painter.text(early_at, early_align, "Early", font.clone(), text);
+            painter.text(late_at, late_align, "Late", font.clone(), text);
+        }
+        step
+    }
+
+    /// Time lines across the strip at whole seconds, minutes or hours,
+    /// about 90 points apart, labelled on the time axis.
+    fn paint_time_grid(&self) {
+        let (painter, g, r) = (&self.painter, &self.g, self.g.r);
+        let grid = Stroke::new(1.0_f32, self.vis.widgets.noninteractive.bg_stroke.color);
+        let text = self.vis.weak_text_color();
+        let along_px = if g.horizontal { r.width() } else { r.height() } as f64;
+        let want = g.span * 90.0 / along_px.max(1.0);
+        let tstep = crate::theme::TIME_STEPS
+            .iter()
+            .copied()
+            .find(|&s| s >= want)
+            .unwrap_or(172800.0);
+        let mut t = (g.end / tstep).floor() * tstep;
+        // Nothing before the session started.
+        while t > self.oldest && t >= -1e-9 {
+            let (a, b) = (g.pos(-g.half, t), g.pos(g.half, t));
+            painter.line_segment([a, b], grid);
+            let (at, align) = if g.horizontal {
+                (Pos2::new(a.x, r.bottom() + 2.0), Align2::CENTER_TOP)
+            } else {
+                (Pos2::new(r.left() - 4.0, a.y), Align2::RIGHT_CENTER)
+            };
+            painter.text(at, align, length_text(t), self.font.clone(), text);
+            t -= tstep;
         }
     }
 
-    // The key: Tick and Tock in their colours, in the corner left of the
-    // track when the strip lies across, else along the top; each overlay
-    // named in its colour above its scale.
-    let colors = side_colors(dark);
-    let mut at = if view.horizontal {
-        Pos2::new(outer.left() + 6.0, lane.top() + 1.0)
-    } else {
-        Pos2::new(r.left(), outer.top() + 3.0)
-    };
-    for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
-        let k = painter.text(at, Align2::LEFT_TOP, label, font.clone(), c);
-        at.x = k.right() + 8.0;
+    /// Behind the beats: the test's phases or the track's wash, the
+    /// changes of position, the masked stretches, the track, and the
+    /// stretch being painted; each as a drag will leave it.
+    fn paint_layers(&self, drags: &Drags) {
+        let (painter, r, extras, vis) = (&self.painter, self.g.r, self.extras, &self.vis);
+        let horizontal = self.g.horizontal;
+        let place = |t: f64| self.g.pos(0.0, t);
+        if extras.measured.is_empty() {
+            // The track's teal washed faintly down the plot behind the beats.
+            let plot = painter.with_clip_rect(r);
+            for &(a, b, _, _) in extras.track {
+                let settled = settled_from(a, b, extras.settles);
+                paint_density(
+                    &plot,
+                    r,
+                    a,
+                    b,
+                    settled,
+                    self.pal.positions,
+                    self.pal.track,
+                    crate::theme::TRACK_WASH,
+                    &place,
+                    horizontal,
+                );
+            }
+        } else {
+            paint_phases(
+                painter,
+                r,
+                extras.settles,
+                extras.measured,
+                place,
+                horizontal,
+                vis,
+            );
+        }
+        // A line at each change of position, where the one being dragged
+        // will be.
+        let bands: Vec<(f64, f64, &str)> = extras
+            .bands
+            .iter()
+            .map(|&(a, b, n)| match (drags.moving_change, drags.change_now) {
+                (Some(was), Some(now)) if (a - was).abs() < 1e-6 => (now, b, n),
+                _ => (a, b, n),
+            })
+            .collect();
+        paint_bands(painter, r, &bands, place, horizontal, false, false, vis);
+        // The stretch whose edge is being dragged is drawn as it will be.
+        let masked: Vec<(f64, f64)> = extras
+            .masked
+            .iter()
+            .copied()
+            .filter(|&m| Some(m) != drags.reshaping)
+            .collect();
+        paint_masked(
+            painter,
+            r,
+            &masked,
+            drags.masking_now,
+            self.oldest,
+            self.g.end,
+            place,
+            horizontal,
+            vis,
+        );
+        let mut track_masked = masked;
+        track_masked.extend(drags.masking_now);
+        paint_track(
+            painter,
+            self.lane,
+            &self.dragged_track(drags),
+            extras.settles,
+            &track_masked,
+            drags.painting_now.filter(|_| extras.brush.is_some()),
+            place,
+            horizontal,
+            vis,
+            self.pal,
+        );
+        if let (Some(code), Some((a, b))) = (extras.brush, drags.painting_now) {
+            self.paint_brushed(code, a, b);
+        }
     }
-    if let Some(n) = extras.note {
-        if view.horizontal {
+
+    /// The track, with a change being dragged where it will be.
+    fn dragged_track(&self, drags: &Drags) -> Vec<(f64, f64, &str, &str)> {
+        let mut t: Vec<(f64, f64, &str, &str)> = self.extras.track.to_vec();
+        let (Some(was), Some(now)) = (drags.moving_change, drags.change_now) else {
+            return t;
+        };
+        if let Some(i) = t.iter().position(|s| (s.0 - was).abs() < 1e-6) {
+            if i > 0 {
+                let lo = t[i - 1].0 + 0.5;
+                let hi = t[i].1 - 0.5;
+                let now = now.clamp(lo, hi.max(lo));
+                t[i].0 = now;
+                t[i - 1].1 = now;
+            }
+        }
+        t
+    }
+
+    /// The stretch from `a` to `b` being painted `code`, in teal over the
+    /// track and the plot, with the position and its times.
+    fn paint_brushed(&self, code: &str, a: f64, b: f64) {
+        let (painter, r, pal, vis) = (&self.painter, self.g.r, self.pal, &self.vis);
+        let horizontal = self.g.horizontal;
+        let place = |t: f64| self.g.pos(0.0, t);
+        if let Some(rect) = along_rect(r, a, b, &place, horizontal) {
+            painter.rect_filled(rect, 0.0, pal.positions.gamma_multiply(0.18));
+        }
+        let Some(seg) = along_rect(self.lane, a, b, &place, horizontal) else {
+            return;
+        };
+        painter.rect_filled(seg, 0.0, pal.positions.gamma_multiply(0.85));
+        painter.rect_stroke(
+            seg,
+            0.0,
+            Stroke::new(1.0_f32, pal.positions),
+            egui::StrokeKind::Inside,
+        );
+        let words = format!("{code} {} to {}", length_text(a), length_text(b));
+        let galley = painter.layout_no_wrap(words, self.font.clone(), vis.strong_text_color());
+        let size = galley.size();
+        // Inside the plot, beside the stretch's newest end, on a backing.
+        let newest = place(b);
+        let pos = if horizontal {
+            Pos2::new(
+                (newest.x - size.x).clamp(r.left() + 2.0, r.right() - size.x - 2.0),
+                r.top() + 4.0,
+            )
+        } else {
+            Pos2::new(
+                r.right() - size.x - 4.0,
+                newest.y.clamp(r.top() + 2.0, r.bottom() - size.y - 2.0),
+            )
+        };
+        let back = Rect::from_min_size(pos, size).expand(3.0);
+        painter.rect_filled(back, 3.0, vis.extreme_bg_color.gamma_multiply(0.92));
+        painter.rect_stroke(
+            back,
+            3.0,
+            Stroke::new(1.0_f32, pal.positions),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(pos, galley, vis.strong_text_color());
+    }
+
+    /// The key: Tick and Tock in their colours, in the corner left of the
+    /// track when the strip lies across, else along the top; and the note.
+    fn paint_key(&self) {
+        let (painter, r, outer, vis, font) =
+            (&self.painter, self.g.r, self.outer, &self.vis, &self.font);
+        let colors = side_colors(vis.dark_mode);
+        let mut at = if self.g.horizontal {
+            Pos2::new(outer.left() + 6.0, self.lane.top() + 1.0)
+        } else {
+            Pos2::new(r.left(), outer.top() + 3.0)
+        };
+        for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
+            let k = painter.text(at, Align2::LEFT_TOP, label, font.clone(), c);
+            at.x = k.right() + 8.0;
+        }
+        let Some(n) = self.extras.note else {
+            return;
+        };
+        if self.g.horizontal {
             // In the plot's top corner, on a backing.
             let galley = painter.layout_no_wrap(n.to_string(), font.clone(), vis.text_color());
             let pos = Pos2::new(r.right() - galley.size().x - 6.0, r.top() + 4.0);
@@ -1508,168 +1644,171 @@ pub fn draw_strip(
             );
         }
     }
-    // Each overlay's scale: its ends in its colour, in a column of its own
-    // right of the strip under its name, or a row of its own above it.
-    for (i, (o, (lo, hi))) in overlays.iter().enumerate() {
-        let f = |v: f64| format!("{v:.*}{}", o.decimals, o.unit);
-        // Words in the text colour where the reading's own is too faint for
-        // small text (beat error's amber in light mode).
-        let ink = pal.ink(o.color);
-        if view.horizontal {
-            let x = r.right() + 6.0 + 58.0 * i as f32;
-            painter.text(
-                Pos2::new(x, lane.top() + 1.0),
-                Align2::LEFT_TOP,
-                o.name,
-                font.clone(),
-                ink,
-            );
-            painter.text(
-                Pos2::new(x, r.top()),
-                Align2::LEFT_TOP,
-                f(*hi),
-                font.clone(),
-                ink,
-            );
-            painter.text(
-                Pos2::new(x, r.bottom()),
-                Align2::LEFT_BOTTOM,
-                f(*lo),
-                font.clone(),
-                ink,
-            );
-        } else {
-            let y = outer.top() + 3.0 + row_h * (1 + i) as f32;
-            painter.text(
-                Pos2::new(r.left(), y),
-                Align2::LEFT_TOP,
-                f(*lo),
-                font.clone(),
-                ink,
-            );
-            painter.text(
-                Pos2::new(r.center().x, y),
-                Align2::CENTER_TOP,
-                format!("{} Scale", o.name),
-                font.clone(),
-                ink.gamma_multiply(0.8),
-            );
-            painter.text(
-                Pos2::new(r.right(), y),
-                Align2::RIGHT_TOP,
-                f(*hi),
-                font.clone(),
-                ink,
-            );
+
+    /// Each overlay's scale: named in its colour, its ends in its colour,
+    /// in a column of its own right of the strip under its name, or a row
+    /// of its own above it.
+    fn paint_scales(&self, overlays: &[(&Overlay, (f64, f64))]) {
+        let (painter, r, font) = (&self.painter, self.g.r, &self.font);
+        for (i, (o, (lo, hi))) in overlays.iter().enumerate() {
+            let f = |v: f64| format!("{v:.*}{}", o.decimals, o.unit);
+            // Words in the text colour where the reading's own is too faint for
+            // small text (beat error's amber in light mode).
+            let ink = self.pal.ink(o.color);
+            let text = |at: Pos2, align: Align2, words: String, ink: Color32| {
+                painter.text(at, align, words, font.clone(), ink);
+            };
+            if self.g.horizontal {
+                let x = r.right() + 6.0 + 58.0 * i as f32;
+                text(
+                    Pos2::new(x, self.lane.top() + 1.0),
+                    Align2::LEFT_TOP,
+                    o.name.to_string(),
+                    ink,
+                );
+                text(Pos2::new(x, r.top()), Align2::LEFT_TOP, f(*hi), ink);
+                text(Pos2::new(x, r.bottom()), Align2::LEFT_BOTTOM, f(*lo), ink);
+            } else {
+                let y = self.outer.top() + 3.0 + self.row_h * (1 + i) as f32;
+                text(Pos2::new(r.left(), y), Align2::LEFT_TOP, f(*lo), ink);
+                text(
+                    Pos2::new(r.center().x, y),
+                    Align2::CENTER_TOP,
+                    format!("{} Scale", o.name),
+                    ink.gamma_multiply(0.8),
+                );
+                text(Pos2::new(r.right(), y), Align2::RIGHT_TOP, f(*hi), ink);
+            }
         }
     }
 
-    let Some(anchor) = anchor else {
-        return input;
-    };
-    let lo = beats.partition_point(|b| b.time < oldest);
-    let hi = beats.partition_point(|b| b.time <= end_s);
-    let shown = &beats[lo..hi];
-    // Dots shrink when the strip is crowded.
-    let along = if view.horizontal {
-        r.width()
-    } else {
-        r.height()
-    };
-    let per_px = shown.len() as f32 / along.max(1.0);
-    let radius = (2.2 / per_px.max(1.0).sqrt()).clamp(0.8, 2.2);
-    // Past a few dozen beats to a point, the dots only lie on one another:
-    // every nth Tick and its Tock are drawn, so a strip days long draws
-    // no more dots than a short one crowded to that.
-    let every = (per_px / MAX_BEATS_PER_PX).ceil().max(1.0) as i64;
-    let painter = painter.with_clip_rect(r.expand(3.0));
-    for b in shown {
-        if !b.is_good() || b.index.div_euclid(2).rem_euclid(every) != 0 {
-            continue;
-        }
-        let p = g.pos(
-            wrap(
-                anchor.lead_on_true(b, period_s, extras.breaks, extras.clock),
-                half,
-            ),
-            b.time,
-        );
-        let mut c = colors[b.index.rem_euclid(2) as usize];
-        // Faint while the watch settles after a move, or masked out.
-        if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1)
-            || extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1)
-        {
-            c = c.gamma_multiply(0.3);
-        }
-        painter.circle_filled(p, radius, c);
-    }
-    let painter = painter.with_clip_rect(r);
-    // The overlays, each scaled across the strip's width.
-    for (o, (lo, hi)) in &overlays {
-        let across = |v: f64| -half + (v - lo) / (hi - lo) * 2.0 * half;
-        for (a, b) in joined(&o.points, oldest - 2.0, end_s) {
-            painter.line_segment(
-                [g.pos(across(a[1]), a[0]), g.pos(across(b[1]), b[0])],
-                Stroke::new(1.6_f32, o.color),
+    /// The beats on the strip as dots, Tick and Tock in their colours,
+    /// faint while the watch settles or where masked out.
+    fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor) {
+        let (g, r, extras) = (&self.g, self.g.r, self.extras);
+        let lo = beats.partition_point(|b| b.time < self.oldest);
+        let hi = beats.partition_point(|b| b.time <= g.end);
+        let shown = &beats[lo..hi];
+        // Dots shrink when the strip is crowded.
+        let along = if g.horizontal { r.width() } else { r.height() };
+        let per_px = shown.len() as f32 / along.max(1.0);
+        let radius = (2.2 / per_px.max(1.0).sqrt()).clamp(0.8, 2.2);
+        // Past a few dozen beats to a point, the dots only lie on one another:
+        // every nth Tick and its Tock are drawn, so a strip days long draws
+        // no more dots than a short one crowded to that.
+        let every = (per_px / MAX_BEATS_PER_PX).ceil().max(1.0) as i64;
+        let colors = side_colors(self.vis.dark_mode);
+        let painter = self.painter.with_clip_rect(r.expand(3.0));
+        for b in shown {
+            if !b.is_good() || b.index.div_euclid(2).rem_euclid(every) != 0 {
+                continue;
+            }
+            let p = g.pos(
+                wrap(
+                    anchor.lead_on_true(b, period_s, extras.breaks, extras.clock),
+                    g.half,
+                ),
+                b.time,
             );
+            let mut c = colors[b.index.rem_euclid(2) as usize];
+            // Faint while the watch settles after a move, or masked out.
+            if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1)
+                || extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1)
+            {
+                c = c.gamma_multiply(0.3);
+            }
+            painter.circle_filled(p, radius, c);
         }
     }
-    // The rate reading over its beats, on top of them, wrapping as the dots
-    // do; and faint parallels to it across the whole strip, one per grid
-    // step, so the eye can tell whether the dots run parallel to it.
-    if let Some(line) = extras.rate_line {
-        if let Some([(ta, la), (tb, lb)]) =
-            line.ends(beats, anchor, period_s, extras.breaks, extras.clock)
-        {
-            let slope = if tb > ta { (lb - la) / (tb - ta) } else { 0.0 };
-            let at = |t: f64| la + slope * (t - ta);
-            let polyline = |t0: f64, t1: f64, offset: f64, stroke: Stroke| {
-                let steps = 200;
-                let mut prev: Option<(f64, Pos2)> = None;
-                for k in 0..=steps {
-                    let t = t0 + (t1 - t0) * k as f64 / steps as f64;
-                    let w = wrap(at(t) + offset, half);
-                    let p = g.pos(w, t);
-                    if let Some((pw, pp)) = prev {
-                        if (w - pw).abs() < half {
-                            painter.line_segment([pp, p], stroke);
-                        }
-                    }
-                    prev = Some((w, p));
-                }
-            };
-            if extras.guides {
-                let n = (2.0 * half / step).round().max(1.0) as i64;
-                let faint = Stroke::new(1.0_f32, pal.trace_rate.gamma_multiply(0.3));
-                for k in 0..n {
-                    polyline(oldest, end_s, k as f64 * step, faint);
-                }
-            }
-            if extras.line {
-                // A thin dark edge under the line keeps it readable over the dots.
-                polyline(
-                    ta,
-                    tb,
-                    0.0,
-                    Stroke::new(2.6_f32, vis.extreme_bg_color.gamma_multiply(0.7)),
+
+    /// The overlays, each scaled across the strip's width.
+    fn paint_overlay_lines(&self, overlays: &[(&Overlay, (f64, f64))]) {
+        let (g, half) = (&self.g, self.g.half);
+        let painter = self.painter.with_clip_rect(g.r);
+        for (o, (lo, hi)) in overlays {
+            let across = |v: f64| -half + (v - lo) / (hi - lo) * 2.0 * half;
+            for (a, b) in joined(&o.points, self.oldest - 2.0, g.end) {
+                painter.line_segment(
+                    [g.pos(across(a[1]), a[0]), g.pos(across(b[1]), b[0])],
+                    Stroke::new(1.6_f32, o.color),
                 );
-                polyline(ta, tb, 0.0, Stroke::new(1.2_f32, pal.trace_rate));
             }
         }
     }
-    if let Some(t) = extras.cursor_t.filter(|t| *t >= oldest && *t <= end_s) {
-        let (a, b) = (g.pos(-half, t), g.pos(half, t));
+
+    /// The rate reading over its beats, on top of them, wrapping as the
+    /// dots do; and faint parallels to it across the whole strip, one per
+    /// grid `step`, so the eye can tell whether the dots run parallel to it.
+    fn paint_rate_line(&self, beats: &[Beat], period_s: f64, anchor: Anchor, step: f64) {
+        let (g, half, extras, pal) = (&self.g, self.g.half, self.extras, self.pal);
+        let Some(line) = extras.rate_line else {
+            return;
+        };
+        let Some([(ta, la), (tb, lb)]) =
+            line.ends(beats, anchor, period_s, extras.breaks, extras.clock)
+        else {
+            return;
+        };
+        let painter = self.painter.with_clip_rect(g.r);
+        let slope = if tb > ta { (lb - la) / (tb - ta) } else { 0.0 };
+        let at = |t: f64| la + slope * (t - ta);
+        let polyline = |t0: f64, t1: f64, offset: f64, stroke: Stroke| {
+            let steps = 200;
+            let mut prev: Option<(f64, Pos2)> = None;
+            for k in 0..=steps {
+                let t = t0 + (t1 - t0) * k as f64 / steps as f64;
+                let w = wrap(at(t) + offset, half);
+                let p = g.pos(w, t);
+                if let Some((pw, pp)) = prev {
+                    if (w - pw).abs() < half {
+                        painter.line_segment([pp, p], stroke);
+                    }
+                }
+                prev = Some((w, p));
+            }
+        };
+        if extras.guides {
+            let n = (2.0 * half / step).round().max(1.0) as i64;
+            let faint = Stroke::new(1.0_f32, pal.trace_rate.gamma_multiply(0.3));
+            for k in 0..n {
+                polyline(self.oldest, g.end, k as f64 * step, faint);
+            }
+        }
+        if extras.line {
+            // A thin dark edge under the line keeps it readable over the dots.
+            polyline(
+                ta,
+                tb,
+                0.0,
+                Stroke::new(2.6_f32, self.vis.extreme_bg_color.gamma_multiply(0.7)),
+            );
+            polyline(ta, tb, 0.0, Stroke::new(1.2_f32, pal.trace_rate));
+        }
+    }
+
+    /// The cursor's line across the strip with its time, to the
+    /// hundredth, at the edge away from the positions' names: along the
+    /// bottom when time runs across, at the right otherwise. Kept inside
+    /// the plotting area.
+    fn paint_cursor(&self) {
+        let (g, r, vis) = (&self.g, self.g.r, &self.vis);
+        let Some(t) = self
+            .extras
+            .cursor_t
+            .filter(|t| *t >= self.oldest && *t <= g.end)
+        else {
+            return;
+        };
+        let painter = self.painter.with_clip_rect(r);
+        let (a, b) = (g.pos(-g.half, t), g.pos(g.half, t));
         painter.line_segment([a, b], Stroke::new(1.0_f32, vis.weak_text_color()));
-        // The line's time, to the hundredth, at the edge away from the
-        // positions' names: along the bottom when time runs across, at the
-        // right otherwise. Kept inside the plotting area.
         let galley = painter.layout_no_wrap(
             fmt_time_fine(t),
             FontId::proportional(11.0),
             vis.strong_text_color(),
         );
         let size = galley.size() + Vec2::splat(4.0);
-        let rect = if view.horizontal {
+        let rect = if g.horizontal {
             let x = (a.x - size.x / 2.0).clamp(r.left(), (r.right() - size.x).max(r.left()));
             Rect::from_min_size(Pos2::new(x, r.bottom() - size.y - 2.0), size)
         } else {
@@ -1679,7 +1818,6 @@ pub fn draw_strip(
         painter.rect_filled(rect, 2.0, vis.extreme_bg_color.gamma_multiply(0.9));
         painter.galley(rect.min + Vec2::splat(2.0), galley, vis.strong_text_color());
     }
-    input
 }
 
 pub fn fmt_ms(ms: f64) -> String {

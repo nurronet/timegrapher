@@ -1041,6 +1041,7 @@ mod tests {
                 jitter_us: 10.0,
                 beats_used: 480,
             }),
+            beat_error_source: None,
             beat_error_unlock_ms: None,
             rate_p05: None,
             rate_p95: None,

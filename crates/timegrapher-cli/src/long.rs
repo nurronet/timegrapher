@@ -546,10 +546,6 @@ impl Progress {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn run(
     files: &[PathBuf],
     clock_args: ClockArgs,
@@ -606,38 +602,15 @@ pub fn run(
         Some(_) => longrun::analyse_on_clock(&log, clock.as_ref(), &breaks, &lc),
         None => longrun::analyse_with_breaks(&log, clock.as_ref(), &breaks, &lc),
     };
-    if let Some(why) = unlisted {
-        timegrapher_core::measure::add(
-            &mut rep.caveats,
-            timegrapher_core::measure::Caveat::BreaksUnlisted { why },
-        );
-    }
-    for c in positions.into_iter().chain(pauses_unseen) {
-        timegrapher_core::measure::add(&mut rep.caveats, c);
-    }
+    add_caveats(&mut rep, unlisted, positions, pauses_unseen);
     // A take read in stretches is on its clock already.
     let clock = clock.filter(|_| stretches.is_none());
     // The cycles listed are the ones the Steadiness pane names (#659).
     timegrapher_core::steadiness::family_long(&log, clock.as_ref(), &mut rep, &lc);
 
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    write_tables(&out, &log, clock.as_ref(), &rep)?;
     let io = |p: PathBuf, r: std::io::Result<()>| r.map_err(|e| format!("{}: {e}", p.display()));
-    io(
-        out.join("beats.csv"),
-        write_beats(&out.join("beats.csv"), &log, clock.as_ref()),
-    )?;
-    io(
-        out.join("amplitude.csv"),
-        write_amplitude(&out.join("amplitude.csv"), &log, clock.as_ref()),
-    )?;
-    io(
-        out.join("slices.csv"),
-        write_slices(&out.join("slices.csv"), &rep),
-    )?;
-    io(
-        out.join("folds.csv"),
-        write_folds(&out.join("folds.csv"), &rep),
-    )?;
     let settings = serde_json::json!({
         "take": take_file.map(|p| p.display().to_string()),
         "clock_log": clock_log.map(|p| p.display().to_string()),
@@ -664,6 +637,72 @@ pub fn run(
         out.join("summary.json"),
         fs::write(out.join("summary.json"), &summary),
     )?;
+    write_html(&out, &file, &files, &rep, &lc.wheels, clock_note)?;
+    if json {
+        println!("{summary}");
+    } else {
+        print_summary(&rep, clock_note);
+        println!("Report       {}", out.join("report.html").display());
+    }
+    Ok(())
+}
+
+/// The caveats a take's reading carries beyond the analysis's own: breaks
+/// it could not list, positions, pauses the clock did not see.
+fn add_caveats(
+    rep: &mut LongReport,
+    unlisted: Option<timegrapher_core::breaks::Unlisted>,
+    positions: Option<timegrapher_core::measure::Caveat>,
+    pauses_unseen: Option<timegrapher_core::measure::Caveat>,
+) {
+    if let Some(why) = unlisted {
+        timegrapher_core::measure::add(
+            &mut rep.caveats,
+            timegrapher_core::measure::Caveat::BreaksUnlisted { why },
+        );
+    }
+    for c in positions.into_iter().chain(pauses_unseen) {
+        timegrapher_core::measure::add(&mut rep.caveats, c);
+    }
+}
+
+/// The beats, amplitude, slices and folds written as CSV to `out`.
+fn write_tables(
+    out: &Path,
+    log: &BeatLog,
+    clock: Option<&ClockFit>,
+    rep: &LongReport,
+) -> Result<(), String> {
+    let io = |p: PathBuf, r: std::io::Result<()>| r.map_err(|e| format!("{}: {e}", p.display()));
+    io(
+        out.join("beats.csv"),
+        write_beats(&out.join("beats.csv"), log, clock),
+    )?;
+    io(
+        out.join("amplitude.csv"),
+        write_amplitude(&out.join("amplitude.csv"), log, clock),
+    )?;
+    io(
+        out.join("slices.csv"),
+        write_slices(&out.join("slices.csv"), rep),
+    )?;
+    io(
+        out.join("folds.csv"),
+        write_folds(&out.join("folds.csv"), rep),
+    )?;
+    Ok(())
+}
+
+/// The one-page HTML report written to `out`, titled by the first file.
+fn write_html(
+    out: &Path,
+    file: &Path,
+    files: &[PathBuf],
+    rep: &LongReport,
+    wheels: &[Wheel],
+    clock_note: Option<&str>,
+) -> Result<(), String> {
+    let io = |p: PathBuf, r: std::io::Result<()>| r.map_err(|e| format!("{}: {e}", p.display()));
     let name = file
         .file_name()
         .and_then(|s| s.to_str())
@@ -676,16 +715,9 @@ pub fn run(
         out.join("report.html"),
         fs::write(
             out.join("report.html"),
-            crate::report::html(&title, &rep, &lc.wheels, clock_note),
+            crate::report::html(&title, rep, wheels, clock_note),
         ),
     )?;
-
-    if json {
-        println!("{summary}");
-    } else {
-        print_summary(&rep, clock_note);
-        println!("Report       {}", out.join("report.html").display());
-    }
     Ok(())
 }
 

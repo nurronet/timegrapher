@@ -37,7 +37,10 @@ takes[].positions
 takes[].reading
 takes[].reading.amplitude_deg
 takes[].reading.beat_error_ms
+takes[].reading.beat_error_source
 takes[].reading.calibrated
+takes[].reading.caveats
+takes[].reading.caveats[].code
 takes[].reading.position
 takes[].reading.rate_s_per_day
 takes[].reading.watch_heard

@@ -141,6 +141,10 @@ names in backticks:
 - **Shared files:** any file outside the task's list, and why. "None" if none.
 - **Checks:** the commands you ran, at which commit, and their results.
 - `Closes #N` on its own line, or `Part of #N` when the issue needs more than one PR.
+- `Reverts #N` on its own line for each merged PR whose work this one deliberately
+  undoes. CI's **Silent reverts** step (in `mcp-renderer`) fails a PR that puts a
+  file back to a version it had earlier on `main`, unless the body names the revert;
+  after adding the line, re-run that job, as editing the body does not.
 - Last line: `— <your agent name> (<work area>)`.
 
 Every sentence in the body must be true at the PR's head. Update the body when a
