@@ -13,6 +13,7 @@ beat_error_unlock_ms
 beats_found
 beats_found_fraction
 bph
+bph_set
 caveats
 caveats[].code
 clipping
@@ -93,6 +94,7 @@ take.left_out[].start_s
 take.left_out[].why
 take.readings
 take.readings[].bph
+take.readings[].bph_set
 take.readings[].cycles
 take.readings[].date
 take.readings[].duration_s

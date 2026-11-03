@@ -155,10 +155,10 @@ pub const NO_WATCH_TITLE: &str = "No Regular Beat";
 pub fn no_watch_text(
     reason: NoWatchReason,
     jitter_us: Option<f64>,
-    fraction: Option<f64>,
+    bph_set: Option<u32>,
 ) -> String {
     match reason {
-        NoWatchReason::Scatter => crate::beats::no_regular_beat_text(jitter_us, fraction),
+        NoWatchReason::Scatter => crate::session::no_regular_beat(jitter_us, bph_set),
         NoWatchReason::NoBeatSound => {
             "No regular beat found (neither the Tick's nor the Tock's sound shows an unlock \
              or a drop)"

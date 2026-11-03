@@ -34,6 +34,7 @@ fn reading(position: Position, wind_h: f64, rate: f64, amp: f64, beat_error: f64
     let log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();
     std::fs::remove_file(&path).ok();
     Reading {
+        bph_set: Some(cfg.bph),
         label: format!("{}.wav", position.code()),
         position,
         wind_h: Some(wind_h),

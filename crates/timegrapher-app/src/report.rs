@@ -933,6 +933,7 @@ mod tests {
             analysis::Clipping, confidence::Doubts, timing::TimingFit, usbclock::UsbClock,
         };
         Summary {
+            bph_set: Some(28800),
             duration_s: 60.0,
             sample_rate: 48000,
             bph: 28800,

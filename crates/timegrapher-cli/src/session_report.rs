@@ -336,7 +336,7 @@ fn readings_table(sn: &Session) -> String {
                 r#"<tr><th>{}</th><td>{}</td><td colspan="10">{}</td><td class="num">{}</td><td class="file">{}{clock}</td></tr>"#,
                 r.position.display_label(),
                 wind(r.wind_h),
-                esc(&timegrapher_core::session::no_regular_beat_in(m, r.bph)),
+                esc(&timegrapher_core::session::no_regular_beat_in(m, r.bph_set)),
                 duration(m.measured_s()),
                 esc(&r.label),
             );
@@ -776,6 +776,7 @@ mod tests {
         // Independent table controls; these numbers do not test amplitude estimation.
         measurement.amplitude_deg = Some(260.0);
         Reading {
+            bph_set: Some(28800),
             label: format!("{}.wav", position.code()),
             position,
             wind_h: None,

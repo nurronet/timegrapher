@@ -696,25 +696,8 @@ fn rounded(x: f32, y: f32, w: f32, h: f32, r: f32) -> Vec<Pos2> {
 }
 
 /// The runs of a path's `d`, each with whether it was closed.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn path(d: &str) -> Vec<(Vec<Pos2>, bool)> {
-    // Split into commands and their numbers.
-    let mut cmds: Vec<(char, Vec<f32>)> = Vec::new();
-    let mut start = None;
-    for (i, ch) in d.char_indices() {
-        if ch.is_ascii_alphabetic() && ch != 'e' {
-            if let Some((c, s)) = start {
-                cmds.push((c, numbers(&d[s..i])));
-            }
-            start = Some((ch, i + 1));
-        }
-    }
-    if let Some((c, s)) = start {
-        cmds.push((c, numbers(&d[s..])));
-    }
+    let cmds = commands(d);
 
     let mut out = Vec::new();
     let mut run: Vec<Pos2> = Vec::new();
@@ -776,15 +759,7 @@ fn path(d: &str) -> Vec<(Vec<Pos2>, bool)> {
                         let c1 = last_ctrl.map_or(cur, |c| cur + (cur - c));
                         (c1, Pos2::new(v[0], v[1]) + b, Pos2::new(v[2], v[3]) + b)
                     };
-                    for i in 1..=12 {
-                        let t = i as f32 / 12.0;
-                        let u = 1.0 - t;
-                        let p = cur.to_vec2() * (u * u * u)
-                            + c1.to_vec2() * (3.0 * u * u * t)
-                            + c2.to_vec2() * (3.0 * u * t * t)
-                            + to.to_vec2() * (t * t * t);
-                        run.push(p.to_pos2());
-                    }
+                    run.extend(cubic(cur, c1, c2, to));
                     cur = to;
                     last_ctrl = Some(c2);
                 }
@@ -794,14 +769,7 @@ fn path(d: &str) -> Vec<(Vec<Pos2>, bool)> {
                 for v in n.as_chunks::<4>().0 {
                     let b = base(cur);
                     let (c, to) = (Pos2::new(v[0], v[1]) + b, Pos2::new(v[2], v[3]) + b);
-                    for i in 1..=8 {
-                        let t = i as f32 / 8.0;
-                        let u = 1.0 - t;
-                        let p = cur.to_vec2() * (u * u)
-                            + c.to_vec2() * (2.0 * u * t)
-                            + to.to_vec2() * (t * t);
-                        run.push(p.to_pos2());
-                    }
+                    run.extend(quadratic(cur, c, to));
                     cur = to;
                 }
             }
@@ -823,6 +791,49 @@ fn path(d: &str) -> Vec<(Vec<Pos2>, bool)> {
     }
     finish(&mut run, &mut out, false);
     out
+}
+
+/// A path's `d` split into its commands, each with its numbers.
+fn commands(d: &str) -> Vec<(char, Vec<f32>)> {
+    let mut cmds: Vec<(char, Vec<f32>)> = Vec::new();
+    let mut start = None;
+    for (i, ch) in d.char_indices() {
+        if ch.is_ascii_alphabetic() && ch != 'e' {
+            if let Some((c, s)) = start {
+                cmds.push((c, numbers(&d[s..i])));
+            }
+            start = Some((ch, i + 1));
+        }
+    }
+    if let Some((c, s)) = start {
+        cmds.push((c, numbers(&d[s..])));
+    }
+    cmds
+}
+
+/// Twelve points along the cubic Bézier from `from` through `c1` and
+/// `c2` to `to`, `to` included.
+fn cubic(from: Pos2, c1: Pos2, c2: Pos2, to: Pos2) -> impl Iterator<Item = Pos2> {
+    (1..=12).map(move |i| {
+        let t = i as f32 / 12.0;
+        let u = 1.0 - t;
+        let p = from.to_vec2() * (u * u * u)
+            + c1.to_vec2() * (3.0 * u * u * t)
+            + c2.to_vec2() * (3.0 * u * t * t)
+            + to.to_vec2() * (t * t * t);
+        p.to_pos2()
+    })
+}
+
+/// Eight points along the quadratic Bézier from `from` through `c` to
+/// `to`, `to` included.
+fn quadratic(from: Pos2, c: Pos2, to: Pos2) -> impl Iterator<Item = Pos2> {
+    (1..=8).map(move |i| {
+        let t = i as f32 / 8.0;
+        let u = 1.0 - t;
+        let p = from.to_vec2() * (u * u) + c.to_vec2() * (2.0 * u * t) + to.to_vec2() * (t * t);
+        p.to_pos2()
+    })
 }
 
 /// Points along an SVG arc from `from` to `to`, `to` included.
@@ -989,10 +1000,6 @@ pub enum Lying {
 /// numbers and all, as the watch in the hand would be. Lying, it is
 /// squashed to 60% with a side wall below in `card`; dial down shows
 /// only the case back's fluted ring. Drawn on a 100 by 100 grid.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn watch(
     painter: &egui::Painter,
     r: Rect,
@@ -1028,17 +1035,7 @@ pub fn watch(
             .collect()
     };
     if flat {
-        // The side wall: the lower half of the case, 6 points lower,
-        // filled with the card so the face sits on it.
-        let wall = |x: f32, y: f32| origin + egui::vec2(x, 16.0 + 0.6 * y) * k;
-        let mut edge = vec![wall(10.0, 50.0)];
-        for i in 0..=32 {
-            let a = std::f32::consts::PI * (1.0 - i as f32 / 32.0);
-            edge.push(wall(50.0 + 40.0 * a.cos(), 68.0 + 40.0 * a.sin()));
-        }
-        edge.push(wall(90.0, 50.0));
-        painter.add(Shape::convex_polygon(edge.clone(), card, Stroke::NONE));
-        painter.add(Shape::line(edge, Stroke::new(3.0 * k, position_ink)));
+        side_wall(painter, origin, k, position_ink, card);
     }
     let back = lying == Lying::DialDown;
     // The crown, a solid block just outside the case: at 3, or at 9 for
@@ -1079,6 +1076,43 @@ pub fn watch(
         }
         return;
     }
+    dial_marks(painter, &at, k, flat, turn, position_ink);
+    // The hands at 10:10, and the centre.
+    for (deg, len, w) in [(305.0f32, 17.0, 4.2), (60.0, 27.0, 2.8)] {
+        let a = (deg - 90.0).to_radians();
+        let tip = at(50.0 + a.cos() * len, 50.0 + a.sin() * len);
+        painter.line_segment([at(50.0, 50.0), tip], Stroke::new(w * k, ink));
+        painter.circle_filled(tip, w * k / 2.0, ink);
+    }
+    painter.circle_filled(at(50.0, 50.0), 3.2 * k, ink);
+}
+
+/// A lying watch's side wall, under the face drawn on the 100 by 100 grid
+/// at `origin`, `k` points to a unit.
+fn side_wall(painter: &egui::Painter, origin: Pos2, k: f32, position_ink: Color32, card: Color32) {
+    // The side wall: the lower half of the case, 6 points lower,
+    // filled with the card so the face sits on it.
+    let wall = |x: f32, y: f32| origin + egui::vec2(x, 16.0 + 0.6 * y) * k;
+    let mut edge = vec![wall(10.0, 50.0)];
+    for i in 0..=32 {
+        let a = std::f32::consts::PI * (1.0 - i as f32 / 32.0);
+        edge.push(wall(50.0 + 40.0 * a.cos(), 68.0 + 40.0 * a.sin()));
+    }
+    edge.push(wall(90.0, 50.0));
+    painter.add(Shape::convex_polygon(edge.clone(), card, Stroke::NONE));
+    painter.add(Shape::line(edge, Stroke::new(3.0 * k, position_ink)));
+}
+
+/// A dial's numbers 12, 3, 6 and 9 and its hour ticks, at grid points
+/// `at`, turned by `turn` where standing.
+fn dial_marks(
+    painter: &egui::Painter,
+    at: &dyn Fn(f32, f32) -> Pos2,
+    k: f32,
+    flat: bool,
+    turn: f32,
+    position_ink: Color32,
+) {
     for h in 1..=12u8 {
         let a = (f32::from(h) * 30.0 - 90.0).to_radians();
         let (s, c) = a.sin_cos();
@@ -1105,12 +1139,4 @@ pub fn watch(
             );
         }
     }
-    // The hands at 10:10, and the centre.
-    for (deg, len, w) in [(305.0f32, 17.0, 4.2), (60.0, 27.0, 2.8)] {
-        let a = (deg - 90.0).to_radians();
-        let tip = at(50.0 + a.cos() * len, 50.0 + a.sin() * len);
-        painter.line_segment([at(50.0, 50.0), tip], Stroke::new(w * k, ink));
-        painter.circle_filled(tip, w * k / 2.0, ink);
-    }
-    painter.circle_filled(at(50.0, 50.0), 3.2 * k, ink);
 }

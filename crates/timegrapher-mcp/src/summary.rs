@@ -127,7 +127,10 @@ pub fn lead(doc: &Value, args: &Map<String, Value>) -> Option<String> {
             );
         }
         if doc["watch_heard"] == false {
-            lines.push(crate::caveats::no_regular_beat(doc, doc["bph"].as_f64()));
+            lines.push(crate::caveats::no_regular_beat(
+                doc,
+                doc["bph_set"].as_f64(),
+            ));
         } else {
             let selected = analyze_rate(doc);
             let found = values(doc, selected.as_ref().map(|r| r.0), analyze_drop(doc));
@@ -281,13 +284,10 @@ fn take(doc: &Value, args: &Map<String, Value>) -> String {
         _ => String::new(),
     };
     if c["watch_heard"] == false {
-        let bph = c["bph"].as_u64().map(|b| b as u32);
+        let bph = c["bph_set"].as_u64().map(|b| b as u32);
         let said = timegrapher_core::session::no_regular_beat(
-            c["timing_scatter_ms"]
-                .as_f64()
-                .filter(|_| bph.is_some())
-                .map(|ms| ms * 1000.0),
-            bph.unwrap_or(0),
+            c["timing_scatter_ms"].as_f64().map(|ms| ms * 1000.0),
+            bph,
         );
         lines.push(format!("{said} over the whole take."));
     } else if let Some(reading) = figures(
@@ -753,7 +753,7 @@ mod tests {
             "position": "CU", "seconds": 30.0,
             "session_file": "/tests/ym42/session.toml",
             "check": { "from_s": 15.0, "to_s": 30.0, "watch_heard": false,
-                "timing_scatter_ms": 8.6, "timing_scatter_fraction": 0.0688, "bph": 28800,
+                "timing_scatter_ms": 8.6, "timing_scatter_fraction": 0.0688, "bph": 28800, "bph_set": 28800,
                 "beats_found": 40, "beats_expected": 120,
                 "clipping": { "beats": 3, "beat_fraction": 0.025 } },
         });

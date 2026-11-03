@@ -590,7 +590,7 @@ const REAL_FILE: &str = "take_part01-001.flac";
 const SWITCH_TAKE: &str = "dd3235_DU_30min";
 
 /// Picking a calibre at the rate Auto found (Dandong 3235, 28800), then
-/// Auto again, mid-listen keeps the beats heard so far: every reading and
+/// Auto again, mid-listen keeps the beats heard so far: every measured figure and
 /// each side's averaged sound after it, every 2 s for over a minute, are
 /// exactly a listener's that never switched. Runs where
 /// `TIMEGRAPHER_CORPUS` is set.
@@ -627,8 +627,13 @@ fn a_calibre_then_auto_at_the_found_rate_keeps_every_reading() {
         if i < pick || i % 20 != 0 {
             continue;
         }
-        let (n, k) = (never.reading(10.0), kept.reading(10.0));
+        let (n, mut k) = (never.reading(10.0), kept.reading(10.0));
         let t = n.time_s;
+        assert_eq!(n.bph_set, None);
+        assert_eq!(k.bph_set, (i < auto).then_some(28_800));
+        // Selecting a calibre changes the rate's provenance, not its figures.
+        // Compare every other field exactly after checking that distinction.
+        k.bph_set = n.bph_set;
         assert_eq!(format!("{k:?}"), format!("{n:?}"), "{t:.1} s: the reading");
         assert_eq!(
             format!("{:?}", kept.tick_profiles()),

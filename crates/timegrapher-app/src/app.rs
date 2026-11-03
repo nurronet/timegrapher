@@ -5141,7 +5141,7 @@ fn plain_error(m: &str) -> String {
 fn no_regular_beat(r: &LiveReading) -> String {
     use timegrapher_core::measure;
     let why = measure::no_watch_reason_in(&r.caveats).unwrap_or_default();
-    measure::no_watch_text(why, r.jitter_us, r.timing_scatter_fraction)
+    measure::no_watch_text(why, r.jitter_us, r.bph_set)
 }
 
 /// The Beat Error card's line under the whole take, when it is of sizes.

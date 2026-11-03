@@ -51,6 +51,13 @@ it), and `record/2` keeps every take. Other kinds are at version 1. `input.files
 provenance sidecar (`take.wav.json`, written by `doctor --save`), carrying
 the device, its configuration and the mixer settings at the time.
 
+The additive `bph_set` field records the rate supplied through an option, a calibre
+or a session file; `null` means automatic detection. It appears on `analyze`,
+on each `session` reading (also inside an analyzed take), on `record.check`, and
+on a live reading. `bph` and `timing_scatter_fraction` retain their numerical
+meaning. When no regular beat was found and `bph_set` is null or absent, text
+gives the timing scatter in ms without a percentage of a guessed beat (#857).
+
 `software` tells builds apart: `git_hash` is the short commit hash
 (`"unknown"` in a build from a source tarball, without git), `git_dirty`
 whether the work tree had uncommitted changes (`null` when unknown), and
