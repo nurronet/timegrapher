@@ -594,12 +594,7 @@ fn measure_take_with(
     let (first, correction) = used.unzip();
     Ok((
         reading,
-        Outside {
-            engine: ENGINE.into(),
-            calibre: cal.map(|c| format!("{c:?}")),
-            first,
-            correction: correction.flatten(),
-        },
+        outside_from(cal.as_ref(), first, correction.flatten()),
     ))
 }
 
@@ -631,12 +626,26 @@ fn outside(dir: &Path, first: Option<&Path>) -> Result<Outside, String> {
         Some(f) => crate::take::correction_for(&m, f, None, None)?,
         None => None,
     };
-    Ok(Outside {
+    Ok(outside_from(
+        cal.as_ref(),
+        first.map(Path::to_path_buf),
+        correction,
+    ))
+}
+
+/// The [`Outside`] of a reading with calibre `cal`, its correction asked
+/// for `first`: one place for a kept reading's and a fresh look's.
+fn outside_from(
+    cal: Option<&crate::take::Calibre>,
+    first: Option<PathBuf>,
+    correction: Option<(f64, String)>,
+) -> Outside {
+    Outside {
         engine: ENGINE.into(),
         calibre: cal.map(|c| format!("{c:?}")),
-        first: first.map(Path::to_path_buf),
+        first,
         correction,
-    })
+    }
 }
 
 /// Whether the take in the folder `take_dir` is a Positions Test's: it

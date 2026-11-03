@@ -343,3 +343,61 @@ fn a_kept_reading_follows_a_changed_clock_correction() {
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(config_dir());
 }
+
+/// A take's kept reading is worked out again when the user's definition
+/// of the calibre its session file names changes (here its lift angle),
+/// though nothing in the take's folder does. A definition left as it was
+/// keeps the reading.
+#[test]
+fn a_kept_reading_follows_a_changed_user_calibre() {
+    let root = library("calibre");
+    let lib = root.to_string_lossy().into_owned();
+    let dir = root.join(UNSORTED).join(TAKES).join("2026-10-22 09.15");
+    std::fs::write(
+        dir.join("session.toml"),
+        "bph = 28800\ncalibre = \"Bench 44\"\n\n[[recording]]\nfile = \".\"\nposition = \"DD\"\n",
+    )
+    .unwrap();
+    let calibres = |lift: f64| {
+        std::fs::create_dir_all(config_dir()).unwrap();
+        std::fs::write(
+            config_dir().join("calibres.json"),
+            serde_json::json!({
+                "schema": "timegrapher.user-calibres/1",
+                "custom": [{"name": "Bench 44", "bph": 28800, "lift_angle_deg": lift}],
+            })
+            .to_string(),
+        )
+        .unwrap();
+    };
+    let reading = || {
+        let out = run(&["watches", "show", "Unsorted", "--library", &lib, "--json"]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let read_again = String::from_utf8_lossy(&out.stderr).contains("reading ");
+        (doc["takes"][0]["reading"].clone(), read_again)
+    };
+    calibres(44.0);
+    let (before, _) = reading();
+    let (kept, read_again) = reading();
+    assert_eq!(kept, before);
+    assert!(!read_again, "nothing changed, so the kept reading is used");
+
+    calibres(52.0);
+    let (after, read_again) = reading();
+    assert!(read_again, "the calibre changed, so the take is read again");
+    // A larger lift angle reads the same beats as a larger amplitude.
+    assert!(
+        after["amplitude_deg"].as_f64().unwrap() > before["amplitude_deg"].as_f64().unwrap(),
+        "{before} {after}"
+    );
+    let (kept, read_again) = reading();
+    assert_eq!(kept, after);
+    assert!(!read_again, "the calibre is as it was kept");
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(config_dir());
+}
