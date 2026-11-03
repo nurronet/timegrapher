@@ -98,10 +98,6 @@ fn name_of(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn run(o: &Options) -> Result<(), String> {
     let now = SystemTime::now();
     let created = recorder::utc(now);
@@ -111,14 +107,16 @@ pub fn run(o: &Options) -> Result<(), String> {
         .take(15)
         .collect();
     let mut red = Redactor::from_env();
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut commands: Vec<Recorded> = Vec::new();
-    let mut left_out: Vec<String> = vec![
-        "the list of sound inputs: report never touches the sound input; \
-         `doctor --save` records the one it used beside its recording"
-            .into(),
-        "environment variables".into(),
-    ];
+    let mut parts = Parts {
+        entries: Vec::new(),
+        commands: Vec::new(),
+        left_out: vec![
+            "the list of sound inputs: report never touches the sound input; \
+             `doctor --save` records the one it used beside its recording"
+                .into(),
+            "environment variables".into(),
+        ],
+    };
     let work = std::env::temp_dir().join(format!("timegrapher-report-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(work.join("audio")).map_err(|e| e.to_string())?;
@@ -130,138 +128,204 @@ pub fn run(o: &Options) -> Result<(), String> {
             let folder = o.recording.len() == 1 && o.recording[0].is_dir();
             let source = if folder { &o.recording[0] } else { first };
             let source_name = name_of(source);
-            let mut excerpt_info = Value::Null;
-            if o.no_audio {
-                left_out.push("the recording (--no-audio)".into());
-            } else {
-                eprintln!("cutting {:.0} s from {:.0} s", o.span, o.at);
-                let pcm = excerpt::cut(&files, o.at, o.span).map_err(|e| e.to_string())?;
-                if pcm.frames() == 0 {
-                    return Err(format!("the recording ends before {} s (--at)", o.at));
-                }
-                let flac = work.join("audio/excerpt.flac");
-                excerpt::write_flac(&flac, &pcm).map_err(|e| e.to_string())?;
-                excerpt_info = json!({
-                    "from_s": o.at,
-                    "span_s": pcm.duration_s(),
-                    "sample_rate": pcm.sample_rate,
-                    "channels": pcm.channels,
-                    "bits_per_sample": pcm.bits_per_sample,
-                });
-                let side = std::fs::read_to_string(output::sidecar_path(first))
-                    .ok()
-                    .and_then(|t| serde_json::from_str::<Value>(&t).ok());
-                let mut side = side.unwrap_or_else(|| json!({}));
-                if let Some(m) = side.as_object_mut() {
-                    m.insert(
-                        "excerpt".into(),
-                        json!({ "of": source_name, "from_s": o.at, "span_s": pcm.duration_s() }),
-                    );
-                }
-                let side_text = red.apply(&serde_json::to_string_pretty(&side).unwrap());
-                std::fs::write(work.join("audio/excerpt.flac.json"), &side_text)
-                    .map_err(|e| e.to_string())?;
-                entries.push((
-                    "audio/excerpt.flac".into(),
-                    std::fs::read(&flac).map_err(|e| e.to_string())?,
-                ));
-                entries.push(("audio/excerpt.flac.json".into(), side_text.into_bytes()));
-                let mut args = vec![
-                    "analyze".to_string(),
-                    "audio/excerpt.flac".into(),
-                    "--json".into(),
-                ];
-                args.extend(settings_args(o));
-                eprintln!("analysing the excerpt");
-                let v = run_self(&args, &work)?;
-                entries.push((
-                    "results/analyze-excerpt.json".into(),
-                    red.apply(&serde_json::to_string_pretty(&v).unwrap())
-                        .into_bytes(),
-                ));
-                commands.push(Recorded {
-                    args,
-                    cwd: "bundle".into(),
-                    output: "results/analyze-excerpt.json".into(),
-                    replayable: true,
-                });
-            }
-            // The whole recording, run beside it so its paths are relative.
-            let dir = source
-                .parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or(Path::new("."))
-                .to_path_buf();
-            let mut args = if folder {
-                vec!["long".to_string(), source_name.clone(), "--json".into()]
-            } else if o.recording.len() == 1 {
-                vec!["analyze".to_string(), source_name.clone(), "--json".into()]
-            } else {
-                Vec::new()
-            };
-            if args.is_empty() {
-                left_out.push(
-                    "an analysis of the whole recording (several files given; \
-                     pass their folder instead)"
-                        .into(),
-                );
-            } else {
-                args.extend(settings_args(o));
-                eprintln!("analysing the whole recording");
-                let v = run_self(&args, &dir)?;
-                let out = if folder {
-                    "results/long-whole.json"
-                } else {
-                    "results/analyze-whole.json"
-                };
-                entries.push((
-                    out.into(),
-                    red.apply(&serde_json::to_string_pretty(&v).unwrap())
-                        .into_bytes(),
-                ));
-                commands.push(Recorded {
-                    args: args.iter().map(|a| red.apply(a)).collect(),
-                    cwd: "recording".into(),
-                    output: out.into(),
-                    replayable: false,
-                });
-            }
-            if folder {
-                let log = o.recording[0].join("clocklog.txt");
-                if let Ok(t) = std::fs::read_to_string(&log) {
-                    entries.push(("long/clocklog.txt".into(), red.apply(&t).into_bytes()));
-                }
-            }
+            let excerpt_info = excerpt_into(o, &files, &source_name, &work, &mut red, &mut parts)?;
+            whole_into(o, folder, source, &source_name, &mut red, &mut parts)?;
             recording = json!({
                 "name": red.apply(&source_name),
                 "files": files.len(),
                 "excerpt": excerpt_info,
             });
         }
-        if let Some(p) = clockstore::path() {
-            if let Ok(t) = std::fs::read_to_string(&p) {
-                entries.push(("env/clock.json".into(), red.apply(&t).into_bytes()));
-            }
-        }
-        if let Some(dir) = clockstore::config_dir() {
-            let mut logs = recent_files(&dir.join("logs"), |_| true);
-            logs.extend(recent_files(&dir, |n| {
-                n.starts_with("crash-") && n.ends_with(".txt")
-            }));
-            for f in logs {
-                if let Ok(t) = std::fs::read_to_string(&f) {
-                    entries.push((
-                        format!("logs/{}", red.apply(&name_of(&f))),
-                        red.apply(&t).into_bytes(),
-                    ));
-                }
-            }
-        }
+        env_into(&mut red, &mut parts);
         Ok(recording)
     })();
     let _ = std::fs::remove_dir_all(&work);
     let recording = result?;
+    write_report(o, &created, &stamp, &mut red, parts, recording)
+}
 
+/// What a report gathers: its files, the commands that made them, and what
+/// it leaves out.
+struct Parts {
+    entries: Vec<(String, Vec<u8>)>,
+    commands: Vec<Recorded>,
+    left_out: Vec<String>,
+}
+
+/// The excerpt of the recording cut at `--at`, its sidecar, and its
+/// analysis, unless `--no-audio`; the excerpt's facts.
+fn excerpt_into(
+    o: &Options,
+    files: &[PathBuf],
+    source_name: &str,
+    work: &Path,
+    red: &mut Redactor,
+    parts: &mut Parts,
+) -> Result<Value, String> {
+    let first = &files[0];
+    if o.no_audio {
+        parts.left_out.push("the recording (--no-audio)".into());
+        return Ok(Value::Null);
+    }
+    eprintln!("cutting {:.0} s from {:.0} s", o.span, o.at);
+    let pcm = excerpt::cut(files, o.at, o.span).map_err(|e| e.to_string())?;
+    if pcm.frames() == 0 {
+        return Err(format!("the recording ends before {} s (--at)", o.at));
+    }
+    let flac = work.join("audio/excerpt.flac");
+    excerpt::write_flac(&flac, &pcm).map_err(|e| e.to_string())?;
+    let excerpt_info = json!({
+        "from_s": o.at,
+        "span_s": pcm.duration_s(),
+        "sample_rate": pcm.sample_rate,
+        "channels": pcm.channels,
+        "bits_per_sample": pcm.bits_per_sample,
+    });
+    let side = std::fs::read_to_string(output::sidecar_path(first))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    let mut side = side.unwrap_or_else(|| json!({}));
+    if let Some(m) = side.as_object_mut() {
+        m.insert(
+            "excerpt".into(),
+            json!({ "of": source_name, "from_s": o.at, "span_s": pcm.duration_s() }),
+        );
+    }
+    let side_text = red.apply(&serde_json::to_string_pretty(&side).unwrap());
+    std::fs::write(work.join("audio/excerpt.flac.json"), &side_text).map_err(|e| e.to_string())?;
+    parts.entries.push((
+        "audio/excerpt.flac".into(),
+        std::fs::read(&flac).map_err(|e| e.to_string())?,
+    ));
+    parts
+        .entries
+        .push(("audio/excerpt.flac.json".into(), side_text.into_bytes()));
+    let mut args = vec![
+        "analyze".to_string(),
+        "audio/excerpt.flac".into(),
+        "--json".into(),
+    ];
+    args.extend(settings_args(o));
+    eprintln!("analysing the excerpt");
+    let v = run_self(&args, work)?;
+    parts.entries.push((
+        "results/analyze-excerpt.json".into(),
+        red.apply(&serde_json::to_string_pretty(&v).unwrap())
+            .into_bytes(),
+    ));
+    parts.commands.push(Recorded {
+        args,
+        cwd: "bundle".into(),
+        output: "results/analyze-excerpt.json".into(),
+        replayable: true,
+    });
+    Ok(excerpt_info)
+}
+
+/// The analysis of the whole recording, run beside it so its paths are
+/// relative, and a folder's clock log.
+fn whole_into(
+    o: &Options,
+    folder: bool,
+    source: &Path,
+    source_name: &str,
+    red: &mut Redactor,
+    parts: &mut Parts,
+) -> Result<(), String> {
+    // The whole recording, run beside it so its paths are relative.
+    let dir = source
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+    let mut args = if folder {
+        vec!["long".to_string(), source_name.to_string(), "--json".into()]
+    } else if o.recording.len() == 1 {
+        vec![
+            "analyze".to_string(),
+            source_name.to_string(),
+            "--json".into(),
+        ]
+    } else {
+        Vec::new()
+    };
+    if args.is_empty() {
+        parts.left_out.push(
+            "an analysis of the whole recording (several files given; \
+             pass their folder instead)"
+                .into(),
+        );
+    } else {
+        args.extend(settings_args(o));
+        eprintln!("analysing the whole recording");
+        let v = run_self(&args, &dir)?;
+        let out = if folder {
+            "results/long-whole.json"
+        } else {
+            "results/analyze-whole.json"
+        };
+        parts.entries.push((
+            out.into(),
+            red.apply(&serde_json::to_string_pretty(&v).unwrap())
+                .into_bytes(),
+        ));
+        parts.commands.push(Recorded {
+            args: args.iter().map(|a| red.apply(a)).collect(),
+            cwd: "recording".into(),
+            output: out.into(),
+            replayable: false,
+        });
+    }
+    if folder {
+        let log = o.recording[0].join("clocklog.txt");
+        if let Ok(t) = std::fs::read_to_string(&log) {
+            parts
+                .entries
+                .push(("long/clocklog.txt".into(), red.apply(&t).into_bytes()));
+        }
+    }
+    Ok(())
+}
+
+/// The clock store and the recent logs and crash reports.
+fn env_into(red: &mut Redactor, parts: &mut Parts) {
+    if let Some(p) = clockstore::path() {
+        if let Ok(t) = std::fs::read_to_string(&p) {
+            parts
+                .entries
+                .push(("env/clock.json".into(), red.apply(&t).into_bytes()));
+        }
+    }
+    if let Some(dir) = clockstore::config_dir() {
+        let mut logs = recent_files(&dir.join("logs"), |_| true);
+        logs.extend(recent_files(&dir, |n| {
+            n.starts_with("crash-") && n.ends_with(".txt")
+        }));
+        for f in logs {
+            if let Ok(t) = std::fs::read_to_string(&f) {
+                parts.entries.push((
+                    format!("logs/{}", red.apply(&name_of(&f))),
+                    red.apply(&t).into_bytes(),
+                ));
+            }
+        }
+    }
+}
+
+/// The manifest and the zip written, and what it holds said.
+fn write_report(
+    o: &Options,
+    created: &str,
+    stamp: &str,
+    red: &mut Redactor,
+    parts: Parts,
+    recording: Value,
+) -> Result<(), String> {
+    let Parts {
+        entries,
+        commands,
+        left_out,
+    } = parts;
     let note = o.note.as_deref().map(|n| red.apply(n));
     let files: Vec<FileEntry> = entries
         .iter()
@@ -440,10 +504,6 @@ fn safe_to_replay(args: &[String]) -> bool {
             .all(|p| matches!(p[0].as_str(), "--bph" | "--lift") && p[1].parse::<f64>().is_ok())
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn replay(bundle: &Path, json: bool) -> Result<(), String> {
     let files = load_bundle(bundle)?;
     let get = |name: &str| files.iter().find(|(p, _)| p == name).map(|(_, d)| d);
@@ -457,58 +517,13 @@ pub fn replay(bundle: &Path, json: bool) -> Result<(), String> {
             "manifest.json is '{schema}', not a timegrapher report"
         ));
     }
-    // Every listed file is there and unchanged.
-    let mut damaged = Vec::new();
-    for f in manifest["files"].as_array().into_iter().flatten() {
-        let p = f["path"].as_str().unwrap_or("");
-        match get(p) {
-            Some(d) if f["sha256"].as_str() == Some(sha256_hex(d).as_str()) => {}
-            Some(_) => damaged.push(format!("{p} (changed)")),
-            None => damaged.push(format!("{p} (missing)")),
-        }
-    }
+    let damaged = damaged_files(&manifest, &files);
     let work = std::env::temp_dir().join(format!("timegrapher-replay-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
-    for (p, d) in &files {
-        let safe = !p.starts_with('/')
-            && !p.contains('\\')
-            && !p.contains(':')
-            && p.split('/').all(|c| !c.is_empty() && c != "..");
-        if !safe {
-            return Err(format!("the bundle holds a file at an unsafe path: {p}"));
-        }
-        let to = work.join(p);
-        std::fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
-        std::fs::write(&to, d).map_err(|e| e.to_string())?;
-    }
+    unpack(&files, &work)?;
     let recorded: Vec<Recorded> =
         serde_json::from_value(manifest["commands"].clone()).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for c in &recorded {
-        let mut r = Replayed {
-            args: c.args.clone(),
-            output: c.output.clone(),
-            ran: false,
-            error: None,
-            moved: Vec::new(),
-        };
-        if !c.replayable {
-            r.error = Some("its input is not in the bundle".into());
-        } else if !safe_to_replay(&c.args) {
-            r.error = Some("not a command report writes, so not run".into());
-        } else {
-            let then: Option<Value> = get(&c.output).and_then(|d| serde_json::from_slice(d).ok());
-            match (then, run_self(&c.args, &work)) {
-                (Some(then), Ok(now)) => {
-                    r.ran = true;
-                    r.moved = diff(&then, &now);
-                }
-                (None, _) => r.error = Some(format!("{} is missing", c.output)),
-                (_, Err(e)) => r.error = Some(e),
-            }
-        }
-        out.push(r);
-    }
+    let out = rerun(&recorded, &files, &work);
     let _ = std::fs::remove_dir_all(&work);
     let body = json!({
         "bundle": {
@@ -527,6 +542,76 @@ pub fn replay(bundle: &Path, json: bool) -> Result<(), String> {
             &body,
         );
     }
+    print_replay(bundle, &manifest, &damaged, &out);
+    Ok(())
+}
+
+/// The files the manifest lists that are missing or changed.
+fn damaged_files(manifest: &Value, files: &[(String, Vec<u8>)]) -> Vec<String> {
+    let get = |name: &str| files.iter().find(|(p, _)| p == name).map(|(_, d)| d);
+    let mut damaged = Vec::new();
+    for f in manifest["files"].as_array().into_iter().flatten() {
+        let p = f["path"].as_str().unwrap_or("");
+        match get(p) {
+            Some(d) if f["sha256"].as_str() == Some(sha256_hex(d).as_str()) => {}
+            Some(_) => damaged.push(format!("{p} (changed)")),
+            None => damaged.push(format!("{p} (missing)")),
+        }
+    }
+    damaged
+}
+
+/// The bundle's files written under `work`, refusing any unsafe path.
+fn unpack(files: &[(String, Vec<u8>)], work: &Path) -> Result<(), String> {
+    for (p, d) in files {
+        let safe = !p.starts_with('/')
+            && !p.contains('\\')
+            && !p.contains(':')
+            && p.split('/').all(|c| !c.is_empty() && c != "..");
+        if !safe {
+            return Err(format!("the bundle holds a file at an unsafe path: {p}"));
+        }
+        let to = work.join(p);
+        std::fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(&to, d).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Each recorded command run again where it can be, and what moved.
+fn rerun(recorded: &[Recorded], files: &[(String, Vec<u8>)], work: &Path) -> Vec<Replayed> {
+    let get = |name: &str| files.iter().find(|(p, _)| p == name).map(|(_, d)| d);
+    let mut out = Vec::new();
+    for c in recorded {
+        let mut r = Replayed {
+            args: c.args.clone(),
+            output: c.output.clone(),
+            ran: false,
+            error: None,
+            moved: Vec::new(),
+        };
+        if !c.replayable {
+            r.error = Some("its input is not in the bundle".into());
+        } else if !safe_to_replay(&c.args) {
+            r.error = Some("not a command report writes, so not run".into());
+        } else {
+            let then: Option<Value> = get(&c.output).and_then(|d| serde_json::from_slice(d).ok());
+            match (then, run_self(&c.args, work)) {
+                (Some(then), Ok(now)) => {
+                    r.ran = true;
+                    r.moved = diff(&then, &now);
+                }
+                (None, _) => r.error = Some(format!("{} is missing", c.output)),
+                (_, Err(e)) => r.error = Some(e),
+            }
+        }
+        out.push(r);
+    }
+    out
+}
+
+/// The replay as text: the bundle, what was damaged, and each command.
+fn print_replay(bundle: &Path, manifest: &Value, damaged: &[String], out: &[Replayed]) {
     let sw = &manifest["software"];
     println!(
         "Bundle     {} ({}, made {} by timegrapher {} {})",
@@ -539,10 +624,10 @@ pub fn replay(bundle: &Path, json: bool) -> Result<(), String> {
     if let Some(n) = manifest["note"].as_str() {
         println!("Note       {n}");
     }
-    for d in &damaged {
+    for d in damaged {
         println!("Damaged    {d}");
     }
-    for r in &out {
+    for r in out {
         let cmd = format!("timegrapher {}", r.args.join(" "));
         match (&r.error, r.moved.len()) {
             (Some(e), _) => println!("Not run    {cmd}: {e}"),
@@ -561,7 +646,6 @@ pub fn replay(bundle: &Path, json: bool) -> Result<(), String> {
             }
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
