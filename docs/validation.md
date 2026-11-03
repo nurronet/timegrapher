@@ -1,5 +1,14 @@
 # Validation
 
+## Optical amplitude comparison
+
+The [2026-11-03 2824-2 clone experiment](2824-clone-optical-amplitude-validation.md)
+compares blind video endpoint estimates with synchronized microphone measurements
+at a 50° lift setting. It preserves the individual edge results, provisional
+uncertainty allowances and matched Tick/Tock windows. This single-specimen study
+is not a calibrated reference, a corpus regression gate, or a family-wide
+lift-angle determination. Raw-media public archival upload remains pending.
+
 ## Synthetic recordings
 
 `cargo test` generates recordings with known values and checks that they
