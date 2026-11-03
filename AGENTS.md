@@ -117,9 +117,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --release --locked --workspace
 ```
 
-Building the desktop app on Linux needs `libasound2-dev`. CI runs seven required
-checks (tests on Linux, macOS and Windows, the MCP renderer and three corpus
-regression checks) and takes about 15 minutes. If one fails, fix the cause.
+Building the desktop app on Linux needs `libasound2-dev`. CI runs eight required
+checks (tests on Linux and macOS, Windows tests in two halves, the MCP renderer
+and three corpus regression checks) and takes about 12 minutes. If one fails, fix the cause.
 
 Do not change `Cargo.toml`, `Cargo.lock`, `.github/`, any `main.rs` or `lib.rs`, or
 `docs/agent-interface.md` unless your brief lists them. If you must, explain why
