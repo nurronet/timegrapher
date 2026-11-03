@@ -294,7 +294,7 @@ fn the_app_reads_each_edge_take_as_the_command_line_does() {
 }
 
 /// Split entries retain their clock even without readable recorder metadata.
-fn split_entries_clock_probe(metadata: &str) {
+fn split_entries_clock_probe(metadata: &str, folder: bool) {
     use timegrapher_core::{audio, synth};
     let required = std::env::var_os("TIMEGRAPHER_REQUIRE_CORPUS").is_some();
     let Some(cli) = std::env::var_os("TIMEGRAPHER_CLI").map(PathBuf::from) else {
@@ -303,7 +303,7 @@ fn split_entries_clock_probe(metadata: &str) {
         return;
     };
     let root = std::env::temp_dir().join(format!(
-        "tg-app-duplicate-clock-{metadata}-{}",
+        "tg-app-duplicate-clock-{metadata}-{folder}-{}",
         std::process::id()
     ));
     let dir = root.join("takes/duplicate_clock");
@@ -361,7 +361,12 @@ fn split_entries_clock_probe(metadata: &str) {
         let rate = reading["measurement"]["rate_s_per_day"].as_f64().unwrap();
         assert!((rate + 8.728).abs() < 0.2, "corrected rate: {rate}");
     }
-    let mut app = opened(&dir.join("take.wav"));
+    let path = if folder {
+        dir.clone()
+    } else {
+        dir.join("take.wav")
+    };
+    let mut app = opened(&path);
     let clock = app.take_clock.as_ref().expect("the app retains the clock");
     assert!((clock.ppm - 20.0).abs() < 0.1);
     assert_eq!(clock.breaks.len(), 1);
@@ -379,13 +384,28 @@ fn split_entries_clock_probe(metadata: &str) {
 
 #[test]
 fn split_entries_clock_valid_metadata() {
-    split_entries_clock_probe("valid");
+    split_entries_clock_probe("valid", false);
 }
 #[test]
 fn split_entries_clock_truncated_metadata() {
-    split_entries_clock_probe("truncated");
+    split_entries_clock_probe("truncated", false);
 }
 #[test]
 fn split_entries_clock_missing_metadata() {
-    split_entries_clock_probe("missing");
+    split_entries_clock_probe("missing", false);
+}
+
+#[test]
+fn split_entries_clock_folder_valid_metadata() {
+    split_entries_clock_probe("valid", true);
+}
+
+#[test]
+fn split_entries_clock_folder_truncated_metadata() {
+    split_entries_clock_probe("truncated", true);
+}
+
+#[test]
+fn split_entries_clock_folder_missing_metadata() {
+    split_entries_clock_probe("missing", true);
 }
