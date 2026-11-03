@@ -339,6 +339,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 5364
+  "crates/timegrapher-app/src/app.rs": 5085
  }
 }
