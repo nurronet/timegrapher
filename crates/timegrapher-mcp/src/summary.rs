@@ -7,13 +7,8 @@
 
 use serde_json::{Map, Value};
 
-/// " ± se" from a confidence entry, as `library::pm_text` writes it.
-fn pm(c: &Value, digits: usize) -> String {
-    c["se"]
-        .as_f64()
-        .and_then(|se| timegrapher_core::library::pm_text(se, digits))
-        .map_or_else(String::new, |t| format!(" ± {t}"))
-}
+pub(crate) use timegrapher_core::reading_text::position_name;
+use timegrapher_core::reading_text::{figures as readings, values as figures};
 
 fn signed(v: f64, digits: usize) -> String {
     timegrapher_core::library::signed_text(v, digits)
@@ -42,52 +37,6 @@ fn analyze_rate(doc: &Value) -> Option<(f64, String)> {
 /// The whole recording's beat error from the drop: its overall fit's.
 fn analyze_drop(doc: &Value) -> Option<f64> {
     doc["overall"]["beat_error_ms"].as_f64()
-}
-
-/// One reading's rate (s/day, as given), amplitude (°) and beat error (ms):
-/// the beat error is core's choice of the reading's signed unlock and drop
-/// figures (`drop_ms`), as a size.
-fn figures(m: &Value, rate: Option<f64>, drop_ms: Option<f64>) -> [Option<f64>; 3] {
-    [
-        rate,
-        m["amplitude_deg"].as_f64(),
-        timegrapher_core::session::beat_error_size(m["beat_error_unlock_ms"].as_f64(), drop_ms),
-    ]
-}
-
-/// One reading's figures ([`figures`]): rate, amplitude and beat error,
-/// each with its standard error where `m` gives one.
-fn readings(m: &Value, [rate, amplitude, beat_error]: [Option<f64>; 3]) -> Option<String> {
-    let conf = &m["confidence"];
-    let mut parts = Vec::new();
-    if let Some(r) = rate {
-        parts.push(format!(
-            "rate {}{} s/day",
-            signed(r, 1),
-            pm(&conf["rate"], 1)
-        ));
-    }
-    if let Some(a) = amplitude {
-        parts.push(format!("amplitude {a:.0}{}°", pm(&conf["amplitude"], 0)));
-    }
-    if let Some(b) = beat_error {
-        parts.push(format!(
-            "beat error {:.2}{} ms",
-            b,
-            pm(&conf["beat_error"], 2)
-        ));
-    }
-    (!parts.is_empty()).then(|| parts.join(", "))
-}
-
-/// A position as the app and the text report name it, from core
-/// ([`Position::display_label`]): "Dial Up (DU)", "Crown Up (CU, 3H)".
-/// A code core doesn't know stays as given.
-///
-/// [`Position::display_label`]: timegrapher_core::session::Position::display_label
-pub(crate) fn position_name(p: &str) -> String {
-    timegrapher_core::session::Position::parse(p)
-        .map_or_else(|| p.to_string(), |p| p.display_label())
 }
 
 fn count(n: u64, one: &str, many: &str) -> String {
@@ -216,17 +165,14 @@ fn position_lines(list: &Value) -> Vec<String> {
             if let Some(h) = r["wind_h"].as_f64().filter(|h| *h > 0.0) {
                 name += &format!(" after {h} h");
             }
-            let said = if m["watch_heard"] == false {
-                "no regular beat found".to_string()
-            } else {
-                readings(m, session_figures(m)).unwrap_or_default()
-            };
+            let said = timegrapher_core::reading_text::measurement(m);
             format!("- {name}: {said}")
         })
         .collect()
 }
 
 /// A `session` reading's figures as the lead gives them ([`figures`]).
+#[cfg(test)]
 fn session_figures(m: &Value) -> [Option<f64>; 3] {
     figures(m, m["rate_s_per_day"].as_f64(), m["beat_error_ms"].as_f64())
 }
@@ -591,6 +537,24 @@ mod tests {
     }
 
     #[test]
+    fn take_lines_use_the_shared_reading_words() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../timegrapher-core/tests/fixtures/reading_text.json"
+        ))
+        .unwrap();
+        for c in cases.as_array().unwrap() {
+            let doc = json!({"schema": "timegrapher.session/1", "readings": [c]});
+            let line = format!(
+                "- {}: {}",
+                c["position_text"].as_str().unwrap(),
+                c["text"].as_str().unwrap()
+            );
+            let text = lead(&doc, &Map::new()).unwrap();
+            assert!(text.lines().any(|s| s == line), "{text}");
+        }
+    }
+
+    #[test]
     fn a_recording_leads_with_its_readings() {
         let doc = json!({
             "schema": "timegrapher.analyze/2",
@@ -607,7 +571,7 @@ mod tests {
         let s = lead(&doc, &Map::new()).unwrap();
         assert!(
             s.starts_with(
-                "Readings: rate +6.0 s/day, amplitude 270 ± 0.04°, beat error 0.40 ± 0.004 ms."
+                "Readings: rate +6.0 s/d, amplitude 270 ± 0.04°, beat error 0.40 ± 0.004 ms."
             ),
             "{s}"
         );
@@ -653,10 +617,10 @@ mod tests {
         assert!(
             s.starts_with(
                 "The take's session file lists this file; `session` reads it:\n\
-                 - Dial Up (DU): rate +5.2 s/day, amplitude 281°, beat error 0.30 ms\n\
+                 - Dial Up (DU): rate +5.2 s/d, amplitude 281°, beat error 0.30 ms\n\
                  - Crown Up (CU, 3H): left out, nothing after settling\n\
                  The whole file read alone (no settling, none of the take's settings):\n\
-                 Readings: rate +6.0 s/day, amplitude 270°, beat error 0.39 ms."
+                 Readings: rate +6.0 s/d, amplitude 270°, beat error 0.39 ms."
             ),
             "{s}"
         );
@@ -671,7 +635,7 @@ mod tests {
         assert!(
             s.starts_with(
                 "The session file in this file's folder couldn't be read for it (bad toml); \
-                 the readings below are the whole file's.\nReadings: rate +6.0 s/day"
+                 the readings below are the whole file's.\nReadings: rate +6.0 s/d"
             ),
             "{s}"
         );
@@ -717,7 +681,7 @@ mod tests {
                 "dvh_amplitude": -15.6, "x": 2.7 }] },
         });
         let s = lead(&doc, &Map::new()).unwrap();
-        assert!(s.contains("- Dial Up (DU): rate +6.0 s/day"), "{s}");
+        assert!(s.contains("- Dial Up (DU): rate +6.0 s/d"), "{s}");
         assert!(s.contains("largest amplitude difference between any two positions (not vertical against horizontal): 28.4° (d_amplitude)"), "{s}");
         assert!(s.contains("vertical minus horizontal amplitude (mean of the crown positions minus mean of dial up and dial down): -15.6° (dvh_amplitude)"), "{s}");
     }
