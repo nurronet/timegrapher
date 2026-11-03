@@ -322,5 +322,18 @@
     "sha256": "e60b78611b2054bddf848c0233d4f3639f50aa7b26227132125bb3ddb8dfa1c6",
     "bytes": 68328652,
     "archive_url": null
+  },
+  "rest_native_frame": {
+    "file": "rest/settled-frame.png",
+    "frame_index": 3000,
+    "crop_xy": [
+      180,
+      450
+    ],
+    "crop_wh": [
+      300,
+      300
+    ],
+    "sha256": "19b4011181cdc4e4fd57bd67e9a99c4517790f6f8f936b2a493406ff828de6ed"
   }
 }
