@@ -157,7 +157,9 @@ a personal computer.
    They become the draft's text; without them the draft lists the pull
    requests merged since the last release.
 3. Wait for **CI** on the exact main commit to pass, then start the build,
-   either way:
+   either way. Release main's newest commit: a merge to main cancels CI
+   still running on the commit before it, and the build stops without a
+   green CI run on its exact commit.
    - On GitHub: **Actions**, **Release**, **Run workflow**, branch `main`,
      tick **Draft a release**, **Run workflow**.
    - Or from a clone: `git fetch origin && git tag v0.1.0 origin/main && git push origin v0.1.0`

@@ -14,11 +14,14 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A newer push to a PR cancels that PR's run still in progress; runs on main
-# are never cancelled.
+# A newer push to a PR cancels that PR's run still in progress, and a newer
+# merge to main cancels main's push run still in progress, so runners go to the
+# newest commit only. A run started by hand (workflow_dispatch) is never
+# cancelled. The Release gate needs a green run on the exact commit it builds,
+# which is main's newest commit when a release starts (docs/install.md).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && 'main') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   test:
