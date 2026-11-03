@@ -306,7 +306,7 @@ fn split_entries_clock_probe(metadata: &str, folder: bool) {
         "tg-app-duplicate-clock-{metadata}-{folder}-{}",
         std::process::id()
     ));
-    let dir = root.join("takes/duplicate_clock");
+    let dir = root.join(format!("takes/duplicate_clock_{metadata}_{folder}"));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&dir).unwrap();
     let sound = synth::generate(
@@ -348,11 +348,6 @@ fn split_entries_clock_probe(metadata: &str, folder: bool) {
         "bph = 28800\nlift = 52\n\
          [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nend_s = 160\nclock = \"clock.csv\"\n\
          [[recording]]\nfile = \"take.wav\"\nposition = \"DD\"\nstart_s = 160\nclock = \"clock.csv\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("corpus.json"),
-        r#"{"takes":[{"id":"duplicate_clock","tier":"referenced"}]}"#,
     )
     .unwrap();
     let readings = session_readings(&cli, &dir);
