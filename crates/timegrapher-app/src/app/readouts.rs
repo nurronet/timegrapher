@@ -3,163 +3,210 @@
 use super::*;
 use timegrapher_core::library::pm_text;
 
+/// What the reading cards draw from.
+struct CardCtx<'a> {
+    r: Option<&'a LiveReading>,
+    caveats: &'a [Caveat],
+    lift_now: f64,
+    beats: usize,
+    pm: Option<f64>,
+    be_pm: Option<f64>,
+    whole: &'a Option<WholeTake>,
+    whole_breaks: String,
+    heard: bool,
+    unheard: Option<(String, String)>,
+    compact: bool,
+}
+
+/// The cards' widths at `total`: Current Position, Listen, Calibre and
+/// each reading card.
+fn card_widths(total: f32, gap: f32) -> [f32; 4] {
+    // The first layout that fits, from every card full down: Current
+    // Position, Listen and Calibre keep their full width before the
+    // reading cards keep theirs (a reading card needs little room for
+    // its figure alone), then Listen, Position and Calibre go compact in
+    // turn, the reading cards keeping room for their captions whole.
+    let layouts = [
+        (POSITION_W, LISTEN_W, CALIBRE_W, READING_FULL_W),
+        (POSITION_W, LISTEN_W, CALIBRE_W, READING_ROOMY_W),
+        (POSITION_W, LISTEN_COMPACT_W, CALIBRE_W, READING_ROOMY_W),
+        (
+            POSITION_COMPACT_W,
+            LISTEN_COMPACT_W,
+            CALIBRE_W,
+            READING_ROOMY_W,
+        ),
+        (
+            POSITION_COMPACT_W,
+            LISTEN_COMPACT_W,
+            CALIBRE_ROOMY_W,
+            CAPTION_FIT_W,
+        ),
+        (
+            POSITION_COMPACT_W,
+            LISTEN_NARROWEST_W,
+            CALIBRE_ROOMY_W,
+            CAPTION_FIT_W,
+        ),
+    ];
+    let rest = |(p, l, c, _): (f32, f32, f32, f32)| (total - p - l - c - 5.0 * gap) / 3.0;
+    let (position_w, listen_w, calibre_w, _) = layouts
+        .into_iter()
+        .find(|&layout| rest(layout) >= layout.3)
+        .unwrap_or((
+            POSITION_COMPACT_W,
+            LISTEN_NARROWEST_W,
+            CALIBRE_COMPACT_W,
+            CAPTION_FIT_W,
+        ));
+    let reading_w = rest((position_w, listen_w, calibre_w, 0.0)).max(60.0);
+    [position_w, listen_w, calibre_w, reading_w]
+}
+
+/// The cards' backgrounds at their widths, left to right in `CARD_ORDER`,
+/// and each card's three rows, in the order of `widths`.
+fn lay_cards(
+    ui: &mut egui::Ui,
+    total: f32,
+    widths: [f32; 6],
+    gap: f32,
+    pal: &theme::Palette,
+) -> Vec<CardRows> {
+    let (block, _) = ui.allocate_exact_size(
+        Vec2::new(total, theme::READINGS_CARD_H),
+        egui::Sense::hover(),
+    );
+    // Each card's three rows, hung off the same three lines. `cards`
+    // keeps the order above; left to right they read Position,
+    // Calibre, Listen, Rate, Amplitude, Beat Error.
+    let mut x = block.left();
+    let mut cards = vec![CardRows::of(block); widths.len()];
+    for i in CARD_ORDER {
+        let w = widths[i];
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(x, block.top()), Vec2::new(w, block.height()));
+        x += w + gap;
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
+        cards[i] = CardRows::of(rect);
+    }
+    cards
+}
+
+/// A row of a card, laid out left to right and kept inside it.
+fn card_row(ui: &mut egui::Ui, rect: egui::Rect, salt: &str) -> egui::Ui {
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .id_salt(("card row", salt))
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    child.set_clip_rect(rect.expand(2.0).intersect(ui.clip_rect()));
+    child.spacing_mut().item_spacing.x = 8.0;
+    child.spacing_mut().interact_size.y = theme::CONTROL_H;
+    child
+}
+
+/// The title row: the caption, its limits in a chip, and the "?" in
+/// the corner. The caption is cut short before the chip is.
+fn card_title(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    caption: &str,
+    help: &[&str],
+    limits: &[(String, String)],
+    note: Option<&(String, String)>,
+) {
+    let pal = theme::pal(ui);
+    let mut child = card_row(ui, rect, caption);
+    child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // Tight, so a reading card's caption stays whole at 800.
+        ui.spacing_mut().item_spacing.x = 4.0;
+        theme::help(ui, caption, help);
+        let caption_w = ui.fonts_mut(|f| {
+            f.layout_no_wrap(caption.into(), theme::semibold(13.0), pal.text)
+                .size()
+                .x
+        });
+        let small_w = |ui: &mut egui::Ui, t: &str| {
+            ui.fonts_mut(|f| {
+                f.layout_no_wrap(t.into(), egui::FontId::proportional(12.0), pal.text)
+                    .size()
+                    .x
+            })
+        };
+        // A short fact in plain small text before the "?", where the
+        // caption stays whole beside it.
+        if let Some((text, hover)) = note {
+            if small_w(ui, text) + 4.0 + caption_w <= ui.available_width() {
+                ui.label(RichText::new(text).size(12.0).color(pal.text_secondary))
+                    .on_hover_text(hover);
+            }
+        }
+        // Limits with no room for their words beside the whole
+        // caption are in the caption's hover: a bare count says
+        // nothing.
+        let mut caption_hover = None;
+        if let Some(first) = limits.first() {
+            let more = if limits.len() > 1 {
+                format!(" +{}", limits.len() - 1)
+            } else {
+                String::new()
+            };
+            let sentences: Vec<String> = limits.iter().map(|l| l.1.clone()).collect();
+            let words = format!("{}{more}", chip_words(&first.0));
+            if small_w(ui, &words) + 14.0 + 4.0 + caption_w <= ui.available_width() {
+                theme::chip(ui, &words, caption, &sentences, ui.available_width());
+            } else {
+                caption_hover = Some(sentences.join("\n\n"));
+            }
+        }
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            let r = ui.add(
+                egui::Label::new(
+                    RichText::new(caption)
+                        .font(theme::semibold(13.0))
+                        .color(pal.text_secondary),
+                )
+                .truncate(),
+            );
+            if let Some(h) = caption_hover {
+                r.on_hover_text(h);
+            }
+        });
+    });
+}
+
+/// The whole take's reading, for a figure's hover.
+fn whole_text(whole_breaks: &str, figure: String, spread: Option<String>, span: f64) -> String {
+    let spread = spread.map_or_else(String::new, |s| format!(", {s}"));
+    format!(
+        "\n\nWhole take {figure}{spread} over {}. The big figure is the last stretch \
+         of Average Over; this is the take in this position, settling left out, read \
+         as the command line reads it.{whole_breaks}",
+        length_text(span)
+    )
+}
+
 impl TimegrapherApp {
     /// The reading cards across the top: Current Position, Listen, then
     /// Rate, Amplitude, Beat Error and Beat Rate. Every card is the same
     /// three rows (title, figure, controls) and one height at every width;
     /// where the full controls don't fit, the compact form of every card.
     /// Returns what the cards asked for, and where their controls go.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     pub(super) fn readouts(&self, ui: &mut egui::Ui) -> Readouts {
         let pal = theme::pal(ui);
         let r = self.reading();
         let gap = theme::GAP;
         let total = ui.available_width();
-        // The first layout that fits, from every card full down: Current
-        // Position, Listen and Calibre keep their full width before the
-        // reading cards keep theirs (a reading card needs little room for
-        // its figure alone), then Listen, Position and Calibre go compact in
-        // turn, the reading cards keeping room for their captions whole.
-        let layouts = [
-            (POSITION_W, LISTEN_W, CALIBRE_W, READING_FULL_W),
-            (POSITION_W, LISTEN_W, CALIBRE_W, READING_ROOMY_W),
-            (POSITION_W, LISTEN_COMPACT_W, CALIBRE_W, READING_ROOMY_W),
-            (
-                POSITION_COMPACT_W,
-                LISTEN_COMPACT_W,
-                CALIBRE_W,
-                READING_ROOMY_W,
-            ),
-            (
-                POSITION_COMPACT_W,
-                LISTEN_COMPACT_W,
-                CALIBRE_ROOMY_W,
-                CAPTION_FIT_W,
-            ),
-            (
-                POSITION_COMPACT_W,
-                LISTEN_NARROWEST_W,
-                CALIBRE_ROOMY_W,
-                CAPTION_FIT_W,
-            ),
-        ];
-        let rest = |(p, l, c, _): (f32, f32, f32, f32)| (total - p - l - c - 5.0 * gap) / 3.0;
-        let (position_w, listen_w, calibre_w, _) = layouts
-            .into_iter()
-            .find(|&layout| rest(layout) >= layout.3)
-            .unwrap_or((
-                POSITION_COMPACT_W,
-                LISTEN_NARROWEST_W,
-                CALIBRE_COMPACT_W,
-                CAPTION_FIT_W,
-            ));
-        let reading_w = rest((position_w, listen_w, calibre_w, 0.0)).max(60.0);
+        let [position_w, listen_w, calibre_w, reading_w] = card_widths(total, gap);
         let position_compact = position_w < POSITION_W;
         let listen_compact = listen_w < LISTEN_W;
         let compact = reading_w < READING_FULL_W;
         let widths = [
             position_w, listen_w, reading_w, reading_w, reading_w, calibre_w,
         ];
-        let (block, _) = ui.allocate_exact_size(
-            Vec2::new(total, theme::READINGS_CARD_H),
-            egui::Sense::hover(),
-        );
-        // Each card's three rows, hung off the same three lines. `cards`
-        // keeps the order above; left to right they read Position,
-        // Calibre, Listen, Rate, Amplitude, Beat Error.
-        let mut x = block.left();
-        let mut cards = vec![CardRows::of(block); widths.len()];
-        for i in CARD_ORDER {
-            let w = widths[i];
-            let rect =
-                egui::Rect::from_min_size(egui::pos2(x, block.top()), Vec2::new(w, block.height()));
-            x += w + gap;
-            ui.painter()
-                .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
-            cards[i] = CardRows::of(rect);
-        }
-        // A row of a card, laid out left to right and kept inside it.
-        let row = |ui: &mut egui::Ui, rect: egui::Rect, salt: &str| {
-            let mut child = ui.new_child(
-                egui::UiBuilder::new()
-                    .id_salt(("card row", salt))
-                    .max_rect(rect)
-                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
-            );
-            child.set_clip_rect(rect.expand(2.0).intersect(ui.clip_rect()));
-            child.spacing_mut().item_spacing.x = 8.0;
-            child.spacing_mut().interact_size.y = theme::CONTROL_H;
-            child
-        };
-        // The title row: the caption, its limits in a chip, and the "?" in
-        // the corner. The caption is cut short before the chip is.
-        let title = |ui: &mut egui::Ui,
-                     rect: egui::Rect,
-                     caption: &str,
-                     help: &[&str],
-                     limits: &[(String, String)],
-                     note: Option<&(String, String)>| {
-            let mut child = row(ui, rect, caption);
-            child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Tight, so a reading card's caption stays whole at 800.
-                ui.spacing_mut().item_spacing.x = 4.0;
-                theme::help(ui, caption, help);
-                let caption_w = ui.fonts_mut(|f| {
-                    f.layout_no_wrap(caption.into(), theme::semibold(13.0), pal.text)
-                        .size()
-                        .x
-                });
-                let small_w = |ui: &mut egui::Ui, t: &str| {
-                    ui.fonts_mut(|f| {
-                        f.layout_no_wrap(t.into(), egui::FontId::proportional(12.0), pal.text)
-                            .size()
-                            .x
-                    })
-                };
-                // A short fact in plain small text before the "?", where the
-                // caption stays whole beside it.
-                if let Some((text, hover)) = note {
-                    if small_w(ui, text) + 4.0 + caption_w <= ui.available_width() {
-                        ui.label(RichText::new(text).size(12.0).color(pal.text_secondary))
-                            .on_hover_text(hover);
-                    }
-                }
-                // Limits with no room for their words beside the whole
-                // caption are in the caption's hover: a bare count says
-                // nothing.
-                let mut caption_hover = None;
-                if let Some(first) = limits.first() {
-                    let more = if limits.len() > 1 {
-                        format!(" +{}", limits.len() - 1)
-                    } else {
-                        String::new()
-                    };
-                    let sentences: Vec<String> = limits.iter().map(|l| l.1.clone()).collect();
-                    let words = format!("{}{more}", chip_words(&first.0));
-                    if small_w(ui, &words) + 14.0 + 4.0 + caption_w <= ui.available_width() {
-                        theme::chip(ui, &words, caption, &sentences, ui.available_width());
-                    } else {
-                        caption_hover = Some(sentences.join("\n\n"));
-                    }
-                }
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    let r = ui.add(
-                        egui::Label::new(
-                            RichText::new(caption)
-                                .font(theme::semibold(13.0))
-                                .color(pal.text_secondary),
-                        )
-                        .truncate(),
-                    );
-                    if let Some(h) = caption_hover {
-                        r.on_hover_text(h);
-                    }
-                });
-            });
-        };
+        let cards = lay_cards(ui, total, widths, gap, pal);
         // A reading whose beats scatter like noise is no watch: no figures
         // then, only a word saying so where the unit goes.
         let heard = r.as_ref().is_none_or(|r| r.watch_heard || r.bph.is_none());
@@ -187,18 +234,7 @@ impl TimegrapherApp {
         // it beside the last window's figure.
         let whole = self.whole_take();
         let whole_breaks = whole.as_ref().map_or_else(String::new, whole_breaks_text);
-        // The whole take's reading, for the figure's hover.
-        let whole_text = |figure: String, spread: Option<String>, span: f64| {
-            let spread = spread.map_or_else(String::new, |s| format!(", {s}"));
-            format!(
-                "\n\nWhole take {figure}{spread} over {}. The big figure is the last stretch \
-                 of Average Over; this is the take in this position, settling left out, read \
-                 as the command line reads it.{whole_breaks}",
-                length_text(span)
-            )
-        };
         let mut slots = vec![(Slot::Position, cards[0].inner)];
-        let calibre_limits;
         // Listen: its caption here, its buttons and Average Over in the
         // rows under it.
         // A compact Listen card has no room beside its buttons for the
@@ -214,7 +250,7 @@ impl TimegrapherApp {
                 ),
             )
         });
-        title(
+        card_title(
             ui,
             cards[1].title,
             "Listen",
@@ -223,246 +259,289 @@ impl TimegrapherApp {
             length.as_ref(),
         );
         slots.push((Slot::Listen, cards[1].figure.union(cards[1].controls)));
-        // Rate.
-        {
-            let rate = r.and_then(|r| r.rate_s_per_day);
-            let rate_facts = reading_limits("Rate", caveats, lift_now, beats);
-            title(ui, cards[2].title, "Rate", &help::RATE, &rate_facts, None);
-            let unit = match pm.and_then(|e| pm_text(e, 1)) {
-                Some(t) => format!("± {t} s/d"),
-                None => "s/d".to_string(),
-            };
-            // The beats behind the figure, in its hover.
-            let mut behind = r.map_or_else(String::new, |r| {
-                let short = r.span_s + 1.0 < self.average_s;
-                let mut t = if short {
-                    format!(
-                        "{} beats in {} of {}: there are fewer seconds of beats than \
-                         Average Over asks for, early in a session or after a break in \
-                         the sound, so the readings use what there is.",
-                        r.beats_used,
-                        fields::duration(r.span_s.round()),
-                        fields::duration(self.average_s)
-                    )
-                } else {
-                    format!(
-                        "{} beats in {}: the beats the readings are fitted to, over \
-                         Average Over.",
-                        r.beats_used,
-                        fields::duration(self.average_s)
-                    )
-                };
-                if let Some(j) = r.jitter_us {
-                    t += &format!(
-                        "\n\nJitter {j:.0} µs: how far single beats land from the \
-                         rate's straight line, the spread of the dots across the strip."
-                    );
-                }
-                t
-            });
-            if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.rate_s_per_day?))) {
-                let se = w.m.confidence.and_then(|c| c.rate.se);
-                let pm = se
-                    .and_then(|e| pm_text(e, 1))
-                    .map_or_else(String::new, |t| format!(" ± {t}"));
-                let spread =
-                    w.m.rate_p05.zip(w.m.rate_p95).map(|(a, b)| {
-                        format!("10 s rates {a:+.1} to {b:+.1} s/d").replace('-', "−")
-                    });
-                behind += &whole_text(format!("{v:+.1}{pm} s/d").replace('-', "−"), spread, w.span);
-            }
-            // In the unit's place: what the reading waits on, or why it is
-            // the position before.
-            let status: Option<(String, String)> = if r.is_none() {
-                if let Some(left) = self.settling_left() {
-                    Some((
-                        format!("Settling, {:.0} s", left.ceil()),
-                        format!(
-                            "Settling in the new position for {:.0} s more.\n\n{}",
-                            left.ceil(),
-                            settle_hint(self.session.settle_len())
-                        ),
-                    ))
-                } else if heard {
-                    Some(("Waiting for Beats".into(), String::new()))
-                } else {
-                    unheard.clone()
-                }
-            } else {
-                self.stopped_in_settle().map(|at| {
-                    (
-                        "Before the Move".to_string(),
-                        format!(
-                            "Stopped while the watch settled in its new position, so \
-                             these are the last readings of the position before it, \
-                             before the move at {}.",
-                            length_text(at)
-                        ),
-                    )
-                })
-            };
-            // While a clock is kept, the rate on it in the figure's hover:
-            // first when the figure itself is corrected, as it says what
-            // the figure is.
-            if let Some(t) = rate.and_then(|rate| self.true_clock_words(rate)) {
-                behind = if self.take_rate_ppm().is_some() {
-                    format!("{t}\n\n{}", behind.trim_start())
-                } else {
-                    behind + &format!("\n\n{t}")
-                };
-            }
-            figure_row(
-                ui,
-                cards[2].figure,
-                rate.map(|v| format!("{v:+.1}")).as_deref(),
-                &unit,
-                status.as_ref(),
-                behind.trim_start(),
-                compact,
-            );
-        }
-        // Amplitude. Its lift angle is on the Calibre card, which says
-        // when it is the default, so that isn't said again in a chip.
-        {
-            let amp = r.and_then(|r| r.amplitude_deg);
-            let facts = reading_limits("Amplitude", caveats, lift_now, beats);
-            title(
-                ui,
-                cards[3].title,
-                "Amplitude",
-                help::AMPLITUDE,
-                &facts,
-                None,
-            );
-            // Whole degrees: a live reading's ± is about a degree, so a
-            // decimal would claim more than the beats can say.
-            let unit = r
-                .and_then(|r| r.amplitude_error_deg)
-                .and_then(|e| pm_text(e, 0))
-                .map_or_else(String::new, |t| format!("± {t}°"));
-            let mut behind = String::new();
-            if let Some(&LiveReading {
-                amplitude_even_deg: Some(a),
-                amplitude_odd_deg: Some(b),
-                ..
-            }) = r
-            {
-                behind = format!("Tick {a:.0}°, Tock {b:.0}°: each side's own amplitude.");
-            }
-            if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.amplitude_deg?))) {
-                let se = w.m.confidence.and_then(|c| c.amplitude.se);
-                let pm = se
-                    .and_then(|e| pm_text(e, 0))
-                    .map_or_else(String::new, |t| format!(" ± {t}"));
-                let spread =
-                    w.m.amplitude_p05
-                        .zip(w.m.amplitude_p95)
-                        .map(|(a, b)| format!("2 s windows {a:.0}° to {b:.0}°"));
-                behind += &whole_text(format!("{v:.0}{pm}°"), spread, w.span);
-            }
-            behind += &format!(
-                " Worked out with a lift angle of {}°, on the Calibre card.",
-                fields::plain(lift_now)
-            );
-            figure_row(
-                ui,
-                cards[3].figure,
-                amp.map(|v| format!("{v:.0}°")).as_deref(),
-                &unit,
-                unheard.as_ref(),
-                behind.trim_start(),
-                compact,
-            );
-        }
-        // Beat Error, the size only: which beat is the tick can flip
-        // between runs.
-        {
-            let unlock = r.and_then(|r| r.beat_error_unlock_ms);
-            let drop = r.and_then(|r| r.beat_error_ms);
-            title(
-                ui,
-                cards[4].title,
-                "Beat Error",
-                help::BEAT_ERROR,
-                &reading_limits("Beat Error", caveats, lift_now, beats),
-                None,
-            );
-            let unit = match be_pm
-                .filter(|_| unlock.is_some())
-                .and_then(|e| pm_text(e, 2))
-            {
-                Some(t) => format!("± {t} ms"),
-                None => "ms".to_string(),
-            };
-            // Which edge it is timed from, in the figure's hover.
-            let mut from = match (unlock, drop) {
-                (Some(_), Some(d)) => format!(
-                    "From the unlock, the usual reading, as tg shows it: quote this one. \
-                     From the drop, a second opinion: {:.2} ms.",
-                    d.abs()
-                ),
-                (None, Some(_)) => "From the drop: the unlock couldn't be timed.".into(),
-                _ => "From the unlock, the usual reading, as tg shows it.".into(),
-            };
-            if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.beat_error()?))) {
-                let se = w.m.confidence.and_then(|c| c.beat_error.se);
-                let pm = se
-                    .and_then(|e| pm_text(e, 2))
-                    .map_or_else(String::new, |t| format!(" ± {t}"));
-                from += &whole_text(format!("{v:.2}{pm} ms"), None, w.span);
-                if w.m.caveats.contains(&Caveat::BeatErrorAsSize) {
-                    from += &format!(
-                        " The {WHOLE_AS_SIZES}, so the sizes either side are combined \
-                         rather than the signed values, as the command line does."
-                    );
-                }
-            }
-            figure_row(
-                ui,
-                cards[4].figure,
-                core_session::beat_error_size(unlock, drop)
-                    .map(|v| format!("{v:.2}"))
-                    .as_deref(),
-                &unit,
-                unheard.as_ref(),
-                &from,
-                compact,
-            );
-        }
+        let c = CardCtx {
+            r,
+            caveats,
+            lift_now,
+            beats,
+            pm,
+            be_pm,
+            whole: &whole,
+            whole_breaks,
+            heard,
+            unheard,
+            compact,
+        };
+        self.rate_card(ui, &cards[2], &c);
+        self.amplitude_card(ui, &cards[3], &c);
+        self.beat_error_card(ui, &cards[4], &c);
         // Calibre: what the readings are worked out for. The calibre on
         // the figure row, the beat rate and the lift angle under it; a
         // calibre picked that beats at another rate than the one heard says
-        // so in a chip.
-        {
-            let other: Vec<(String, String)> = self
-                .live
-                .as_ref()
-                .and_then(|l| l.bph())
-                .zip(self.cal.bph(&self.calibre))
-                .filter(|&(b, cb)| b != cb && self.take_shows_rate_and_lift())
-                .map(|(b, cb)| {
-                    (
-                        format!("{} is {cb} bph", self.calibre),
-                        format!(
-                            "The {} beats at {cb} bph; this watch beats at {b}.",
-                            self.calibre
-                        ),
-                    )
-                })
-                .into_iter()
-                .collect();
-            // Its title is the Watch line, drawn with the controls.
-            calibre_limits = other;
-            slots.push((Slot::WatchLine, cards[5].title));
-            slots.push((Slot::Calibre, cards[5].figure));
-            slots.push((Slot::RateAndLift, cards[5].controls));
-        }
+        // so in a chip. Its title is the Watch line, drawn with the controls.
+        let calibre_limits = self.calibre_chips();
+        slots.push((Slot::WatchLine, cards[5].title));
+        slots.push((Slot::Calibre, cards[5].figure));
+        slots.push((Slot::RateAndLift, cards[5].controls));
         Readouts {
             slots,
             position_compact,
             listen_compact,
             calibre_limits,
         }
+    }
+
+    /// The Rate card's title and figure: the reading, its ±, what it waits on, and the beats and whole take behind it.
+    fn rate_card(&self, ui: &mut egui::Ui, rows: &CardRows, c: &CardCtx<'_>) {
+        let unheard = &c.unheard;
+        let r = c.r;
+        let caveats = c.caveats;
+        let lift_now = c.lift_now;
+        let beats = c.beats;
+        let pm = c.pm;
+        let whole = c.whole;
+        let heard = c.heard;
+        let compact = c.compact;
+        let rate = r.and_then(|r| r.rate_s_per_day);
+        let rate_facts = reading_limits("Rate", caveats, lift_now, beats);
+        card_title(ui, rows.title, "Rate", &help::RATE, &rate_facts, None);
+        let unit = match pm.and_then(|e| pm_text(e, 1)) {
+            Some(t) => format!("± {t} s/d"),
+            None => "s/d".to_string(),
+        };
+        // The beats behind the figure, in its hover.
+        let mut behind = r.map_or_else(String::new, |r| self.beats_behind(r));
+        if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.rate_s_per_day?))) {
+            let se = w.m.confidence.and_then(|c| c.rate.se);
+            let pm = se
+                .and_then(|e| pm_text(e, 1))
+                .map_or_else(String::new, |t| format!(" ± {t}"));
+            let spread =
+                w.m.rate_p05
+                    .zip(w.m.rate_p95)
+                    .map(|(a, b)| format!("10 s rates {a:+.1} to {b:+.1} s/d").replace('-', "−"));
+            behind += &whole_text(
+                &c.whole_breaks,
+                format!("{v:+.1}{pm} s/d").replace('-', "−"),
+                spread,
+                w.span,
+            );
+        }
+        // In the unit's place: what the reading waits on, or why it is
+        // the position before.
+        let status: Option<(String, String)> = if r.is_none() {
+            if let Some(left) = self.settling_left() {
+                Some((
+                    format!("Settling, {:.0} s", left.ceil()),
+                    format!(
+                        "Settling in the new position for {:.0} s more.\n\n{}",
+                        left.ceil(),
+                        settle_hint(self.session.settle_len())
+                    ),
+                ))
+            } else if heard {
+                Some(("Waiting for Beats".into(), String::new()))
+            } else {
+                unheard.clone()
+            }
+        } else {
+            self.stopped_in_settle().map(|at| {
+                (
+                    "Before the Move".to_string(),
+                    format!(
+                        "Stopped while the watch settled in its new position, so \
+                         these are the last readings of the position before it, \
+                         before the move at {}.",
+                        length_text(at)
+                    ),
+                )
+            })
+        };
+        // While a clock is kept, the rate on it in the figure's hover:
+        // first when the figure itself is corrected, as it says what
+        // the figure is.
+        if let Some(t) = rate.and_then(|rate| self.true_clock_words(rate)) {
+            behind = if self.take_rate_ppm().is_some() {
+                format!("{t}\n\n{}", behind.trim_start())
+            } else {
+                behind + &format!("\n\n{t}")
+            };
+        }
+        figure_row(
+            ui,
+            rows.figure,
+            rate.map(|v| format!("{v:+.1}")).as_deref(),
+            &unit,
+            status.as_ref(),
+            behind.trim_start(),
+            compact,
+        );
+    }
+
+    /// The beats behind the Rate figure, and their jitter, for its hover.
+    fn beats_behind(&self, r: &LiveReading) -> String {
+        let short = r.span_s + 1.0 < self.average_s;
+        let mut t = if short {
+            format!(
+                "{} beats in {} of {}: there are fewer seconds of beats than \
+                 Average Over asks for, early in a session or after a break in \
+                 the sound, so the readings use what there is.",
+                r.beats_used,
+                fields::duration(r.span_s.round()),
+                fields::duration(self.average_s)
+            )
+        } else {
+            format!(
+                "{} beats in {}: the beats the readings are fitted to, over \
+                 Average Over.",
+                r.beats_used,
+                fields::duration(self.average_s)
+            )
+        };
+        if let Some(j) = r.jitter_us {
+            t += &format!(
+                "\n\nJitter {j:.0} µs: how far single beats land from the \
+                 rate's straight line, the spread of the dots across the strip."
+            );
+        }
+        t
+    }
+
+    /// The Amplitude card's title and figure. Its lift angle is on the Calibre card, which says when it is the default, so that isn't said again in a chip.
+    fn amplitude_card(&self, ui: &mut egui::Ui, rows: &CardRows, c: &CardCtx<'_>) {
+        let unheard = &c.unheard;
+        let r = c.r;
+        let caveats = c.caveats;
+        let lift_now = c.lift_now;
+        let beats = c.beats;
+        let whole = c.whole;
+        let compact = c.compact;
+        let amp = r.and_then(|r| r.amplitude_deg);
+        let facts = reading_limits("Amplitude", caveats, lift_now, beats);
+        card_title(ui, rows.title, "Amplitude", help::AMPLITUDE, &facts, None);
+        // Whole degrees: a live reading's ± is about a degree, so a
+        // decimal would claim more than the beats can say.
+        let unit = r
+            .and_then(|r| r.amplitude_error_deg)
+            .and_then(|e| pm_text(e, 0))
+            .map_or_else(String::new, |t| format!("± {t}°"));
+        let mut behind = String::new();
+        if let Some(&LiveReading {
+            amplitude_even_deg: Some(a),
+            amplitude_odd_deg: Some(b),
+            ..
+        }) = r
+        {
+            behind = format!("Tick {a:.0}°, Tock {b:.0}°: each side's own amplitude.");
+        }
+        if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.amplitude_deg?))) {
+            let se = w.m.confidence.and_then(|c| c.amplitude.se);
+            let pm = se
+                .and_then(|e| pm_text(e, 0))
+                .map_or_else(String::new, |t| format!(" ± {t}"));
+            let spread =
+                w.m.amplitude_p05
+                    .zip(w.m.amplitude_p95)
+                    .map(|(a, b)| format!("2 s windows {a:.0}° to {b:.0}°"));
+            behind += &whole_text(&c.whole_breaks, format!("{v:.0}{pm}°"), spread, w.span);
+        }
+        behind += &format!(
+            " Worked out with a lift angle of {}°, on the Calibre card.",
+            fields::plain(lift_now)
+        );
+        figure_row(
+            ui,
+            rows.figure,
+            amp.map(|v| format!("{v:.0}°")).as_deref(),
+            &unit,
+            unheard.as_ref(),
+            behind.trim_start(),
+            compact,
+        );
+    }
+
+    /// The Beat Error card's title and figure, the size only: which beat is the tick can flip between runs.
+    fn beat_error_card(&self, ui: &mut egui::Ui, rows: &CardRows, c: &CardCtx<'_>) {
+        let unheard = &c.unheard;
+        let r = c.r;
+        let caveats = c.caveats;
+        let lift_now = c.lift_now;
+        let beats = c.beats;
+        let be_pm = c.be_pm;
+        let whole = c.whole;
+        let compact = c.compact;
+        let unlock = r.and_then(|r| r.beat_error_unlock_ms);
+        let drop = r.and_then(|r| r.beat_error_ms);
+        card_title(
+            ui,
+            rows.title,
+            "Beat Error",
+            help::BEAT_ERROR,
+            &reading_limits("Beat Error", caveats, lift_now, beats),
+            None,
+        );
+        let unit = match be_pm
+            .filter(|_| unlock.is_some())
+            .and_then(|e| pm_text(e, 2))
+        {
+            Some(t) => format!("± {t} ms"),
+            None => "ms".to_string(),
+        };
+        // Which edge it is timed from, in the figure's hover.
+        let mut from = match (unlock, drop) {
+            (Some(_), Some(d)) => format!(
+                "From the unlock, the usual reading, as tg shows it: quote this one. \
+                 From the drop, a second opinion: {:.2} ms.",
+                d.abs()
+            ),
+            (None, Some(_)) => "From the drop: the unlock couldn't be timed.".into(),
+            _ => "From the unlock, the usual reading, as tg shows it.".into(),
+        };
+        if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.beat_error()?))) {
+            let se = w.m.confidence.and_then(|c| c.beat_error.se);
+            let pm = se
+                .and_then(|e| pm_text(e, 2))
+                .map_or_else(String::new, |t| format!(" ± {t}"));
+            from += &whole_text(&c.whole_breaks, format!("{v:.2}{pm} ms"), None, w.span);
+            if w.m.caveats.contains(&Caveat::BeatErrorAsSize) {
+                from += &format!(
+                    " The {WHOLE_AS_SIZES}, so the sizes either side are combined \
+                     rather than the signed values, as the command line does."
+                );
+            }
+        }
+        figure_row(
+            ui,
+            rows.figure,
+            core_session::beat_error_size(unlock, drop)
+                .map(|v| format!("{v:.2}"))
+                .as_deref(),
+            &unit,
+            unheard.as_ref(),
+            &from,
+            compact,
+        );
+    }
+
+    /// A calibre picked that beats at another rate than the one heard, as
+    /// a chip on the Calibre card.
+    fn calibre_chips(&self) -> Vec<(String, String)> {
+        self.live
+            .as_ref()
+            .and_then(|l| l.bph())
+            .zip(self.cal.bph(&self.calibre))
+            .filter(|&(b, cb)| b != cb && self.take_shows_rate_and_lift())
+            .map(|(b, cb)| {
+                (
+                    format!("{} is {cb} bph", self.calibre),
+                    format!(
+                        "The {} beats at {cb} bph; this watch beats at {b}.",
+                        self.calibre
+                    ),
+                )
+            })
+            .into_iter()
+            .collect()
     }
 
     /// The clock the readings of the take on show are put on, for a log
