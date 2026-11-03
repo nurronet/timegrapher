@@ -361,10 +361,6 @@ pub fn offsets(opt: Options, drop_beat_error_ms: Option<f64>) -> [f64; 2] {
 
 /// Draw both sides, tick above or beside tock, on one scale so their
 /// loudness compares. `drop_beat_error_ms` places them on the shared clock.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn draw(
     ui: &mut egui::Ui,
     profiles: &[Option<TickProfile>; 2],
@@ -384,55 +380,8 @@ pub fn draw(
         Scale::Linear => (0.0, (top as f64 * 1.08).max(1e-6)),
         Scale::Decibels => (FLOOR_DB, 3.0),
     };
-    // Each side's facts, and the columns' widths over both sides, so the
-    // two boxes match.
     let facts: Vec<Option<[String; 5]>> = profiles.iter().map(|p| p.as_ref().map(facts)).collect();
-    let name_w = widest(ui, FACT_NAMES.iter().copied());
-    let value_w = widest(
-        ui,
-        facts
-            .iter()
-            .flatten()
-            .flat_map(|f| f.iter().map(String::as_str)),
-    );
-    // The two rows a short plot keeps, Unlock to Drop and Amplitude.
-    let short_name_w = widest(ui, FACT_NAMES[3..].iter().copied());
-    let short_value_w = widest(
-        ui,
-        facts
-            .iter()
-            .flatten()
-            .flat_map(|f| f[3..].iter().map(String::as_str)),
-    );
-    let none_w = widest(ui, [NO_FACTS].into_iter());
-    let box_fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-    let (here, ctx) = (ui.id(), ui.ctx().clone());
-    let fact_box = |k: usize, plot_h: f32| {
-        let held = here.with(("facts box", k));
-        let rows = match &facts[k] {
-            Some(f) => FACT_NAMES
-                .iter()
-                .zip(f)
-                .map(|(n, v)| (n.to_string(), v.clone()))
-                .collect(),
-            None => vec![(NO_FACTS.to_string(), String::new())],
-        };
-        FactBox {
-            base: egui_plot::PlotItemBase::new(format!("{} facts", ["Tick", "Tock"][k])),
-            plot_h,
-            tops: Vec::new(),
-            held,
-            was: ctx.data(|d| d.get_temp(held)),
-            name_w: if facts[k].is_some() { name_w } else { none_w },
-            value_w: if facts[k].is_some() { value_w } else { 0.0 },
-            short_name_w,
-            short_value_w,
-            rows,
-            fill: box_fill,
-            name_color: pal.text_secondary,
-            value_color: pal.text,
-        }
-    };
+    let boxes = fact_boxes(ui, &facts);
     // `axis`: the time axis under this side; stacked, Tock's serves both,
     // as their time runs together.
     let side = |ui: &mut egui::Ui, k: usize, axis: bool| {
@@ -442,77 +391,16 @@ pub fn draw(
         let dx = shift[k];
         let name = ["Tick", "Tock"][k];
         let c = colors[k];
-        // The edges' names in a lane above the plot, the sounds' in a lane
-        // below it, then the time axis: none of them inside the plot.
-        // Each lane as many rows as its names took last frame, so the plot
-        // keeps what a second row isn't using.
-        let rows = |up: bool| lane_rows(ui, k, up) as f32 * ROW_H;
-        let axis_h = if axis { AXIS_H + 2.0 } else { 0.0 };
-        let top_lane = if opt.edges { rows(true) } else { ROW_H } + LANE_GAP;
-        let bottom_lane = if opt.sounds {
-            rows(false) + LANE_GAP
-        } else {
-            0.0
-        } + axis_h;
-        // A plot that would be short with its names outside takes them in:
-        // the edges' along its top, the sounds' to their rings' hovers.
-        let outside_h = ui.available_height() - top_lane - bottom_lane;
-        let short = marks::short(ui, ui.id().with(("profile short", k)), outside_h);
-        let (top_lane, bottom_lane) = if short {
-            (ROW_H + 2.0, axis_h + 4.0)
-        } else {
-            (top_lane, bottom_lane)
-        };
-        let (head, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), top_lane),
-            egui::Sense::hover(),
-        );
-        ui.painter().text(
-            egui::pos2(head.left(), head.bottom() - 2.0),
-            egui::Align2::LEFT_BOTTOM,
-            name,
-            theme::semibold(12.5),
-            c,
-        );
+        let (short, top_lane, bottom_lane) = lanes(ui, k, opt, axis);
+        side_name(ui, top_lane, name, c);
         let h = (ui.available_height() - 20.0).max(20.0) as f64;
         let plot_h = (ui.available_height() - bottom_lane).max(24.0);
-        let mut facts_here = fact_box(k, plot_h);
-        let empty = p.is_none();
-        let plot = Plot::new(("profile", k))
-            .height(plot_h)
-            .link_axis("profile", [true, false])
-            // No crosshair or value box: the marks and the facts above say
-            // what matters.
-            .show_x(false)
-            .show_y(false)
-            .allow_scroll(false)
-            .allow_zoom(false)
-            .allow_drag(false)
-            .allow_axis_zoom_drag(false)
-            .allow_boxed_zoom(false)
-            .allow_double_click_reset(false)
-            .default_y_bounds(y_lo, y_hi)
-            // The time axis is drawn under the sounds' names, below.
-            .show_axes([false, true])
-            .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
-            .y_grid_spacer(|g| theme::even_grid(g, 30.0, &[]))
-            .y_axis_min_width(52.0)
-            .y_axis_formatter(move |m, r| {
-                // Before there are beats there is no level to mark.
-                if empty || (m.value - r.start()) / (r.end() - r.start()) * h < 9.0 {
-                    return String::new();
-                }
-                match scale {
-                    Scale::Decibels => crate::steady::db_label(m.value),
-                    Scale::Linear => level_label(m.value, m.step_size),
-                }
-            });
-        // Before there are beats, a typical stretch of time rather than none.
-        let plot = if p.is_none() {
-            plot.default_x_bounds(-20.0, 10.0)
-        } else {
-            plot
+        let mut facts_here = FactBox {
+            plot_h,
+            ..boxes[k].clone()
         };
+        let empty = p.is_none();
+        let plot = profile_plot(k, plot_h, h, empty, (y_lo, y_hi), scale);
         let mut med = Vec::new();
         // The trace at each time: where an edge's name inside a short plot
         // finds a clear spot.
@@ -527,17 +415,10 @@ pub fn draw(
             facts_here.tops = tops.clone();
         }
         // A short plot's edge names, drawn in it.
-        let mut edge_names = p.as_ref().filter(|_| short && opt.edges).map(|p| {
-            let level = scaled(&p.median, top, scale);
-            edge_marks(p)
-                .into_iter()
-                .map(|(l, v)| {
-                    let i = ((v - p.t0_ms) / p.step_ms).round();
-                    let y = (i >= 0.0).then(|| level.get(i as usize).copied()).flatten();
-                    (l, v + dx, name_width(ui, l), y)
-                })
-                .collect::<Vec<_>>()
-        });
+        let mut edge_names = p
+            .as_ref()
+            .filter(|_| short && opt.edges)
+            .map(|p| short_edge_names(ui, p, top, scale, dx));
         let resp = plot.show(ui, |pl| {
             pl.set_plot_bounds_y(y_lo..=y_hi);
             // The noise floor, under the facts box, which keeps its rows
@@ -558,64 +439,15 @@ pub fn draw(
                     names,
                     tops: tops.clone(),
                     facts: facts_here.clone(),
-                    fill: box_fill,
+                    fill: facts_here.fill,
                     ink: pal.text,
                     lines: [pal.unlock, pal.drop, pal.peak],
                 });
             }
-            let x = |i: usize| p.t0_ms + dx + i as f64 * p.step_ms;
-            let (m, lo, hi) = (
-                scaled(&p.median, top, scale),
-                scaled(&p.p10, top, scale),
-                scaled(&p.p90, top, scale),
-            );
-            // The band as thin quads: plots fill only convex shapes.
-            let band = c.gamma_multiply(0.25);
-            for i in 1..m.len().min(lo.len()).min(hi.len()) {
-                pl.polygon(
-                    Polygon::new(
-                        "middle 80% of beats",
-                        vec![
-                            [x(i - 1), lo[i - 1]],
-                            [x(i), lo[i]],
-                            [x(i), hi[i]],
-                            [x(i - 1), hi[i - 1]],
-                        ],
-                    )
-                    .fill_color(band)
-                    .stroke(egui::Stroke::NONE),
-                );
-            }
-            pl.line(
-                Line::new(
-                    "typical sound",
-                    m.iter()
-                        .enumerate()
-                        .map(|(i, &v)| [x(i), v])
-                        .collect::<Vec<_>>(),
-                )
-                .color(c)
-                .width(1.8_f32),
-            );
-            med = m;
+            med = paint_trace(pl, p, dx, top, scale, c);
         });
-        // A box that keeps fewer rows: the hover has all five.
-        let (shown, r) = facts_here.layout(&resp.transform);
-        if let (true, Some(f)) = (shown.len() < FACT_NAMES.len(), &facts[k]) {
-            // Where no row is drawn, the corner a two-row box would take.
-            let r = if shown.is_empty() {
-                facts_here.corners(&resp.transform, 2).0
-            } else {
-                r
-            };
-            if resp.response.hover_pos().is_some_and(|at| r.contains(at)) {
-                let all: Vec<String> = FACT_NAMES
-                    .iter()
-                    .zip(f)
-                    .map(|(n, v)| format!("{n}: {v}"))
-                    .collect();
-                resp.response.clone().on_hover_text(all.join("\n"));
-            }
+        if let Some(f) = &facts[k] {
+            facts_hover(&resp, &facts_here, f);
         }
         let (foot, _) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), bottom_lane),
@@ -636,8 +468,12 @@ pub fn draw(
             label_marks(ui, &resp.transform, p, &med, &tops, opt, dx, k, inside);
         }
     };
-    // Stacked, each side's share; too short for two plots one above the
-    // other, they go side by side, each the pane's height.
+    arrange(ui, opt, side);
+}
+
+/// Stacked, each side's share; too short for two plots one above the
+/// other, they go side by side, each the pane's height.
+fn arrange(ui: &mut egui::Ui, opt: Options, side: impl Fn(&mut egui::Ui, usize, bool)) {
     let gap = 6.0;
     let stacked_h = (ui.available_height() - gap - AXIS_H - 2.0) / 2.0;
     if opt.side_by_side || stacked_h < STACKED_MIN {
@@ -661,6 +497,236 @@ pub fn draw(
             if k == 0 {
                 ui.add_space(gap);
             }
+        }
+    }
+}
+
+/// Each side's facts box, its height set where it is drawn: the columns'
+/// widths are taken over both sides, so the two boxes match.
+fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 5]>]) -> [FactBox; 2] {
+    let pal = theme::pal(ui);
+    let name_w = widest(ui, FACT_NAMES.iter().copied());
+    let value_w = widest(
+        ui,
+        facts
+            .iter()
+            .flatten()
+            .flat_map(|f| f.iter().map(String::as_str)),
+    );
+    // The two rows a short plot keeps, Unlock to Drop and Amplitude.
+    let short_name_w = widest(ui, FACT_NAMES[3..].iter().copied());
+    let short_value_w = widest(
+        ui,
+        facts
+            .iter()
+            .flatten()
+            .flat_map(|f| f[3..].iter().map(String::as_str)),
+    );
+    let none_w = widest(ui, [NO_FACTS].into_iter());
+    let box_fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
+    let (here, ctx) = (ui.id(), ui.ctx().clone());
+    let fact_box = |k: usize| {
+        let held = here.with(("facts box", k));
+        let rows = match &facts[k] {
+            Some(f) => FACT_NAMES
+                .iter()
+                .zip(f)
+                .map(|(n, v)| (n.to_string(), v.clone()))
+                .collect(),
+            None => vec![(NO_FACTS.to_string(), String::new())],
+        };
+        FactBox {
+            base: egui_plot::PlotItemBase::new(format!("{} facts", ["Tick", "Tock"][k])),
+            plot_h: 0.0,
+            tops: Vec::new(),
+            held,
+            was: ctx.data(|d| d.get_temp(held)),
+            name_w: if facts[k].is_some() { name_w } else { none_w },
+            value_w: if facts[k].is_some() { value_w } else { 0.0 },
+            short_name_w,
+            short_value_w,
+            rows,
+            fill: box_fill,
+            name_color: pal.text_secondary,
+            value_color: pal.text,
+        }
+    };
+    [fact_box(0), fact_box(1)]
+}
+
+/// Whether a side's plot is short, and the heights of the lanes above and
+/// below it. `axis`: the time axis goes under this side.
+fn lanes(ui: &egui::Ui, k: usize, opt: Options, axis: bool) -> (bool, f32, f32) {
+    // The edges' names in a lane above the plot, the sounds' in a lane
+    // below it, then the time axis: none of them inside the plot.
+    // Each lane as many rows as its names took last frame, so the plot
+    // keeps what a second row isn't using.
+    let rows = |up: bool| lane_rows(ui, k, up) as f32 * ROW_H;
+    let axis_h = if axis { AXIS_H + 2.0 } else { 0.0 };
+    let top_lane = if opt.edges { rows(true) } else { ROW_H } + LANE_GAP;
+    let bottom_lane = if opt.sounds {
+        rows(false) + LANE_GAP
+    } else {
+        0.0
+    } + axis_h;
+    // A plot that would be short with its names outside takes them in:
+    // the edges' along its top, the sounds' to their rings' hovers.
+    let outside_h = ui.available_height() - top_lane - bottom_lane;
+    let short = marks::short(ui, ui.id().with(("profile short", k)), outside_h);
+    let (top_lane, bottom_lane) = if short {
+        (ROW_H + 2.0, axis_h + 4.0)
+    } else {
+        (top_lane, bottom_lane)
+    };
+    (short, top_lane, bottom_lane)
+}
+
+/// A side's plot, fixed in place: `h` its height for the level labels,
+/// which `empty` leaves off.
+fn profile_plot(
+    k: usize,
+    plot_h: f32,
+    h: f64,
+    empty: bool,
+    (y_lo, y_hi): (f64, f64),
+    scale: Scale,
+) -> Plot<'static> {
+    let plot = Plot::new(("profile", k))
+        .height(plot_h)
+        .link_axis("profile", [true, false])
+        // No crosshair or value box: the marks and the facts above say
+        // what matters.
+        .show_x(false)
+        .show_y(false)
+        .allow_scroll(false)
+        .allow_zoom(false)
+        .allow_drag(false)
+        .allow_axis_zoom_drag(false)
+        .allow_boxed_zoom(false)
+        .allow_double_click_reset(false)
+        .default_y_bounds(y_lo, y_hi)
+        // The time axis is drawn under the sounds' names, below.
+        .show_axes([false, true])
+        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
+        .y_grid_spacer(|g| theme::even_grid(g, 30.0, &[]))
+        .y_axis_min_width(52.0)
+        .y_axis_formatter(move |m, r| {
+            // Before there are beats there is no level to mark.
+            if empty || (m.value - r.start()) / (r.end() - r.start()) * h < 9.0 {
+                return String::new();
+            }
+            match scale {
+                Scale::Decibels => crate::steady::db_label(m.value),
+                Scale::Linear => level_label(m.value, m.step_size),
+            }
+        });
+    // Before there are beats, a typical stretch of time rather than none.
+    if empty {
+        plot.default_x_bounds(-20.0, 10.0)
+    } else {
+        plot
+    }
+}
+
+/// A side's name, in its colour, in the lane above its plot.
+fn side_name(ui: &mut egui::Ui, top_lane: f32, name: &str, c: Color32) {
+    let (head, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), top_lane),
+        egui::Sense::hover(),
+    );
+    ui.painter().text(
+        egui::pos2(head.left(), head.bottom() - 2.0),
+        egui::Align2::LEFT_BOTTOM,
+        name,
+        theme::semibold(12.5),
+        c,
+    );
+}
+
+/// The edges a short plot names inside it: each name, its time `dx`
+/// along, its width, and the trace's level there.
+fn short_edge_names(
+    ui: &egui::Ui,
+    p: &TickProfile,
+    top: f32,
+    scale: Scale,
+    dx: f64,
+) -> Vec<(&'static str, f64, f32, Option<f64>)> {
+    let level = scaled(&p.median, top, scale);
+    edge_marks(p)
+        .into_iter()
+        .map(|(l, v)| {
+            let i = ((v - p.t0_ms) / p.step_ms).round();
+            let y = (i >= 0.0).then(|| level.get(i as usize).copied()).flatten();
+            (l, v + dx, name_width(ui, l), y)
+        })
+        .collect()
+}
+
+/// A side's typical sound and the band of the middle 80% of its beats,
+/// `dx` along: the typical sound's levels, as plotted.
+fn paint_trace(
+    pl: &mut egui_plot::PlotUi,
+    p: &TickProfile,
+    dx: f64,
+    top: f32,
+    scale: Scale,
+    c: Color32,
+) -> Vec<f64> {
+    let x = |i: usize| p.t0_ms + dx + i as f64 * p.step_ms;
+    let (m, lo, hi) = (
+        scaled(&p.median, top, scale),
+        scaled(&p.p10, top, scale),
+        scaled(&p.p90, top, scale),
+    );
+    // The band as thin quads: plots fill only convex shapes.
+    let band = c.gamma_multiply(0.25);
+    for i in 1..m.len().min(lo.len()).min(hi.len()) {
+        pl.polygon(
+            Polygon::new(
+                "middle 80% of beats",
+                vec![
+                    [x(i - 1), lo[i - 1]],
+                    [x(i), lo[i]],
+                    [x(i), hi[i]],
+                    [x(i - 1), hi[i - 1]],
+                ],
+            )
+            .fill_color(band)
+            .stroke(egui::Stroke::NONE),
+        );
+    }
+    pl.line(
+        Line::new(
+            "typical sound",
+            m.iter()
+                .enumerate()
+                .map(|(i, &v)| [x(i), v])
+                .collect::<Vec<_>>(),
+        )
+        .color(c)
+        .width(1.8_f32),
+    );
+    m
+}
+
+/// A box that keeps fewer rows: the hover has all five.
+fn facts_hover(resp: &egui_plot::PlotResponse<()>, facts_here: &FactBox, f: &[String; 5]) {
+    let (shown, r) = facts_here.layout(&resp.transform);
+    if shown.len() < FACT_NAMES.len() {
+        // Where no row is drawn, the corner a two-row box would take.
+        let r = if shown.is_empty() {
+            facts_here.corners(&resp.transform, 2).0
+        } else {
+            r
+        };
+        if resp.response.hover_pos().is_some_and(|at| r.contains(at)) {
+            let all: Vec<String> = FACT_NAMES
+                .iter()
+                .zip(f)
+                .map(|(n, v)| format!("{n}: {v}"))
+                .collect();
+            resp.response.clone().on_hover_text(all.join("\n"));
         }
     }
 }
@@ -856,10 +922,6 @@ fn time_axis(ui: &egui::Ui, t: &egui_plot::PlotTransform, foot: egui::Rect) {
 /// and a sound meet the trace together, the bar sits inside the ring. A
 /// name hides any other mark's line passing behind it.
 #[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn label_marks(
     ui: &egui::Ui,
     t: &egui_plot::PlotTransform,
@@ -872,49 +934,125 @@ fn label_marks(
     inside: Option<(f32, f32)>,
 ) {
     let frame = *t.frame();
-    let pal = theme::pal(ui);
-    let painter = ui.painter_at(frame.expand2(egui::vec2(0.0, LANE + LANE_GAP + 2.0)));
-    let edge_ink = |label: &str| match label {
-        "Unlock" => pal.unlock,
-        "Drop" => pal.drop,
-        _ => pal.peak,
+    let m = Marker {
+        ui,
+        t,
+        p,
+        med,
+        tops,
+        dx,
+        side,
+        frame,
+        pal: theme::pal(ui),
+        painter: ui.painter_at(frame.expand2(egui::vec2(0.0, LANE + LANE_GAP + 2.0))),
+        // Where the trace is marked: an edge's bar, a sound's ring, both
+        // drawn over the trace, smaller on a short plot so they don't fill
+        // it, and left off where they would cross an edge's name drawn in
+        // the plot.
+        r: (frame.height() / 8.0).clamp(2.5, 5.0),
+        names_in: std::cell::RefCell::new(Vec::new()),
     };
-    // The trace's height at a time, on the screen.
-    let trace_y = |v: f64| -> Option<f32> {
+    if opt.edges {
+        m.lane(edge_marks(p), true, inside);
+    }
+    if opt.sounds {
+        m.lane(
+            [
+                ("Unlock Sound", p.sound1_ms),
+                ("Impulse Sound", p.sound2_ms),
+                ("Drop Sound", p.sound3_ms),
+            ]
+            .into_iter()
+            .filter_map(|(l, v)| v.map(|v| (l, v)))
+            .collect(),
+            false,
+            inside,
+        );
+    }
+}
+
+/// What `label_marks` draws with: a side's plot, its trace, and the edges'
+/// names already drawn inside it.
+struct Marker<'a> {
+    ui: &'a egui::Ui,
+    t: &'a egui_plot::PlotTransform,
+    p: &'a TickProfile,
+    med: &'a [f64],
+    tops: &'a [[f64; 2]],
+    dx: f64,
+    side: usize,
+    frame: egui::Rect,
+    pal: &'static theme::Palette,
+    painter: egui::Painter,
+    /// A mark's radius on the trace.
+    r: f32,
+    names_in: std::cell::RefCell<Vec<egui::Rect>>,
+}
+
+/// A mark in a lane: where it is across the plot, its name and its time.
+type LaneMark<'s> = (f32, &'s str, f64);
+
+impl Marker<'_> {
+    fn edge_ink(&self, label: &str) -> Color32 {
+        match label {
+            "Unlock" => self.pal.unlock,
+            "Drop" => self.pal.drop,
+            _ => self.pal.peak,
+        }
+    }
+
+    /// The trace's height at a time, on the screen.
+    fn trace_y(&self, v: f64) -> Option<f32> {
+        let p = self.p;
         let i = ((v - p.t0_ms) / p.step_ms).round();
         (i >= 0.0)
-            .then(|| med.get(i as usize).copied())
+            .then(|| self.med.get(i as usize).copied())
             .flatten()
-            .map(|y| t.position_from_point_y(y))
-    };
-    // Where the trace is marked: an edge's bar, a sound's ring, both drawn
-    // over the trace, smaller on a short plot so they don't fill it, and
-    // left off where they would cross an edge's name drawn in the plot.
-    let r = (frame.height() / 8.0).clamp(2.5, 5.0);
-    let names_in = std::cell::RefCell::new(Vec::<egui::Rect>::new());
-    let clear = |at: egui::Pos2| {
+            .map(|y| self.t.position_from_point_y(y))
+    }
+
+    fn clear(&self, at: egui::Pos2) -> bool {
+        let r = self.r;
         let mark = egui::Rect::from_center_size(at, egui::vec2(2.0 * r + 2.0, 2.0 * r + 2.0));
-        !names_in.borrow().iter().any(|n| n.intersects(mark))
-    };
-    let edge_bar = |at: egui::Pos2| {
-        if clear(at) {
-            painter.line_segment(
+        !self.names_in.borrow().iter().any(|n| n.intersects(mark))
+    }
+
+    fn edge_bar(&self, at: egui::Pos2) {
+        if self.clear(at) {
+            let r = self.r;
+            self.painter.line_segment(
                 [at - egui::vec2(r - 1.0, 0.0), at + egui::vec2(r - 1.0, 0.0)],
-                egui::Stroke::new(2.0_f32, pal.text),
+                egui::Stroke::new(2.0_f32, self.pal.text),
             );
         }
-    };
-    let sound_ring = |at: egui::Pos2| {
-        if clear(at) {
-            painter.circle_stroke(at, r, egui::Stroke::new(1.5_f32, pal.text_secondary));
+    }
+
+    fn sound_ring(&self, at: egui::Pos2) {
+        if self.clear(at) {
+            self.painter.circle_stroke(
+                at,
+                self.r,
+                egui::Stroke::new(1.5_f32, self.pal.text_secondary),
+            );
         }
-    };
-    // A lane laid out and drawn: `marks` are each name, its time and its
-    // hover's words; `up` for the edges above the plot.
-    let lane = |marks: Vec<(&str, f64)>, up: bool| {
-        let mut marks: Vec<(f32, &str, f64)> = marks
+    }
+
+    fn hover(&self, hit: egui::Rect, label: &str, v: f64) {
+        marks::hover(
+            self.ui,
+            self.ui.id().with(("mark", self.side, label)),
+            hit,
+            format!("{label}: {}", ms_text(v)),
+        );
+    }
+
+    /// A lane laid out and drawn: `marks` are each name and its time; `up`
+    /// for the edges above the plot.
+    fn lane(&self, marks: Vec<(&str, f64)>, up: bool, inside: Option<(f32, f32)>) {
+        let frame = self.frame;
+        let mut marks: Vec<LaneMark> = marks
             .into_iter()
-            .map(|(l, v)| (t.position_from_point_x(v + dx), l, v))
+            .map(|(l, v)| (self.t.position_from_point_x(v + self.dx), l, v))
             .filter(|(x, _, _)| *x >= frame.left() && *x <= frame.right())
             .collect();
         marks.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -923,65 +1061,74 @@ fn label_marks(
         let rank = if up { Rank::Strong } else { Rank::Faint };
         let galleys: Vec<_> = marks
             .iter()
-            .map(|(_, l, _)| marks::galley(ui, l, rank, !up))
+            .map(|(_, l, _)| marks::galley(self.ui, l, rank, !up))
             .collect();
         // A short plot: the edges' names are drawn in it, under the trace
         // (see `EdgeNames`), and the sounds' are their rings' hovers.
-        if let Some(facts) = inside {
-            let hover = |hit: egui::Rect, label: &str, v: f64| {
-                marks::hover(
-                    ui,
-                    ui.id().with(("mark", side, label)),
-                    hit,
-                    format!("{label}: {}", ms_text(v)),
-                );
-            };
-            if up {
-                let named: Vec<(&str, f32, f32)> = marks
-                    .iter()
-                    .zip(&galleys)
-                    .map(|((x, l, _), g)| (*l, *x, g.size().x))
-                    .collect();
-                let at = marks::inside(
-                    &strong(&named),
-                    frame.left(),
-                    frame.right(),
-                    facts,
-                    &|a, b| marks::row_clear(t, tops, a, b),
-                );
-                names_in
-                    .borrow_mut()
-                    .extend(named.iter().zip(&at).filter_map(|((l, _, _), a)| {
-                        a.map(|a| marks::inside_rect(frame, a, named_w(&named, l)))
-                    }));
-                for ((x, label, v), at) in marks.iter().zip(at) {
-                    if let Some(y) = trace_y(*v + 0.0) {
-                        edge_bar(egui::pos2(*x, y));
-                    }
-                    let line = egui::Rect::from_x_y_ranges(
-                        x - 3.0..=x + 3.0,
-                        frame.top()..=frame.bottom(),
-                    );
-                    let hit = at.map_or(line, |a| {
-                        line.union(marks::inside_rect(frame, a, named_w(&named, label)))
-                    });
-                    hover(hit, label, *v);
-                }
-            } else {
-                for (x, label, v) in &marks {
-                    if let Some(y) = trace_y(*v + 0.0) {
-                        sound_ring(egui::pos2(*x, y));
-                        hover(
-                            egui::Rect::from_center_size(egui::pos2(*x, y), egui::vec2(10.0, 10.0)),
-                            label,
-                            *v,
-                        );
-                    }
-                }
-            }
-            return;
+        match inside {
+            Some(facts) if up => self.edges_inside(&marks, &galleys, facts),
+            Some(_) => self.sounds_inside(&marks),
+            None => self.lane_outside(&marks, galleys, up),
         }
-        let id = lane_id(ui, side, up);
+    }
+
+    fn edges_inside(
+        &self,
+        marks: &[LaneMark],
+        galleys: &[std::sync::Arc<egui::Galley>],
+        facts: (f32, f32),
+    ) {
+        let frame = self.frame;
+        let named: Vec<(&str, f32, f32)> = marks
+            .iter()
+            .zip(galleys)
+            .map(|((x, l, _), g)| (*l, *x, g.size().x))
+            .collect();
+        let at = marks::inside(
+            &strong(&named),
+            frame.left(),
+            frame.right(),
+            facts,
+            &|a, b| marks::row_clear(self.t, self.tops, a, b),
+        );
+        self.names_in
+            .borrow_mut()
+            .extend(named.iter().zip(&at).filter_map(|((l, _, _), a)| {
+                a.map(|a| marks::inside_rect(frame, a, named_w(&named, l)))
+            }));
+        for ((x, label, v), at) in marks.iter().zip(at) {
+            if let Some(y) = self.trace_y(*v + 0.0) {
+                self.edge_bar(egui::pos2(*x, y));
+            }
+            let line = egui::Rect::from_x_y_ranges(x - 3.0..=x + 3.0, frame.top()..=frame.bottom());
+            let hit = at.map_or(line, |a| {
+                line.union(marks::inside_rect(frame, a, named_w(&named, label)))
+            });
+            self.hover(hit, label, *v);
+        }
+    }
+
+    fn sounds_inside(&self, marks: &[LaneMark]) {
+        for (x, label, v) in marks {
+            if let Some(y) = self.trace_y(*v + 0.0) {
+                self.sound_ring(egui::pos2(*x, y));
+                self.hover(
+                    egui::Rect::from_center_size(egui::pos2(*x, y), egui::vec2(10.0, 10.0)),
+                    label,
+                    *v,
+                );
+            }
+        }
+    }
+
+    fn lane_outside(
+        &self,
+        marks: &[LaneMark],
+        galleys: Vec<std::sync::Arc<egui::Galley>>,
+        up: bool,
+    ) {
+        let (ui, frame) = (self.ui, self.frame);
+        let id = lane_id(ui, self.side, up);
         let names: Vec<(f32, f32, Rank)> = marks
             .iter()
             .zip(&galleys)
@@ -1007,70 +1154,62 @@ fn label_marks(
                 (frame.bottom() + row_off, frame.bottom() + row_off + 1.0)
             };
             let name = egui::Rect::from_min_size(egui::pos2(*left, name_y), egui::vec2(w, ROW_H));
-            let on = trace_y(*v + 0.0);
+            let on = self.trace_y(*v + 0.0);
             let centre = name.center().x;
             if up {
-                // Short of the trace, and of a sound's ring at the same spot.
-                let stop = on.map_or(frame.bottom(), |y| (y - r - 2.0).max(frame.top()));
-                // Straight down from its name, or from where the name had to
-                // slide to, with a short angled leader back to its line.
-                let mut pts = vec![egui::pos2(centre, end_y)];
-                if (centre - x).abs() > 1.0 {
-                    pts.push(egui::pos2(x, frame.top() - LANE_GAP / 2.0));
-                }
-                pts.push(egui::pos2(x, stop));
-                painter.add(egui::Shape::line(
-                    pts,
-                    egui::Stroke::new(1.2_f32, edge_ink(label)),
-                ));
-                if let Some(y) = on {
-                    edge_bar(egui::pos2(x, y));
-                }
+                self.edge_line(label, x, centre, end_y, on);
             } else if let Some(y) = on {
-                let mut pts = vec![
-                    egui::pos2(x, y + r),
-                    egui::pos2(x, frame.bottom() + LANE_GAP / 2.0),
-                ];
-                pts.push(egui::pos2(centre, end_y));
-                painter.extend(egui::Shape::dashed_line(
-                    &pts,
-                    egui::Stroke::new(1.0_f32, pal.sound),
-                    2.0,
-                    2.0,
-                ));
-                sound_ring(egui::pos2(x, y));
+                self.sound_leader(x, y, centre, end_y);
             }
             names.push((name, g));
             let hit = name.union(egui::Rect::from_x_y_ranges(
                 x - 3.0..=x + 3.0,
                 frame.top()..=frame.bottom(),
             ));
-            marks::hover(
-                ui,
-                ui.id().with(("mark", side, *label)),
-                hit,
-                format!("{label}: {}", ms_text(*v)),
-            );
+            self.hover(hit, label, *v);
         }
         for (name, g) in names {
-            marks::paint_lane_name(ui, &painter, name, g);
+            marks::paint_lane_name(ui, &self.painter, name, g);
         }
-    };
-    if opt.edges {
-        lane(edge_marks(p), true);
     }
-    if opt.sounds {
-        lane(
-            [
-                ("Unlock Sound", p.sound1_ms),
-                ("Impulse Sound", p.sound2_ms),
-                ("Drop Sound", p.sound3_ms),
-            ]
-            .into_iter()
-            .filter_map(|(l, v)| v.map(|v| (l, v)))
-            .collect(),
-            false,
-        );
+
+    /// An edge's line down from its name at `centre` to the trace at `x`,
+    /// and its bar there.
+    fn edge_line(&self, label: &str, x: f32, centre: f32, end_y: f32, on: Option<f32>) {
+        let frame = self.frame;
+        // Short of the trace, and of a sound's ring at the same spot.
+        let stop = on.map_or(frame.bottom(), |y| (y - self.r - 2.0).max(frame.top()));
+        // Straight down from its name, or from where the name had to
+        // slide to, with a short angled leader back to its line.
+        let mut pts = vec![egui::pos2(centre, end_y)];
+        if (centre - x).abs() > 1.0 {
+            pts.push(egui::pos2(x, frame.top() - LANE_GAP / 2.0));
+        }
+        pts.push(egui::pos2(x, stop));
+        self.painter.add(egui::Shape::line(
+            pts,
+            egui::Stroke::new(1.2_f32, self.edge_ink(label)),
+        ));
+        if let Some(y) = on {
+            self.edge_bar(egui::pos2(x, y));
+        }
+    }
+
+    /// A sound's ring on the trace at (`x`, `y`) and its dotted leader down
+    /// to its name at `centre`.
+    fn sound_leader(&self, x: f32, y: f32, centre: f32, end_y: f32) {
+        let pts = vec![
+            egui::pos2(x, y + self.r),
+            egui::pos2(x, self.frame.bottom() + LANE_GAP / 2.0),
+            egui::pos2(centre, end_y),
+        ];
+        self.painter.extend(egui::Shape::dashed_line(
+            &pts,
+            egui::Stroke::new(1.0_f32, self.pal.sound),
+            2.0,
+            2.0,
+        ));
+        self.sound_ring(egui::pos2(x, y));
     }
 }
 
