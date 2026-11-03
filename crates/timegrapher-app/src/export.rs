@@ -183,10 +183,6 @@ fn points(pts: &[Pos2]) -> String {
         .join(" ")
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn shape(out: &mut String, s: &Shape) {
     match s {
         Shape::Noop | Shape::Callback(_) => {}
@@ -228,82 +224,13 @@ fn shape(out: &mut String, s: &Shape) {
                 stroke_attrs(stroke.width, stroke.color),
             );
         }
-        Shape::Path(p) => {
-            if p.points.is_empty() {
-                return;
-            }
-            let bounds = Rect::from_points(&p.points);
-            let color = path_stroke_color(&p.stroke, bounds);
-            let tag = if p.closed { "polygon" } else { "polyline" };
-            let fill = if p.closed {
-                paint("fill", p.fill)
-            } else {
-                r#" fill="none""#.into()
-            };
-            let _ = writeln!(
-                out,
-                r#"<{tag} points="{}"{fill}{} stroke-linejoin="round"/>"#,
-                points(&p.points),
-                stroke_attrs(p.stroke.width, color),
-            );
-        }
-        Shape::Rect(r) => {
-            // egui strokes inside, on, or outside the edge; SVG on it.
-            let w = r.stroke.width;
-            let rect = match r.stroke_kind {
-                StrokeKind::Inside => r.rect.shrink(w / 2.0),
-                StrokeKind::Middle => r.rect,
-                StrokeKind::Outside => r.rect.expand(w / 2.0),
-            };
-            let cr = r.corner_radius;
-            let radius = (cr.nw as f32 + cr.ne as f32 + cr.sw as f32 + cr.se as f32) / 4.0;
-            let rx = if radius > 0.0 {
-                format!(r#" rx="{}""#, n(radius))
-            } else {
-                String::new()
-            };
-            let _ = writeln!(
-                out,
-                r#"<rect x="{}" y="{}" width="{}" height="{}"{rx}{}{}/>"#,
-                n(rect.left()),
-                n(rect.top()),
-                n(rect.width().max(0.0)),
-                n(rect.height().max(0.0)),
-                paint("fill", r.fill),
-                stroke_attrs(w, r.stroke.color),
-            );
-        }
+        Shape::Path(p) => path(out, p),
+        Shape::Rect(r) => rect(out, r),
         Shape::Text(t) => text(out, t),
-        Shape::Mesh(m) => {
-            // Flat colour comes from the font texture's white pixel; any
-            // other texture is a picture, which isn't carried over.
-            if m.texture_id != egui::TextureId::default() {
-                return;
-            }
-            for tri in m.indices.as_chunks::<3>().0 {
-                let v: Vec<_> = tri
-                    .iter()
-                    .filter_map(|&i| m.vertices.get(i as usize))
-                    .collect();
-                if v.len() < 3 || v[0].color.a() == 0 {
-                    continue;
-                }
-                let pts: Vec<Pos2> = v.iter().map(|v| v.pos).collect();
-                let _ = writeln!(
-                    out,
-                    r#"<polygon points="{}"{}/>"#,
-                    points(&pts),
-                    paint("fill", v[0].color),
-                );
-            }
-        }
+        Shape::Mesh(m) => mesh(out, m),
         Shape::QuadraticBezier(q) => {
             let [a, b, c] = q.points;
-            let fill = if q.closed {
-                paint("fill", q.fill)
-            } else {
-                r#" fill="none""#.into()
-            };
+            let fill = outline_fill(q.closed, q.fill);
             let bounds = Rect::from_points(&q.points);
             let _ = writeln!(
                 out,
@@ -320,11 +247,7 @@ fn shape(out: &mut String, s: &Shape) {
         }
         Shape::CubicBezier(q) => {
             let [a, b, c, d] = q.points;
-            let fill = if q.closed {
-                paint("fill", q.fill)
-            } else {
-                r#" fill="none""#.into()
-            };
+            let fill = outline_fill(q.closed, q.fill);
             let bounds = Rect::from_points(&q.points);
             let _ = writeln!(
                 out,
@@ -341,6 +264,85 @@ fn shape(out: &mut String, s: &Shape) {
                 stroke_attrs(q.stroke.width, path_stroke_color(&q.stroke, bounds)),
             );
         }
+    }
+}
+
+/// An egui path as a `<polygon>` where closed, else a `<polyline>`.
+fn path(out: &mut String, p: &egui::epaint::PathShape) {
+    if p.points.is_empty() {
+        return;
+    }
+    let bounds = Rect::from_points(&p.points);
+    let color = path_stroke_color(&p.stroke, bounds);
+    let tag = if p.closed { "polygon" } else { "polyline" };
+    let fill = outline_fill(p.closed, p.fill);
+    let _ = writeln!(
+        out,
+        r#"<{tag} points="{}"{fill}{} stroke-linejoin="round"/>"#,
+        points(&p.points),
+        stroke_attrs(p.stroke.width, color),
+    );
+}
+
+/// An egui rectangle as a `<rect>`.
+fn rect(out: &mut String, r: &egui::epaint::RectShape) {
+    // egui strokes inside, on, or outside the edge; SVG on it.
+    let w = r.stroke.width;
+    let rect = match r.stroke_kind {
+        StrokeKind::Inside => r.rect.shrink(w / 2.0),
+        StrokeKind::Middle => r.rect,
+        StrokeKind::Outside => r.rect.expand(w / 2.0),
+    };
+    let cr = r.corner_radius;
+    let radius = (cr.nw as f32 + cr.ne as f32 + cr.sw as f32 + cr.se as f32) / 4.0;
+    let rx = if radius > 0.0 {
+        format!(r#" rx="{}""#, n(radius))
+    } else {
+        String::new()
+    };
+    let _ = writeln!(
+        out,
+        r#"<rect x="{}" y="{}" width="{}" height="{}"{rx}{}{}/>"#,
+        n(rect.left()),
+        n(rect.top()),
+        n(rect.width().max(0.0)),
+        n(rect.height().max(0.0)),
+        paint("fill", r.fill),
+        stroke_attrs(w, r.stroke.color),
+    );
+}
+
+/// A mesh's flat-coloured triangles as `<polygon>`s.
+fn mesh(out: &mut String, m: &egui::Mesh) {
+    // Flat colour comes from the font texture's white pixel; any
+    // other texture is a picture, which isn't carried over.
+    if m.texture_id != egui::TextureId::default() {
+        return;
+    }
+    for tri in m.indices.as_chunks::<3>().0 {
+        let v: Vec<_> = tri
+            .iter()
+            .filter_map(|&i| m.vertices.get(i as usize))
+            .collect();
+        if v.len() < 3 || v[0].color.a() == 0 {
+            continue;
+        }
+        let pts: Vec<Pos2> = v.iter().map(|v| v.pos).collect();
+        let _ = writeln!(
+            out,
+            r#"<polygon points="{}"{}/>"#,
+            points(&pts),
+            paint("fill", v[0].color),
+        );
+    }
+}
+
+/// The fill of a shape that is filled only where it is closed.
+fn outline_fill(closed: bool, fill: Color32) -> String {
+    if closed {
+        paint("fill", fill)
+    } else {
+        r#" fill="none""#.into()
     }
 }
 
