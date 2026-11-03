@@ -569,10 +569,6 @@ fn track_label(
 /// Positions Test the time it didn't use plain, with what it is; masked
 /// stretches grey over them, named "Masked".
 #[allow(clippy::too_many_arguments)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn paint_track(
     painter: &egui::Painter,
     lane: Rect,
@@ -632,36 +628,13 @@ pub fn paint_track(
         // didn't use, nor masked, nor being painted over.
         // The name starts after the settle band, which has its own word.
         let band = settle_band(a, b, settles);
-        let mut cuts: Vec<(f64, f64)> = plain_parts
-            .iter()
-            .map(|p| (p.0, p.1))
+        let hidden = plain_parts.iter().map(|p| (p.0, p.1));
+        let hidden = hidden
             .chain(masked.iter().copied())
             .chain(covered)
-            .chain(band)
-            .filter(|p| p.1 > a && p.0 < b)
-            .collect();
-        cuts.sort_by(|x, y| x.0.total_cmp(&y.0));
-        let mut from = a;
-        for &(p0, p1) in &cuts {
-            if p0 > from {
-                if let Some(seg) = along_rect(lane, from, p0, &at, horizontal) {
-                    track_label(
-                        &painter,
-                        lane,
-                        seg,
-                        along(at(from.max(0.0))),
-                        name,
-                        code,
-                        ink,
-                        pal.card,
-                        horizontal,
-                    );
-                }
-            }
-            from = from.max(p1);
-        }
-        if from < b {
-            if let Some(seg) = along_rect(lane, from, b, &at, horizontal) {
+            .chain(band);
+        for (from, to) in showing(a, b, hidden) {
+            if let Some(seg) = along_rect(lane, from, to, &at, horizontal) {
                 track_label(
                     &painter,
                     lane,
@@ -696,37 +669,35 @@ pub fn paint_track(
         let Some((s0, s1)) = settle_band(a, b, settles) else {
             continue;
         };
-        let mut hidden: Vec<(f64, f64)> = plain_parts
-            .iter()
-            .map(|p| (p.0, p.1))
-            .chain(masked.iter().copied())
-            .chain(covered)
-            .filter(|p| p.1 > s0 && p.0 < s1)
-            .collect();
-        hidden.sort_by(|x, y| x.0.total_cmp(&y.0));
-        let mut from = s0;
-        let mut parts = Vec::new();
-        for &(h0, h1) in &hidden {
-            if h0 > from {
-                parts.push((from, h0));
-            }
-            from = from.max(h1);
-        }
-        if from < s1 {
-            parts.push((from, s1));
-        }
-        for (p0, p1) in parts {
+        let hidden = plain_parts.iter().map(|p| (p.0, p.1));
+        let hidden = hidden.chain(masked.iter().copied()).chain(covered);
+        for (p0, p1) in showing(s0, s1, hidden) {
             if let Some(seg) = along_rect(lane, p0, p1, &at, horizontal) {
                 settle_word(&painter, seg, horizontal);
             }
         }
     }
+    track_masked(&painter, lane, masked, &at, horizontal, vis, pal);
+}
+
+/// Masked stretches in the track's `lane`: hatched grey, named "Masked".
+fn track_masked(
+    painter: &egui::Painter,
+    lane: Rect,
+    masked: &[(f64, f64)],
+    at: &impl Fn(f64) -> Pos2,
+    horizontal: bool,
+    vis: &egui::Visuals,
+    pal: &crate::theme::Palette,
+) {
+    let along = |p: Pos2| if horizontal { p.x } else { p.y };
+    let ink = vis.text_color();
     for &(a, b) in masked {
-        if let Some(seg) = along_rect(lane, a, b, &at, horizontal) {
+        if let Some(seg) = along_rect(lane, a, b, at, horizontal) {
             painter.rect_filled(seg, 0.0, vis.extreme_bg_color);
-            crate::theme::hatch(&painter, seg, pal.text_tertiary, 2.5, 6.0);
+            crate::theme::hatch(painter, seg, pal.text_tertiary, 2.5, 6.0);
             track_label(
-                &painter,
+                painter,
                 lane,
                 seg,
                 along(at(a)),
@@ -738,6 +709,25 @@ pub fn paint_track(
             );
         }
     }
+}
+
+/// The parts of `a` to `b` that none of the stretches `hidden` covers, in
+/// order.
+fn showing(a: f64, b: f64, hidden: impl Iterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+    let mut hidden: Vec<(f64, f64)> = hidden.filter(|p| p.1 > a && p.0 < b).collect();
+    hidden.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let mut from = a;
+    let mut parts = Vec::new();
+    for &(h0, h1) in &hidden {
+        if h0 > from {
+            parts.push((from, h0));
+        }
+        from = from.max(h1);
+    }
+    if from < b {
+        parts.push((from, b));
+    }
+    parts
 }
 
 use crate::guided::SETTLING;
