@@ -128,7 +128,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # Main's full history for the silent-revert check below: commits and
+      # trees only, file contents just for the checked-out commit.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      # A pull request may not put a file back to an older version on main
+      # unless its body names the revert (`Reverts #N`); .github/ci/reverts.py.
+      # Seconds. GitHub does not re-run CI when only the body is edited.
+      - name: Silent reverts
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 .github/ci/reverts.py HEAD^1 HEAD
       - uses: actions/setup-node@v7
         with:
           node-version: '24.22.1'
