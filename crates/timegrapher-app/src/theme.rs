@@ -1464,10 +1464,6 @@ pub fn pane_toolbar_pinned(
 
 /// A pane's toolbar: its controls, then at its right end its `note`, its
 /// `pinned` control and the "?".
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn pane_toolbar_full(
     ui: &mut Ui,
     title: &str,
@@ -1494,31 +1490,7 @@ fn pane_toolbar_full(
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| pin(ui));
     }
     let note_w = note.map_or(0.0, |n| {
-        let p = pal(ui);
-        let g = ui.painter().layout_no_wrap(
-            n.to_owned(),
-            egui::FontId::proportional(12.0),
-            p.text_secondary,
-        );
-        let w = g.size().x;
-        ui.painter().galley(
-            egui::pos2(
-                full.right() - 26.0 - pin_w - w,
-                q.center().y - g.size().y / 2.0,
-            ),
-            g,
-            p.text_secondary,
-        );
-        note_drawn(
-            ui,
-            title,
-            n,
-            egui::Rect::from_min_size(
-                egui::pos2(full.right() - 26.0 - pin_w - w, q.top()),
-                Vec2::new(w, q.height()),
-            ),
-        );
-        w + 12.0
+        toolbar_note(ui, title, n, full.right() - 26.0 - pin_w, q)
     });
     let mut text = help_text.to_vec();
     text.push(crate::help::TOOLBAR);
@@ -1564,42 +1536,9 @@ fn pane_toolbar_full(
             let row = bar(ui).unwrap_or_default();
             kept = row.keep.clone();
             icons = row.icons.clone();
-            // Each control's width: as drawn now, or as last measured
-            // while it is folded.
-            let drawn: Vec<(String, f32)> = ui
-                .ctx()
-                .data(|d| d.get_temp(egui::Id::new(("pane toolbar drawn", title))))
-                .unwrap_or_default();
-            for k in &row.met {
-                let w = drawn
-                    .iter()
-                    .chain(known.iter())
-                    .find(|(d, _)| d == k)
-                    .map_or(26.0, |(_, w)| *w);
-                widths.push((k.clone(), w));
-            }
-            ui.ctx().data_mut(|d| {
-                d.remove::<Vec<(String, f32)>>(egui::Id::new(("pane toolbar drawn", title)))
-            });
+            widths = control_widths(ui, title, &row.met, &known);
             if !folded.is_empty() {
-                let more = ui
-                    .menu_button(RichText::new("…").size(14.0), |ui| {
-                        ui.set_min_width(280.0);
-                        ui.spacing_mut().item_spacing.y = 6.0;
-                        set_bar(
-                            ui,
-                            Some(Bar {
-                                title: title.to_string(),
-                                menu: Some(()),
-                                folded: folded.clone(),
-                                ..Default::default()
-                            }),
-                        );
-                        controls(ui);
-                    })
-                    .response
-                    .on_hover_text("The settings the pane is too narrow to show here");
-                note_drawn(ui, title, "…", more.rect);
+                more_menu(ui, title, &folded, &mut controls);
             }
             set_bar(ui, outer.clone());
         });
@@ -1609,6 +1548,78 @@ fn pane_toolbar_full(
         d.insert_temp(keep_id(title), kept);
         d.insert_temp(key_id(title), icons);
     });
+}
+
+/// A toolbar's `note`, ending at `right` and centred on the "?" at `q`;
+/// the room it takes.
+fn toolbar_note(ui: &mut Ui, title: &str, n: &str, right: f32, q: egui::Rect) -> f32 {
+    let p = pal(ui);
+    let g = ui.painter().layout_no_wrap(
+        n.to_owned(),
+        egui::FontId::proportional(12.0),
+        p.text_secondary,
+    );
+    let w = g.size().x;
+    ui.painter().galley(
+        egui::pos2(right - w, q.center().y - g.size().y / 2.0),
+        g,
+        p.text_secondary,
+    );
+    note_drawn(
+        ui,
+        title,
+        n,
+        egui::Rect::from_min_size(egui::pos2(right - w, q.top()), Vec2::new(w, q.height())),
+    );
+    w + 12.0
+}
+
+/// Each of the controls `met` in a toolbar's row and its width: as drawn
+/// now, or as last measured (`known`) while it is folded.
+fn control_widths(
+    ui: &Ui,
+    title: &str,
+    met: &[String],
+    known: &[(String, f32)],
+) -> Vec<(String, f32)> {
+    let drawn: Vec<(String, f32)> = ui
+        .ctx()
+        .data(|d| d.get_temp(egui::Id::new(("pane toolbar drawn", title))))
+        .unwrap_or_default();
+    let mut widths = Vec::new();
+    for k in met {
+        let w = drawn
+            .iter()
+            .chain(known.iter())
+            .find(|(d, _)| d == k)
+            .map_or(26.0, |(_, w)| *w);
+        widths.push((k.clone(), w));
+    }
+    ui.ctx()
+        .data_mut(|d| d.remove::<Vec<(String, f32)>>(egui::Id::new(("pane toolbar drawn", title))));
+    widths
+}
+
+/// The "…" that holds a toolbar's `folded` controls.
+fn more_menu(ui: &mut Ui, title: &str, folded: &[String], controls: &mut impl FnMut(&mut Ui)) {
+    let more = ui
+        .menu_button(RichText::new("…").size(14.0), |ui| {
+            ui.set_min_width(280.0);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            set_bar(
+                ui,
+                Some(Bar {
+                    title: title.to_string(),
+                    menu: Some(()),
+                    folded: folded.to_vec(),
+                    ..Default::default()
+                }),
+            );
+            controls(ui);
+        })
+        .response
+        .on_hover_text("The settings the pane is too narrow to show here");
+    note_drawn(ui, title, "…", more.rect);
 }
 
 /// One control of a pane's toolbar, named `key`: drawn in the row while
