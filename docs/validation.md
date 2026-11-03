@@ -40,7 +40,7 @@ It authenticates `take_part01-001.flac` from exactly four public takes:
 `eta2824_holder_DU_30min`. Missing, unreadable or unauthenticated inputs fail;
 the decoded recordings must be nonempty, both paths must hear the watch, and
 the compared rate, amplitude and both beat errors must be present and finite.
-Agreement margins remain 0.3 s/day, 1.5° and 0.03 ms respectively. This gates
+Agreement margins remain 0.3 s/d, 1.5° and 0.03 ms respectively. This gates
 whole-file analyze/session agreement on those fixtures, not real live-input,
 all-interval or all-watch equivalence. Completion logs identify the four inputs.
 An ordinary developer run without the corpus reports a skip and supplies no
@@ -88,7 +88,7 @@ and four-file checks does not resolve these stronger claims.
 | `chunk_size_does_not_change_the_beat_times` | Its <1 µs per-beat assertion is stronger than active `chunk_size_does_not_change_the_readings`, which checks beat counts and aggregate rate, amplitude and unlock beat error. Up to 34 µs was observed historically for 47, 10 and 3.7 s chunks. The current stream retains its initial template; the old explanation that every chunk builds its own template is not a demonstrated current cause. Timestamp invariance, current magnitude and cause remain unresolved. |
 | `push_size_does_not_change_the_live_beats` | Exact beat-count equality across 480, 4,096 and 48,000 sample pushes remains unresolved. Historical counts were 1,432, 1,435 and 1,436 of 1,440. Rolling analysis, startup and end settlement need investigation before deciding whether a difference is intended or a scheduling/tracking defect. Active synthetic live-reading checks do not prove block-invariant beat logs. |
 | `live_matches_analyze_on_real_takes` | It compares a pushed live trailing/latest-piece reading with a whole-file analysis, including separately detected beats. Interval, settlement and cut context must be aligned before treating every difference as an estimator defect. Historical Daytona/ETA values remain in the annotation; some predate shared file beats. Its comparator already compares beat-error magnitudes, so a historical sign flip alone does not establish failure of this assertion. Current real-live agreement remains unverified by this test. |
-| `a_replayed_real_take_matches_session` | Universal equality is not the supported contract across changing pieces or different cut contexts. The retained diagnostic compares replay's latest piece with the full session selection. Historical ETA rates 11.49/11.14 s/day are not current results. The active supplied-beat test above protects the intended distinction; an interval/cut-aligned real replay comparison remains future work. |
+| `a_replayed_real_take_matches_session` | Universal equality is not the supported contract across changing pieces or different cut contexts. The retained diagnostic compares replay's latest piece with the full session selection. Historical ETA rates 11.49/11.14 s/d are not current results. The active supplied-beat test above protects the intended distinction; an interval/cut-aligned real replay comparison remains future work. |
 
 The first two are unresolved stronger invariants, not evidence that all timing
 or scheduling differences are harmless. The latter two require a comparison
