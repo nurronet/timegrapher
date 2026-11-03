@@ -1733,10 +1733,6 @@ pub fn form(ctx: &egui::Context, f: &mut Form, cal: &mut Calibres) -> Option<For
 const FROM_CALIBRE: &str =
     "Set by the calibre: pick another calibre, or change it in Manage Calibres…";
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
     let pal = theme::pal(ui);
     theme::row(
@@ -1774,6 +1770,32 @@ fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
     // calibre's, and only one it doesn't give is set here.
     let calibre = w.calibre.clone().unwrap_or_default();
     let (cal_lift, cal_bph) = (cal.lift(&calibre), cal.bph(&calibre));
+    lift_row(ui, w, cal_lift);
+    bph_row(ui, w, cal_bph);
+    own_fields(ui, w);
+    let mut notes = w.notes.clone().unwrap_or_default();
+    ui.label("Notes");
+    ui.add(
+        egui::TextEdit::multiline(&mut notes)
+            .desired_rows(3)
+            .desired_width(f32::INFINITY),
+    )
+    .on_hover_text("Anything about the watch, kept as typed");
+    w.notes = (!notes.is_empty()).then_some(notes);
+    add_field(ui, w);
+    ui.label(
+        RichText::new(
+            "Only the name is needed. Name, Calibre, Lift Angle, Beat Rate and Notes are always \
+             kept; the fields you add can be removed.",
+        )
+        .small()
+        .color(pal.text_secondary),
+    );
+}
+
+/// The watch's lift angle: the calibre's (`cal_lift`) where it gives one,
+/// else set here.
+fn lift_row(ui: &mut egui::Ui, w: &mut Watch, cal_lift: Option<f64>) {
     theme::row(
         ui,
         "Lift Angle",
@@ -1807,6 +1829,11 @@ fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
             }
         },
     );
+}
+
+/// The watch's beat rate: the calibre's (`cal_bph`) where it gives one,
+/// else set here.
+fn bph_row(ui: &mut egui::Ui, w: &mut Watch, cal_bph: Option<u32>) {
     theme::row(
         ui,
         "Beat Rate",
@@ -1832,6 +1859,11 @@ fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
             }
         },
     );
+}
+
+/// The fields the user added, each with its label, value and kind, to
+/// remove or move up.
+fn own_fields(ui: &mut egui::Ui, w: &mut Watch) {
     let mut remove = None;
     let mut up = None;
     for (i, f) in w.fields.iter_mut().enumerate() {
@@ -1889,15 +1921,10 @@ fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
     if let Some(i) = up {
         w.fields.swap(i - 1, i);
     }
-    let mut notes = w.notes.clone().unwrap_or_default();
-    ui.label("Notes");
-    ui.add(
-        egui::TextEdit::multiline(&mut notes)
-            .desired_rows(3)
-            .desired_width(f32::INFINITY),
-    )
-    .on_hover_text("Anything about the watch, kept as typed");
-    w.notes = (!notes.is_empty()).then_some(notes);
+}
+
+/// "Add Field": a suggested field, or one of the user's own.
+fn add_field(ui: &mut egui::Ui, w: &mut Watch) {
     ui.horizontal(|ui| {
         ui.menu_button("Add Field", |ui| {
             for label in timegrapher_core::library::SUGGESTED_FIELDS {
@@ -1930,14 +1957,6 @@ fn fields(ui: &mut egui::Ui, w: &mut Watch, cal: &mut Calibres) {
         .response
         .on_hover_text("Add a field: a suggested one, or one of your own");
     });
-    ui.label(
-        RichText::new(
-            "Only the name is needed. Name, Calibre, Lift Angle, Beat Rate and Notes are always \
-             kept; the fields you add can be removed.",
-        )
-        .small()
-        .color(pal.text_secondary),
-    );
 }
 
 #[cfg(test)]
