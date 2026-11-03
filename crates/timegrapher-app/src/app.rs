@@ -32,7 +32,7 @@ use timegrapher_core::capture::{self, Capture, Event, InputDevice, Level};
 use timegrapher_core::clockstore;
 use timegrapher_core::library;
 use timegrapher_core::library::{length_text, size_text};
-use timegrapher_core::live::{LiveAnalyzer, LiveConfig, LiveReading, MAX_PROFILE_S};
+use timegrapher_core::live::{LiveAnalyzer, LiveConfig, LiveReading, AVERAGES, MAX_PROFILE_S};
 use timegrapher_core::measure::Caveat;
 use timegrapher_core::mixer::{self, GainState, InputGain};
 use timegrapher_core::periodicity::Wheel;
@@ -513,7 +513,12 @@ pub enum Position {
 impl Position {
     /// A position by any name the session files take: DU, CH, "dial up"…
     pub(crate) fn from_name(s: &str) -> Option<Position> {
-        let common = timegrapher_core::session::Position::parse(s)?.common();
+        Self::of_core(timegrapher_core::session::Position::parse(s)?)
+    }
+
+    /// The window's position for core's, by its common code.
+    pub(crate) fn of_core(p: timegrapher_core::session::Position) -> Option<Position> {
+        let common = p.common();
         Position::ALL.into_iter().find(|p| p.code() == common)
     }
 
@@ -1576,8 +1581,6 @@ const FRAME_BUDGET: Duration = Duration::from_millis(20);
 /// The same for [`TimegrapherApp::pump`], which runs off the window's
 /// thread and only holds the window up while it works.
 pub(crate) const PUMP_BUDGET: Duration = Duration::from_millis(50);
-/// Averaging times offered for the readings, seconds.
-const AVERAGES: [f64; 6] = [2.0, 4.0, 10.0, 20.0, 30.0, 60.0];
 /// Strip widths offered, ms either side of the centre. 62.5 ms is half a
 /// beat at 28,800 bph, the widest view in which tick and tock can't wrap
 /// onto each other; the wider ones keep a long take's drift from wrapping.
@@ -1626,8 +1629,6 @@ const SETTLES: [f64; 4] = [10.0, 20.0, 30.0, 60.0];
 const MEASURES: [f64; 6] = [30.0, 60.0, 90.0, 120.0, 180.0, 300.0];
 /// Lift angles offered, degrees.
 const LIFTS: [f64; 6] = [44.0, 49.0, 50.0, 52.0, 53.0, 55.0];
-/// Most points kept on a chart when it is rebuilt from the whole session.
-const TREND_POINTS: f64 = 4000.0;
 
 const MS: Format = Format {
     show: fields::plain,
@@ -1738,20 +1739,6 @@ fn trend_key(seconds: f64) -> u64 {
     (seconds * 1000.0).round() as u64
 }
 
-/// The readings over the whole of what `live` holds, averaged over
-/// `seconds`, at up to [`TREND_POINTS`] times.
-fn trend_over(live: &LiveAnalyzer, seconds: f64) -> Vec<TrendPoint> {
-    let end = live.duration_s();
-    let step = (end / TREND_POINTS).max(0.5);
-    let mut out = Vec::new();
-    let mut t = step;
-    while t <= end + 1e-9 {
-        out.push(TrendPoint::of(t, &live.reading_at(t, seconds)));
-        t += step;
-    }
-    out
-}
-
 /// What the take on show's readings rest on, a counter for each part,
 /// moved only where that part is set: every figure kept for later keys on
 /// the parts it reads, so a change in one place reaches every pane. Moves
@@ -1796,53 +1783,12 @@ fn strip_step(span_s: f64) -> f64 {
     (span_s / 400.0).max(0.5)
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TrendPoint {
-    t: f64,
-    rate: Option<f64>,
-    amplitude: Option<f64>,
-    amplitude_a: Option<f64>,
-    amplitude_b: Option<f64>,
-    beat_error_unlock: Option<f64>,
-    beat_error_drop: Option<f64>,
-    /// The beats were spaced like a watch's, not scattered like noise.
-    heard: bool,
-}
+/// A reading of a chart over time: core's trend reading.
+type TrendPoint = timegrapher_core::live::TrendReading;
 
-impl TrendPoint {
-    /// The reading's beat error as core reads one (`beat_error_signed`).
-    fn beat_error(&self) -> Option<f64> {
-        core_session::beat_error_signed(self.beat_error_unlock, self.beat_error_drop)
-    }
-
-    /// The reading at `t`; a reading whose averaging time
-    /// is not a whole bin (just after the start, a break or a masked
-    /// stretch, or over a dropout; see `LiveReading::whole`) has no
-    /// values, since it isn't the average the chart is of.
-    fn of(t: f64, r: &LiveReading) -> Self {
-        if !r.whole {
-            return TrendPoint {
-                t,
-                rate: None,
-                amplitude: None,
-                amplitude_a: None,
-                amplitude_b: None,
-                beat_error_unlock: None,
-                beat_error_drop: None,
-                heard: false,
-            };
-        }
-        TrendPoint {
-            t,
-            rate: r.rate_s_per_day,
-            amplitude: r.amplitude_deg,
-            amplitude_a: r.amplitude_even_deg,
-            amplitude_b: r.amplitude_odd_deg,
-            beat_error_unlock: r.beat_error_unlock_ms,
-            beat_error_drop: r.beat_error_ms,
-            heard: r.beats_used > 0 && r.watch_heard,
-        }
-    }
+/// A trend reading's beat error as core reads one (`beat_error_signed`).
+fn trend_beat_error(p: &TrendPoint) -> Option<f64> {
+    core_session::beat_error_signed(p.beat_error_unlock_ms, p.beat_error_ms)
 }
 
 /// Where each position began, seconds, and the position, oldest first.
@@ -2874,7 +2820,7 @@ impl TimegrapherApp {
         let mut points = self
             .live
             .as_ref()
-            .map_or_else(Vec::new, |l| trend_over(l, seconds));
+            .map_or_else(Vec::new, |l| l.trend(seconds));
         points.retain(|p| self.session.replay_reading_allowed(p.t));
         points
     }
@@ -5212,7 +5158,7 @@ type WholeKey = (usize, Vec<(f64, f64)>, Vec<(f64, f64)>, Revision);
 /// What [`TimegrapherApp::free_table`] was read from: the beats heard,
 /// each position's settled stretches, the masks and the True Clock.
 /// A take's changes of position and the settling after each.
-type Positions = (Vec<(f64, Position)>, Vec<(f64, f64)>);
+type Positions = timegrapher_core::take::Positions<Position>;
 /// The positions shown, and those recorded under them where painting
 /// changed them.
 type Layers = (Positions, Option<Positions>);
@@ -5220,33 +5166,6 @@ type Layers = (Positions, Option<Positions>);
 /// One entry per stretch in one position, as a session file lists it:
 /// start, end and the position's code.
 type Entries = Vec<(Option<f64>, Option<f64>, String)>;
-
-/// The positions a session file lists, each stretch's start, the start
-/// of what is read once it has settled, its end and its position, as
-/// changes oldest first and the settling before each: from the end of the
-/// one before (or the take's start, for the first) to where its reading
-/// starts.
-fn positions_of(listed: impl Iterator<Item = (f64, f64, Option<f64>, Position)>) -> Positions {
-    let mut listed: Vec<(f64, f64, Option<f64>, Position)> = listed.collect();
-    listed.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut out = Vec::new();
-    let mut settles = Vec::new();
-    for (i, &(start, from, _, p)) in listed.iter().enumerate() {
-        // The position began where the one before it ended, the first at
-        // the take's start: the app saves each entry from the end of its
-        // settling, the first's too.
-        let began = match i.checked_sub(1).map(|j| listed[j].2) {
-            None => 0.0,
-            Some(Some(end)) if end < start => end,
-            Some(_) => start,
-        };
-        if from > began {
-            settles.push((began, from));
-        }
-        out.push((began, p));
-    }
-    (out, settles)
-}
 
 /// The session file's entries for `spans` (start, end, position) and the
 /// settling that begins them: one per stretch, from the end of its

@@ -636,7 +636,7 @@ fn strip_overlays_drawn(
             decimals: 1,
             color: pal.trace_rate,
             min_span: 4.0,
-            points: series(|p| p.rate),
+            points: series(|p| p.rate_s_per_day),
         });
     }
     if on[0] {
@@ -646,7 +646,7 @@ fn strip_overlays_drawn(
             decimals: 0,
             color: pal.trace_amplitude,
             min_span: 10.0,
-            points: series(|p| p.amplitude),
+            points: series(|p| p.amplitude_deg),
         });
     }
     if on[2] {
@@ -656,7 +656,7 @@ fn strip_overlays_drawn(
             decimals: 2,
             color: pal.trace_beat_error,
             min_span: 0.2,
-            points: series(TrendPoint::beat_error),
+            points: series(trend_beat_error),
         });
     }
     overlays

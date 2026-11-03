@@ -160,7 +160,7 @@ fn chart_lines(
                     "Rate in seconds per day, {} average",
                     fields::duration(average)
                 ),
-                pts: pick(|p| p.rate),
+                pts: pick(|p| p.rate_s_per_day),
                 color: pal.trace_rate,
                 style: solid,
                 key: pal.trace_rate,
@@ -174,7 +174,7 @@ fn chart_lines(
             vec![
                 ChartLine {
                     name: "Average Amplitude".into(),
-                    pts: pick(|p| p.amplitude),
+                    pts: pick(|p| p.amplitude_deg),
                     color: pal.trace_amplitude,
                     style: solid,
                     key: pal.trace_amplitude,
@@ -183,7 +183,7 @@ fn chart_lines(
                 },
                 ChartLine {
                     name: "Amplitude from Tick".into(),
-                    pts: pick(|p| p.amplitude_a),
+                    pts: pick(|p| p.amplitude_even_deg),
                     color: pal.trace_amplitude,
                     style: LineStyle::Dashed { length: 6.0 },
                     key: pal.tick,
@@ -192,7 +192,7 @@ fn chart_lines(
                 },
                 ChartLine {
                     name: "Amplitude from Tock".into(),
-                    pts: pick(|p| p.amplitude_b),
+                    pts: pick(|p| p.amplitude_odd_deg),
                     color: pal.trace_amplitude,
                     style: LineStyle::Dashed { length: 6.0 },
                     key: pal.tock,
@@ -207,7 +207,7 @@ fn chart_lines(
             vec![
                 ChartLine {
                     name: "From the Unlock".into(),
-                    pts: pick(|p| p.beat_error_unlock.map(f64::abs)),
+                    pts: pick(|p| p.beat_error_unlock_ms.map(f64::abs)),
                     color: pal.trace_beat_error,
                     style: solid,
                     key: pal.trace_beat_error,
@@ -216,7 +216,7 @@ fn chart_lines(
                 },
                 ChartLine {
                     name: "From the Drop".into(),
-                    pts: pick(|p| p.beat_error_drop.map(f64::abs)),
+                    pts: pick(|p| p.beat_error_ms.map(f64::abs)),
                     color: pal.trace_beat_error.gamma_multiply(0.6),
                     style: LineStyle::dashed_dense(),
                     key: pal.trace_beat_error.gamma_multiply(0.6),

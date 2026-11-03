@@ -653,7 +653,7 @@ fn readings_resume_a_whole_average_after_a_mask() {
     let after: Vec<_> = app
         .trend
         .iter()
-        .filter(|p| p.t > 20.0 && p.rate.is_some())
+        .filter(|p| p.t > 20.0 && p.rate_s_per_day.is_some())
         .map(|p| p.t)
         .collect();
     assert!(!after.is_empty());
@@ -664,7 +664,7 @@ fn readings_resume_a_whole_average_after_a_mask() {
     let points: Vec<[f64; 2]> = app
         .trend
         .iter()
-        .filter_map(|p| Some([p.t, p.rate?]))
+        .filter_map(|p| Some([p.t, p.rate_s_per_day?]))
         .collect();
     let parts = segments(&points);
     assert_eq!(parts.len(), 2, "one line each side of the mask");
@@ -686,7 +686,7 @@ fn slow_beats_fill_a_short_average() {
     for b in audio.samples.chunks(960) {
         live.push(b);
     }
-    let points = trend_over(&live, 2.0);
+    let points = live.trend(2.0);
     // The last point, at the newest sound, isn't settled yet.
     let end = live.duration_s() - 1.0;
     let late: Vec<_> = points.iter().filter(|p| p.t > 8.0 && p.t < end).collect();
@@ -694,7 +694,9 @@ fn slow_beats_fill_a_short_average() {
     // None left off that the engine read.
     let left_off: Vec<f64> = late
         .iter()
-        .filter(|p| p.rate.is_none() && live.reading_at(p.t, 2.0).rate_s_per_day.is_some())
+        .filter(|p| {
+            p.rate_s_per_day.is_none() && live.reading_at(p.t, 2.0).rate_s_per_day.is_some()
+        })
         .map(|p| p.t)
         .collect();
     assert!(left_off.is_empty(), "{left_off:?} of {}", late.len());

@@ -117,7 +117,7 @@ impl TimegrapherApp {
             }
         };
         let i = self.trend.partition_point(|p| p.t <= end + 1e-9);
-        let drop_be = i.checked_sub(1).and_then(|i| self.trend[i].beat_error_drop);
+        let drop_be = i.checked_sub(1).and_then(|i| self.trend[i].beat_error_ms);
         // The moment shown goes in the toolbar, drawn before the pane: a
         // change shows on the next frame.
         if note != self.sound_note {

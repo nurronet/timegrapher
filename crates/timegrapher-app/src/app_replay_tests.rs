@@ -35,7 +35,7 @@ fn a_new_averaging_time_redraws_the_whole_chart() {
     // Every point now uses 4 s of beats, back to the start.
     let early = app.trend.iter().find(|p| p.t >= 8.0).unwrap();
     let r = app.live.as_ref().unwrap().reading_at(early.t, 4.0);
-    assert_eq!(early.rate, r.rate_s_per_day);
+    assert_eq!(early.rate_s_per_day, r.rate_s_per_day);
     assert!((app.trend.last().unwrap().t - app.live.as_ref().unwrap().duration_s()).abs() <= 0.5);
 }
 

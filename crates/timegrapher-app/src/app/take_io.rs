@@ -1307,22 +1307,15 @@ impl TimegrapherApp {
         // entry runs to its end.
         let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
         let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
-        let (out, settles) = positions_of(entries.iter().filter_map(|e| {
-            let p = Position::from_name(e.position.as_deref()?)?;
-            let start = e.start_s.unwrap_or(0.0);
-            let (from, to) = match timegrapher_core::take::reading_window(e, m, None, length) {
-                Ok(w) => (w.from_s, w.to_s),
-                // An entry session reads nothing of settles to its end.
-                Err(_) => {
-                    let end = e.end_s.unwrap_or(start);
-                    (end, end)
-                }
-            };
-            Some((start, from, to.is_finite().then_some(to), p))
-        }));
+        let listed = timegrapher_core::take::listed_positions(m, entries, length);
+        let (out, settles) = timegrapher_core::take::positions_of(
+            listed
+                .into_iter()
+                .filter_map(|(start, from, to, p)| Some((start, from, to, Position::of_core(p)?))),
+        );
         // What was recorded under any painting, loaded with the positions.
         self.pending_recorded = (!m.recorded.is_empty()).then(|| {
-            positions_of(m.recorded.iter().filter_map(|r| {
+            timegrapher_core::take::positions_of(m.recorded.iter().filter_map(|r| {
                 let p = Position::from_name(&r.position)?;
                 let start = r.start_s.unwrap_or(0.0);
                 Some((start, start, r.end_s, p))
