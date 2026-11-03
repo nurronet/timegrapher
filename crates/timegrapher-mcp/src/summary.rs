@@ -8,7 +8,7 @@
 use serde_json::{Map, Value};
 
 pub(crate) use timegrapher_core::reading_text::position_name;
-use timegrapher_core::reading_text::{figures as readings, values as figures};
+use timegrapher_core::reading_text::{figures, values};
 
 fn signed(v: f64, digits: usize) -> String {
     timegrapher_core::library::signed_text(v, digits)
@@ -130,8 +130,8 @@ pub fn lead(doc: &Value, args: &Map<String, Value>) -> Option<String> {
             lines.push(crate::caveats::no_regular_beat(doc, doc["bph"].as_f64()));
         } else {
             let selected = analyze_rate(doc);
-            let found = figures(doc, selected.as_ref().map(|r| r.0), analyze_drop(doc));
-            if let Some(r) = readings(doc, found) {
+            let found = values(doc, selected.as_ref().map(|r| r.0), analyze_drop(doc));
+            if let Some(r) = figures(doc, found) {
                 lines.push(format!("Readings: {r}."));
             }
             if let Some((_, basis)) = selected {
@@ -171,10 +171,10 @@ fn position_lines(list: &Value) -> Vec<String> {
         .collect()
 }
 
-/// A `session` reading's figures as the lead gives them ([`figures`]).
+/// A `session` reading's figures as the lead gives them ([`values`]).
 #[cfg(test)]
 fn session_figures(m: &Value) -> [Option<f64>; 3] {
-    figures(m, m["rate_s_per_day"].as_f64(), m["beat_error_ms"].as_f64())
+    values(m, m["rate_s_per_day"].as_f64(), m["beat_error_ms"].as_f64())
 }
 
 /// What `analyze`'s `take` block says `session` reads of the file: a line
@@ -290,20 +290,11 @@ fn take(doc: &Value, args: &Map<String, Value>) -> String {
             bph.unwrap_or(0),
         );
         lines.push(format!("{said} over the whole take."));
-    } else {
-        let mut parts = Vec::new();
-        if let Some(r) = c["rate_s_per_day"].as_f64() {
-            parts.push(format!("rate {} s/day", signed(r, 1)));
-        }
-        if let Some(a) = c["amplitude_deg"].as_f64() {
-            parts.push(format!("amplitude {a:.0}°"));
-        }
-        if let Some(b) = c["beat_error_ms"].as_f64() {
-            parts.push(format!("beat error {:.2} ms", b.abs()));
-        }
-        if !parts.is_empty() {
-            lines.push(format!("The check{window} measured {}.", parts.join(", ")));
-        }
+    } else if let Some(reading) = figures(
+        c,
+        values(c, c["rate_s_per_day"].as_f64(), c["beat_error_ms"].as_f64()),
+    ) {
+        lines.push(format!("The check{window} measured {reading}."));
     }
     let settings = &doc["input"]["settings"];
     if let Some(l) = settings["lift_deg"].as_f64() {
@@ -736,10 +727,15 @@ mod tests {
         assert_eq!(
             s,
             "Recorded Dial Up (DU) for 30 s. The check from 15 to 30 s measured rate +3.0 \
-             s/day, amplitude 269°, beat error 0.40 ms. Lift angle 52°: the default, since \
+             s/d, amplitude 269°, beat error 0.40 ms. Lift angle 52°: the default, since \
              no calibre or lift angle was given; the amplitude depends on it. 118 of 120 \
              expected beats were found. No beats were clipped. The take was added to the test."
         );
+        let mut unlock = doc.clone();
+        unlock["check"]["beat_error_unlock_ms"] = json!(-0.2);
+        assert!(lead(&unlock, &Map::new())
+            .unwrap()
+            .contains("beat error 0.20 ms"));
         assert!(!s.contains("confidence"));
         let given = json!({ "lift_deg": 50.0 }).as_object().unwrap().clone();
         assert!(lead(&doc, &given)
