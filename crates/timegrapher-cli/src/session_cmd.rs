@@ -642,10 +642,110 @@ pub(crate) fn read_one_with_context(
     Ok((reading, context))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
+/// The cycles found in an entry's reading, from its own windows; none for
+/// noise, or where `--no-cycles` or the session file turns them off.
+fn cycles_of(c: &Ctx, read: &take::EntryRead) -> Vec<session::Cycle> {
+    if !read.measurement.watch_heard || c.o.no_cycles || c.m.cycles == Some(false) {
+        Vec::new()
+    } else {
+        let lc = LongConfig {
+            wheels: c
+                .calibre
+                .train
+                .wheels(read.log.bph)
+                .into_iter()
+                .chain(c.m.wheels.iter().map(|(name, &period_s)| Wheel {
+                    name: name.clone(),
+                    period_s,
+                }))
+                .collect(),
+            ..Default::default()
+        };
+        // The reading's own windows: its cuts, as `measure_masked` makes
+        // them.
+        let holes = Cuts::new(read.clock.as_ref(), &read.breaks, &read.masked);
+        let part = trimmed(&read.log, &holes, read.settle_s, read.end_s);
+        // The part's times start at `settle`, so its breaks move with
+        // it; a clock fit that holds the gaps at their own places is left
+        // out (a ppm or so makes no odds to a cycle's period).
+        let mut inside: Vec<_> = read
+            .breaks
+            .iter()
+            .filter(|b| b.audio_s > read.settle_s && b.audio_s < read.end_s)
+            .map(|b| breaks::Break {
+                audio_s: b.audio_s - read.settle_s,
+                // A pause the clock log did not see has no gap (#646).
+                gap_s: if read.clock.as_ref().is_some_and(|c| !c.keeps_gap(b)) {
+                    0.0
+                } else {
+                    b.gap_s
+                },
+            })
+            // A masked stretch is cut at both ends, with no time lost.
+            .chain(
+                timegrapher_core::clean::mask_breaks(&read.masked)
+                    .into_iter()
+                    .filter(|b| b.audio_s > read.settle_s && b.audio_s < read.end_s)
+                    .map(|b| breaks::Break {
+                        audio_s: b.audio_s - read.settle_s,
+                        ..b
+                    }),
+            )
+            .collect();
+        inside.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+        let part_clock = read.clock.as_ref().filter(|c| c.breaks.is_empty());
+        let mut long = longrun::analyse_with_breaks(&part, part_clock, &inside, &lc);
+        // The cycles the Steadiness pane names (#659).
+        timegrapher_core::steadiness::family_long(&part, part_clock, &mut long, &lc);
+        session::cycles(&long, &lc.wheels)
+    }
+}
+
+/// The beat's shape of an entry's reading: as measured when a take kept
+/// as its analysis was kept, else read from its sound; none for noise, or
+/// where `--no-shape` or the session file turns it off.
+fn shape_of(
+    e: &RecordingEntry,
+    c: &Ctx,
+    read: &take::EntryRead,
+) -> Result<Option<session::ShapeSummary>, take::EntryError> {
+    let shape = if !read.measurement.watch_heard || c.o.no_shape || c.m.shape == Some(false) {
+        None
+    } else if let Some(k) = &read.kept {
+        // Measured on the sound when the take was kept.
+        let i =
+            c.m.recordings
+                .iter()
+                .position(|r| std::ptr::eq(r, e))
+                .or_else(|| {
+                    c.m.recordings.iter().position(|r| {
+                        r.file == e.file
+                            && r.start_s == e.start_s
+                            && r.end_s == e.end_s
+                            && r.position == e.position
+                    })
+                });
+        i.and_then(|i| k.shape_of(i))
+            .map(|s| session::ShapeSummary {
+                from_s: s.summary.from_s.or(Some(s.from_s)),
+                ..s.summary.clone()
+            })
+    } else if let Some((from, len)) =
+        analysis_take::shape_stretch(&read.masked, read.settle_s, read.end_s)
+    {
+        let (x, fs) = excerpt(&read.files, from, len)?;
+        let env = envelope(&x, fs, &EnvelopeConfig::default());
+        let (found, _) = beats::detect(&env, fs, read.log.bph);
+        let beat_s =
+            timing::fit(&found, read.log.bph).map_or(3600.0 / read.log.bph as f64, |f| f.period_s);
+        let r = shape::analyze(&env, fs, &found, beat_s, &ShapeConfig::default());
+        Some(session::shape_summary(&r, from, x.len() as f64 / fs))
+    } else {
+        None
+    };
+    Ok(shape)
+}
+
 fn read_one_inner(
     e: &RecordingEntry,
     c: &Ctx,
@@ -675,14 +775,14 @@ fn read_one_inner(
         )
         .into());
     }
+    let cycles = cycles_of(c, &read);
+    let shape = shape_of(e, c, &read)?;
     let take::EntryRead {
         files,
-        kept,
         log,
         clock,
         clock_text: log_text,
         breaks,
-        masked,
         start_s: start,
         stop_s: stop,
         settle_s: settle,
@@ -693,94 +793,6 @@ fn read_one_inner(
     let clock_input_sha256 = log_text
         .as_ref()
         .map(|t| crate::archive::sha256_hex(t.as_bytes()));
-
-    // Cycles and shape of noise would only mislead.
-    let heard = measurement.watch_heard;
-    let cycles = if !heard || c.o.no_cycles || c.m.cycles == Some(false) {
-        Vec::new()
-    } else {
-        let lc = LongConfig {
-            wheels: c
-                .calibre
-                .train
-                .wheels(log.bph)
-                .into_iter()
-                .chain(c.m.wheels.iter().map(|(name, &period_s)| Wheel {
-                    name: name.clone(),
-                    period_s,
-                }))
-                .collect(),
-            ..Default::default()
-        };
-        // The reading's own windows: its cuts, as `measure_masked` makes
-        // them.
-        let holes = Cuts::new(clock.as_ref(), &breaks, &masked);
-        let part = trimmed(&log, &holes, settle, end);
-        // The part's times start at `settle`, so its breaks move with
-        // it; a clock fit that holds the gaps at their own places is left
-        // out (a ppm or so makes no odds to a cycle's period).
-        let mut inside: Vec<_> = breaks
-            .iter()
-            .filter(|b| b.audio_s > settle && b.audio_s < end)
-            .map(|b| breaks::Break {
-                audio_s: b.audio_s - settle,
-                // A pause the clock log did not see has no gap (#646).
-                gap_s: if clock.as_ref().is_some_and(|c| !c.keeps_gap(b)) {
-                    0.0
-                } else {
-                    b.gap_s
-                },
-            })
-            // A masked stretch is cut at both ends, with no time lost.
-            .chain(
-                timegrapher_core::clean::mask_breaks(&masked)
-                    .into_iter()
-                    .filter(|b| b.audio_s > settle && b.audio_s < end)
-                    .map(|b| breaks::Break {
-                        audio_s: b.audio_s - settle,
-                        ..b
-                    }),
-            )
-            .collect();
-        inside.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
-        let part_clock = clock.as_ref().filter(|c| c.breaks.is_empty());
-        let mut long = longrun::analyse_with_breaks(&part, part_clock, &inside, &lc);
-        // The cycles the Steadiness pane names (#659).
-        timegrapher_core::steadiness::family_long(&part, part_clock, &mut long, &lc);
-        session::cycles(&long, &lc.wheels)
-    };
-
-    let shape = if !heard || c.o.no_shape || c.m.shape == Some(false) {
-        None
-    } else if let Some(k) = &kept {
-        // Measured on the sound when the take was kept.
-        let i =
-            c.m.recordings
-                .iter()
-                .position(|r| std::ptr::eq(r, e))
-                .or_else(|| {
-                    c.m.recordings.iter().position(|r| {
-                        r.file == e.file
-                            && r.start_s == e.start_s
-                            && r.end_s == e.end_s
-                            && r.position == e.position
-                    })
-                });
-        i.and_then(|i| k.shape_of(i))
-            .map(|s| session::ShapeSummary {
-                from_s: s.summary.from_s.or(Some(s.from_s)),
-                ..s.summary.clone()
-            })
-    } else if let Some((from, len)) = analysis_take::shape_stretch(&masked, settle, end) {
-        let (x, fs) = excerpt(&files, from, len)?;
-        let env = envelope(&x, fs, &EnvelopeConfig::default());
-        let (found, _) = beats::detect(&env, fs, log.bph);
-        let beat_s = timing::fit(&found, log.bph).map_or(3600.0 / log.bph as f64, |f| f.period_s);
-        let r = shape::analyze(&env, fs, &found, beat_s, &ShapeConfig::default());
-        Some(session::shape_summary(&r, from, x.len() as f64 / fs))
-    } else {
-        None
-    };
 
     let label = if e.start_s.is_some() || e.end_s.is_some() {
         format!("{} ({:.0}–{:.0} s)", e.file, start, stop)
@@ -871,10 +883,6 @@ impl Session<'_> {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
     check_seconds("--settle", o.settle, 0.0, false)?;
     if o.init {
@@ -899,22 +907,7 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         quiet: false,
         card_clock: false,
     };
-    // An entry with nothing to read is left out, with a note, and the
-    // report lists it.
-    let mut readings = Vec::new();
-    let mut left_out = Vec::new();
-    for e in &m.recordings {
-        match read_one_or_left_out(e, &ctx)? {
-            Ok(r) => readings.push(r),
-            Err(l) => {
-                if ctx.tty {
-                    eprintln!();
-                }
-                eprintln!("note: {}", l.text());
-                left_out.push(l);
-            }
-        }
-    }
+    let (readings, left_out) = read_all(&m, &ctx)?;
     if readings.is_empty() {
         return Err(format!(
             "{}: no recording listed with anything to read",
@@ -960,21 +953,46 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         report,
         power_reserve: power_reserve_of(&base)?,
     };
+    write_out(&s, o, &base)
+}
 
+/// Every entry of the session file read: an entry with nothing to read is
+/// left out, with a note, and the report lists it.
+fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<(Vec<Reading>, Vec<LeftOut>), String> {
+    let mut readings = Vec::new();
+    let mut left_out = Vec::new();
+    for e in &m.recordings {
+        match read_one_or_left_out(e, ctx)? {
+            Ok(r) => readings.push(r),
+            Err(l) => {
+                if ctx.tty {
+                    eprintln!();
+                }
+                eprintln!("note: {}", l.text());
+                left_out.push(l);
+            }
+        }
+    }
+    Ok((readings, left_out))
+}
+
+/// The summary, readings and report written to the report folder, and the
+/// summary printed (or its JSON with `--json`).
+fn write_out(s: &Session, o: &Options, base: &Path) -> Result<(), String> {
     let out = o.out.clone().unwrap_or_else(|| base.join(take::REPORT_DIR));
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let json = serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
     let w = |name: &str, text: &str| {
         let p = out.join(name);
         fs::write(&p, text).map_err(|e| format!("{}: {e}", p.display()))
     };
     w("summary.json", &json)?;
-    w("readings.csv", &csv(&s))?;
-    w("report.html", &crate::session_report::html(&s))?;
+    w("readings.csv", &csv(s))?;
+    w("report.html", &crate::session_report::html(s))?;
     if o.json {
         println!("{json}");
     } else {
-        print_summary(&s);
+        print_summary(s);
         let report = out.join("report.html");
         println!(
             "Report       {}",
@@ -1088,12 +1106,18 @@ fn finding_lines(f: &Finding) {
     println!("    {}", f.evidence);
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn print_summary(s: &Session) {
-    let r = &s.report;
+    print_watch(s);
+    println!();
+    print_readings(s);
+    print_notes(s);
+    print_states(s);
+    println!();
+    print_findings(&s.report);
+}
+
+/// The watch, its beat rate and lift, and the power reserve run.
+fn print_watch(s: &Session) {
     let name = match (s.watch, s.calibre) {
         (Some(w), Some(c)) => format!("{w}, calibre {c}"),
         (Some(w), None) => w.to_string(),
@@ -1119,7 +1143,10 @@ fn print_summary(s: &Session) {
             p.ending.text()
         );
     }
-    println!();
+}
+
+/// One line for each position's reading, under its heading.
+fn print_readings(s: &Session) {
     println!(
         "{:<21} {:<18} {:>7} {:>5} {:>5} {:>5} {:>7} {:>15} {:>6} {:>5} {:>17}  Recording",
         "Position",
@@ -1180,6 +1207,10 @@ fn print_summary(s: &Session) {
             rd.label,
         );
     }
+}
+
+/// What was left out, and what the columns and readings mean.
+fn print_notes(s: &Session) {
     for l in &s.left_out {
         println!("Left out     {}", l.text());
     }
@@ -1201,6 +1232,11 @@ fn print_summary(s: &Session) {
         );
     }
     println!();
+}
+
+/// Each reading's states, the wind states, isochronism and Im, Ie.
+fn print_states(s: &Session) {
+    let r = &s.report;
     for rd in s.readings.iter().filter(|r| r.measurement.watch_heard) {
         let m = &rd.measurement;
         println!(
@@ -1247,7 +1283,9 @@ fn print_summary(s: &Session) {
             opt(r.ie, 1)
         );
     }
-    println!();
+}
+
+fn print_findings(r: &SessionReport) {
     if r.findings.is_empty() {
         println!("Findings     none");
     } else {
