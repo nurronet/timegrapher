@@ -200,6 +200,7 @@ pub enum Action {
 }
 
 pub struct Test {
+    pub bph_set: Option<u32>,
     pub step: usize,
     /// When the watch was put in this step's position, seconds of the
     /// session's sound; set on the first frame that has a session.
@@ -232,6 +233,7 @@ pub struct Test {
 impl Test {
     pub fn new() -> Self {
         Test {
+            bph_set: None,
             step: 0,
             start: None,
             began: None,
@@ -529,6 +531,7 @@ impl Test {
         let measurement: Measurement =
             session::measure_masked(log, clock, &jumps, masked, from, to);
         Some(Reading {
+            bph_set: self.bph_set,
             label: p.name().into(),
             position,
             wind_h: self.wind_h(),
@@ -1360,19 +1363,15 @@ pub struct Table {
 }
 
 /// The conditions found in one position's measurement, as plain facts.
-fn conditions(label: &str, bph: u32, m: &Measurement) -> Vec<String> {
+fn conditions(label: &str, bph_set: Option<u32>, m: &Measurement) -> Vec<String> {
     let mut out = Vec::new();
     if !m.watch_heard {
-        let fraction = timegrapher_core::beats::timing_scatter_fraction(m.jitter_us, bph);
-        out.push(match m.jitter_us.zip(fraction) {
-            Some((j, f)) => format!(
-                "{label}: no regular beat found (timing scatter {:.1} ms, {:.1}% of a beat)",
-                j / 1000.0,
-                f * 100.0
-            ),
-            None => format!("{label}: no regular beat found"),
-        });
+        out.push(format!(
+            "{label}: {}",
+            session::no_regular_beat_in(m, bph_set)
+        ));
     }
+
     if m.clipped_beats > 0 {
         let pct = m.clipped_fraction * 100.0;
         out.push(if pct < 0.5 {
@@ -1420,7 +1419,7 @@ pub fn table(readings: &[Reading]) -> Table {
         .collect();
     let notes = readings
         .iter()
-        .flat_map(|r| conditions(&position_label(r.position), r.bph, &r.measurement))
+        .flat_map(|r| conditions(&position_label(r.position), r.bph_set, &r.measurement))
         .collect();
     table_of(&figures, notes)
 }

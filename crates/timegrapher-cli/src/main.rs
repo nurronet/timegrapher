@@ -1478,10 +1478,7 @@ fn print_summary(
     println!("Duration     {:.1} s at {} Hz", s.duration_s, s.sample_rate);
     if !s.watch_heard {
         let reason = measure::no_watch_reason_in(&s.caveats).unwrap_or_default();
-        println!(
-            "{}",
-            measure::no_watch_text(reason, s.jitter_us, s.timing_scatter_fraction)
-        );
+        println!("{}", measure::no_watch_text(reason, s.jitter_us, s.bph_set));
         return;
     }
     if !measure::regularity_assessed(s.duration_s) {

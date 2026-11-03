@@ -45,6 +45,9 @@ pub struct Summary {
     pub duration_s: f64,
     pub sample_rate: u32,
     pub bph: u32,
+    /// The supplied beat rate (option, calibre or session file), never a guess.
+    /// With no supplied rate, no-watch text gives scatter only in ms (#857).
+    pub bph_set: Option<u32>,
     /// The beat rate the recording sounds like, when a set `bph` differs
     /// from it: every reading is then measured against the set rate.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -360,6 +363,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         crate::shape::Measures::of(&r, &clear)
     });
     let mut summary = Summary {
+        bph_set: cfg.bph,
         duration_s: duration,
         sample_rate: audio.sample_rate,
         bph,

@@ -87,6 +87,7 @@ struct Check {
     timing_scatter_ms: Option<f64>,
     timing_scatter_fraction: Option<f64>,
     bph: u32,
+    bph_set: Option<u32>,
     beats_found: usize,
     beats_expected: usize,
     rate_s_per_day: Option<f64>,
@@ -840,6 +841,7 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
     // not much longer than its settling may leave too little.
     let heard = whole.watch_heard && m.watch_heard;
     Ok(Check {
+        bph_set: set.bph,
         from_s: m.start_s,
         to_s: m.end_s,
         watch_heard: whole.watch_heard,
@@ -966,9 +968,9 @@ fn add_to_session(
 fn facts(c: &Check) -> Vec<String> {
     let mut f = Vec::new();
     if !c.watch_heard {
-        f.push(timegrapher_core::beats::no_regular_beat_text(
+        f.push(session::no_regular_beat(
             c.timing_scatter_ms.map(|ms| ms * 1000.0),
-            c.timing_scatter_fraction,
+            c.bph_set,
         ));
     }
     if c.clipping.beats > 0 {
@@ -1033,6 +1035,51 @@ mod tests {
     /// A Power Reserve take's hours are read across the pauses its
     /// session.json lists, as `session` reads a take: an hour's span is
     /// true time, the pause's included.
+    #[test]
+    fn noise_without_a_set_rate_has_no_guessed_percent_in_the_quick_check() {
+        let dir =
+            std::env::temp_dir().join(format!("tg-record-noise-percent-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut seed = 7u64;
+        let samples = (0..48_000 * 30)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                (seed as i64 as f64 / i64::MAX as f64 * 0.1) as f32
+            })
+            .collect();
+        audio::write_wav(
+            &dir.join("audio-001.wav"),
+            &audio::Audio {
+                sample_rate: 48_000,
+                samples,
+            },
+        )
+        .unwrap();
+        for bph in [None, Some(28800)] {
+            let set = Settings {
+                watch: None,
+                calibre: None,
+                bph,
+                lift: 52.0,
+                lift_known: true,
+                settle_s: Some(0.0),
+            };
+            let c = check(&dir, &set).unwrap();
+            assert!(!c.watch_heard);
+            assert_eq!(c.bph_set, bph);
+            assert!(
+                c.timing_scatter_fraction.is_some(),
+                "raw numerical evidence is retained"
+            );
+            let words = facts(&c).join(" ");
+            assert!(words.contains("timing scatter"), "{words}");
+            assert_eq!(words.contains("% of a beat"), bph.is_some(), "{words}");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_power_reserve_hour_spans_the_pauses_its_take_lists() {
         use timegrapher_core::synth::{generate, SynthConfig};
@@ -1145,6 +1192,7 @@ mod tests {
             timing_scatter_ms: None,
             timing_scatter_fraction: None,
             bph: 28800,
+            bph_set: Some(28800),
             beats_found: 8,
             beats_expected: 8,
             rate_s_per_day: None,

@@ -809,6 +809,7 @@ fn read_one_inner(
     };
     Ok((
         Reading {
+            bph_set: cfg.analysis.bph,
             label,
             position,
             wind_h: e.wind_h,
@@ -1157,7 +1158,7 @@ fn print_summary(s: &Session) {
                 "{:<21} {:<18} {:<62} {:>17}  {}{clock}",
                 rd.position.display_label(),
                 wind(rd.wind_h),
-                session::no_regular_beat_in(m, rd.bph),
+                session::no_regular_beat_in(m, rd.bph_set),
                 rf,
                 rd.label,
             );
