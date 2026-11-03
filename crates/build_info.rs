@@ -3,9 +3,11 @@
 // build date (UTC). A build from a source tarball, with no git, reports
 // "unknown" for the hash and leaves the dirty flag empty.
 //
-// The script re-runs only when HEAD moves (a commit or a checkout), not on
-// every source edit, so the hash costs no rebuilds. The dirty flag and the
-// date are therefore those of the last time HEAD moved.
+// The script re-runs when HEAD moves (a commit or a checkout) and when a
+// file under `crates/` or the workspace's Cargo files changes, so the dirty
+// flag is that of the source the build compiled: an edit made without a
+// commit says dirty, and undoing it says clean again (audit F3). The date
+// is that of the last re-run, unless SOURCE_DATE_EPOCH sets it.
 //
 // The app's and the CLI's `build.rs` both include this file, so the two
 // report their build the same way.
@@ -20,6 +22,23 @@ fn git(args: &[&str]) -> Option<String> {
         return None;
     }
     Some(String::from_utf8(out.stdout).ok()?.trim().to_string())
+}
+
+/// Ask cargo to re-run this script when the source it is built from
+/// changes: every file under `crates/` (this file's folder, which holds
+/// every crate's source) and the workspace's Cargo files. Cargo looks
+/// through a folder it is given for any file changed since the last run.
+fn watch_source() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for p in [
+        crates.clone(),
+        crates.join("..").join("Cargo.toml"),
+        crates.join("..").join("Cargo.lock"),
+    ] {
+        if p.exists() {
+            println!("cargo:rerun-if-changed={}", p.display());
+        }
+    }
 }
 
 /// Ask cargo to re-run this script when HEAD or the branch it names moves.
@@ -60,6 +79,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../build_info.rs");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     watch_head();
+    watch_source();
 
     let hash = git(&["rev-parse", "--short=7", "HEAD"]).filter(|h| !h.is_empty());
     let dirty = hash.as_ref().and_then(|_| {

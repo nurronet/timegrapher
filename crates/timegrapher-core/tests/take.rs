@@ -276,3 +276,74 @@ fn an_unreadable_session_json_is_said() {
     // The clock log shows the same pause, so here the readings agree.
     assert_eq!(unread.breaks.len(), listed.breaks.len());
 }
+
+/// A take kept as its analysis alone reads its pause from its
+/// session.json; one whose session.json is there but can't be read is
+/// still read, its breaks from the clock, and says so with the same
+/// caveat as a take with its sound (`breaks_unlisted`, `unreadable`),
+/// never as though the take listed no pause. A take with no session.json
+/// at all lists none, and says nothing.
+#[test]
+fn an_analysis_only_take_says_its_session_json_is_unreadable() {
+    let (dir, path, _) = take_with_a_pause("kept-unreadable", 60.0);
+    let m: session::Manifest = toml::from_str(
+        r#"
+        audio = false
+        bph = 28800
+
+        [[recording]]
+        file = "."
+        position = "DU"
+        "#,
+    )
+    .unwrap();
+    let cfg = take::stream_settings(&m, None, take::Given::default());
+    let shapes = timegrapher_core::analysis_take::shape_stretches(&m, 150.0);
+    let software = serde_json::json!({"name": "timegrapher", "version": "test"});
+    let kept = timegrapher_core::analysis_take::measure(
+        &[path.as_path()],
+        &cfg,
+        &shapes,
+        software,
+        |_| {},
+    )
+    .unwrap();
+    timegrapher_core::analysis_take::write(&dir, &kept).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let s = take::EntrySettings {
+        stream: cfg,
+        card_clock: true,
+        settle_s: None,
+    };
+    let read =
+        || take::measure_entry(&dir, &m, &m.recordings[0], &s, |_| Ok(None), |_| Ok(None)).unwrap();
+    let said = |r: &take::EntryRead| {
+        r.measurement.caveats.iter().any(|c| {
+            matches!(
+                c,
+                Caveat::BreaksUnlisted {
+                    why: breaks::Unlisted::Unreadable
+                }
+            )
+        })
+    };
+    let listed = read();
+    std::fs::write(dir.join("session.json"), "{ \"breaks\": [").unwrap();
+    let unread = read();
+    std::fs::remove_file(dir.join("session.json")).unwrap();
+    let none = read();
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert!(listed.kept.is_some(), "read as its analysis alone");
+    assert_eq!(listed.unlisted, None);
+    assert!(
+        listed.breaks.iter().any(|b| (b.gap_s - GAP_S).abs() < 1e-9),
+        "{:?}",
+        listed.breaks
+    );
+    assert!(!said(&listed), "{:?}", listed.measurement.caveats);
+    assert_eq!(unread.unlisted, Some(breaks::Unlisted::Unreadable));
+    assert!(said(&unread), "{:?}", unread.measurement.caveats);
+    assert_eq!(none.unlisted, None);
+    assert!(!said(&none), "{:?}", none.measurement.caveats);
+}

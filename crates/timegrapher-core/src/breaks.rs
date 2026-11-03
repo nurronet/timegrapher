@@ -284,6 +284,29 @@ pub fn for_take(
     Found { breaks, unlisted }
 }
 
+/// A take's `session.json` at `path`, as every reader of its breaks
+/// reads it: `Ok(None)` when there is none, and
+/// [`Unlisted::Unreadable`] when one is there but can't be read or isn't
+/// JSON, so a reader never takes a broken file for a missing one.
+pub fn read_session(path: &std::path::Path) -> Result<Option<serde_json::Value>, Unlisted> {
+    match std::fs::read_to_string(path) {
+        Ok(t) => serde_json::from_str(&t)
+            .map(Some)
+            .map_err(|_| Unlisted::Unreadable),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(Unlisted::Unreadable),
+    }
+}
+
+/// The breaks the clock log shows, for a take whose own list can't be
+/// used, and why ([`Unlisted`]).
+pub fn of_clock(clock: Option<&crate::clock::ClockFit>, why: Unlisted) -> Found {
+    Found {
+        breaks: clock.map_or_else(Vec::new, |c| c.breaks.clone()),
+        unlisted: Some(why),
+    }
+}
+
 /// The breaks of the take that `files` (in order) make up: from the
 /// `session.json` beside the first file when the files are that take's
 /// segments, else from the clock fit. A file given on its own out of a
@@ -300,19 +323,13 @@ pub fn of_files(
         .first()
         .and_then(|f| f.parent())
         .map(|d| d.join(crate::take::RECORD));
-    let json: Result<Option<serde_json::Value>, ()> = match path {
-        Some(p) if p.exists() => std::fs::read_to_string(&p)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .map(Some)
-            .ok_or(()),
-        _ => Ok(None),
+    let json = match path {
+        Some(p) => read_session(&p),
+        None => Ok(None),
     };
-    let Ok(json) = json else {
-        return Found {
-            breaks: clock.map_or_else(Vec::new, |c| c.breaks.clone()),
-            unlisted: Some(Unlisted::Unreadable),
-        };
+    let json = match json {
+        Ok(json) => json,
+        Err(why) => return of_clock(clock, why),
     };
     let names: Vec<String> = files
         .iter()

@@ -448,7 +448,36 @@ pub struct Reading {
 /// opened to read only can still keep them.
 pub const READINGS_FILE: &str = "readings.json";
 
-type Readings = BTreeMap<String, (Stamp, Reading)>;
+/// What a kept reading was worked out from outside its take's folder,
+/// which the take's own stamp can't see: the engine that read it, the
+/// calibre its session file names as the user's calibres resolve it, and
+/// the clock correction stored for the input it was recorded on
+/// ([`crate::take::correction_for`]), with the sound file that correction
+/// was asked for. A reading is kept only while all of these are as they
+/// were (audit F1: a correction set after the reading was kept left the
+/// library showing the old rate).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Outside {
+    engine: String,
+    calibre: Option<String>,
+    first: Option<PathBuf>,
+    correction: Option<(f64, String)>,
+}
+
+/// A take's reading as kept, with what it was worked out from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Kept {
+    stamp: Stamp,
+    outside: Outside,
+    reading: Reading,
+}
+
+/// Readings kept before [`Outside`] was kept with them don't read as
+/// these, so each is worked out once again.
+type Readings = BTreeMap<String, Kept>;
+
+/// The engine that works the readings out: this build's version.
+const ENGINE: &str = env!("CARGO_PKG_VERSION");
 
 fn readings_path() -> Option<PathBuf> {
     crate::clockstore::config_dir().map(|d| d.join(READINGS_FILE))
@@ -471,8 +500,10 @@ fn reading_key(take_dir: &Path) -> String {
 /// The reading kept for the take in `take_dir`, when it was worked out
 /// since the take last changed; quick, it reads no sound.
 pub fn kept_reading(take_dir: &Path) -> Option<Reading> {
-    let (s, r) = readings_kept().remove(&reading_key(take_dir))?;
-    (s == reading_stamp(take_dir)).then_some(r)
+    let k = readings_kept().remove(&reading_key(take_dir))?;
+    (k.stamp == reading_stamp(take_dir)
+        && outside(take_dir, k.outside.first.as_deref()).ok()? == k.outside)
+        .then_some(k.reading)
 }
 
 /// The take in `take_dir`'s own reading ([`Reading`]): the one kept when
@@ -485,10 +516,17 @@ pub fn reading(take_dir: &Path) -> Result<Reading, String> {
         return Ok(r);
     }
     let stamp = reading_stamp(take_dir);
-    let r = measure_take(take_dir)?;
+    let (r, outside) = measure_take(take_dir)?;
     if let Some(p) = readings_path() {
         let mut kept = readings_kept();
-        kept.insert(reading_key(take_dir), (stamp, r.clone()));
+        kept.insert(
+            reading_key(take_dir),
+            Kept {
+                stamp,
+                outside,
+                reading: r.clone(),
+            },
+        );
         if let (Some(dir), Ok(b)) = (p.parent(), serde_json::to_vec(&kept)) {
             let _ = fs::create_dir_all(dir).map(|_| write_atomic(&p, &b));
         }
@@ -501,11 +539,24 @@ pub fn reading(take_dir: &Path) -> Result<Reading, String> {
 /// it, with no flags: its settings from its `session.toml` and calibre
 /// ([`crate::take::stream_settings`]), its clock from its log, its USB
 /// lines, its `card_ppm` or the correction stored for its input
-/// ([`crate::take::measure_entry`]).
-fn measure_take(dir: &Path) -> Result<Reading, String> {
-    let file = dir.join(crate::take::MANIFEST);
-    let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
+/// ([`crate::take::measure_entry`]). Also what it was worked out from
+/// outside the take's folder ([`Outside`]).
+fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
+    measure_take_with(dir, |m, first| {
+        crate::take::correction_for(m, first, None, None)
+    })
+}
+
+/// [`measure_take`], with the correction for the take's first sound file
+/// from `correction`. The [`Outside`] it gives holds the very correction
+/// the reading used, not one looked up again after, so a correction
+/// changed while the take is read can't be kept beside a reading made
+/// without it.
+fn measure_take_with(
+    dir: &Path,
+    correction: impl FnOnce(&Manifest, &Path) -> Result<Option<(f64, String)>, String>,
+) -> Result<(Reading, Outside), String> {
+    let m = manifest_of(dir)?;
     let Some(e) = m
         .recordings
         .iter()
@@ -514,34 +565,87 @@ fn measure_take(dir: &Path) -> Result<Reading, String> {
     else {
         return Err(format!(
             "{}: no recording listed with anything to read",
-            file.display()
+            dir.join(crate::take::MANIFEST).display()
         ));
     };
-    let user = match (&m.calibre, crate::calibre_store::default_path()) {
-        (Some(_), Some(p)) => crate::calibre_store::UserCalibres::load(&p)?,
-        _ => crate::calibre_store::UserCalibres::default(),
-    };
-    let cal = m
-        .calibre
-        .as_deref()
-        .and_then(|n| crate::take::calibre_named(n, &user));
+    let cal = calibre_of(&m)?;
     let settings = crate::take::EntrySettings {
         stream: crate::take::stream_settings(&m, cal.as_ref(), crate::take::Given::default()),
         card_clock: false,
         settle_s: None,
     };
+    let mut used = None;
     let read = crate::take::measure_entry(dir, &m, e, &settings, crate::take::usb, |first| {
-        crate::take::correction_for(&m, first, None, None)
+        let c = correction(&m, first);
+        if let Ok(c) = &c {
+            used = Some((first.to_path_buf(), c.clone()));
+        }
+        c
     })?;
     let x = &read.measurement;
-    Ok(Reading {
+    let reading = Reading {
         position: e.position.clone(),
         rate_s_per_day: x.rate_s_per_day,
         calibrated: x.calibrated,
         amplitude_deg: x.amplitude_deg,
         beat_error_ms: x.beat_error_signed(),
         watch_heard: x.watch_heard,
-    })
+    };
+    let (first, correction) = used.unzip();
+    Ok((
+        reading,
+        outside_from(cal.as_ref(), first, correction.flatten()),
+    ))
+}
+
+/// The take in `dir`'s session file.
+fn manifest_of(dir: &Path) -> Result<Manifest, String> {
+    let file = dir.join(crate::take::MANIFEST);
+    let text = fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))
+}
+
+/// The calibre session file `m` names, as the user's calibres resolve it.
+fn calibre_of(m: &Manifest) -> Result<Option<crate::take::Calibre>, String> {
+    let user = match (&m.calibre, crate::calibre_store::default_path()) {
+        (Some(_), Some(p)) => crate::calibre_store::UserCalibres::load(&p)?,
+        _ => crate::calibre_store::UserCalibres::default(),
+    };
+    Ok(m.calibre
+        .as_deref()
+        .and_then(|n| crate::take::calibre_named(n, &user)))
+}
+
+/// What a reading of the take in `dir` would read outside its folder
+/// now, the correction looked up afresh for `first` as the kept reading's
+/// was asked for: quick, it reads no sound.
+fn outside(dir: &Path, first: Option<&Path>) -> Result<Outside, String> {
+    let m = manifest_of(dir)?;
+    let cal = calibre_of(&m)?;
+    let correction = match first {
+        Some(f) => crate::take::correction_for(&m, f, None, None)?,
+        None => None,
+    };
+    Ok(outside_from(
+        cal.as_ref(),
+        first.map(Path::to_path_buf),
+        correction,
+    ))
+}
+
+/// The [`Outside`] of a reading with calibre `cal`, its correction asked
+/// for `first`: one place for a kept reading's and a fresh look's.
+fn outside_from(
+    cal: Option<&crate::take::Calibre>,
+    first: Option<PathBuf>,
+    correction: Option<(f64, String)>,
+) -> Outside {
+    Outside {
+        engine: ENGINE.into(),
+        calibre: cal.map(|c| format!("{c:?}")),
+        first,
+        correction,
+    }
 }
 
 /// Whether the take in the folder `take_dir` is a Positions Test's: it
@@ -1683,7 +1787,7 @@ mod tests {
             "bph = 28800\n\n[[recording]]\nfile = '.'\nposition = 'DU'\n",
         )
         .unwrap();
-        let r = measure_take(&dir).unwrap();
+        let (r, _) = measure_take(&dir).unwrap();
         let be = r.beat_error_ms.expect("the drop's beat error");
         assert!((be - 0.8).abs() < 0.05, "{be}");
         fs::write(
@@ -1694,6 +1798,43 @@ mod tests {
         let a = read_take(&dir, 0).unwrap().at_end.unwrap();
         assert_eq!(a.beat_error_ms, Some(-0.4));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A kept reading holds the very correction it was read with: one
+    /// that changes while the take is read (here the store gives another
+    /// from the one the reading used) is never kept beside it, so the next
+    /// look sees the change and reads the take again (audit F1 review).
+    #[test]
+    fn a_kept_reading_holds_the_correction_it_was_read_with() {
+        let dir = std::env::temp_dir().join(format!("tg-reading-used-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        crate::audio::write_wav(
+            &dir.join("audio-001.wav"),
+            &crate::synth::generate(
+                &crate::synth::SynthConfig {
+                    duration_s: 40.0,
+                    rate_s_per_day: 5.0,
+                    ..Default::default()
+                },
+                |_| 270.0,
+                |_| 0.0,
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("session.toml"),
+            "bph = 28800\n\n[[recording]]\nfile = '.'\nposition = 'DU'\n",
+        )
+        .unwrap();
+        let used = (50.0, "used by the reading".to_string());
+        let (r, kept) = measure_take_with(&dir, |_, _| Ok(Some(used.clone()))).unwrap();
+        let now = outside(&dir, kept.first.as_deref()).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(r.calibrated, "{r:?}");
+        assert!(kept.first.is_some(), "the correction was asked for");
+        assert_eq!(kept.correction, Some(used));
+        assert_ne!(now, kept, "a different correction now: read it again");
     }
 
     /// A take's facts give the readings it ended on, but not for a test:
