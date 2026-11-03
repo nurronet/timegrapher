@@ -292,3 +292,115 @@ fn the_app_reads_each_edge_take_as_the_command_line_does() {
         wrong.join("\n")
     );
 }
+
+/// Split entries retain their clock even without readable recorder metadata.
+fn split_entries_clock_probe(metadata: &str, folder: bool) {
+    use timegrapher_core::{audio, synth};
+    let required = std::env::var_os("TIMEGRAPHER_REQUIRE_CORPUS").is_some();
+    let Some(cli) = std::env::var_os("TIMEGRAPHER_CLI").map(PathBuf::from) else {
+        assert!(!required, "TIMEGRAPHER_CLI is needed");
+        eprintln!("SKIP: set TIMEGRAPHER_CLI for the duplicate-entry probe");
+        return;
+    };
+    let root = std::env::temp_dir().join(format!(
+        "tg-app-duplicate-clock-{metadata}-{folder}-{}",
+        std::process::id()
+    ));
+    let dir = root.join(format!("takes/duplicate_clock_{metadata}_{folder}"));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sound = synth::generate(
+        &synth::SynthConfig {
+            duration_s: 300.0,
+            rate_s_per_day: -7.0,
+            ..Default::default()
+        },
+        |_| 270.0,
+        |_| 0.0,
+    );
+    let fs = sound.sample_rate;
+    audio::write_wav(&dir.join("take.wav"), &sound).unwrap();
+    let mut clock = String::from("unix_s,frames\n");
+    let mut frames: Vec<u32> = (0..=30).map(|i| i * 10 * fs).collect();
+    frames.push(100 * fs - fs / 10);
+    frames.sort_unstable();
+    for frame in frames {
+        let wall = 1_700_000_000.0
+            + frame as f64 / fs as f64 * 1.00002
+            + if frame >= 100 * fs { 60.0 } else { 0.0 };
+        clock.push_str(&format!("{wall:.6},{frame}\n"));
+    }
+    std::fs::write(dir.join("clock.csv"), clock).unwrap();
+    let record = serde_json::json!({"segments": ["take.wav"], "breaks": [
+        {"frame": 100 * fs, "audio_s": 100.0, "gap_s": 60.0}
+    ]})
+    .to_string();
+    match metadata {
+        "valid" => std::fs::write(dir.join("session.json"), &record).unwrap(),
+        "truncated" => {
+            std::fs::write(dir.join("session.json"), &record[..record.len() / 2]).unwrap()
+        }
+        "missing" => {}
+        _ => unreachable!(),
+    }
+    std::fs::write(
+        dir.join("session.toml"),
+        "bph = 28800\nlift = 52\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nend_s = 160\nclock = \"clock.csv\"\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DD\"\nstart_s = 160\nclock = \"clock.csv\"\n",
+    )
+    .unwrap();
+    let readings = session_readings(&cli, &dir);
+    assert_eq!(readings.len(), 2);
+    for reading in &readings {
+        let rate = reading["measurement"]["rate_s_per_day"].as_f64().unwrap();
+        assert!((rate + 8.728).abs() < 0.2, "corrected rate: {rate}");
+    }
+    let path = if folder {
+        dir.clone()
+    } else {
+        dir.join("take.wav")
+    };
+    let mut app = opened(&path);
+    let clock = app.take_clock.as_ref().expect("the app retains the clock");
+    assert!((clock.ppm - 20.0).abs() < 0.1);
+    assert_eq!(clock.breaks.len(), 1);
+    assert!((clock.breaks[0].gap_s - 60.0).abs() < 0.01);
+    for (position, reading) in [Position::DialUp, Position::DialDown]
+        .into_iter()
+        .zip(&readings)
+    {
+        app.position = position;
+        let wrong = differences(metadata, &app.whole_take(), reading);
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn split_entries_clock_valid_metadata() {
+    split_entries_clock_probe("valid", false);
+}
+#[test]
+fn split_entries_clock_truncated_metadata() {
+    split_entries_clock_probe("truncated", false);
+}
+#[test]
+fn split_entries_clock_missing_metadata() {
+    split_entries_clock_probe("missing", false);
+}
+
+#[test]
+fn split_entries_clock_folder_valid_metadata() {
+    split_entries_clock_probe("valid", true);
+}
+
+#[test]
+fn split_entries_clock_folder_truncated_metadata() {
+    split_entries_clock_probe("truncated", true);
+}
+
+#[test]
+fn split_entries_clock_folder_missing_metadata() {
+    split_entries_clock_probe("missing", true);
+}
