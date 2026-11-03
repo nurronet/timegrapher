@@ -90,10 +90,6 @@ fn print_side(p: &TickProfile) {
 
 /// Two stacked plots (tick above tock) on a log level scale, with the median, the
 /// 10–90% band and the marks.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn svg(profiles: &[Option<TickProfile>; 2], file: &Path, from: f64, to: f64, lift: f64) -> String {
     let (w, h, ml, mr, mt, gap) = (900.0, 260.0, 60.0, 20.0, 40.0, 50.0);
     let total = mt + 2.0 * h + gap + 40.0;
@@ -135,74 +131,7 @@ fn svg(profiles: &[Option<TickProfile>; 2], file: &Path, from: f64, to: f64, lif
             );
             continue;
         };
-        let n = p.median.len();
-        let t1 = p.t0_ms + (n - 1) as f64 * p.step_ms;
-        let xs = |t: f64| ml + (t - p.t0_ms) / (t1 - p.t0_ms) * (w - ml - mr);
-        let ys = |v: f32| {
-            let v = v.max(lo) as f64;
-            y0 + h - (v.ln() - (lo as f64).ln()) / ((hi as f64).ln() - (lo as f64).ln()) * h
-        };
-        let t = |k: usize| p.t0_ms + k as f64 * p.step_ms;
-        let mut band = String::new();
-        for k in 0..n {
-            let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p90[k]));
-        }
-        for k in (0..n).rev() {
-            let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p10[k]));
-        }
-        let _ = writeln!(
-            s,
-            r##"<polygon points="{band}" fill="#cfe0f5" stroke="none"/>"##
-        );
-        let line: String = (0..n)
-            .map(|k| format!("{:.1},{:.1} ", xs(t(k)), ys(p.median[k])))
-            .collect();
-        let _ = writeln!(
-            s,
-            r##"<polyline points="{line}" fill="none" stroke="#123" stroke-width="1.2"/>"##
-        );
-        // Time grid every 2 ms.
-        let mut g = (p.t0_ms / 2.0).ceil() * 2.0;
-        while g <= t1 {
-            let x = xs(g);
-            let _ = writeln!(
-                s,
-                r##"<line x1="{x:.1}" y1="{}" x2="{x:.1}" y2="{}" stroke="#eee"/><text x="{x:.1}" y="{}" text-anchor="middle" fill="#666">{g:.0}</text>"##,
-                y0 + h,
-                y0 + h + 4.0,
-                y0 + h + 16.0
-            );
-            g += 2.0;
-        }
-        let marks = [
-            (p.unlock_ms, "#d33", "unlock"),
-            (p.drop_ms, "#d33", "drop"),
-            (p.sound1_ms, "#2a2", "1"),
-            (p.sound2_ms, "#2a2", "2"),
-            (p.sound3_ms, "#2a2", "3"),
-        ];
-        for (k, (m, c, name)) in marks.iter().enumerate() {
-            if let Some(m) = m {
-                let x = xs(*m);
-                let ty = y0 + 14.0 + (k % 3) as f64 * 13.0;
-                let _ = writeln!(
-                    s,
-                    r##"<line x1="{x:.1}" y1="{y0}" x2="{x:.1}" y2="{}" stroke="{c}" stroke-dasharray="4 3"/><text x="{:.1}" y="{ty:.1}" fill="{c}">{name}</text>"##,
-                    y0 + h,
-                    x + 3.0
-                );
-            }
-        }
-        let amp = p
-            .amplitude_deg
-            .map_or("out of range".into(), |a| format!("{a:.0}°"));
-        let _ = writeln!(
-            s,
-            r##"<text x="{}" y="{}" text-anchor="end">{} beats, amplitude {amp}</text>"##,
-            w - mr - 4.0,
-            y0 + 16.0,
-            p.beats
-        );
+        side(&mut s, p, &Frame { w, h, ml, mr }, y0, (lo, hi));
     }
     let _ = writeln!(
         s,
@@ -211,4 +140,88 @@ fn svg(profiles: &[Option<TickProfile>; 2], file: &Path, from: f64, to: f64, lif
         total - 6.0
     );
     s
+}
+
+/// Where a side's plot sits on the drawing: width, plot height, left and
+/// right margins.
+#[derive(Clone, Copy)]
+struct Frame {
+    w: f64,
+    h: f64,
+    ml: f64,
+    mr: f64,
+}
+
+/// One side's sound drawn at `y0`: its band and line on the shared level
+/// scale `lo..hi`, the time grid, the engine's marks and its amplitude.
+fn side(s: &mut String, p: &TickProfile, f: &Frame, y0: f64, (lo, hi): (f32, f32)) {
+    let Frame { w, h, ml, mr } = *f;
+    let n = p.median.len();
+    let t1 = p.t0_ms + (n - 1) as f64 * p.step_ms;
+    let xs = |t: f64| ml + (t - p.t0_ms) / (t1 - p.t0_ms) * (w - ml - mr);
+    let ys = |v: f32| {
+        let v = v.max(lo) as f64;
+        y0 + h - (v.ln() - (lo as f64).ln()) / ((hi as f64).ln() - (lo as f64).ln()) * h
+    };
+    let t = |k: usize| p.t0_ms + k as f64 * p.step_ms;
+    let mut band = String::new();
+    for k in 0..n {
+        let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p90[k]));
+    }
+    for k in (0..n).rev() {
+        let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p10[k]));
+    }
+    let _ = writeln!(
+        s,
+        r##"<polygon points="{band}" fill="#cfe0f5" stroke="none"/>"##
+    );
+    let line: String = (0..n)
+        .map(|k| format!("{:.1},{:.1} ", xs(t(k)), ys(p.median[k])))
+        .collect();
+    let _ = writeln!(
+        s,
+        r##"<polyline points="{line}" fill="none" stroke="#123" stroke-width="1.2"/>"##
+    );
+    // Time grid every 2 ms.
+    let mut g = (p.t0_ms / 2.0).ceil() * 2.0;
+    while g <= t1 {
+        let x = xs(g);
+        let _ = writeln!(
+            s,
+            r##"<line x1="{x:.1}" y1="{}" x2="{x:.1}" y2="{}" stroke="#eee"/><text x="{x:.1}" y="{}" text-anchor="middle" fill="#666">{g:.0}</text>"##,
+            y0 + h,
+            y0 + h + 4.0,
+            y0 + h + 16.0
+        );
+        g += 2.0;
+    }
+    let marks = [
+        (p.unlock_ms, "#d33", "unlock"),
+        (p.drop_ms, "#d33", "drop"),
+        (p.sound1_ms, "#2a2", "1"),
+        (p.sound2_ms, "#2a2", "2"),
+        (p.sound3_ms, "#2a2", "3"),
+    ];
+    for (k, (m, c, name)) in marks.iter().enumerate() {
+        if let Some(m) = m {
+            let x = xs(*m);
+            let ty = y0 + 14.0 + (k % 3) as f64 * 13.0;
+            let _ = writeln!(
+                s,
+                r##"<line x1="{x:.1}" y1="{y0}" x2="{x:.1}" y2="{}" stroke="{c}" stroke-dasharray="4 3"/><text x="{:.1}" y="{ty:.1}" fill="{c}">{name}</text>"##,
+                y0 + h,
+                x + 3.0
+            );
+        }
+    }
+    let amp = p
+        .amplitude_deg
+        .map_or("out of range".into(), |a| format!("{a:.0}°"));
+    let _ = writeln!(
+        s,
+        r##"<text x="{}" y="{}" text-anchor="end">{} beats, amplitude {amp}</text>"##,
+        w - mr - 4.0,
+        y0 + 16.0,
+        p.beats
+    );
 }
