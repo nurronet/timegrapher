@@ -95,12 +95,12 @@ use timegrapher_core::beats::Beat;
 use timegrapher_core::live::LiveConfig;
 use timegrapher_core::synth::{generate, SynthConfig};
 
-/// The plots carry only their titles and a key saying what a dot is;
-/// the Info panel holds the view's description, each series' finding
-/// whole and its statistics, which say what they counted, and what was
-/// tested: beside the plots in a wide pane, over them in a narrow one.
+/// Ten minutes of a watch whose rate swings once a minute (a fourth
+/// wheel fault), heard as the app hears it, and the checks drawn from
+/// it: made once and shared, as each check of its own made and heard it
+/// again, about 20 s apiece on Windows (#907).
 #[test]
-fn the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is() {
+fn a_once_a_minute_swing_in_every_pane() {
     let cfg = SynthConfig {
         duration_s: 600.0,
         rate_s_per_day: 5.0,
@@ -115,7 +115,19 @@ fn the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is() {
     for b in audio.samples.chunks(4800) {
         live.push(b);
     }
-    let s = compute(&log_of(&live).expect("beat rate"), None);
+    let log = log_of(&live).expect("beat rate");
+    let s = compute(&log, None);
+    the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is(&s);
+    a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column(&s);
+    the_info_panel_opens_at_its_top(&s);
+    a_once_a_minute_swing_reads_periodic_and_every_view_draws(&log, s);
+}
+
+/// The plots carry only their titles and a key saying what a dot is;
+/// the Info panel holds the view's description, each series' finding
+/// whole and its statistics, which say what they counted, and what was
+/// tested: beside the plots in a wide pane, over them in a narrow one.
+fn the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is(s: &Steadiness) {
     let rate = s.report.series[0].headline.clone();
     let ctx = egui::Context::default();
     theme::install(&ctx);
@@ -144,7 +156,7 @@ fn the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is() {
                     };
                     draw(
                         ui,
-                        Some(&s),
+                        Some(s),
                         "Tested over 10:00 of beats",
                         View::Readings,
                         &[true, true, false],
@@ -261,23 +273,7 @@ fn too_few_readings_is_said_once() {
 /// In a short pane the Info panel scrolls inside it rather than running
 /// off its bottom, and Cycle's note sits above each plot, inside its
 /// column, clear of the panel.
-#[test]
-fn a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column() {
-    let cfg = SynthConfig {
-        duration_s: 600.0,
-        rate_s_per_day: 5.0,
-        ..Default::default()
-    };
-    let audio = generate(
-        &cfg,
-        |_| 270.0,
-        |t| 20.0 * (std::f64::consts::TAU * t / 60.0).sin(),
-    );
-    let mut live = LiveAnalyzer::new(48000, LiveConfig::default());
-    for b in audio.samples.chunks(4800) {
-        live.push(b);
-    }
-    let s = compute(&log_of(&live).expect("beat rate"), None);
+fn a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column(s: &Steadiness) {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let (w, h) = (1440.0, 300.0);
@@ -295,7 +291,7 @@ fn a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column() {
                 };
                 draw(
                     ui,
-                    Some(&s),
+                    Some(s),
                     "Tested over 10:00 of beats",
                     View::Cycle,
                     &[true, true, true],
@@ -341,23 +337,7 @@ fn a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column() {
 /// Each view's Info panel opens at its top, with its heading in view:
 /// one scrolled down and closed, or another view's, does not open
 /// scrolled.
-#[test]
-fn the_info_panel_opens_at_its_top() {
-    let cfg = SynthConfig {
-        duration_s: 600.0,
-        rate_s_per_day: 5.0,
-        ..Default::default()
-    };
-    let audio = generate(
-        &cfg,
-        |_| 270.0,
-        |t| 20.0 * (std::f64::consts::TAU * t / 60.0).sin(),
-    );
-    let mut live = LiveAnalyzer::new(48000, LiveConfig::default());
-    for b in audio.samples.chunks(4800) {
-        live.push(b);
-    }
-    let s = compute(&log_of(&live).expect("beat rate"), None);
+fn the_info_panel_opens_at_its_top(s: &Steadiness) {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let (w, h) = (1440.0, 300.0);
@@ -386,7 +366,7 @@ fn the_info_panel_opens_at_its_top() {
                         info: true,
                         ..Default::default()
                     };
-                    draw(ui, Some(&s), "", view, &[true, true, true], opts);
+                    draw(ui, Some(s), "", view, &[true, true, true], opts);
                 }
             });
         });
@@ -1045,28 +1025,7 @@ fn the_beat_error_view_gives_sizes_where_its_sign_turns() {
 
 /// A watch whose rate swings once a minute (a fourth wheel fault) is
 /// found periodic, and every view draws.
-#[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
-fn a_once_a_minute_swing_reads_periodic_and_every_view_draws() {
-    let cfg = SynthConfig {
-        duration_s: 600.0,
-        rate_s_per_day: 5.0,
-        ..Default::default()
-    };
-    let audio = generate(
-        &cfg,
-        |_| 270.0,
-        |t| 20.0 * (std::f64::consts::TAU * t / 60.0).sin(),
-    );
-    let mut live = LiveAnalyzer::new(48000, LiveConfig::default());
-    for b in audio.samples.chunks(4800) {
-        live.push(b);
-    }
-    let log = log_of(&live).expect("beat rate");
-    let s = compute(&log, None);
+fn a_once_a_minute_swing_reads_periodic_and_every_view_draws(log: &BeatLog, s: Steadiness) {
     let rate = &s.report.series[0];
     assert!(rate.cycle.is_some(), "{}", rate.headline);
     assert!(s.folds[0].is_some());
@@ -1078,7 +1037,7 @@ fn a_once_a_minute_swing_reads_periodic_and_every_view_draws() {
 
     // A picked calibre's train names the cycle instead.
     let named = compute(
-        &log,
+        log,
         Some(vec![Wheel {
             name: "seconds wheel".into(),
             period_s: 60.0,
