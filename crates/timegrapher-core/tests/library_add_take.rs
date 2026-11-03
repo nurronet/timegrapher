@@ -194,3 +194,48 @@ fn a_take_naming_a_file_elsewhere_from_the_root_is_added() {
     assert!(!source.exists());
     let _ = fs::remove_dir_all(&r);
 }
+
+/// File Under a Watch ([`library::Library::move_take`]) refuses an
+/// Unsorted take that names its sound or clock log by a path leading out
+/// of its folder, or from the root into it, as Add to Watch does, and
+/// leaves it in Unsorted as readable as before (#882).
+#[test]
+fn filing_an_unsorted_take_with_files_outside_its_folder_is_refused() {
+    let r = fs::canonicalize(root("move-outside")).unwrap();
+    let (mut lib, id) = library_at(&r);
+    let unsorted = lib.unsorted_dir().unwrap();
+    fs::create_dir_all(&unsorted).unwrap();
+    let take = unsorted.join("2026-11-03 09.00 Dial Up");
+    fs::create_dir_all(&take).unwrap();
+    wav(&unsorted.join("audio.wav"));
+    wav(&take.join("audio.wav"));
+    clock_log(&unsorted.join("clock.csv"));
+    let from_root = take.join("audio.wav").to_string_lossy().replace('\\', "/");
+    for (file, clock) in [
+        ("../audio.wav", None),
+        ("audio.wav", Some("../clock.csv")),
+        (from_root.as_str(), None),
+    ] {
+        manifest(&take, file, clock);
+        lib.scan();
+        let before = fresh(&take).unwrap();
+        let e = lib.move_take(&take, &id).unwrap_err();
+        assert!(
+            e.contains("won't lead to the file"),
+            "{file} {clock:?}: {e}"
+        );
+        assert!(lib.is_unsorted(&take), "{file} {clock:?}");
+        assert_eq!(fresh(&take), Ok(before), "{file} {clock:?}");
+    }
+    let takes = r.join("Watches").join("Bench").join("takes");
+    let left: Vec<_> = fs::read_dir(&takes).into_iter().flatten().collect();
+    assert!(left.is_empty(), "{left:?}");
+    // A take whose files are all inside its folder is filed, and reads
+    // as before.
+    manifest(&take, "audio.wav", None);
+    lib.scan();
+    let before = fresh(&take).unwrap();
+    let filed = lib.move_take(&take, &id).unwrap();
+    assert_eq!(fresh(&filed), Ok(before));
+    let _ = fs::remove_dir_all(&r);
+}
