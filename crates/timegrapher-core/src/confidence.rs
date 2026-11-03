@@ -276,28 +276,109 @@ pub const MIN_VALUES: usize = 3;
 /// 1.2533 s / sqrt(n), the median's standard error under independent
 /// Gaussian noise. None with fewer than [`MIN_VALUES`].
 pub fn standard_error(values: &[f64]) -> Option<f64> {
-    if values.len() < MIN_VALUES {
+    standard_error_in([values])
+}
+
+/// [`standard_error`] of one series read in stretches, the runs between
+/// its gaps, in time order (#639): the differences are taken within each
+/// stretch only, never across a gap, and the lag-one correlation is
+/// pooled over the stretches ([`pooled_lag_one`]); `n` counts every
+/// value. With one stretch it is [`standard_error`]. None with fewer than
+/// [`MIN_VALUES`] values or no difference within a stretch.
+pub fn standard_error_in<'a>(stretches: impl IntoIterator<Item = &'a [f64]>) -> Option<f64> {
+    let stretches: Vec<&[f64]> = stretches.into_iter().collect();
+    let n: usize = stretches.iter().map(|s| s.len()).sum();
+    let d: Vec<f64> = stretches
+        .iter()
+        .flat_map(|s| s.windows(2).map(|w| w[1] - w[0]))
+        .collect();
+    if n < MIN_VALUES || d.is_empty() {
         return None;
     }
-    let d: Vec<f64> = values.windows(2).map(|w| w[1] - w[0]).collect();
     let s = crate::dsp::robust_sd(&d) / std::f64::consts::SQRT_2;
-    let rho = lag_one(values).unwrap_or(0.0).clamp(0.0, 0.99);
-    let n_eff = effective_readings(values.len() as f64, rho);
+    let rho = pooled_lag_one(stretches.iter().copied())
+        .unwrap_or(0.0)
+        .clamp(0.0, 0.99);
+    let n_eff = effective_readings(n as f64, rho);
     Some(1.2533 * s / (1.0 - rho).sqrt() / n_eff.sqrt())
+}
+
+/// The values `value` gives of windows `windows` in time order, in
+/// stretches: a new one starts where a window starts later than the one
+/// before ended (`span`, s), as across a break, a mask or a window left
+/// out. A window with no value is passed over and starts none.
+pub fn stretches<T>(
+    windows: impl IntoIterator<Item = T>,
+    span: impl Fn(&T) -> (f64, f64),
+    value: impl Fn(&T) -> Option<f64>,
+) -> Vec<Vec<f64>> {
+    let mut out: Vec<Vec<f64>> = Vec::new();
+    let mut end: Option<f64> = None;
+    for w in windows {
+        let (a, b) = span(&w);
+        if end.is_none_or(|e| a > e + 1e-3) {
+            out.push(Vec::new());
+        }
+        end = Some(b);
+        if let (Some(v), Some(last)) = (value(&w).filter(|v| v.is_finite()), out.last_mut()) {
+            last.push(v);
+        }
+    }
+    out.retain(|s| !s.is_empty());
+    out
+}
+
+/// The ± of a median figure (amplitude, beat error) from `value` of
+/// amplitude windows, in their stretches ([`stretches`]): the noise within
+/// the stretches ([`standard_error_in`]) and, where two or more stretches
+/// of [`MIN_VALUES`] or more sit at different levels, the spread between
+/// them ([`between_stretches`]), added in quadrature (#639).
+pub fn amplitude_windows_se<'a>(
+    windows: impl IntoIterator<Item = &'a AmplitudeWindow>,
+    value: impl Fn(&AmplitudeWindow) -> Option<f64>,
+) -> Option<f64> {
+    let s = stretches(windows, |w| (w.start_s, w.end_s), |w| value(w));
+    let within = standard_error_in(s.iter().map(Vec::as_slice))?;
+    let between = between_stretches(&s);
+    Some(within.hypot(between))
+}
+
+/// How far a median over stretches at different levels is from known, past
+/// their own noise: over the k stretches of [`MIN_VALUES`] or more, with
+/// medians `m_i` and standard errors `SE_i`,
+/// `τ² = max(0, var(m_i) − mean(SE_i²))` (sample variance) and the term is
+/// `1.2533 · τ / √k`. Stretches at one level differ only by their own
+/// noise and add nothing on average; with k < 2 it is 0.
+fn between_stretches(stretches: &[Vec<f64>]) -> f64 {
+    let (m, se2): (Vec<f64>, Vec<f64>) = stretches
+        .iter()
+        .filter(|s| s.len() >= MIN_VALUES)
+        .filter_map(|s| {
+            let se = standard_error(s)?;
+            Some((crate::dsp::median(&mut s.clone()), se * se))
+        })
+        .unzip();
+    let k = m.len() as f64;
+    if m.len() < 2 {
+        return 0.0;
+    }
+    let mean = m.iter().sum::<f64>() / k;
+    let var = m.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (k - 1.0);
+    let tau2 = (var - se2.iter().sum::<f64>() / k).max(0.0);
+    1.2533 * tau2.sqrt() / k.sqrt()
 }
 
 /// Estimated standard error of the rate from the 10 s windows. Taking every
 /// other available window removes ordinary half-window overlap; the
 /// correlation left between the windows taken is allowed for by
-/// [`standard_error`].
+/// [`standard_error_in`], within the stretches between gaps (#639).
 pub fn rate_se(windows: &[WindowFit]) -> Option<f64> {
-    let v: Vec<f64> = windows
-        .iter()
-        .step_by(2)
-        .map(|w| w.fit.rate_s_per_day)
-        .filter(|r| r.is_finite())
-        .collect();
-    standard_error(&v)
+    let s = stretches(
+        windows.iter().step_by(2),
+        |w| (w.start_s, w.end_s),
+        |w| Some(w.fit.rate_s_per_day),
+    );
+    standard_error_in(s.iter().map(Vec::as_slice))
 }
 
 /// Standard error of the beat error from the unlock, ms: the one rule for
@@ -309,13 +390,10 @@ pub fn beat_error_se<'a>(
     windows: impl IntoIterator<Item = &'a AmplitudeWindow>,
     as_size: bool,
 ) -> Option<f64> {
-    let v: Vec<f64> = windows
-        .into_iter()
-        .filter_map(|w| w.beat_error_unlock_ms)
-        .filter(|x| x.is_finite())
-        .map(|x| if as_size { x.abs() } else { x })
-        .collect();
-    standard_error(&v)
+    amplitude_windows_se(windows, |w| {
+        w.beat_error_unlock_ms
+            .map(|x| if as_size { x.abs() } else { x })
+    })
 }
 
 #[cfg(test)]
@@ -449,6 +527,184 @@ mod tests {
             }
             let rate = f64::from(covered) / f64::from(trials);
             assert!((0.90..=0.985).contains(&rate), "gapped {gapped}: {rate}");
+        }
+    }
+
+    /// Rate windows of 10 s every 5 s with `rates`, and a pause of
+    /// `pause_s` after every `stretch` of them.
+    fn rate_windows(rates: &[f64], stretch: usize, pause_s: f64) -> Vec<WindowFit> {
+        rates
+            .iter()
+            .enumerate()
+            .map(|(i, &r)| {
+                let t = i as f64 * 5.0 + (i / stretch) as f64 * pause_s;
+                WindowFit {
+                    start_s: t,
+                    end_s: t + 10.0,
+                    fit: crate::timing::TimingFit {
+                        rate_s_per_day: r,
+                        beat_error_ms: 0.0,
+                        period_s: 0.2,
+                        jitter_us: 0.0,
+                        beats_used: 50,
+                    },
+                }
+            })
+            .collect()
+    }
+
+    /// A take's ± takes no difference across a gap (#639): the rate a
+    /// watch reads either side of a pause may differ, and that step is no
+    /// scatter of the windows, as a slow change within a stretch is none.
+    #[test]
+    fn a_gapped_takes_se_takes_no_difference_across_the_gap() {
+        let mut rng = Rng::new(639);
+        let noise: Vec<f64> = (0..240).map(|_| 0.5 * rng.normal()).collect();
+        let whole = rate_se(&rate_windows(&noise, 120, 0.0)).unwrap();
+        // The same windows with a pause of an hour, after which the watch
+        // reads 5 s/d faster.
+        let stepped: Vec<f64> = noise
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| if i >= 120 { x + 5.0 } else { x })
+            .collect();
+        let gapped = rate_se(&rate_windows(&stepped, 120, 3600.0)).unwrap();
+        assert!(
+            (gapped / whole - 1.0).abs() < 0.15,
+            "gapped {gapped} against {whole}"
+        );
+        // Without the pause the step is within one stretch and counts.
+        let joined = rate_se(&rate_windows(&stepped, 120, 0.0)).unwrap();
+        assert!(joined > 1.5 * whole, "{joined} against {whole}");
+    }
+
+    #[test]
+    fn stretches_break_where_a_window_starts_after_the_last_ended() {
+        let spans = [
+            (0.0, 10.0),
+            (5.0, 15.0),
+            (15.0, 25.0),
+            (40.0, 50.0),
+            (45.0, 55.0),
+        ];
+        let values = [Some(1.0), None, Some(f64::NAN), Some(4.0), Some(5.0)];
+        let s = stretches(spans.iter().zip(values), |(s, _)| **s, |(_, v)| *v);
+        assert_eq!(s, vec![vec![1.0], vec![4.0, 5.0]]);
+        // One value in each stretch leaves no difference to read.
+        assert_eq!(standard_error_in([&[1.0][..], &[2.0], &[3.0]]), None);
+        let one = [1.0, 3.0, 2.0, 5.0, 4.0];
+        assert_eq!(standard_error_in([&one[..]]), standard_error(&one));
+    }
+
+    /// Over independent stretches, each AR(1), the ± of the median covers
+    /// the level about 95% of the time.
+    #[test]
+    fn a_gapped_takes_se_covers_its_median() {
+        let mut rng = Rng::new(20261104);
+        let trials = 600;
+        let mut covered = 0;
+        for _ in 0..trials {
+            let mut rates = Vec::new();
+            for _ in 0..3 {
+                let mut x = rng.normal() / (1.0f64 - 0.25).sqrt();
+                for _ in 0..80 {
+                    x = 0.5 * x + rng.normal();
+                    rates.push(x);
+                    rates.push(f64::NAN); // the window step_by(2) passes over
+                }
+            }
+            let w = rate_windows(&rates, 160, 600.0);
+            let kept: Vec<f64> = rates.iter().copied().filter(|r| r.is_finite()).collect();
+            let median = crate::timing::median_signed(kept.iter().copied(), false).unwrap();
+            let se = rate_se(&w).unwrap();
+            if median.abs() <= 1.96 * se {
+                covered += 1;
+            }
+        }
+        let rate = f64::from(covered) / f64::from(trials);
+        assert!((0.90..=0.985).contains(&rate), "{rate}");
+    }
+
+    /// Unlock beat errors in stretches of 2 s windows, a minute apart.
+    fn unlock_stretches(stretches: &[Vec<f64>]) -> Vec<AmplitudeWindow> {
+        let mut out = Vec::new();
+        let mut t = 0.0;
+        for s in stretches {
+            for mut w in unlock_windows(s) {
+                w.start_s += t;
+                w.end_s += t;
+                out.push(w);
+            }
+            t = out.last().map_or(0.0, |w| w.end_s) + 60.0;
+        }
+        out
+    }
+
+    /// A median figure over stretches at two levels is not known to their
+    /// noise alone (#639, the walkthrough's case): a beat error at 0.6 ms
+    /// for one stretch and 0.3 ms for the next reads about ± 0.19 ms.
+    #[test]
+    fn a_median_over_two_levels_carries_their_spread() {
+        let mut rng = Rng::new(6391);
+        let mut level = |l: f64| (0..40).map(|_| l + 0.01 * rng.normal()).collect::<Vec<_>>();
+        let two = [level(-0.6), level(0.3)];
+        let se = beat_error_se(&unlock_stretches(&two), true).unwrap();
+        assert!((0.17..0.21).contains(&se), "{se}");
+        // At one level the stretches add little past their noise, on
+        // average over many takes: τ² is kept from going below 0, so with
+        // two stretches the ± is about a quarter wider than within alone
+        // (a variance ratio near 1.6; near 1.24 with six stretches).
+        let (mut with, mut alone) = (0.0, 0.0);
+        for _ in 0..300 {
+            let one = [level(0.6), level(0.6)];
+            with += beat_error_se(&unlock_stretches(&one), true)
+                .unwrap()
+                .powi(2);
+            alone += standard_error_in(one.iter().map(Vec::as_slice))
+                .unwrap()
+                .powi(2);
+        }
+        assert!(with < 1.8 * alone, "{with} against {alone}");
+        // One stretch is exactly standard_error.
+        let one = level(0.6);
+        assert_eq!(
+            beat_error_se(&unlock_windows(&one), true),
+            standard_error(&one)
+        );
+    }
+
+    /// Amplitude over stretches whose levels scatter about one level, and
+    /// over stretches at one level: the median's ± covers it about 95% of
+    /// the time either way.
+    #[test]
+    fn a_median_over_stretches_covers_its_level() {
+        let mut rng = Rng::new(20261105);
+        for spread in [0.0, 3.0] {
+            let trials = 600;
+            let mut covered = 0;
+            for _ in 0..trials {
+                let s: Vec<Vec<f64>> = (0..6)
+                    .map(|_| {
+                        let level = 280.0 + spread * rng.normal();
+                        let mut x = rng.normal() / (1.0f64 - 0.25).sqrt();
+                        (0..30)
+                            .map(|_| {
+                                x = 0.5 * x + rng.normal();
+                                level + x
+                            })
+                            .collect()
+                    })
+                    .collect();
+                let w = unlock_stretches(&s);
+                let all: Vec<f64> = s.concat();
+                let median = crate::timing::median_signed(all.iter().copied(), false).unwrap();
+                let se = beat_error_se(&w, false).unwrap();
+                if (median - 280.0).abs() <= 1.96 * se {
+                    covered += 1;
+                }
+            }
+            let rate = f64::from(covered) / f64::from(trials);
+            assert!((0.90..=0.985).contains(&rate), "spread {spread}: {rate}");
         }
     }
 

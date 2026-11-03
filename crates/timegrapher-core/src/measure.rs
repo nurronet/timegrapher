@@ -598,13 +598,12 @@ pub fn assess(
         caveats.push(Caveat::BeatErrorAsSize);
     }
     let confidence = c.watch_heard.then(|| {
-        let amps: Vec<f64> = amplitude_windows.iter().filter_map(|w| w.mean()).collect();
         Confidence::new(
             match c.average_s {
                 Some(t) => rate_se_over(rate_windows, t),
                 None => confidence::rate_se(rate_windows),
             },
-            confidence::standard_error(&amps),
+            confidence::amplitude_windows_se(amplitude_windows.iter().copied(), |w| w.mean()),
             confidence::beat_error_se(amplitude_windows.iter().copied(), c.beat_error_as_size),
         )
     });
