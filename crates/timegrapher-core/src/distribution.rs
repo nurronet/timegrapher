@@ -44,7 +44,7 @@ pub const RATE: Kind = Kind {
     unit: "s/d",
     resolution: 0.1,
     decimals: 1,
-    suffix: " s/day",
+    suffix: " s/d",
 };
 pub const AMPLITUDE: Kind = Kind {
     series: "amplitude",
@@ -213,7 +213,7 @@ impl Distribution {
 pub const STRETCH_S: f64 = 2.0;
 
 /// The rate over each [`STRETCH_S`] of `beats` on a grid from `t0`, as
-/// `(start, s/day)`, from stretch `from` on, up to the last stretch the
+/// `(start, s/d)`, from stretch `from` on, up to the last stretch the
 /// beats reach the end of; returns the stretch to start from next time,
 /// so beats arriving one block at a time are worked out once. A stretch
 /// across a break (a time in `breaks`) or into a masked stretch
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn two_second_rates_skip_breaks_and_masks_and_add_up_block_by_block() {
-        // 28,800 bph running 10 s/day fast, for 20 s.
+        // 28,800 bph running 10 s/d fast, for 20 s.
         let period = crate::synth::period(0.125, 10.0);
         let beats: Vec<crate::beats::Beat> = (0..160)
             .map(|k| crate::beats::Beat {
