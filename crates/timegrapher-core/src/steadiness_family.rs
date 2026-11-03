@@ -57,11 +57,6 @@ pub(super) fn check_all(
     wheels: &[Wheel],
     cfg: &Config,
 ) -> (Vec<SeriesCheck>, Vec<Vec<bool>>) {
-    let pane = Config {
-        acf_alone: false,
-        ..cfg.clone()
-    };
-    let cfg = &pane;
     let first: Vec<SeriesCheck> = inputs
         .iter()
         .map(|(k, g, f, q, _, t)| {

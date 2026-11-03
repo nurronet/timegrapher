@@ -610,6 +610,8 @@ mod tests {
                 let log = beat_log(&super::steady_red(duration_s, rho, seed), seed);
                 let long = crate::longrun::analyse(&log, None, &lc);
                 let r = steadiness::check(&log, None, &long, &lc, &Config::default());
+                // The report states the setting the pane ran with.
+                assert!(!r.config.acf_alone);
                 r.findings
                     .iter()
                     .any(|f| f.code != "wandering" || rho == 0.0)

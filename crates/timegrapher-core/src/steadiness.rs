@@ -2263,6 +2263,12 @@ pub fn check(
     long_cfg: &LongConfig,
     cfg: &Config,
 ) -> Report {
+    // The pane names only cycles that meet Holm's (#659); the report
+    // states the setting it ran with.
+    let cfg = &Config {
+        acf_alone: false,
+        ..cfg.clone()
+    };
     let holes = Cuts::new(clock, &long.breaks, &[]);
     let map = |t: f64| holes.true_time(t);
     let r = cfg.rate_reading_s;
