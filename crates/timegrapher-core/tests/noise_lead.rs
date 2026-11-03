@@ -48,7 +48,10 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
         let want = analyze(&alone, &cfg).summary;
         let got = analyze(&led, &cfg).summary;
         assert!(want.watch_heard, "{what}: the watch alone");
-        assert!(lead_left_out(&want.caveats).is_none(), "{what}: no lead on the watch alone");
+        assert!(
+            lead_left_out(&want.caveats).is_none(),
+            "{what}: no lead on the watch alone"
+        );
         assert!(got.watch_heard, "{what}: {:?}", got.caveats);
         let lead = lead_left_out(&got.caveats).expect("the lead named");
         assert!((lead - noise_s).abs() < 1.0, "{what}: lead {lead}");
@@ -58,7 +61,12 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
         };
         near(got.rate_s_per_day, want.rate_s_per_day, 0.3, "rate");
         near(got.amplitude_deg, want.amplitude_deg, 1.0, "amplitude");
-        near(got.beat_error_unlock_ms, want.beat_error_unlock_ms, 0.03, "beat error");
+        near(
+            got.beat_error_unlock_ms,
+            want.beat_error_unlock_ms,
+            0.03,
+            "beat error",
+        );
     }
 }
 

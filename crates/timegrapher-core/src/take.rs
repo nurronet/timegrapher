@@ -1060,7 +1060,10 @@ pub fn measure_entry(
     );
     if let Some(t) = lead {
         let seconds = t - start_s;
-        crate::measure::add(&mut measurement.caveats, crate::measure::Caveat::LeadLeftOut { seconds });
+        crate::measure::add(
+            &mut measurement.caveats,
+            crate::measure::Caveat::LeadLeftOut { seconds },
+        );
     }
     measurement.take_doubts(cfg.analysis.lift_known, unlisted);
     measurement.clock_ppm = clock_ppm;

@@ -537,7 +537,10 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
         }
         if clear(&windows[k..=k]) && clear(&windows[k..]) {
             let after = windows[k - 1].start_s;
-            let jump = jumps.iter().copied().filter(|&j| j > after && j <= w.start_s);
+            let jump = jumps
+                .iter()
+                .copied()
+                .filter(|&j| j > after && j <= w.start_s);
             return Some(jump.fold(w.start_s, |_, j| j));
         }
     }

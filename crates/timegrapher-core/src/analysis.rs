@@ -365,7 +365,10 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let confidence = assessment.confidence;
     let mut caveats = assessment.caveats;
     if let Some(seconds) = lead_s {
-        crate::measure::add(&mut caveats, crate::measure::Caveat::LeadLeftOut { seconds });
+        crate::measure::add(
+            &mut caveats,
+            crate::measure::Caveat::LeadLeftOut { seconds },
+        );
     }
     let shape = watch_heard.then(|| {
         let beat_s = crate::timing::beat_period_s(overall.as_ref(), bph);
