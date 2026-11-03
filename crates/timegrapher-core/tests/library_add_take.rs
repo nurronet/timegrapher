@@ -90,6 +90,11 @@ fn refused(name: &str, file: &str, clock: Option<&str>, setup: impl Fn(&Path, &P
     for keep in [true, false] {
         let e = lib.add_take(&source, &id, keep).unwrap_err();
         assert!(e.contains("won't lead to the file"), "{e}");
+        // Short enough for the app: the take by its name, not its whole
+        // path, and a whole sentence.
+        assert!(e.starts_with("\"source\" names "), "{e}");
+        assert!(e.ends_with("add the take again."), "{e}");
+        assert!(!e.contains(&*root.to_string_lossy()), "{e}");
         assert_eq!(fresh(&source), Ok(before), "keep {keep}");
     }
     let takes = root.join("Watches").join("Bench").join("takes");
@@ -224,6 +229,11 @@ fn filing_an_unsorted_take_with_files_outside_its_folder_is_refused() {
             e.contains("won't lead to the file"),
             "{file} {clock:?}: {e}"
         );
+        assert!(
+            e.starts_with("\"2026-11-03 09.00 Dial Up\" names ") && e.ends_with("move it again."),
+            "{e}"
+        );
+        assert!(!e.contains(&*r.to_string_lossy()), "{e}");
         assert!(lib.is_unsorted(&take), "{file} {clock:?}");
         assert_eq!(fresh(&take), Ok(before), "{file} {clock:?}");
     }

@@ -710,14 +710,24 @@ fn named_outside(dir: &Path) -> Option<String> {
 /// names a file by a path that won't lead to it once the take is in a
 /// watch ([`named_outside`]); `again` ends the sentence with what to do
 /// once the file is in the take's folder. Add to Watch and File Under a
-/// Watch both ask it (#876, #882).
+/// Watch both ask it (#876, #882). The take is named by its folder's
+/// name, not its whole path, so the message stays short in the app.
 fn stays_readable(dir: &Path, again: &str) -> Result<(), String> {
-    match named_outside(dir) {
+    // A path from the root is shown by its file's name, so it doesn't
+    // wrap either.
+    let short = |f: String| {
+        if Path::new(&f).is_absolute() {
+            format!("…/{}", file_name(Path::new(&f)))
+        } else {
+            f
+        }
+    };
+    match named_outside(dir).map(short) {
         Some(f) => Err(format!(
-            "{} names {f}, a path that won't lead to the file once the take is in the \
+            "\"{}\" names {f}, a path that won't lead to the file once the take is in the \
              watch. Put the file in the take's folder, name it by its path there (such as \
-             audio.wav), and {again}",
-            dir.join(take::MANIFEST).display()
+             audio.wav), and {again}.",
+            file_name(dir)
         )),
         None => Ok(()),
     }
