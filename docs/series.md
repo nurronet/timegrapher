@@ -75,7 +75,7 @@ All three series are tested on readings of the same length, the rate's.
 The amplitude and the beat error are measured in 2 s windows; the
 windows that fall in each rate reading make one reading, their median,
 as the session's figures take theirs (`session::window_figures`). The
-median of k windows scatters c(k) times as much as their mean, c(k)
+median of k windows has c(k) times the variance of their mean, c(k)
 between 1 and π/2 (`dsp::median_variance_factor`), and the isochronism
 slope counts that in each reading's noise.
 No reading is taken over part of its span: an amplitude or beat

@@ -222,8 +222,8 @@ pub fn median(v: &mut [f64]) -> f64 {
     middle(v, f64::total_cmp).map_or(f64::NAN, |(lo, hi)| if odd { hi } else { 0.5 * (lo + hi) })
 }
 
-/// How much more a [`median`] of `k` independent normal values scatters
-/// than their mean: its variance is `c(k)·σ²/k`. Exact normal order
+/// How many times the variance of their mean a [`median`] of `k`
+/// independent normal values has: its variance is `c(k)·σ²/k`. Exact normal order
 /// statistics for k ≤ 10, by integration (an even count averages the two
 /// middle values, so it scatters less than the odd count either side);
 /// π/2, the large-k limit, beyond. 1 for k of 1 or 2, where the median
