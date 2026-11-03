@@ -504,9 +504,81 @@ pub fn scatter_jitter_us(windows: &[WindowFit]) -> Option<f64> {
     median_of(windows.iter().map(|w| w.fit.jitter_us))
 }
 
+/// The least a watch must be heard for after a lead of noise for the lead
+/// to be left out ([`watch_lead_s`]): two whole scatter windows.
+pub const LEAD_WATCH_MIN_S: f64 = 20.0;
+
+/// Where the watch starts in a stretch that opens with a lead of noise
+/// (#844), from its scatter windows (`windows`, in time order): the start
+/// of the first window whose timing is clearly regular (scatter under
+/// [`crate::beats::NOISE_DOUBT_FRACTION`] of a beat), when every window
+/// before it is not, the windows from it on are clearly regular by their
+/// median, and they span at least [`LEAD_WATCH_MIN_S`]. `None` when the
+/// first window is clearly regular or no such window is found. The whole
+/// stretch's median is not asked: a lead about as long as the watch can
+/// put it either side of the line. Noise scatters about as much as a doubtful watch
+/// (1.5 to 4% of a beat on a stand), and a watch far less, so a noise
+/// lead can outweigh the watch after it in the whole stretch's verdict.
+/// Where the beats jumped (`jumps`, audio seconds) between that window's
+/// start and the one before's, the watch starts at the last such jump
+/// instead: there the beats stepped from the noise's onto the watch's.
+/// A whole file leaves the lead out; a reading of a set average (live or
+/// saved) does not, so a watch heard briefly after noise there is still
+/// no watch.
+pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f64> {
+    let clear = |w: &[WindowFit]| {
+        crate::beats::timing_scatter_fraction(scatter_jitter_us(w), bph)
+            .is_some_and(|f| f < crate::beats::NOISE_DOUBT_FRACTION)
+    };
+    let last_end = windows.last()?.end_s;
+    for (k, w) in windows.iter().enumerate().skip(1) {
+        if clear(&windows[k - 1..k]) || last_end - w.start_s < LEAD_WATCH_MIN_S - 1e-9 {
+            return None;
+        }
+        if clear(&windows[k..=k]) && clear(&windows[k..]) {
+            let after = windows[k - 1].start_s;
+            let jump = jumps
+                .iter()
+                .copied()
+                .filter(|&j| j > after && j <= w.start_s);
+            return Some(jump.fold(w.start_s, |_, j| j));
+        }
+    }
+    None
+}
+
 fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
     let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
     (!w.is_empty()).then(|| median(&mut w))
+}
+
+/// [`watch_lead_s`] for the stretch of `log` from `from_s` to `to_s`
+/// (audio seconds), read on its scatter windows as [`measure_masked`]
+/// reads them: where the watch starts after a lead of noise, as the audio
+/// time of the first beat there. Every whole reading (`analyze`, and a
+/// take's entries) leaves its lead out from here.
+pub fn lead_s(
+    log: &BeatLog,
+    clock: Option<&ClockFit>,
+    breaks: &[Break],
+    masked: &[(f64, f64)],
+    from_s: f64,
+    to_s: f64,
+) -> Option<f64> {
+    let to_s = to_s.min(log.duration_s).max(0.0);
+    let from_s = from_s.max(0.0).min(to_s);
+    let holes = Cuts::new(clock, breaks, masked);
+    let map = |t: f64| holes.true_time(t);
+    let in_range: Vec<Beat> = log.beats[stretch_beats(&log.beats, from_s, to_s)].to_vec();
+    let beats = holes.beats(&in_range);
+    let part = window_part_s(&log.amplitude_windows);
+    let windows = scatter_windows(&holes, &beats, log.bph, map(from_s), map(to_s), part);
+    let jumps: Vec<f64> = log.jumps.iter().map(|&j| map(j)).collect();
+    let lead_t = watch_lead_s(&windows, log.bph, &jumps)?;
+    in_range
+        .iter()
+        .find(|b| map(b.time) >= lead_t - 1e-9)
+        .map(|b| b.time)
 }
 
 /// The beat error a reading gives, from its signed beat errors: from the

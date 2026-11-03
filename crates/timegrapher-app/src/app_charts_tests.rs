@@ -124,3 +124,57 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
     steady::flip_series(&mut app.chart_series, 0);
     assert_eq!(app.chart_series, [false, false, true]);
 }
+
+/// No two words a Distributions plot draws lie on one another: the first
+/// value along the bottom stays clear of the lowest share up the side.
+#[test]
+fn a_distributions_axis_labels_stay_apart() {
+    let mut app = synthetic(300.0, 12.0);
+    // Readings spread across a second a day, as a watch's are.
+    for (i, p) in app.trend.iter_mut().enumerate() {
+        p.rate_s_per_day = Some(-0.45 + 0.7 * ((i * 7) % 30) as f64 / 29.0);
+    }
+    app.hist_readings = true;
+    let ctx = themed();
+    fn texts(shape: &egui::Shape, into: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(t) => into.push((
+                t.galley.text().to_string(),
+                t.galley.rect.translate(t.pos.to_vec2()),
+            )),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, into)),
+            _ => {}
+        }
+    }
+    for w in [360.0, 700.0, 1400.0] {
+        let mut all = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(w, 260.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.histogram(ui, SeriesKind::Rate));
+            });
+            all.clear();
+            out.shapes.iter().for_each(|c| texts(&c.shape, &mut all));
+        }
+        assert!(all.iter().any(|(t, _)| t.ends_with('%')), "{all:?}");
+        assert!(all.iter().any(|(t, _)| t.ends_with("s/d")), "{all:?}");
+        // None runs off the plot's right end either.
+        for (t, r) in &all {
+            assert!(r.right() <= w, "at {w}: {t:?} {r:?} runs off the pane");
+        }
+        for (i, (a, ra)) in all.iter().enumerate() {
+            for (b, rb) in &all[i + 1..] {
+                assert!(
+                    !ra.shrink(0.5).intersects(rb.shrink(0.5)),
+                    "at {w}: {a:?} {ra:?} lies on {b:?} {rb:?}"
+                );
+            }
+        }
+    }
+}

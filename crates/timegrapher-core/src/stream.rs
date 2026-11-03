@@ -82,6 +82,21 @@ pub struct BeatLog {
 pub const SNIPPETS_KEPT_S: f64 = 60.0;
 
 impl BeatLog {
+    /// Leave out everything before `from_s` (audio seconds): the beats, the
+    /// amplitude windows that start before it, and the jumps, clipped beats
+    /// and kept envelope windows there. The beats keep their numbers, so
+    /// Tick and Tock stay named as they were. A lead of noise before the
+    /// watch is left out this way ([`crate::session::watch_lead_s`]).
+    pub fn keep_from(&mut self, from_s: f64) {
+        self.beats.retain(|b| b.time >= from_s);
+        self.amplitude_windows.retain(|w| w.start_s >= from_s);
+        self.clipped_beats.retain(|&t| t >= from_s);
+        for v in [&mut self.jumps, &mut self.sided, &mut self.by_count] {
+            v.retain(|&t| t > from_s);
+        }
+        self.snippets.retain(|s| s.0 >= from_s);
+    }
+
     /// [`crate::measure::stretch_beat_sound`] for `beats`, a stretch's
     /// beats as this log holds them (audio time): the profiles of their
     /// kept envelope windows, Tick from the even beats.
