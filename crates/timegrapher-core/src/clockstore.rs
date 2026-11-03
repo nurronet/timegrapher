@@ -227,7 +227,10 @@ impl ClockStore {
             fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(p, text + "\n").map_err(|e| format!("{}: {e}", p.display()))
+        // Written beside the store and moved over it once whole, so a save
+        // that fails part way leaves the stored corrections as they were
+        // (#872).
+        crate::library::write_atomic(p, (text + "\n").as_bytes())
     }
 
     /// The entry for `device`: an exact match, else one that matches
