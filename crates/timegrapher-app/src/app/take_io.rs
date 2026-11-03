@@ -1935,6 +1935,7 @@ impl TimegrapherApp {
                 .is_none_or(|h| r.time_s - h.0 >= SOUND_EVERY_S);
             if due && p.iter().any(Option::is_some) {
                 self.sound_history.push((r.time_s, p.clone()));
+                scope_panes::thin_sound(&mut self.sound_history);
             }
         }
         Ok(())

@@ -18,6 +18,36 @@ pub const STANDARD_BPH: [u32; 11] = [
     12000, 14400, 17280, 18000, 19800, 21600, 25200, 28800, 36000, 43200, 72000,
 ];
 
+/// Fractional rate slack for beat and full-oscillation rate inference.
+/// Beat error moves alternating intervals, but not their sum.
+const GUESS_RATE_SLACK: f64 = 0.004;
+/// Search alternating intervals up to 10 ms either side of one beat,
+/// covering large beat errors without widening the full-oscillation search.
+const GUESS_BEAT_ERROR_S: f64 = 0.010;
+/// Retain the established half-best evidence threshold for rate candidates.
+const GUESS_SCORE_SHARE: f64 = 0.5;
+
+/// Evidence for both alternating intervals and their full oscillation.
+/// Count the central-lag background once and the weaker split peak's
+/// excess twice, capped by the full oscillation. Doubling the background
+/// too would promote a half-beat lag on a slowly rising sound. One
+/// displaced peak alone must not promote a neighbouring standard rate.
+fn alternating_score(ac: &[f64], period: f64, fs: f64) -> f64 {
+    let centre = (2.0 * period).round() as usize;
+    let slack = (2.0 * period * GUESS_RATE_SLACK).ceil() as usize + 1;
+    let Some((lag, &full)) = (centre.saturating_sub(slack)..=centre + slack)
+        .filter_map(|i| ac.get(i).map(|v| (i, v)))
+        .max_by(|a, b| a.1.total_cmp(b.1))
+    else {
+        return 0.0;
+    };
+    let centre = lag / 2;
+    let pair = (0..=((GUESS_BEAT_ERROR_S * fs) as usize).min(centre))
+        .filter_map(|d| Some(ac.get(centre - d)?.min(*ac.get(centre + d)?)))
+        .fold(f64::NEG_INFINITY, f64::max);
+    (2.0 * pair - ac[centre]).min(full)
+}
+
 /// How many beats on from a beat `dt_s` seconds after it, `beat_s` a beat:
 /// the nearest whole count, at least one. Peaks are numbered on by it.
 pub fn beats_on(dt_s: f64, beat_s: f64) -> i64 {
@@ -26,11 +56,13 @@ pub fn beats_on(dt_s: f64, beat_s: f64) -> i64 {
 
 /// Guess the beat rate from the envelope's autocorrelation.
 ///
-/// Every standard rate is scored by the autocorrelation at its beat
-/// period. A full oscillation (tick to tick) correlates better than a beat
-/// (tick to toc), so half the true rate can score best. A rate faster than
-/// the true one lands its lag in the silence between beats and scores near
-/// zero or below, so the fastest rate scoring at least half the best wins.
+/// Score each standard rate against its full oscillation and both
+/// alternating intervals. Split intervals carry half the beats each, so
+/// their weaker excess above the central lag is doubled and capped by
+/// the full oscillation, with the central background counted once.
+/// Pick the fastest supported rate only when the other supported rates
+/// are its subharmonics; otherwise keep the established single-lag choice.
+/// A candidate needs positive evidence and at least half the best score.
 ///
 /// The 10 s looked at start where sound does ([`sound_onset`]): silence
 /// before a watch is placed holds no beat, and a rate with no beat energy
@@ -62,7 +94,7 @@ pub fn guess_bph(env: &[f32], fs: f64) -> u32 {
         // watch, and for beat error, which moves the tick-to-toc lag by
         // the beat error either way (Witschi's example fault is 3 ms).
         let c = lag.round() as usize;
-        let w = (lag * 0.004 + 0.004 * fs).ceil() as usize + 1;
+        let w = (lag * GUESS_RATE_SLACK + 0.004 * fs).ceil() as usize + 1;
         (c.saturating_sub(w)..=c + w)
             .filter_map(|i| buf.get(i).copied())
             .fold(f64::NEG_INFINITY, f64::max)
@@ -73,12 +105,26 @@ pub fn guess_bph(env: &[f32], fs: f64) -> u32 {
         .map(|&b| (b, ac(3600.0 / b as f64 * fs)))
         .collect();
     let best = scores.iter().map(|s| s.1).fold(f64::NEG_INFINITY, f64::max);
-    scores
+    let previous = scores
         .iter()
-        .filter(|s| s.1 > 0.0 && s.1 >= 0.5 * best)
+        .filter(|s| s.1 > 0.0 && s.1 >= GUESS_SCORE_SHARE * best)
         .map(|s| s.0)
         .max()
-        .unwrap_or(28800)
+        .unwrap_or(28800);
+    let paired: Vec<(u32, f64)> = scores
+        .iter()
+        .map(|&(b, _)| (b, alternating_score(&buf, 3600.0 / b as f64 * fs, fs)))
+        .collect();
+    let best = paired.iter().map(|s| s.1).fold(f64::NEG_INFINITY, f64::max);
+    let supported: Vec<u32> = paired
+        .iter()
+        .filter(|s| s.1 > 0.0 && s.1 >= GUESS_SCORE_SHARE * best)
+        .map(|s| s.0)
+        .collect();
+    match supported.iter().max().copied() {
+        Some(b) if supported.iter().all(|s| b % s == 0) => b,
+        _ => previous,
+    }
 }
 
 /// Length of the stretches [`sound_onset`] judges, seconds: longer than

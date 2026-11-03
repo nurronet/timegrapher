@@ -88,12 +88,16 @@ class GateTests(unittest.TestCase):
         workflow = pathlib.Path(__file__).parents[1] / "workflows/ci.yml"
         text = workflow.read_text(encoding="utf-8")
         self.assertIn("os: [ubuntu-24.04, windows-latest, macos-latest]", text)
+        # Windows runs its tests as two halves, named as REQUIRED_JOBS has them.
+        self.assertIn("name: test (${{ matrix.os }}${{ matrix.part && format(' {0}', matrix.part) || '' }})", text)
+        self.assertIn("part: 1/2", text)
+        self.assertIn("part: 2/2", text)
         self.assertIn("\n  mcp-renderer:\n", text)
         self.assertIn("name: regress (${{ matrix.check }})", text)
         self.assertIn("check: [engine, app, mcp]", text)
         self.assertIn(f"- name: {gate.EQUIVALENCE_STEP}\n", text)
 
-    def test_seven_jobs_and_required_step_succeed(self):
+    def test_eight_jobs_and_required_step_succeed(self):
         for event in ["push", "workflow_dispatch"]:
             api = FakeAPI()
             api.runs[0]["event"] = event
