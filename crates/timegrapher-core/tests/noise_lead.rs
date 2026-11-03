@@ -71,11 +71,16 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
 }
 
 /// Under 20 s of watch after the noise, nothing is left out: the file
-/// stays no watch, as a set average over such a stretch does live.
+/// stays no watch, as a set average over such a stretch does live. The
+/// 11 s cases are the ones `LEAD_WATCH_MIN_S` decides: with no floor they
+/// would read as a watch with the lead left out.
 #[test]
 fn a_brief_watch_after_a_long_noise_lead_is_still_no_watch() {
-    let (_, led) = noise_then_watch(110.0, 15.0);
-    let got = analyze(&led, &AnalysisConfig::default()).summary;
-    assert!(!got.watch_heard, "{:?}", got.caveats);
-    assert!(lead_left_out(&got.caveats).is_none());
+    for (noise_s, watch_s) in [(110.0, 15.0), (60.0, 11.0), (110.0, 11.0)] {
+        let what = format!("{noise_s} s of noise, then {watch_s} s of watch");
+        let (_, led) = noise_then_watch(noise_s, watch_s);
+        let got = analyze(&led, &AnalysisConfig::default()).summary;
+        assert!(!got.watch_heard, "{what}: {:?}", got.caveats);
+        assert!(lead_left_out(&got.caveats).is_none(), "{what}");
+    }
 }
