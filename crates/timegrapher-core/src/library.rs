@@ -467,13 +467,17 @@ pub const READINGS_FILE: &str = "readings.json";
 /// ([`crate::take::correction_for`]), with the sound file that correction
 /// was asked for. A reading is kept only while all of these are as they
 /// were (audit F1: a correction set after the reading was kept left the
-/// library showing the old rate).
+/// library showing the old rate). Also the fingerprint of each sound file
+/// or folder and clock log its session file names ([`linked`]), `None`
+/// where there is none to read: one outside the take's folder changes
+/// without the take's own stamp changing (audit R2-1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Outside {
     engine: String,
     calibre: Option<String>,
     first: Option<PathBuf>,
     correction: Option<(f64, String)>,
+    linked: Vec<(PathBuf, Option<Stamp>)>,
 }
 
 /// A take's reading as kept, with what it was worked out from.
@@ -566,20 +570,11 @@ fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
 /// without it.
 fn measure_take_with(
     dir: &Path,
-    correction: impl FnOnce(&Manifest, &Path) -> Result<Option<(f64, String)>, String>,
+    mut correction: impl FnMut(&Manifest, &Path) -> Result<Option<(f64, String)>, String>,
 ) -> Result<(Reading, Outside), String> {
+    use crate::take::EntryError;
     let m = manifest_of(dir)?;
-    let Some(e) = m
-        .recordings
-        .iter()
-        .rev()
-        .find(|e| !crate::take::reads_nothing(e))
-    else {
-        return Err(format!(
-            "{}: no recording listed with anything to read",
-            dir.join(crate::take::MANIFEST).display()
-        ));
-    };
+    let linked = linked(dir, &m);
     let cal = calibre_of(&m)?;
     let settings = crate::take::EntrySettings {
         stream: crate::take::stream_settings(&m, cal.as_ref(), crate::take::Given::default()),
@@ -587,13 +582,41 @@ fn measure_take_with(
         settle_s: None,
     };
     let mut used = None;
-    let read = crate::take::measure_entry(dir, &m, e, &settings, crate::take::usb, |first| {
-        let c = correction(&m, first);
-        if let Ok(c) = &c {
-            used = Some((first.to_path_buf(), c.clone()));
+    let mut unread = None;
+    let mut found = None;
+    for e in m.recordings.iter().rev() {
+        if crate::take::reads_nothing(e) {
+            continue;
         }
-        c
-    })?;
+        used = None;
+        let read = crate::take::measure_entry(dir, &m, e, &settings, crate::take::usb, |first| {
+            let c = correction(&m, first);
+            if let Ok(c) = &c {
+                used = Some((first.to_path_buf(), c.clone()));
+            }
+            c
+        });
+        match read {
+            Ok(read) => {
+                found = Some((e, read));
+                break;
+            }
+            // As `session` leaves such a position out, so does the
+            // reading, and it takes the one before (audit R2-3).
+            Err(EntryError::NoReading(why)) => {
+                unread.get_or_insert(why.to_string());
+            }
+            Err(EntryError::Failed(why)) => return Err(why),
+        }
+    }
+    let Some((e, read)) = found else {
+        return Err(unread.unwrap_or_else(|| {
+            format!(
+                "{}: no recording listed with anything to read",
+                dir.join(crate::take::MANIFEST).display()
+            )
+        }));
+    };
     let x = &read.measurement;
     let reading = Reading {
         position: e.position.clone(),
@@ -606,7 +629,7 @@ fn measure_take_with(
     let (first, correction) = used.unzip();
     Ok((
         reading,
-        outside_from(cal.as_ref(), first, correction.flatten()),
+        outside_from(cal.as_ref(), first, correction.flatten(), linked),
     ))
 }
 
@@ -642,6 +665,7 @@ fn outside(dir: &Path, first: Option<&Path>) -> Result<Outside, String> {
         cal.as_ref(),
         first.map(Path::to_path_buf),
         correction,
+        linked(dir, &m),
     ))
 }
 
@@ -651,13 +675,82 @@ fn outside_from(
     cal: Option<&crate::take::Calibre>,
     first: Option<PathBuf>,
     correction: Option<(f64, String)>,
+    linked: Vec<(PathBuf, Option<Stamp>)>,
 ) -> Outside {
     Outside {
         engine: ENGINE.into(),
         calibre: cal.map(|c| format!("{c:?}")),
         first,
         correction,
+        linked,
     }
+}
+
+/// The first sound file or folder or clock log that the take in `dir`'s
+/// session file names by a path leading out of its folder, such as
+/// `../audio.wav`: a copy or move of the folder would leave it behind, and
+/// the take would then read nothing (audit R2-2). A path from the root is
+/// still found after a move, so it isn't one.
+fn named_outside(dir: &Path) -> Option<String> {
+    let m = manifest_of(dir).ok()?;
+    m.recordings
+        .iter()
+        .flat_map(|e| std::iter::once(&e.file).chain(e.clock.as_ref()))
+        .find(|f| leads_out(Path::new(f)))
+        .cloned()
+}
+
+/// Whether the relative path `p` leads out of the folder it is taken
+/// from.
+fn leads_out(p: &Path) -> bool {
+    use std::path::Component;
+    let mut depth = 0i32;
+    for c in p.components() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => return false,
+            Component::CurDir => {}
+            Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            Component::Normal(_) => depth += 1,
+        }
+    }
+    false
+}
+
+/// The fingerprint of each sound file or folder and clock log that the
+/// take in `dir`'s session file `m` names outside its folder (by a path
+/// leading out of it, or from the root), in the order named: `None` for
+/// one that isn't there. What is inside is the take's own stamp's
+/// ([`reading_stamp`]). Quick, it reads no sound.
+fn linked(dir: &Path, m: &Manifest) -> Vec<(PathBuf, Option<Stamp>)> {
+    m.recordings
+        .iter()
+        .flat_map(|e| std::iter::once(&e.file).chain(e.clock.as_ref()))
+        .filter(|f| Path::new(f).is_absolute() || leads_out(Path::new(f)))
+        .map(|f| {
+            let p = dir.join(f);
+            let s = path_stamp(&p);
+            (p, s)
+        })
+        .collect()
+}
+
+/// The fingerprint of the file or folder at `p`, `None` when it isn't
+/// there.
+fn path_stamp(p: &Path) -> Option<Stamp> {
+    let m = fs::metadata(p).ok()?;
+    if m.is_dir() {
+        return Some(stamp(p));
+    }
+    Some(Stamp {
+        bytes: m.len(),
+        entries: 1,
+        newest_ns: modified_ns(&m),
+    })
 }
 
 /// Whether the take in the folder `take_dir` is a Positions Test's: it
@@ -1215,6 +1308,13 @@ impl Library {
         if resolved(from).starts_with(resolved(&self.root)) {
             return Err(format!("{} is already in your watches", from.display()));
         }
+        if let Some(f) = named_outside(from) {
+            return Err(format!(
+                "{} names {f}, which is outside the take's folder and wouldn't go with it. \
+                 Put that file in the take's folder, name it there, and add the take again",
+                from.join(take::MANIFEST).display()
+            ));
+        }
         let to_watch = self
             .watches
             .iter()
@@ -1604,16 +1704,20 @@ fn stamp_of(dir: &Path, into: impl Fn(&Path) -> bool) -> Stamp {
                 stack.push(e.path());
             } else {
                 s.bytes += m.len();
-                let ns = m
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map_or(0, |d| d.as_nanos());
-                s.newest_ns = s.newest_ns.max(ns);
+                s.newest_ns = s.newest_ns.max(modified_ns(&m));
             }
         }
     }
     s
+}
+
+/// When the file `m` describes last changed, in nanoseconds since 1970
+/// (0 when that can't be told).
+fn modified_ns(m: &fs::Metadata) -> u128 {
+    m.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos())
 }
 
 /// The sound card's error from the USB lines of `files`' first, ppm slow
