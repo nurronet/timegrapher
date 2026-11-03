@@ -59,6 +59,8 @@ def verify():
         folder = EVIDENCE / config["id"]
         assert sha256(folder / "blind-result.json") == config["blind_sha256"]
         blind = read(folder / "blind-result.json")
+        video_hash = blind.get("source_video_sha256", blind.get("video_sha256"))
+        assert video_hash == next(s["sha256"] for s in config["sources"] if s["role"] == "video.mov")
         results = stored_results(folder, config)
         for section in blind["sections"]:
             result = next(r for r in results if r["start_s"] == section["video_start_s"])
@@ -72,6 +74,14 @@ def verify():
             assert sha256(folder / crop["file"]) == crop["sha256"]
         for row in read(folder / "matched-windows.json"):
             assert abs((row["tick_deg"] + row["tock_deg"]) / 2 - row["pair_mean_deg"]) < 1e-8
+            start, lift = row["video_start_s"], row["lift_deg"]
+            filename = (f"windows-{lift}.csv" if config["id"] == "low"
+                        else f"windows-{lift}-{start % 2}.csv")
+            with (folder / filename).open() as stream:
+                original = next(r for r in csv.DictReader(stream) if r["kind"] == "amplitude"
+                                and float(r["start_s"]) == start - start % 2)
+            assert float(original["amplitude_even_deg"]) == row["tick_deg"]
+            assert float(original["amplitude_odd_deg"]) == row["tock_deg"]
     print(f"Verified {windows} frozen optical windows, crop hashes and acoustic pair means.")
 
 
