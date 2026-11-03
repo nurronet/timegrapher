@@ -1,0 +1,50 @@
+[
+  {
+    "position": "3H",
+    "position_text": "Crown Up (CU, 3H)",
+    "measurement": {
+      "watch_heard": true,
+      "rate_s_per_day": 6.01,
+      "amplitude_deg": 273.6,
+      "beat_error_unlock_ms": -0.4,
+      "beat_error_ms": 0.8,
+      "confidence": {
+        "rate": {
+          "se": 0.04
+        },
+        "amplitude": {
+          "se": 0.06
+        },
+        "beat_error": {
+          "se": 0.002
+        }
+      }
+    },
+    "text": "rate +6.0 \u00b1 0.04 s/d, amplitude 274 \u00b1 0.06\u00b0, beat error 0.40 \u00b1 0.002 ms"
+  },
+  {
+    "position": "XX",
+    "position_text": "XX",
+    "measurement": {
+      "rate_s_per_day": -0.0001,
+      "beat_error_ms": -0.3
+    },
+    "text": "rate 0.0 s/d, beat error 0.30 ms"
+  },
+  {
+    "position": "DU",
+    "position_text": "Dial Up (DU)",
+    "measurement": {
+      "watch_heard": false,
+      "rate_s_per_day": 6,
+      "amplitude_deg": 270
+    },
+    "text": "no regular beat found"
+  },
+  {
+    "position": "DD",
+    "position_text": "Dial Down (DD)",
+    "measurement": {},
+    "text": ""
+  }
+]

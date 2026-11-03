@@ -1274,7 +1274,6 @@ fn print_take(t: &serde_json::Value) {
 /// amplitude and beat error with their ± (core's `pm_text`), as the MCP
 /// lead gives them, and each entry left out.
 fn take_lines(t: &serde_json::Value) -> Vec<String> {
-    use timegrapher_core::library::{pm_text, signed_text};
     let mut lines = vec![format!(
         "Take         {} lists this file; `timegrapher session` reads it:",
         t["session_file"].as_str().unwrap_or("")
@@ -1282,30 +1281,7 @@ fn take_lines(t: &serde_json::Value) -> Vec<String> {
     for r in t["readings"].as_array().into_iter().flatten() {
         let m = &r["measurement"];
         let at = |k: &str| m[k].as_f64().map_or("-".into(), |x| format!("{x:.0}"));
-        let said = if m["watch_heard"] == false {
-            "no regular beat found".to_string()
-        } else {
-            let pm = |k: &str, d: usize| {
-                m["confidence"][k]["se"]
-                    .as_f64()
-                    .and_then(|se| pm_text(se, d))
-                    .map_or(String::new(), |t| format!(" ± {t}"))
-            };
-            let mut parts = Vec::new();
-            if let Some(x) = m["rate_s_per_day"].as_f64() {
-                parts.push(format!("rate {}{} s/d", signed_text(x, 1), pm("rate", 1)));
-            }
-            if let Some(x) = m["amplitude_deg"].as_f64() {
-                parts.push(format!("amplitude {x:.0}{} deg", pm("amplitude", 0)));
-            }
-            if let Some(x) = timegrapher_core::session::beat_error_size(
-                m["beat_error_unlock_ms"].as_f64(),
-                m["beat_error_ms"].as_f64(),
-            ) {
-                parts.push(format!("beat error {x:.2}{} ms", pm("beat_error", 2)));
-            }
-            parts.join(", ")
-        };
+        let said = timegrapher_core::reading_text::measurement(m);
         lines.push(format!(
             "             {} from {} to {} s: {said}",
             position_label(&r["position"]),
@@ -1327,8 +1303,7 @@ fn take_lines(t: &serde_json::Value) -> Vec<String> {
 /// not know stays as given.
 fn position_label(p: &serde_json::Value) -> String {
     let p = p.as_str().unwrap_or("-");
-    timegrapher_core::session::Position::parse(p)
-        .map_or_else(|| p.to_string(), |p| p.display_label())
+    timegrapher_core::reading_text::position_name(p)
 }
 
 /// The clock correction applied to a rate read on the sound card.
@@ -1786,6 +1761,23 @@ fn write_windows(p: &Path, a: &Analysis) -> std::io::Result<()> {
 #[cfg(test)]
 mod take_lines_tests {
     use super::*;
+
+    #[test]
+    fn take_lines_use_the_shared_reading_words() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../timegrapher-core/tests/fixtures/reading_text.json"
+        ))
+        .unwrap();
+        for c in cases.as_array().unwrap() {
+            let lines = take_lines(&serde_json::json!({"readings": [c]}));
+            let expected = format!(
+                "             {} from - to - s: {}",
+                c["position_text"].as_str().unwrap(),
+                c["text"].as_str().unwrap()
+            );
+            assert_eq!(lines[1], expected);
+        }
+    }
 
     /// A take entry with no regular beat says so, with no figures, and
     /// one left out says why (#826).

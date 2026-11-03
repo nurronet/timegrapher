@@ -43,6 +43,7 @@ pub mod period_ticks;
 pub mod periodicity;
 pub mod power_reserve;
 pub mod profile;
+pub mod reading_text;
 pub mod recorder;
 pub mod recording_order;
 pub mod redact;
