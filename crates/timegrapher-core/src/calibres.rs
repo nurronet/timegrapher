@@ -388,7 +388,8 @@ mod tests {
 
     #[test]
     fn dd_jh_32xx_empirical_lift_setting_covers_aliases_only() {
-        let source = "docs/dd32xx-optical-amplitude-validation.md";
+        // Match the catalogue source label; this test does not read the document.
+        let source = "dd32xx-optical-amplitude-validation";
         let covered: Vec<_> = all()
             .iter()
             .filter(|c| c.sources.iter().any(|s| s.contains(source)))
