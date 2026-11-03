@@ -232,22 +232,29 @@ impl TimegrapherApp {
         }
     }
 
-    /// The blocks a live input has already sent and the window hasn't
-    /// taken yet, through core's gap rule as listening takes them. Returns
-    /// what the gap rule lets through. A replayed file is left as it was.
-    fn queued_blocks(&mut self) -> Vec<Live> {
-        let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
+    /// The events a live input has already sent and the window hasn't
+    /// taken yet, as listening takes them: what core's gap rule lets
+    /// through, and why the input failed, if it did. A replayed file is
+    /// left as it was.
+    fn queued_blocks(&mut self) -> (Vec<Live>, Option<CaptureFailure>) {
         let mut lives = Vec::new();
+        let mut failure = None;
         // Taken faster than a live input sends, so this ends.
-        while let Some(Ok(Event::Audio(b))) = self
-            .capture
-            .as_ref()
-            .filter(|c| !c.is_file)
-            .map(|c| c.rx.try_recv())
-        {
-            lives.extend(self.gaps.get_or_insert_with(|| GapWatch::new(rate)).push(b));
+        while let Some(cap) = self.capture.as_ref().filter(|c| !c.is_file) {
+            let event = match cap.rx.try_recv() {
+                Err(TryRecvError::Empty) => break,
+                event => event,
+            };
+            let (came, ended, fail) = self.input_event(event, false);
+            lives.extend(came);
+            if fail.is_some() {
+                failure = fail;
+            }
+            if ended {
+                break;
+            }
         }
-        lives
+        (lives, failure)
     }
 
     /// Stop listening for now, keeping everything.
@@ -255,13 +262,13 @@ impl TimegrapherApp {
         if self.capture.is_none() {
             return;
         }
-        // The blocks the input already sent are the take's too (#873), and
-        // so is the sound core's gap rule still holds.
-        let queued = self.queued_blocks();
-        let held = self.gaps.as_mut().map(GapWatch::finish);
+        // The sound the input already sent is the take's too (#873), and so
+        // is the sound core's gap rule still holds.
+        let (queued, failure) = self.queued_blocks();
+        let held = self.finish_gaps();
         if let Err(CaptureFailure::Recording(e)) = queued
             .into_iter()
-            .chain(held.into_iter().flatten())
+            .chain(held)
             .try_for_each(|l| self.take_live(l))
         {
             return self.recording_failed(e);
@@ -271,8 +278,15 @@ impl TimegrapherApp {
             applog::info("microphone stopped and released");
             let now = self.live.as_ref().map_or(0.0, |l| l.duration_s());
             if let Ok(Err(e)) = self.session.pause(now) {
-                self.recording_failed(format!("Couldn't close the kept sound at the pause: {e}"));
+                return self
+                    .recording_failed(format!("Couldn't close the kept sound at the pause: {e}"));
             }
+        }
+        // An input that failed just before the pause says so, as listening
+        // would have.
+        if let Some(CaptureFailure::Input(error)) = failure {
+            self.input_fault = Some(error.clone());
+            self.error(error);
         }
     }
 
@@ -1952,6 +1966,39 @@ impl TimegrapherApp {
         taken
     }
 
+    /// One event from the input, as listening takes it: what core's gap
+    /// rule lets through, whether the input ended, and why it failed, if it
+    /// did. A live input's blocks go through the gap rule, which lets each
+    /// through once no break before it is in doubt (#689).
+    fn input_event(
+        &mut self,
+        event: Result<Event, TryRecvError>,
+        is_file: bool,
+    ) -> (Vec<Live>, bool, Option<CaptureFailure>) {
+        let stopped = |e: &str| {
+            Some(CaptureFailure::Input(format!(
+                "Input stopped. {}",
+                capture::explain_error(e)
+            )))
+        };
+        match event {
+            Ok(Event::Audio(b)) if is_file => (vec![Live::Block(b)], false, None),
+            Ok(Event::Audio(b)) => {
+                let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
+                let lives = self.gaps.get_or_insert_with(|| GapWatch::new(rate)).push(b);
+                (lives, false, None)
+            }
+            Ok(Event::Error(e)) if is_file => (Vec::new(), false, stopped(&e)),
+            Ok(Event::Error(e)) => (self.finish_gaps(), true, stopped(&e)),
+            Ok(Event::End) | Err(_) => (self.finish_gaps(), true, None),
+        }
+    }
+
+    /// What core's gap rule still holds, let through at the input's end.
+    fn finish_gaps(&mut self) -> Vec<Live> {
+        self.gaps.as_mut().map(GapWatch::finish).unwrap_or_default()
+    }
+
     /// Take the blocks the input has sent, for up to `budget` once one is
     /// taken, through core's gap rule for a live input. Returns how many were
     /// taken, whether the input ended and why it failed, if it did.
@@ -1971,42 +2018,21 @@ impl TimegrapherApp {
                 break;
             }
             let is_file = cap.is_file;
-            // A live input's blocks go through core's gap rule, which lets
-            // each through once no break before it is in doubt (#689).
-            let came = match cap.rx.try_recv() {
-                Ok(Event::Audio(b)) => {
-                    taken += 1;
-                    // Heard as it arrives, though core's gap rule may hold
-                    // it a while.
-                    self.audio_at = Some(Instant::now());
-                    if is_file {
-                        vec![Live::Block(b)]
-                    } else {
-                        let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
-                        self.gaps.get_or_insert_with(|| GapWatch::new(rate)).push(b)
-                    }
-                }
-                Ok(Event::Error(e)) if is_file => {
-                    failure = Some(CaptureFailure::Input(format!(
-                        "Input stopped. {}",
-                        capture::explain_error(&e)
-                    )));
-                    continue;
-                }
-                Ok(Event::Error(e)) => {
-                    failure = Some(CaptureFailure::Input(format!(
-                        "Input stopped. {}",
-                        capture::explain_error(&e)
-                    )));
-                    ended = true;
-                    self.gaps.as_mut().map(GapWatch::finish).unwrap_or_default()
-                }
-                Ok(Event::End) | Err(TryRecvError::Disconnected) => {
-                    ended = true;
-                    self.gaps.as_mut().map(GapWatch::finish).unwrap_or_default()
-                }
+            let event = match cap.rx.try_recv() {
                 Err(TryRecvError::Empty) => break,
+                event => event,
             };
+            if matches!(event, Ok(Event::Audio(_))) {
+                taken += 1;
+                // Heard as it arrives, though core's gap rule may hold it a
+                // while.
+                self.audio_at = Some(Instant::now());
+            }
+            let (came, end, fail) = self.input_event(event, is_file);
+            ended |= end;
+            if fail.is_some() {
+                failure = fail;
+            }
             if let Err(e) = came.into_iter().try_for_each(|l| self.take_live(l)) {
                 failure = Some(e);
                 break;

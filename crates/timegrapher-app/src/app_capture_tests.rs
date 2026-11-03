@@ -36,6 +36,31 @@ fn pause_and_stop_keep_sound_already_queued() {
     }
 }
 
+/// An input that failed just before Pause still says why, as it would
+/// while listening, and the sound before the failure is kept (#873).
+#[test]
+fn pause_reports_an_input_failure_already_queued() {
+    let (mut app, base) = save_failure_fixture("pause-queued-error");
+    let tx = queued_capture(&mut app, &base);
+    let before = app.session.recorder.as_ref().unwrap().duration_s();
+    for k in 0..50u64 {
+        tx.send(block(2000 + 20 * k)).unwrap();
+    }
+    tx.send(Event::Error("device unplugged".into())).unwrap();
+    app.pause();
+    let after = app.session.recorder.as_ref().unwrap().duration_s();
+    let fault = app.input_fault.clone();
+    drop(app);
+    drop(tx);
+    let _ = std::fs::remove_dir_all(base);
+    assert!(
+        (after - before - 1.0).abs() < 1e-6,
+        "{} s more were saved",
+        after - before
+    );
+    assert!(fault.is_some_and(|f| f.starts_with("Input stopped.")));
+}
+
 /// With the window drawing no frames at all (a locked screen, a
 /// minimised window), the sound is still saved and read as it comes in.
 #[test]
