@@ -291,7 +291,7 @@ the timegrapher app draws them:
   model never sees. It reads a file the recording keeps and never opens
   the microphone. Chat apps without views, and any that ask for progress,
   get the latest reading in the progress messages instead, for example
-  "Recording CD: 72 of 120 s · +4.1 s/day · 268° · 0.3 ms".
+  "Recording CD: 72 of 120 s · +4.1 s/d · 268° · 0.3 ms".
 - `check_steadiness`: the app's Steadiness pane (each plot titled with its
   series and that series' `summary`, the headline in a few words; the Info
   switch shows the view's description and each series' full headline, as

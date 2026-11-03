@@ -167,7 +167,7 @@ fn chart_lines(
                 under: None,
                 main: true,
             }],
-            " s/day",
+            " s/d",
             1,
         ),
         SeriesKind::Amplitude => (

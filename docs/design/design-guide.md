@@ -302,7 +302,7 @@ No control appears or disappears with the state of the pane. A control that does
 
 ## 11. Plots
 
-- **Axes** carry units on their labels ("15 s/day", "0.20 ms"), in Small text. Time runs left to right in minutes and seconds.
+- **Axes** carry units on their labels ("15 s/d", "0.20 ms"), in Small text. Time runs left to right in minutes and seconds.
 - **Log-scale period axes step in watchmaker's units,** never in powers of ten: 1 s, 5 s, 10 s, 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h, 2 h, 6 h, 12 h. They thin out to the main marks when room is short. Every log axis uses the one source for these marks (core `period_ticks.rs`), so the app, CLI and MCP charts agree.
 - **A key inside the top-right corner** names each series of dots or lines and how many there are, in the series colour: "● 10 s readings (179)". Marks named in words beside them, like the profile's edges and sounds, need no key.
 - **Say the scale when it isn't shared.** When rows or plots are scaled differently (each Scope row to its own loudest beat), say so in the hint and the docs.

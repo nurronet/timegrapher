@@ -257,7 +257,7 @@ fn a_recording_can_be_followed_live() {
     assert!(
         progress
             .iter()
-            .any(|m| m.starts_with("Recording CD") && m.contains("s/day")),
+            .any(|m| m.starts_with("Recording CD") && m.contains(" s/d ·")),
         "{progress:?}"
     );
     // When the call ends the file goes, and nothing is recording.
