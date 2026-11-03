@@ -706,6 +706,23 @@ fn named_outside(dir: &Path) -> Option<String> {
         .cloned()
 }
 
+/// Refuses, before anything moves, a take in `dir` whose session file
+/// names a file by a path that won't lead to it once the take is in a
+/// watch ([`named_outside`]); `again` ends the sentence with what to do
+/// once the file is in the take's folder. Add to Watch and File Under a
+/// Watch both ask it (#876, #882).
+fn stays_readable(dir: &Path, again: &str) -> Result<(), String> {
+    match named_outside(dir) {
+        Some(f) => Err(format!(
+            "{} names {f}, a path that won't lead to the file once the take is in the \
+             watch. Put the file in the take's folder, name it by its path there (such as \
+             audio.wav), and {again}",
+            dir.join(take::MANIFEST).display()
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Whether the relative path `p` leads out of the folder it is taken
 /// from.
 fn leads_out(p: &Path) -> bool {
@@ -1184,6 +1201,7 @@ impl Library {
         if take.parent() == Some(takes.as_path()) {
             return Ok(take.to_path_buf());
         }
+        stays_readable(take, "move it again")?;
         fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
         let to = unused_dir(&takes, &file_name(take));
         fs::rename(take, &to).map_err(|e| format!("Moving {}: {e}", take.display()))?;
@@ -1314,14 +1332,7 @@ impl Library {
         if resolved(from).starts_with(resolved(&self.root)) {
             return Err(format!("{} is already in your watches", from.display()));
         }
-        if let Some(f) = named_outside(from) {
-            return Err(format!(
-                "{} names {f}, a path that won't lead to the file once the take is in the \
-                 watch. Put the file in the take's folder, name it by its path there (such as \
-                 audio.wav), and add the take again",
-                from.join(take::MANIFEST).display()
-            ));
-        }
+        stays_readable(from, "add the take again")?;
         let to_watch = self
             .watches
             .iter()

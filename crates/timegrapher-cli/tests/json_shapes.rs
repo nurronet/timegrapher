@@ -229,14 +229,11 @@ fn session_keeps_its_fields() {
         timegrapher_core::library::pm_text(m["confidence"][k]["se"].as_f64().unwrap(), d).unwrap()
     };
     for (t, unit) in [
-        (pm("rate", 1), "s/d"),
-        (pm("amplitude", 0), "deg"),
-        (pm("beat_error", 2), "ms"),
+        (pm("rate", 1), " s/d"),
+        (pm("amplitude", 0), "°"),
+        (pm("beat_error", 2), " ms"),
     ] {
-        assert!(
-            line.contains(&format!(" ± {t} {unit}")),
-            "{t} {unit}: {line}"
-        );
+        assert!(line.contains(&format!(" ± {t}{unit}")), "{t}{unit}: {line}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

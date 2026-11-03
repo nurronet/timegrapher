@@ -301,11 +301,19 @@ pub fn rate_se(windows: &[WindowFit]) -> Option<f64> {
 }
 
 /// Standard error of the beat error from the unlock, ms: the one rule for
-/// it, which the assessment reads (#641).
-pub fn beat_error_se<'a>(windows: impl IntoIterator<Item = &'a AmplitudeWindow>) -> Option<f64> {
+/// it, which the assessment reads (#641). Of the same quantity as the
+/// figure beside it ([`crate::timing::median_signed`]): of the windows'
+/// sizes where the figure is the median of sizes (`as_size`, its sign
+/// turning over the stretch), else of their signed values (#637).
+pub fn beat_error_se<'a>(
+    windows: impl IntoIterator<Item = &'a AmplitudeWindow>,
+    as_size: bool,
+) -> Option<f64> {
     let v: Vec<f64> = windows
         .into_iter()
         .filter_map(|w| w.beat_error_unlock_ms)
+        .filter(|x| x.is_finite())
+        .map(|x| if as_size { x.abs() } else { x })
         .collect();
     standard_error(&v)
 }
@@ -356,10 +364,92 @@ mod tests {
             .iter()
             .filter_map(|w| w.beat_error_unlock_ms)
             .collect();
-        let se = beat_error_se(&windows).unwrap();
+        let se = beat_error_se(&windows, false).unwrap();
         assert!(se > 0.0, "{se}");
         assert_eq!(Some(se), standard_error(&kept));
-        assert_eq!(beat_error_se(&windows[..2]), None);
+        assert_eq!(beat_error_se(&windows[..2], false), None);
+    }
+
+    /// 2 s windows whose unlock beat errors are `values`.
+    fn unlock_windows(values: &[f64]) -> Vec<AmplitudeWindow> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| AmplitudeWindow {
+                start_s: i as f64 * 2.0,
+                end_s: i as f64 * 2.0 + 2.0,
+                even_deg: None,
+                odd_deg: None,
+                beat_error_ms: None,
+                beat_error_unlock_ms: Some(v),
+                even_unlock_ms: None,
+                odd_unlock_ms: None,
+                even_drop_ms: None,
+                odd_drop_ms: None,
+            })
+            .collect()
+    }
+
+    /// Where the beat error is the median of sizes, its ± is of the sizes
+    /// too, not of the signed values beside it (#637): a sign that turns
+    /// over between windows is no scatter in the size.
+    #[test]
+    fn a_beat_errors_se_is_of_the_same_quantity_as_its_figure() {
+        let signed: Vec<f64> = (0..40)
+            .map(|i| {
+                let size = 0.4 + 0.02 * (i as f64 * 1.3).sin();
+                if i % 3 == 0 {
+                    -size
+                } else {
+                    size
+                }
+            })
+            .collect();
+        let sizes: Vec<f64> = signed.iter().map(|x| x.abs()).collect();
+        let w = unlock_windows(&signed);
+        assert_eq!(beat_error_se(&w, true), standard_error(&sizes));
+        assert_eq!(beat_error_se(&w, false), standard_error(&signed));
+        let (size_se, signed_se) = (
+            beat_error_se(&w, true).unwrap(),
+            beat_error_se(&w, false).unwrap(),
+        );
+        assert!(size_se < 0.02 && signed_se > 0.1, "{size_se} {signed_se}");
+    }
+
+    /// Seeded coverage: a beat error of size 0.4 ms whose sign turns over
+    /// at random, read as the median of 60 windows' sizes, has 0.4 ms
+    /// within 1.96 of its ± in about 95% of takes, on whole takes and on
+    /// takes with a gap of windows left out.
+    #[test]
+    fn a_beat_error_sizes_se_covers_its_median() {
+        let mut rng = Rng::new(20261103);
+        for gapped in [false, true] {
+            let trials = 600;
+            let mut covered = 0;
+            for _ in 0..trials {
+                let mut v: Vec<f64> = (0..60)
+                    .map(|_| {
+                        let size = 0.4 + 0.05 * rng.normal();
+                        if rng.next_f64() < 0.5 {
+                            -size
+                        } else {
+                            size
+                        }
+                    })
+                    .collect();
+                if gapped {
+                    v.drain(20..35);
+                }
+                let w = unlock_windows(&v);
+                let median = crate::timing::median_signed(v.iter().copied(), true).unwrap();
+                let se = beat_error_se(&w, true).unwrap();
+                if (median - 0.4).abs() <= 1.96 * se {
+                    covered += 1;
+                }
+            }
+            let rate = f64::from(covered) / f64::from(trials);
+            assert!((0.90..=0.985).contains(&rate), "gapped {gapped}: {rate}");
+        }
     }
 
     #[test]

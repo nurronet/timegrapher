@@ -224,7 +224,7 @@ Today there are five rules (#636):
 - **A listed pause the clock log saw no step for** is a break of no width: it adds no time, and the caveat `pauses_unseen` says so (`ClockFit::keeps_gap`; #646). A pause the log has no entry before or none after (it ended early or started late) has no witness, so its listed gap is added, as with no log (`ClockFit::witnesses`).
 - **Short stretches are dropped.** A stretch between cuts whose beats span under 10 s (`timing::MIN_PIECE_S`) gives no rate. It is a ragged edge, and a few seconds of beats give a rate several s/d out.
 - **A beat error that turns over across a break** is combined as a size, not averaged to zero (`timing::signed_across`, `median_signed`), with a caveat.
-- **Breach:** the saved whole-stretch fit does not cut at a pause between beats over 2 s, though the live reading does (`Cuts::run_cut`) and `GAP_S`'s own comment says no reading fits across one. Finding N2, #638.
+- **Unlisted pauses (#638):** saved whole-stretch fits use `Cuts::fit_cuts`, including pauses of more than `GAP_S` between beats on true time. Live's `Cuts::run_cut` uses the same pause rule for its latest run. Saved rates pool the separate fits by beats used, retaining the existing minimum stretch length.
 
 ---
 
@@ -356,7 +356,7 @@ Confirmed problems are filed as issues, and the fixes go to each file's owner. N
 | # | Finding | Where | Status |
 |---|---|---|---|
 | N1 | Beat error ± from signed values when the figure is a median of sizes | `measure.rs:498`, `session.rs:579` | **#637** |
-| N2 | Saved fit does not cut at a pause over 2 s between beats; live does | `session.rs:478`, `clean.rs:38` | **#638** |
+| N2 | Saved fit did not cut at a pause over 2 s between beats | `session::measure_masked`, `Cuts::fit_cuts` | Fixed, #638 |
 | N3 | ± on a gapped take takes differences across gaps; ρ not pooled per stretch | `confidence.rs:144` | **#639** |
 | N4 | No core coverage rule; the 60% unlock share lives in `regress` | `regress_cmd.rs:32` | **#645** |
 | N5 | Synthetic rate is first-order: +0.12 s/d at +100 s/d | `synth.rs:171` | Fixed, #816 |

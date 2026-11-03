@@ -37,6 +37,14 @@ const EDGE_S: f64 = 1e-6;
 /// be whole ([`Cuts::whole`]).
 pub const GAP_S: f64 = 2.0;
 
+/// Cuts just before beats that follow a pause, on the beats' time axis.
+/// Live's latest run and saved fits share this strict gap rule.
+fn beat_pauses(beats: &[Beat]) -> impl DoubleEndedIterator<Item = f64> + '_ {
+    beats
+        .windows(2)
+        .filter_map(|w| (w[1].time - w[0].time > GAP_S).then_some(w[1].time - EDGE_S))
+}
+
 /// What cut the take at a hole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -254,10 +262,9 @@ impl<'a> Cuts<'a> {
     pub fn run_cut(&self, beats: &[Beat], from: f64, end: f64) -> f64 {
         let lo = beats.partition_point(|b| b.time < from);
         let hi = beats.partition_point(|b| b.time <= end);
-        let pause = (lo + 1..hi)
-            .rev()
-            .find(|&i| beats[i].time - beats[i - 1].time > GAP_S)
-            .map_or(f64::NEG_INFINITY, |i| beats[i].time - EDGE_S);
+        let pause = beat_pauses(beats.get(lo..hi).unwrap_or(&[]))
+            .next_back()
+            .unwrap_or(f64::NEG_INFINITY);
         pause.max(self.stretch_from(end))
     }
 
@@ -297,6 +304,17 @@ impl<'a> Cuts<'a> {
             })
             .collect();
         cuts.sort_by(f64::total_cmp);
+        cuts
+    }
+
+    /// Cuts for a reading of `beats` on true time: the listed holes and
+    /// every pause of more than [`GAP_S`] between beats. As in [`Self::run_cut`],
+    /// the first beat after a pause belongs to the new stretch (#638).
+    pub fn fit_cuts(&self, beats: &[Beat]) -> Vec<f64> {
+        let mut cuts = self.piece_cuts();
+        cuts.extend(beat_pauses(beats));
+        cuts.sort_by(f64::total_cmp);
+        cuts.dedup();
         cuts
     }
 

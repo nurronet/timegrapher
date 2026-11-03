@@ -575,9 +575,9 @@ pub fn measure_masked(
     let holes = Cuts::new(clock, breaks, masked);
     let on_time = holes.breaks();
     let map = |t: f64| holes.true_time(t);
-    let cuts = holes.piece_cuts();
     let in_range: Vec<Beat> = log.beats[stretch_beats(&log.beats, from_s, to_s)].to_vec();
     let beats = holes.beats(&in_range);
+    let cuts = holes.fit_cuts(&beats);
     let fit = timing::fit_pieces(&beats, log.bph, &cuts);
     let turned = timing::sign_turns(&beats, log.bph, &cuts);
     let (from_t, to_t) = (map(from_s), map(to_s));
