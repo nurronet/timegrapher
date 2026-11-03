@@ -241,10 +241,12 @@ impl Results {
 
 /// The run from audio second `first_s` to `last_s` of `log`, hour by
 /// hour of true time from the first beat (the last hour as long as is
-/// left): each boundary is 3600 s of true time on from the last, taken
-/// back to the sound's seconds ([`crate::clean::Cuts::audio_time`]), so a
-/// card running fast or slow, or a pause, doesn't stretch an hour
-/// (#642). Each hour
+/// left): hour `k` is true seconds `3600 k` to `3600 (k + 1)` on from the
+/// first beat's true time, wherever a pause or a card running fast or
+/// slow puts it in the sound (#642). Each hour's ends are taken back to
+/// the sound's seconds ([`crate::clean::Cuts::audio_time`]) only to pick
+/// the sound it holds; an hour wholly inside a pause holds none, so it
+/// reads nothing and has no figures. Each hour
 /// is measured as `timegrapher session` measures a stretch
 /// ([`crate::session::measure_masked`], with the take's `clock`, `breaks`
 /// and `masked` stretches), and `read_s` counts its whole 10 s bins
@@ -258,15 +260,45 @@ pub fn hours(
     first_s: f64,
     last_s: f64,
 ) -> Vec<Hour> {
+    hours_from(log, clock, breaks, masked, first_s, last_s, 0)
+}
+
+/// [`hours`] from hour `from` on (counted from 0 at the first beat), on
+/// the same grid of true hours: the hours before it are not measured, so
+/// a chart that keeps its whole hours measures only the rest again.
+pub fn hours_from(
+    log: &crate::stream::BeatLog,
+    clock: Option<&crate::clock::ClockFit>,
+    breaks: &[crate::breaks::Break],
+    masked: &[(f64, f64)],
+    first_s: f64,
+    last_s: f64,
+    from: u32,
+) -> Vec<Hour> {
     let cuts = crate::clean::Cuts::new(clock, breaks, masked);
     let on_true = cuts.beats(&log.beats);
+    let t0 = cuts.true_time(first_s);
+    let t_end = cuts.true_time(last_s);
     let mut out = Vec::new();
-    let mut a = first_s;
-    let mut hour = 0u32;
-    while a < last_s {
-        let ta = cuts.true_time(a);
-        let b = cuts.audio_time(ta + 3600.0, a, last_s);
-        let tb = cuts.true_time(b);
+    let mut hour = from;
+    loop {
+        let ta = t0 + 3600.0 * f64::from(hour);
+        // A microsecond's slack, so the sums that make the grid don't
+        // leave an hour of nothing at the end.
+        if ta >= t_end - 1e-6 {
+            break;
+        }
+        let tb = (ta + 3600.0).min(t_end);
+        let a = if hour == 0 {
+            first_s
+        } else {
+            cuts.audio_time(ta, first_s, last_s)
+        };
+        let b = if tb < t_end {
+            cuts.audio_time(tb, first_s, last_s)
+        } else {
+            last_s
+        };
         let n = ((tb - ta) / 10.0).floor() as usize;
         let read_s = cuts
             .bins(&on_true, ta, 10.0, n, 2.0)
@@ -274,16 +306,15 @@ pub fn hours(
             .filter(|x| x.whole)
             .count() as f64
             * 10.0;
-        let m = crate::session::measure_masked(log, clock, breaks, masked, a, b);
+        let m = (b > a).then(|| crate::session::measure_masked(log, clock, breaks, masked, a, b));
         out.push(Hour {
             hour,
             span_s: tb - ta,
-            rate_s_per_day: m.rate_s_per_day,
-            amplitude_deg: m.amplitude_deg,
-            beat_error_ms: m.beat_error_signed(),
+            rate_s_per_day: m.as_ref().and_then(|m| m.rate_s_per_day),
+            amplitude_deg: m.as_ref().and_then(|m| m.amplitude_deg),
+            beat_error_ms: m.as_ref().and_then(|m| m.beat_error_signed()),
             read_s,
         });
-        a = b;
         hour += 1;
     }
     out
@@ -474,6 +505,87 @@ mod tests {
         assert!(h[0].whole() && !h[1].whole(), "{spans:?}");
         let total: f64 = spans.iter().sum();
         assert!((total - (5000.0 + 1800.0)).abs() < 1e-3, "{spans:?}");
+    }
+
+    /// A run of `duration_s` seconds of beats, every one heard.
+    fn steady_log(duration_s: f64) -> crate::stream::BeatLog {
+        crate::stream::BeatLog {
+            sample_rate: 48_000,
+            duration_s,
+            bph: 28_800,
+            lift_deg: 52.0,
+            beats: beats(0.0, duration_s, 0.125, 1.0),
+            amplitude_windows: Vec::new(),
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        }
+    }
+
+    /// A pause that ends inside an hour, or covers whole hours, keeps
+    /// every hour on the grid of true hours from the first beat: an hour
+    /// wholly inside the pause is kept, reading nothing and with no
+    /// figures (#642; the outside review of #876).
+    #[test]
+    fn hours_keep_the_true_grid_across_a_pause_of_any_length() {
+        let log = steady_log(5000.0);
+        for (gap_s, want) in [
+            (2700.0, vec![3600.0, 3600.0, 500.0]),
+            (7200.0, vec![3600.0, 3600.0, 3600.0, 1400.0]),
+        ] {
+            let pause = [crate::breaks::Break {
+                audio_s: 1800.0,
+                gap_s,
+            }];
+            let h = hours(&log, None, &pause, &[], 0.0, 5000.0);
+            let spans: Vec<f64> = h.iter().map(|x| x.span_s).collect();
+            assert_eq!(spans.len(), want.len(), "gap {gap_s}: {spans:?}");
+            for (got, want) in spans.iter().zip(&want) {
+                assert!((got - want).abs() < 1e-3, "gap {gap_s}: {spans:?}");
+            }
+            assert!(h[0].rate_s_per_day.is_some(), "{:?}", h[0]);
+            if gap_s > 3600.0 {
+                assert_eq!(h[1].read_s, 0.0, "{:?}", h[1]);
+                assert_eq!(h[1].rate_s_per_day, None, "{:?}", h[1]);
+                assert_eq!(h[1].amplitude_deg, None, "{:?}", h[1]);
+            }
+        }
+    }
+
+    /// A card running fast or slow by a steady amount makes each whole
+    /// hour 3600 s of true time, and the run its true length.
+    #[test]
+    fn hours_are_true_hours_on_a_card_running_fast_or_slow() {
+        let log = steady_log(7500.0);
+        for ppm in [-50.0, 0.0, 50.0] {
+            let clock = crate::clock::ClockFit::fixed(ppm, log.duration_s);
+            let h = hours(&log, Some(&clock), &[], &[], 2.375, 7402.375);
+            assert_eq!(h.len(), 3, "{ppm}");
+            assert!((h[0].span_s - 3600.0).abs() < 1e-3, "{ppm}: {h:?}");
+            assert!((h[1].span_s - 3600.0).abs() < 1e-3, "{ppm}: {h:?}");
+            let total: f64 = h.iter().map(|x| x.span_s).sum();
+            assert!((total - 7400.0 * (1.0 + ppm * 1e-6)).abs() < 1e-3, "{ppm}");
+        }
+    }
+
+    /// Hours from a later hour on are those same hours of the whole run,
+    /// so a chart that keeps its whole hours measures the rest on the
+    /// same grid.
+    #[test]
+    fn hours_from_a_later_hour_are_the_whole_runs() {
+        let log = steady_log(9000.0);
+        let pause = [crate::breaks::Break {
+            audio_s: 1800.0,
+            gap_s: 2700.0,
+        }];
+        let all = hours(&log, None, &pause, &[], 0.0, 9000.0);
+        for from in 0..=all.len() as u32 {
+            let rest = hours_from(&log, None, &pause, &[], 0.0, 9000.0, from);
+            assert_eq!(rest, all[from as usize..], "from hour {from}");
+        }
     }
 
     #[test]

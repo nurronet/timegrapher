@@ -687,16 +687,22 @@ fn outside_from(
 }
 
 /// The first sound file or folder or clock log that the take in `dir`'s
-/// session file names by a path leading out of its folder, such as
-/// `../audio.wav`: a copy or move of the folder would leave it behind, and
-/// the take would then read nothing (audit R2-2). A path from the root is
-/// still found after a move, so it isn't one.
+/// session file names by a path that won't lead to it once the folder is
+/// copied or moved: one leading out of the folder, such as
+/// `../audio.wav`, which the copy or move leaves behind (audit R2-2), or
+/// one from the root into the folder itself, which then names where the
+/// file was. Either way the take would read nothing, or the original.
+/// A path from the root to elsewhere still leads there, so it isn't one.
 fn named_outside(dir: &Path) -> Option<String> {
     let m = manifest_of(dir).ok()?;
+    let inside = resolved(dir);
     m.recordings
         .iter()
         .flat_map(|e| std::iter::once(&e.file).chain(e.clock.as_ref()))
-        .find(|f| leads_out(Path::new(f)))
+        .find(|f| {
+            let p = Path::new(f);
+            leads_out(p) || (p.is_absolute() && resolved(p).starts_with(&inside))
+        })
         .cloned()
 }
 
@@ -1310,8 +1316,9 @@ impl Library {
         }
         if let Some(f) = named_outside(from) {
             return Err(format!(
-                "{} names {f}, which is outside the take's folder and wouldn't go with it. \
-                 Put that file in the take's folder, name it there, and add the take again",
+                "{} names {f}, a path that won't lead to the file once the take is in the \
+                 watch. Put the file in the take's folder, name it by its path there (such as \
+                 audio.wav), and add the take again",
                 from.join(take::MANIFEST).display()
             ));
         }
