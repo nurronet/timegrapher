@@ -595,7 +595,7 @@ pub fn assess(
                 None => confidence::rate_se(rate_windows),
             },
             confidence::standard_error(&amps),
-            confidence::beat_error_se(amplitude_windows.iter().copied()),
+            confidence::beat_error_se(amplitude_windows.iter().copied(), c.beat_error_as_size),
         )
     });
     Assessment {
