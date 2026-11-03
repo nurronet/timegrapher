@@ -247,6 +247,10 @@ pub enum Caveat {
     /// The take's entries name `count` positions, so what goes with the
     /// amplitude across it may go with the position instead (#651).
     Positions { count: usize },
+    /// The first `seconds` of the stretch were noise before the watch was
+    /// heard, and are left out of the readings
+    /// ([`crate::session::watch_lead_s`], #844).
+    LeadLeftOut { seconds: f64 },
 }
 
 impl Caveat {
@@ -288,6 +292,7 @@ impl Caveat {
             Caveat::Positions { count } => format!(
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
+            Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
         })
     }
 
@@ -378,6 +383,10 @@ impl Caveat {
                 "The take holds {count} positions, so a rate that changes with the \
                  position can show as one that goes with the amplitude."
             ),
+            Caveat::LeadLeftOut { seconds } => format!(
+                "The first {seconds:.0} s held no regular beat before the watch was heard, \
+                 and are left out of the readings."
+            ),
         })
     }
 
@@ -428,6 +437,7 @@ impl Caveat {
             Caveat::Masked { .. } => 12,
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
+            Caveat::LeadLeftOut { .. } => 15,
         }
     }
 }
