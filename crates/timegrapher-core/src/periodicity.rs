@@ -155,15 +155,42 @@ pub fn detrend(s: &Series) -> Series {
     Series { t: s.t.clone(), y }
 }
 
+#[allow(clippy::needless_range_loop)]
 pub(crate) fn polyfit2(t: &[f64], y: &[f64]) -> [f64; 3] {
     let t0 = t[0];
-    let rows = t.iter().zip(y).map(|(&ti, &yi)| {
+    let mut a = [[0.0f64; 3]; 3];
+    let mut b = [0.0f64; 3];
+    for (&ti, &yi) in t.iter().zip(y) {
         let x = ti - t0;
-        ([1.0, x, x * x], yi, 1.0)
-    });
-    let Some([c0, c1, c2]) = crate::dsp::least_squares(rows, 1e-300) else {
-        return [0.0; 3];
-    };
+        let r = [1.0, x, x * x];
+        for i in 0..3 {
+            b[i] += r[i] * yi;
+            for j in 0..3 {
+                a[i][j] += r[i] * r[j];
+            }
+        }
+    }
+    // Gaussian elimination.
+    for c in 0..3 {
+        let p = (c..3)
+            .max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))
+            .unwrap();
+        a.swap(c, p);
+        b.swap(c, p);
+        if a[c][c].abs() < 1e-300 {
+            return [0.0; 3];
+        }
+        for r in 0..3 {
+            if r != c {
+                let f = a[r][c] / a[c][c];
+                for k in 0..3 {
+                    a[r][k] -= f * a[c][k];
+                }
+                b[r] -= f * b[c];
+            }
+        }
+    }
+    let (c0, c1, c2) = (b[0] / a[0][0], b[1] / a[1][1], b[2] / a[2][2]);
     // Re-express in absolute t.
     [c0 - c1 * t0 + c2 * t0 * t0, c1 - 2.0 * c2 * t0, c2]
 }

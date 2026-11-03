@@ -245,10 +245,6 @@ impl ReportDialog {
         self.clip = None;
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn contents(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         ui.set_width(620.0);
@@ -264,6 +260,24 @@ impl ReportDialog {
             .wrap(),
         );
         ui.add_space(8.0);
+        self.kind_row(ui);
+        ui.add_space(6.0);
+        ui.label(RichText::new("What Happened").font(theme::semibold(13.0)));
+        ui.add(
+            egui::TextEdit::multiline(&mut self.note)
+                .hint_text("What you did, what you saw, and what you expected to see")
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        );
+        ui.add_space(8.0);
+        self.sound_section(ui, pal);
+        ui.add_space(10.0);
+        self.action_row(ui, pal);
+        self.result_line(ui, pal);
+    }
+
+    /// What kind of report this is.
+    fn kind_row(&mut self, ui: &mut egui::Ui) {
         let mut kind = self.kind.unwrap_or(Kind::Bug);
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Kind").font(theme::semibold(13.0)));
@@ -287,15 +301,10 @@ impl ReportDialog {
             );
         });
         self.kind = Some(kind);
-        ui.add_space(6.0);
-        ui.label(RichText::new("What Happened").font(theme::semibold(13.0)));
-        ui.add(
-            egui::TextEdit::multiline(&mut self.note)
-                .hint_text("What you did, what you saw, and what you expected to see")
-                .desired_rows(3)
-                .desired_width(f32::INFINITY),
-        );
-        ui.add_space(8.0);
+    }
+
+    /// The sound to include, or why there is none.
+    fn sound_section(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) {
         match self.source.clone() {
             None => {
                 ui.add(
@@ -326,7 +335,10 @@ impl ReportDialog {
                 }
             }
         }
-        ui.add_space(10.0);
+    }
+
+    /// Save Report and Cancel, with the spinner while it saves.
+    fn action_row(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) {
         let busy = self.saving.is_some();
         let ready = !busy && (!self.has_sound() || self.listened);
         let w = ui.available_width();
@@ -365,6 +377,10 @@ impl ReportDialog {
                 });
             },
         );
+    }
+
+    /// Where the report was saved, or why it wasn't.
+    fn result_line(&self, ui: &mut egui::Ui, pal: &theme::Palette) {
         match &self.result {
             Some(Saved::Done { zip, bytes }) => {
                 let big = *bytes > 25_000_000;
@@ -400,10 +416,6 @@ impl ReportDialog {
     }
 
     /// The waveform with its handles, Play, and the consent boxes.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn sound(&mut self, ui: &mut egui::Ui, src: &Source) {
         let pal = theme::pal(ui);
         let span = src.total_s.min(SPAN_S);
@@ -422,24 +434,7 @@ impl ReportDialog {
             .wrap(),
         );
         if src.total_s > SPAN_S + 1.0 {
-            ui.horizontal(|ui| {
-                ui.label("Ends At");
-                ui.spacing_mut().slider_width = (ui.available_width() - 90.0).max(120.0);
-                let r = ui
-                    .add(
-                        egui::Slider::new(&mut self.end_s, SPAN_S..=src.total_s)
-                            .custom_formatter(|v, _| length_text(v))
-                            .show_value(true),
-                    )
-                    .on_hover_text(
-                        "Which five minutes of the recording: the time they end at. The \
-                         handles below then trim them.",
-                    );
-                if r.drag_stopped() || (r.changed() && !r.dragged()) {
-                    self.listened = false;
-                    self.load();
-                }
-            });
+            self.ends_at(ui, src);
         }
         let clip = match &self.clip {
             Some(Ok(c)) => c,
@@ -461,6 +456,60 @@ impl ReportDialog {
         );
         let x_of = |t: f64| rect.left() + (t / len) as f32 * rect.width();
         let t_of = |x: f32| (((x - rect.left()) / rect.width()) as f64 * len).clamp(0.0, len);
+        self.drag_handles(&resp, x_of, t_of, len);
+        // The handles move only the trim: the clip is the one read above.
+        let Some(Ok(clip)) = &self.clip else { return };
+        let near = resp.hover_pos().is_some_and(|p| {
+            (p.x - x_of(self.trim.0)).abs() < 8.0 || (p.x - x_of(self.trim.1)).abs() < 8.0
+        });
+        if near || self.dragging.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        resp.on_hover_text(
+            "Drag the handles at either end to keep only the part that shows the problem",
+        );
+        self.paint_clip(&ui.painter_at(rect), rect, clip, x_of, pal);
+        play_row(
+            ui,
+            clip,
+            self.trim,
+            &mut self.player,
+            &mut self.player_error,
+        );
+        ui.add_space(4.0);
+        self.consent(ui, pal);
+    }
+
+    /// Which five minutes of a longer recording the report takes.
+    fn ends_at(&mut self, ui: &mut egui::Ui, src: &Source) {
+        ui.horizontal(|ui| {
+            ui.label("Ends At");
+            ui.spacing_mut().slider_width = (ui.available_width() - 90.0).max(120.0);
+            let r = ui
+                .add(
+                    egui::Slider::new(&mut self.end_s, SPAN_S..=src.total_s)
+                        .custom_formatter(|v, _| length_text(v))
+                        .show_value(true),
+                )
+                .on_hover_text(
+                    "Which five minutes of the recording: the time they end at. The \
+                     handles below then trim them.",
+                );
+            if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                self.listened = false;
+                self.load();
+            }
+        });
+    }
+
+    /// Dragging the handles that trim the sound.
+    fn drag_handles(
+        &mut self,
+        resp: &egui::Response,
+        x_of: impl Fn(f64) -> f32,
+        t_of: impl Fn(f32) -> f64,
+        len: f64,
+    ) {
         if resp.drag_started() {
             if let Some(p) = resp.interact_pointer_pos() {
                 let d0 = (p.x - x_of(self.trim.0)).abs();
@@ -483,16 +532,19 @@ impl ReportDialog {
         if resp.drag_stopped() {
             self.dragging = None;
         }
-        let near = resp.hover_pos().is_some_and(|p| {
-            (p.x - x_of(self.trim.0)).abs() < 8.0 || (p.x - x_of(self.trim.1)).abs() < 8.0
-        });
-        if near || self.dragging.is_some() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-        }
-        resp.on_hover_text(
-            "Drag the handles at either end to keep only the part that shows the problem",
-        );
-        let painter = ui.painter_at(rect);
+    }
+
+    /// The sound's outline, dim outside the handles, the handles, and where
+    /// it is playing.
+    fn paint_clip(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        clip: &Clip,
+        x_of: impl Fn(f64) -> f32,
+        pal: &theme::Palette,
+    ) {
+        let len = clip.len_s();
         painter.rect_filled(rect, theme::CARD_RADIUS, pal.control);
         let mid = rect.center().y;
         let half = rect.height() * 0.46;
@@ -530,50 +582,10 @@ impl ReportDialog {
                 egui::Stroke::new(1.5_f32, pal.tock),
             );
         }
-        ui.horizontal_wrapped(|ui| {
-            let playing = self.player.is_some();
-            if ui
-                .add(theme::secondary(ui, if playing { "Stop" } else { "Play" }))
-                .on_hover_text("Listen to the part between the handles")
-                .clicked()
-            {
-                if playing {
-                    self.player = None;
-                } else {
-                    let rate = clip.rate as f64;
-                    let a = (self.trim.0 * rate) as usize;
-                    let b = ((self.trim.1 * rate) as usize).min(clip.mono.len());
-                    match capture::play(Arc::new(clip.mono[a..b].to_vec()), clip.rate) {
-                        Ok(p) => {
-                            self.player = Some(p);
-                            self.player_error = None;
-                        }
-                        Err(e) => self.player_error = Some(e),
-                    }
-                }
-            }
-            let kept = self.trim.1 - self.trim.0;
-            ui.label(
-                RichText::new(format!(
-                    "{} kept, {} to {} · about {:.0} MB",
-                    length_text(kept),
-                    length_text(clip.from_s + self.trim.0),
-                    length_text(clip.from_s + self.trim.1),
-                    // FLAC of a watch on the stand: about 60 kB a second.
-                    kept * 0.06,
-                ))
-                .color(pal.text_secondary),
-            );
-        });
-        if let Some(e) = &self.player_error {
-            theme::alert_label(
-                ui,
-                theme::Alert::Warning,
-                &format!("Can't play it here: {e}"),
-                false,
-            );
-        }
-        ui.add_space(4.0);
+    }
+
+    /// The boxes the report waits on.
+    fn consent(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) {
         // The boxes ringed, so they show on the card in the dark theme.
         let ring = egui::Stroke::new(1.0_f32, pal.text_tertiary);
         ui.visuals_mut().widgets.inactive.bg_stroke = ring;
@@ -643,6 +655,60 @@ impl ReportDialog {
 }
 
 /// The Downloads folder, where a browser looks first for a file to attach.
+/// Play or Stop for the part between the handles, and what it keeps.
+fn play_row(
+    ui: &mut egui::Ui,
+    clip: &Clip,
+    trim: (f64, f64),
+    player: &mut Option<capture::Playback>,
+    player_error: &mut Option<String>,
+) {
+    let pal = theme::pal(ui);
+    ui.horizontal_wrapped(|ui| {
+        let playing = player.is_some();
+        if ui
+            .add(theme::secondary(ui, if playing { "Stop" } else { "Play" }))
+            .on_hover_text("Listen to the part between the handles")
+            .clicked()
+        {
+            if playing {
+                *player = None;
+            } else {
+                let rate = clip.rate as f64;
+                let a = (trim.0 * rate) as usize;
+                let b = ((trim.1 * rate) as usize).min(clip.mono.len());
+                match capture::play(Arc::new(clip.mono[a..b].to_vec()), clip.rate) {
+                    Ok(p) => {
+                        *player = Some(p);
+                        *player_error = None;
+                    }
+                    Err(e) => *player_error = Some(e),
+                }
+            }
+        }
+        let kept = trim.1 - trim.0;
+        ui.label(
+            RichText::new(format!(
+                "{} kept, {} to {} · about {:.0} MB",
+                length_text(kept),
+                length_text(clip.from_s + trim.0),
+                length_text(clip.from_s + trim.1),
+                // FLAC of a watch on the stand: about 60 kB a second.
+                kept * 0.06,
+            ))
+            .color(pal.text_secondary),
+        );
+    });
+    if let Some(e) = &*player_error {
+        theme::alert_label(
+            ui,
+            theme::Alert::Warning,
+            &format!("Can't play it here: {e}"),
+            false,
+        );
+    }
+}
+
 fn dirs_download() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -671,10 +737,6 @@ struct Job {
 
 impl Job {
     /// Write the zip; its size in bytes.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn write(&self) -> Result<u64, String> {
         let mut red = Redactor::from_env();
         let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
@@ -692,52 +754,7 @@ impl Job {
             match &self.sound {
                 None => left_out.push("the recording (not included)".into()),
                 Some(x) => {
-                    let pcm =
-                        excerpt::cut(&src.files, x.from_s, x.span_s).map_err(|e| e.to_string())?;
-                    let flac = excerpt::encode_flac(&pcm).map_err(|e| e.to_string())?;
-                    excerpt_info = json!({
-                        "from_s": x.from_s,
-                        "span_s": pcm.duration_s(),
-                        "sample_rate": pcm.sample_rate,
-                        "channels": pcm.channels,
-                        "bits_per_sample": pcm.bits_per_sample,
-                    });
-                    let side = json!({
-                        "made_by": "timegrapher-app",
-                        "source": src.about,
-                        "excerpt": {
-                            "of": src.name,
-                            "from_s": x.from_s,
-                            "span_s": pcm.duration_s(),
-                        },
-                    });
-                    // The analysis `report --replay` runs again: `analyze` on
-                    // the excerpt with the command line's settings.
-                    let mut args = vec![
-                        "analyze".to_string(),
-                        "audio/excerpt.flac".into(),
-                        "--json".into(),
-                    ];
-                    if let Some(b) = self.shown.bph {
-                        args.extend(["--bph".into(), b.to_string()]);
-                    }
-                    args.extend(["--lift".into(), self.shown.lift_deg.to_string()]);
-                    let doc = analyze_like_the_cli(&flac, self.shown.bph, self.shown.lift_deg)?;
-                    entries.push(("audio/excerpt.flac".into(), flac));
-                    entries.push((
-                        "audio/excerpt.flac.json".into(),
-                        red.apply(&pretty(&side)).into_bytes(),
-                    ));
-                    entries.push((
-                        "results/analyze-excerpt.json".into(),
-                        red.apply(&pretty(&doc)).into_bytes(),
-                    ));
-                    commands.push(json!({
-                        "args": args,
-                        "cwd": "bundle",
-                        "output": "results/analyze-excerpt.json",
-                        "replayable": true,
-                    }));
+                    excerpt_info = self.excerpt(src, x, &mut red, &mut entries, &mut commands)?;
                 }
             }
             recording = json!({
@@ -750,36 +767,89 @@ impl Job {
             "results/app.json".into(),
             red.apply(&pretty(&self.shown.app)).into_bytes(),
         ));
-        if let Some(p) = clockstore::path() {
-            if let Ok(t) = std::fs::read_to_string(&p) {
-                entries.push(("env/clock.json".into(), red.apply(&t).into_bytes()));
-            }
+        app_files(&mut red, &mut entries);
+        let manifest = self.manifest(&mut red, recording, commands, &entries, left_out);
+        let mut all = vec![("manifest.json".to_string(), pretty(&manifest).into_bytes())];
+        all.extend(entries);
+        archive::write_zip(&self.zip, &all)?;
+        Ok(std::fs::metadata(&self.zip).map(|m| m.len()).unwrap_or(0))
+    }
+
+    /// The excerpt, its side file and its analysis, added to `entries`
+    /// with the command that replays the analysis: what the excerpt is.
+    fn excerpt(
+        &self,
+        src: &Source,
+        x: &Excerpt,
+        red: &mut Redactor,
+        entries: &mut Vec<(String, Vec<u8>)>,
+        commands: &mut Vec<Value>,
+    ) -> Result<Value, String> {
+        let pcm = excerpt::cut(&src.files, x.from_s, x.span_s).map_err(|e| e.to_string())?;
+        let flac = excerpt::encode_flac(&pcm).map_err(|e| e.to_string())?;
+        let info = json!({
+            "from_s": x.from_s,
+            "span_s": pcm.duration_s(),
+            "sample_rate": pcm.sample_rate,
+            "channels": pcm.channels,
+            "bits_per_sample": pcm.bits_per_sample,
+        });
+        let side = json!({
+            "made_by": "timegrapher-app",
+            "source": src.about,
+            "excerpt": {
+                "of": src.name,
+                "from_s": x.from_s,
+                "span_s": pcm.duration_s(),
+            },
+        });
+        // The analysis `report --replay` runs again: `analyze` on
+        // the excerpt with the command line's settings.
+        let mut args = vec![
+            "analyze".to_string(),
+            "audio/excerpt.flac".into(),
+            "--json".into(),
+        ];
+        if let Some(b) = self.shown.bph {
+            args.extend(["--bph".into(), b.to_string()]);
         }
-        if let Some(dir) = clockstore::config_dir() {
-            let mut logs = recent_files(&dir.join("logs"), |_| true);
-            logs.extend(recent_files(&dir, |n| {
-                n.starts_with("crash-") && n.ends_with(".txt")
-            }));
-            for f in logs {
-                if let Ok(t) = std::fs::read_to_string(&f) {
-                    let name = f
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    entries.push((
-                        format!("logs/{}", red.apply(&name)),
-                        red.apply(&t).into_bytes(),
-                    ));
-                }
-            }
-        }
+        args.extend(["--lift".into(), self.shown.lift_deg.to_string()]);
+        let doc = analyze_like_the_cli(&flac, self.shown.bph, self.shown.lift_deg)?;
+        entries.push(("audio/excerpt.flac".into(), flac));
+        entries.push((
+            "audio/excerpt.flac.json".into(),
+            red.apply(&pretty(&side)).into_bytes(),
+        ));
+        entries.push((
+            "results/analyze-excerpt.json".into(),
+            red.apply(&pretty(&doc)).into_bytes(),
+        ));
+        commands.push(json!({
+            "args": args,
+            "cwd": "bundle",
+            "output": "results/analyze-excerpt.json",
+            "replayable": true,
+        }));
+        Ok(info)
+    }
+
+    /// The report's manifest: what it holds, where from, and what was
+    /// left out.
+    fn manifest(
+        &self,
+        red: &mut Redactor,
+        recording: Value,
+        commands: Vec<Value>,
+        entries: &[(String, Vec<u8>)],
+        left_out: Vec<String>,
+    ) -> Value {
         let note = (!self.note.is_empty()).then(|| red.apply(&self.note));
         let files: Vec<Value> = entries
             .iter()
             .map(|(p, d)| json!({ "path": p, "bytes": d.len(), "sha256": archive::sha256_hex(d) }))
             .collect();
         let audio = self.sound.is_some() && self.source.is_some();
-        let manifest = json!({
+        json!({
             "schema": "timegrapher.report/1",
             "software": software(),
             "input": {},
@@ -798,11 +868,34 @@ impl Job {
             },
             "redacted": red.summary(),
             "left_out": left_out,
-        });
-        let mut all = vec![("manifest.json".to_string(), pretty(&manifest).into_bytes())];
-        all.extend(entries);
-        archive::write_zip(&self.zip, &all)?;
-        Ok(std::fs::metadata(&self.zip).map(|m| m.len()).unwrap_or(0))
+        })
+    }
+}
+
+/// The app's clock correction, logs and crash reports, added to `entries`.
+fn app_files(red: &mut Redactor, entries: &mut Vec<(String, Vec<u8>)>) {
+    if let Some(p) = clockstore::path() {
+        if let Ok(t) = std::fs::read_to_string(&p) {
+            entries.push(("env/clock.json".into(), red.apply(&t).into_bytes()));
+        }
+    }
+    if let Some(dir) = clockstore::config_dir() {
+        let mut logs = recent_files(&dir.join("logs"), |_| true);
+        logs.extend(recent_files(&dir, |n| {
+            n.starts_with("crash-") && n.ends_with(".txt")
+        }));
+        for f in logs {
+            if let Ok(t) = std::fs::read_to_string(&f) {
+                let name = f
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                entries.push((
+                    format!("logs/{}", red.apply(&name)),
+                    red.apply(&t).into_bytes(),
+                ));
+            }
+        }
     }
 }
 
