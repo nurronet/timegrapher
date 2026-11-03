@@ -60,7 +60,7 @@
     "crates/timegrapher-app/src/app/scope_panes.rs": {
      "bounds": 1,
      "comparisons": 2,
-     "constants": 0,
+     "constants": 2,
      "defaults": 1
     },
     "crates/timegrapher-app/src/app/settings_pane.rs": {
@@ -223,7 +223,7 @@
    "total": {
     "bounds": 107,
     "comparisons": 110,
-    "constants": 54,
+    "constants": 56,
     "defaults": 4
    }
   },
