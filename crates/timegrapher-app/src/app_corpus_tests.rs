@@ -292,3 +292,71 @@ fn the_app_reads_each_edge_take_as_the_command_line_does() {
         wrong.join("\n")
     );
 }
+
+/// Two entries for one file retain their shared clock and pause (#655).
+#[test]
+fn duplicate_file_entries_keep_the_clock_and_pause() {
+    use timegrapher_core::{audio, synth};
+    let required = std::env::var_os("TIMEGRAPHER_REQUIRE_CORPUS").is_some();
+    let Some(cli) = std::env::var_os("TIMEGRAPHER_CLI").map(PathBuf::from) else {
+        assert!(!required, "TIMEGRAPHER_CLI is needed");
+        eprintln!("SKIP: set TIMEGRAPHER_CLI for the duplicate-entry probe");
+        return;
+    };
+    let root = std::env::temp_dir().join(format!("tg-app-duplicate-clock-{}", std::process::id()));
+    let dir = root.join("takes/duplicate_clock");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sound = synth::generate(
+        &synth::SynthConfig {
+            duration_s: 180.0,
+            rate_s_per_day: -7.0,
+            ..Default::default()
+        },
+        |_| 270.0,
+        |_| 0.0,
+    );
+    let fs = sound.sample_rate;
+    audio::write_wav(&dir.join("take.wav"), &sound).unwrap();
+    let mut clock = String::from("unix_s,frames\n");
+    for second in 0..=180 {
+        let wall =
+            1_700_000_000.0 + second as f64 * 1.00002 + if second >= 100 { 60.0 } else { 0.0 };
+        clock.push_str(&format!("{wall:.6},{}\n", second * fs));
+    }
+    std::fs::write(dir.join("clock.csv"), clock).unwrap();
+    std::fs::write(
+        dir.join("session.json"),
+        serde_json::json!({"segments": ["take.wav"], "breaks": [
+            {"frame": 100 * fs, "audio_s": 100.0, "gap_s": 60.0}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("session.toml"),
+        "watch = \"duplicate clock probe\"\nbph = 28800\nlift = 52\nlift_known = true\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nclock = \"clock.csv\"\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DD\"\nclock = \"clock.csv\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("corpus.json"),
+        r#"{"takes":[{"id":"duplicate_clock","tier":"referenced"}]}"#,
+    )
+    .unwrap();
+    let readings = session_readings(&cli, &dir);
+    assert_eq!(readings.len(), 2);
+    for reading in &readings {
+        let rate = reading["measurement"]["rate_s_per_day"].as_f64().unwrap();
+        assert!((rate + 8.728).abs() < 0.2, "corrected rate: {rate}");
+    }
+    let app = opened(&dir.join("take.wav"));
+    let clock = app.take_clock.as_ref().expect("the app retains the clock");
+    assert!((clock.ppm - 20.0).abs() < 0.1);
+    assert_eq!(clock.breaks.len(), 1);
+    assert!((clock.breaks[0].gap_s - 60.0).abs() < 0.01);
+    let wrong = compare(&root, &cli, &[]);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    std::fs::remove_dir_all(root).unwrap();
+}
