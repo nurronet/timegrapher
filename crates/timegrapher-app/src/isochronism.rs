@@ -51,14 +51,11 @@ fn curve_at(c: &IsochronismCurve, a: f64) -> f64 {
     c.curve[0] + c.curve[1] * x + c.curve[2] * x * x
 }
 
-/// A rate on the axis: as few decimals as the grid step needs, no "-0".
+/// A rate on the axis: as few decimals as the grid step needs, signed as
+/// every rate is (core's `signed_text`: a zero has no sign).
 fn rate_label(v: f64, step: f64) -> String {
-    let v = timegrapher_core::chart_scale::axis_number(v, step);
-    if v.starts_with('-') {
-        format!("{v} s/d")
-    } else {
-        format!("+{v} s/d")
-    }
+    let d = timegrapher_core::chart_scale::axis_decimals(step);
+    format!("{} s/d", timegrapher_core::library::signed_text(v, d))
 }
 
 fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32) {
@@ -274,7 +271,10 @@ mod tests {
             caption(&curve)
         );
         assert!((curve_at(&curve, 250.0) - 16.8).abs() < 1e-12);
-        assert_eq!(rate_label(-0.0001, 0.5), "+0.0 s/d");
+        assert_eq!(rate_label(-0.0001, 0.5), "0.0 s/d");
+        assert_eq!(rate_label(0.0, 0.5), "0.0 s/d");
+        assert_eq!(rate_label(1.5, 0.5), "+1.5 s/d");
+        assert_eq!(rate_label(-2.0, 1.0), "-2 s/d");
 
         let ctx = egui::Context::default();
         theme::install(&ctx);

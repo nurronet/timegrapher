@@ -1,5 +1,5 @@
 {
- "copies": 19,
+ "copies": 18,
  "crates": {
   "timegrapher-app": {
    "files": {
@@ -339,7 +339,7 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 5370,
+  "crates/timegrapher-app/src/app.rs": 5364,
   "crates/timegrapher-app/src/calibre_ui.rs": 3186
  }
 }

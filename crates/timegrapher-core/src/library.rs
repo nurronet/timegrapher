@@ -706,6 +706,23 @@ fn named_outside(dir: &Path) -> Option<String> {
         .cloned()
 }
 
+/// Refuses, before anything moves, a take in `dir` whose session file
+/// names a file by a path that won't lead to it once the take is in a
+/// watch ([`named_outside`]); `again` ends the sentence with what to do
+/// once the file is in the take's folder. Add to Watch and File Under a
+/// Watch both ask it (#876, #882).
+fn stays_readable(dir: &Path, again: &str) -> Result<(), String> {
+    match named_outside(dir) {
+        Some(f) => Err(format!(
+            "{} names {f}, a path that won't lead to the file once the take is in the \
+             watch. Put the file in the take's folder, name it by its path there (such as \
+             audio.wav), and {again}",
+            dir.join(take::MANIFEST).display()
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Whether the relative path `p` leads out of the folder it is taken
 /// from.
 fn leads_out(p: &Path) -> bool {
@@ -787,6 +804,17 @@ pub fn signed_text(x: f64, digits: usize) -> String {
         format!("-{s}")
     } else {
         format!("+{s}")
+    }
+}
+
+/// A figure to `digits` decimals with its sign as it is, but one that
+/// rounds to zero written without a minus (`0.0`, never `-0.0`): the one
+/// rule for that (#815). [`signed_text`] also adds a plus.
+pub fn fixed_text(x: f64, digits: usize) -> String {
+    let text = format!("{x:.digits$}");
+    match text.strip_prefix('-') {
+        Some(rest) if rest.bytes().all(|b| b == b'0' || b == b'.') => rest.to_string(),
+        _ => text,
     }
 }
 
@@ -1184,6 +1212,7 @@ impl Library {
         if take.parent() == Some(takes.as_path()) {
             return Ok(take.to_path_buf());
         }
+        stays_readable(take, "move it again")?;
         fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
         let to = unused_dir(&takes, &file_name(take));
         fs::rename(take, &to).map_err(|e| format!("Moving {}: {e}", take.display()))?;
@@ -1314,14 +1343,7 @@ impl Library {
         if resolved(from).starts_with(resolved(&self.root)) {
             return Err(format!("{} is already in your watches", from.display()));
         }
-        if let Some(f) = named_outside(from) {
-            return Err(format!(
-                "{} names {f}, a path that won't lead to the file once the take is in the \
-                 watch. Put the file in the take's folder, name it by its path there (such as \
-                 audio.wav), and add the take again",
-                from.join(take::MANIFEST).display()
-            ));
-        }
+        stays_readable(from, "add the take again")?;
         let to_watch = self
             .watches
             .iter()
@@ -2890,5 +2912,19 @@ value = "£9,000"
         assert_eq!(signed_text(-0.4, 0), "0");
         assert_eq!(signed_text(0.0, 2), "0.00");
         assert_eq!(signed_text(-0.006, 2), "-0.01");
+    }
+
+    /// A figure keeps its own sign, but one that rounds to zero has no
+    /// minus, whatever its decimals (#815).
+    #[test]
+    fn a_fixed_figure_has_no_minus_at_zero() {
+        assert_eq!(fixed_text(1.24, 1), "1.2");
+        assert_eq!(fixed_text(-1.24, 1), "-1.2");
+        assert_eq!(fixed_text(-0.04, 1), "0.0");
+        assert_eq!(fixed_text(-0.0, 1), "0.0");
+        assert_eq!(fixed_text(-0.4, 0), "0");
+        assert_eq!(fixed_text(-0.004, 2), "0.00");
+        assert_eq!(fixed_text(-0.006, 2), "-0.01");
+        assert_eq!(fixed_text(-10.0, 0), "-10");
     }
 }

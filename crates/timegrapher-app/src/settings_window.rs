@@ -171,10 +171,6 @@ fn count(n: usize, one: &str, many: &str) -> String {
 /// `Ok(None)` when none is at `root` yet. `moving` names where it is being
 /// moved to, while it is. `chosen` is true when the user picked the
 /// location (not the default).
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn library_section(
     ui: &mut egui::Ui,
     root: Option<&Path>,
@@ -226,46 +222,7 @@ pub fn library_section(
         );
         match lib {
             Ok(Some(l)) => {
-                let takes =
-                    l.watches.iter().map(|w| w.takes.len()).sum::<usize>() + l.unsorted.takes.len();
-                let held = format!(
-                    "{}, {}, {}",
-                    count(l.watches.len(), "watch", "watches"),
-                    count(takes, "take", "takes"),
-                    size_text(l.bytes())
-                );
-                let why = match (&l.read_only, moving) {
-                    (Some(why), None) => format!("{why}."),
-                    _ => "Every watch, its photos and its takes.".to_string(),
-                };
-                g.row(
-                    &held,
-                    theme::Caption::Text(&why),
-                    "What the Watches folder holds",
-                    |_| {},
-                );
-                if !l.unreadable.is_empty() {
-                    g.whole(|ui| {
-                        theme::alert_label(
-                            ui,
-                            theme::Alert::Warning,
-                            &format!(
-                                "{} can't be read and {} left as {}:",
-                                count(l.unreadable.len(), "folder", "folders"),
-                                if l.unreadable.len() == 1 { "is" } else { "are" },
-                                if l.unreadable.len() == 1 {
-                                    "it is"
-                                } else {
-                                    "they are"
-                                },
-                            ),
-                            false,
-                        );
-                        for e in &l.unreadable {
-                            ui.label(RichText::new(e).small().color(pal.text_secondary));
-                        }
-                    });
-                }
+                held_rows(g, l, moving);
             }
             Ok(None) => {
                 g.whole(|ui| {
@@ -294,43 +251,105 @@ pub fn library_section(
             });
             return;
         }
+        if let Some(a) = library_buttons(g, lib, chosen) {
+            act = Some(a);
+        }
+    });
+    act
+}
+
+/// What the Watches folder `l` holds, and the folders in it that can't be
+/// read.
+fn held_rows(g: &mut theme::Group<'_>, l: &Library, moving: Option<&Path>) {
+    let takes = l.watches.iter().map(|w| w.takes.len()).sum::<usize>() + l.unsorted.takes.len();
+    let held = format!(
+        "{}, {}, {}",
+        count(l.watches.len(), "watch", "watches"),
+        count(takes, "take", "takes"),
+        size_text(l.bytes())
+    );
+    let why = match (&l.read_only, moving) {
+        (Some(why), None) => format!("{why}."),
+        _ => "Every watch, its photos and its takes.".to_string(),
+    };
+    g.row(
+        &held,
+        theme::Caption::Text(&why),
+        "What the Watches folder holds",
+        |_| {},
+    );
+    if !l.unreadable.is_empty() {
         g.whole(|ui| {
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled(
-                        matches!(lib, Ok(Some(_))),
-                        theme::secondary(ui, "Move Watches…"),
-                    )
+            theme::alert_label(
+                ui,
+                theme::Alert::Warning,
+                &format!(
+                    "{} can't be read and {} left as {}:",
+                    count(l.unreadable.len(), "folder", "folders"),
+                    if l.unreadable.len() == 1 { "is" } else { "are" },
+                    if l.unreadable.len() == 1 {
+                        "it is"
+                    } else {
+                        "they are"
+                    },
+                ),
+                false,
+            );
+            for e in &l.unreadable {
+                ui.label(
+                    RichText::new(e)
+                        .small()
+                        .color(theme::pal(ui).text_secondary),
+                );
+            }
+        });
+    }
+}
+
+/// Move Watches…, Choose Another… and, where the user chose the folder
+/// (`chosen`), Use the Default.
+fn library_buttons(
+    g: &mut theme::Group<'_>,
+    lib: &Result<Option<Library>, String>,
+    chosen: bool,
+) -> Option<LibraryAction> {
+    let mut act = None;
+    g.whole(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(
+                    matches!(lib, Ok(Some(_))),
+                    theme::secondary(ui, "Move Watches…"),
+                )
+                .on_hover_text(
+                    "Move the whole Watches folder into another folder and keep using it \
+                     there. It asks first.",
+                )
+                .on_disabled_hover_text("No watches are kept here to move")
+                .clicked()
+            {
+                act = Some(LibraryAction::Move);
+            }
+            if ui
+                .add(theme::secondary(ui, "Choose Another…"))
+                .on_hover_text(
+                    "Use a Watches folder somewhere else, such as one copied from another \
+                     computer, or an empty folder for a new one. Nothing is moved.",
+                )
+                .clicked()
+            {
+                act = Some(LibraryAction::Choose);
+            }
+            if chosen
+                && ui
+                    .add(theme::secondary(ui, "Use the Default"))
                     .on_hover_text(
-                        "Move the whole Watches folder into another folder and keep using it \
-                         there. It asks first.",
-                    )
-                    .on_disabled_hover_text("No watches are kept here to move")
-                    .clicked()
-                {
-                    act = Some(LibraryAction::Move);
-                }
-                if ui
-                    .add(theme::secondary(ui, "Choose Another…"))
-                    .on_hover_text(
-                        "Use a Watches folder somewhere else, such as one copied from another \
-                         computer, or an empty folder for a new one. Nothing is moved.",
+                        "Use Timegrapher Data in your home folder again. Nothing is moved.",
                     )
                     .clicked()
-                {
-                    act = Some(LibraryAction::Choose);
-                }
-                if chosen
-                    && ui
-                        .add(theme::secondary(ui, "Use the Default"))
-                        .on_hover_text(
-                            "Use Timegrapher Data in your home folder again. Nothing is moved.",
-                        )
-                        .clicked()
-                {
-                    act = Some(LibraryAction::UseDefault);
-                }
-            });
+            {
+                act = Some(LibraryAction::UseDefault);
+            }
         });
     });
     act
@@ -390,10 +409,6 @@ pub enum QuartzAct {
 /// computer's clock, with Keep once it is, then each input's kept clock
 /// error, with Forget beside it; `current` is the input listening,
 /// marked. `store` is the list as last read, or why it couldn't be.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn quartz_section(
     ui: &mut egui::Ui,
     store: &Result<ClockStore, String>,
@@ -404,48 +419,8 @@ pub fn quartz_section(
     let mut act = None;
     theme::group(ui, "Quartz Correction", Some(QUARTZ_HELP), |g| {
         if let Some(t) = timing {
-            let label = format!("Timing \"{}\"", t.shown);
-            let hint = "The input listening, timed against the computer's clock";
-            match &t.timed {
-                Some((words, hint_words)) => {
-                    let caption = if t.offered {
-                        words.clone()
-                    } else {
-                        format!("{words}. The correction kept for it agrees.")
-                    };
-                    g.row(&label, theme::Caption::Text(&caption), hint, |ui| {
-                        if t.offered
-                            && ui
-                                .button("Keep")
-                                .on_hover_text(format!(
-                                    "Keep this input's clock error and correct its rates. \
-                                     {hint_words}"
-                                ))
-                                .clicked()
-                        {
-                            act = Some(QuartzAct::Keep);
-                        }
-                    });
-                }
-                None => {
-                    let heard = format!(
-                        "{} of {} heard",
-                        length_text(t.heard_s),
-                        length_text(t.needed_s)
-                    );
-                    g.row(&label, theme::Caption::Text(&heard), hint, |ui| {
-                        let frac = (t.heard_s / t.needed_s).clamp(0.0, 1.0) as f32;
-                        ui.add(
-                            egui::ProgressBar::new(frac)
-                                .desired_width(120.0)
-                                .desired_height(6.0),
-                        )
-                        .on_hover_text(
-                            "Timed once this much sound has been heard in one go; a break in \
-                             listening starts it again",
-                        );
-                    });
-                }
+            if timing_row(g, t) {
+                act = Some(QuartzAct::Keep);
             }
         }
         let store = match store {
@@ -481,48 +456,107 @@ pub fn quartz_section(
             });
         }
         for c in &store.devices {
-            let name = if Some(c.device.as_str()) == current {
-                format!("{}  (listening)", c.device)
-            } else {
-                c.device.clone()
-            };
-            let over = if c.span_s > 0.0 {
-                format!(" over {}", length_text(c.span_s))
-            } else {
-                String::new()
-            };
-            let caption = format!(
-                "{}. Measured {}, {}{over}.",
-                error_words(c),
-                c.measured_utc.get(..10).unwrap_or(&c.measured_utc),
-                c.how_text()
-            );
-            let hint = format!(
-                "This input's clock runs {}{}: rates read on it are {} s/d off, and True Clock \
-                 takes that off. Measured {} UTC.",
-                ppm_words(c.ppm),
-                c.ppm_sd
-                    .map_or(String::new(), |sd| format!(", give or take {sd:.1} ppm")),
-                sd_words(c.rate_error_s_per_day()),
-                c.measured_utc,
-            );
-            g.row(&name, theme::Caption::Text(&caption), &hint, |ui| {
-                if ui
-                    .button("Forget")
-                    .on_hover_text(format!(
-                        "Stop correcting rates from \"{}\": they are read on its own clock \
-                         again until it is timed and kept afresh. The command line and the \
-                         MCP server forget it too.",
-                        c.device
-                    ))
-                    .clicked()
-                {
-                    act = Some(QuartzAct::Forget(c.device.clone()));
-                }
-            });
+            if kept_row(g, c, current) {
+                act = Some(QuartzAct::Forget(c.device.clone()));
+            }
         }
     });
     act
+}
+
+/// The input listening, `t`, as it is timed: true when Keep is pressed.
+fn timing_row(g: &mut theme::Group<'_>, t: &Timing) -> bool {
+    let mut keep = false;
+    let label = format!("Timing \"{}\"", t.shown);
+    let hint = "The input listening, timed against the computer's clock";
+    match &t.timed {
+        Some((words, hint_words)) => {
+            let caption = if t.offered {
+                words.clone()
+            } else {
+                format!("{words}. The correction kept for it agrees.")
+            };
+            g.row(&label, theme::Caption::Text(&caption), hint, |ui| {
+                if t.offered
+                    && ui
+                        .button("Keep")
+                        .on_hover_text(format!(
+                            "Keep this input's clock error and correct its rates. \
+                             {hint_words}"
+                        ))
+                        .clicked()
+                {
+                    keep = true;
+                }
+            });
+        }
+        None => {
+            let heard = format!(
+                "{} of {} heard",
+                length_text(t.heard_s),
+                length_text(t.needed_s)
+            );
+            g.row(&label, theme::Caption::Text(&heard), hint, |ui| {
+                let frac = (t.heard_s / t.needed_s).clamp(0.0, 1.0) as f32;
+                ui.add(
+                    egui::ProgressBar::new(frac)
+                        .desired_width(120.0)
+                        .desired_height(6.0),
+                )
+                .on_hover_text(
+                    "Timed once this much sound has been heard in one go; a break in \
+                     listening starts it again",
+                );
+            });
+        }
+    }
+    keep
+}
+
+/// One input's kept clock `c`, marked where it is the one listening
+/// (`current`): true when Forget is pressed.
+fn kept_row(g: &mut theme::Group<'_>, c: &DeviceClock, current: Option<&str>) -> bool {
+    let mut forget = false;
+    let name = if Some(c.device.as_str()) == current {
+        format!("{}  (listening)", c.device)
+    } else {
+        c.device.clone()
+    };
+    let over = if c.span_s > 0.0 {
+        format!(" over {}", length_text(c.span_s))
+    } else {
+        String::new()
+    };
+    let caption = format!(
+        "{}. Measured {}, {}{over}.",
+        error_words(c),
+        c.measured_utc.get(..10).unwrap_or(&c.measured_utc),
+        c.how_text()
+    );
+    let hint = format!(
+        "This input's clock runs {}{}: rates read on it are {} s/d off, and True Clock \
+         takes that off. Measured {} UTC.",
+        ppm_words(c.ppm),
+        c.ppm_sd
+            .map_or(String::new(), |sd| format!(", give or take {sd:.1} ppm")),
+        sd_words(c.rate_error_s_per_day()),
+        c.measured_utc,
+    );
+    g.row(&name, theme::Caption::Text(&caption), &hint, |ui| {
+        if ui
+            .button("Forget")
+            .on_hover_text(format!(
+                "Stop correcting rates from \"{}\": they are read on its own clock \
+                 again until it is timed and kept afresh. The command line and the \
+                 MCP server forget it too.",
+                c.device
+            ))
+            .clicked()
+        {
+            forget = true;
+        }
+    });
+    forget
 }
 
 #[cfg(test)]
