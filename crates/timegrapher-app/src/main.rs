@@ -223,6 +223,9 @@ enum Closed {
 
 /// Run the window with `renderer` until it closes.
 fn open_window(renderer: eframe::Renderer, file: Option<PathBuf>) -> Closed {
+    // On a Mac the menus go in the menu bar at the top of the screen.
+    #[cfg(target_os = "macos")]
+    app::mac_menu::want();
     let options = eframe::NativeOptions {
         renderer,
         viewport: eframe::egui::ViewportBuilder::default()

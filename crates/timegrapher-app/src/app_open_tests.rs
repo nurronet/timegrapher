@@ -709,6 +709,13 @@ fn a_setting_changed_while_a_take_opens_holds() {
         app.poll();
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    // The charts, not readied at the new setting, are read by the next
+    // frames in the background (#1014).
+    let ctx = egui::Context::default();
+    while app.trend_key != (app.rev, now.to_bits()) && t.elapsed().as_secs() < 120 {
+        app.take_reads_shown(&ctx);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     let live = app.live.as_ref().expect("opened");
     assert_eq!(live.config().profile_s, now);
     assert_eq!(app.trend_key, (app.rev, now.to_bits()));

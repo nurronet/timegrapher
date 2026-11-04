@@ -860,7 +860,7 @@ fn a_mask_on_a_take_on_show_is_read_in_the_background() {
         let start = Instant::now();
         loop {
             if let (Some(w), Some(t)) = shown(app) {
-                if app.trend_job.is_none() {
+                if app.bg.trend.is_none() {
                     return (w, t);
                 }
             }
@@ -882,7 +882,7 @@ fn a_mask_on_a_take_on_show_is_read_in_the_background() {
     // was last heard; none is read here.
     let (whole, table) = shown(&mut app);
     assert!(whole.is_none() && table.is_none());
-    assert!(app.trend_job.is_some());
+    assert!(app.bg.trend.is_some());
     assert!(app.whole_job.borrow().is_none());
     assert!(app.free_table_reading());
     assert_eq!(app.trend, before, "the charts keep their run meanwhile");

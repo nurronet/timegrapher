@@ -430,3 +430,36 @@ fn a_long_take_shows_its_run_in_the_power_reserve_pane() {
     );
     assert!(app.reserve.is_none());
 }
+
+/// A long take lands without its charts or its run read on the window's
+/// thread: the landing reads neither; the window's next frames read
+/// both in the background, and what comes is what reading them on the
+/// spot gives (#1014).
+#[test]
+fn a_long_take_lands_with_its_run_and_charts_read_in_the_background() {
+    let run = power_reserve::LONG_TAKE_S + 1800.0;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.land_log(long_log(run), "long".into(), vec![], vec![]);
+    assert!(
+        app.reserve.is_none(),
+        "the run isn't read as the take lands"
+    );
+    assert!(app.trend.is_empty(), "nor are the charts");
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let start = Instant::now();
+    while app.reserve.is_none() || app.bg.trend.is_some() || app.trend.is_empty() {
+        app.take_reads_shown(&ctx);
+        assert!(start.elapsed() < Duration::from_secs(60), "never came");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.bg.reserve.is_none());
+    let mut here = TimegrapherApp::with_devices(Vec::new(), None);
+    here.show_log(long_log(run), "long".into(), vec![], vec![]);
+    assert_eq!(app.trend, here.trend);
+    let text = |a: &TimegrapherApp| {
+        let r = a.reserve.as_ref().and_then(|t| t.results.as_ref()).unwrap();
+        reserve::results_text(r, "", ',')
+    };
+    assert_eq!(text(&app), text(&here));
+}

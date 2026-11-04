@@ -2240,6 +2240,24 @@ impl TimegrapherApp {
         stretches: Vec<(f64, Position)>,
         settles: Vec<(f64, f64)>,
     ) {
+        self.land_log(log, label, stretches, settles);
+        // Read here what the window reads in the background.
+        self.refresh_trend();
+        self.bg.reserve = None;
+        self.reserve_from_long_take();
+    }
+
+    /// Show a take's beats, `log`, as an opened take lands whose readings
+    /// weren't readied with its engine: what rests on them is left to
+    /// the window's next frames.
+    #[cfg(test)]
+    pub(super) fn land_log(
+        &mut self,
+        log: BeatLog,
+        label: String,
+        stretches: Vec<(f64, Position)>,
+        settles: Vec<(f64, f64)>,
+    ) {
         let inputs = self.open_inputs(&stretches, &settles);
         let breaks = self.take_breaks.as_deref().unwrap_or_default();
         let live = ready_engine(log, &inputs, breaks, self.take_rate_clock());
@@ -2273,16 +2291,19 @@ impl TimegrapherApp {
         self.opened_positions = Some(self.positions_now());
         self.live = Some(live);
         self.rev.new_take();
+        // Readings not readied with the engine are read in the
+        // background by the next frame (#1014).
         match trend {
             Some(points) => self.put_trend(points),
-            None => self.refresh_trend(),
+            None => (self.trend, self.strip_points) = (Vec::new(), None),
         }
         self.source_label = label;
         self.anchor = None;
         self.strip_end = None;
         self.fit_take();
-        // A long take that isn't a test: its run, read as one.
-        self.reserve_from_long_take();
+        // A long take that isn't a test: its run, read as one in the
+        // background.
+        self.bg.reserve = Some(None);
         let done = if self.no_sound {
             "Opened the analysis kept without its sound: the readings, charts and tests are as \
              they were measured, and the Scope needs the sound. Drag the strip to look \

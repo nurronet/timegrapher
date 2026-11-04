@@ -19,8 +19,9 @@ pub fn data_range(values: &[f64]) -> Option<(f64, f64)> {
 /// The 1st to 99th percentile of the values, padded a little, leaving out
 /// lone wild values (a knock, a dropped beat) so that two of them don't
 /// flatten the rest: those beyond three interquartile ranges of the middle
-/// half, unless they are more than 3% of the values (then they are part of
-/// what the watch does, as in the steadiness test). The steadiness views'
+/// half, unless there are more than two of them and more than 3% of the
+/// values (then they are part of what the watch does, as in the steadiness
+/// test). The steadiness views'
 /// scale. `None` with fewer than two finite values.
 pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
     let mut v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
@@ -28,7 +29,8 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
         return None;
     }
     v.sort_by(f64::total_cmp);
-    let q = |v: &[f64], f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+    // Core's one quantile rule (#512), not a nearest rank of its own.
+    let q = crate::dsp::quantile;
     let (q1, q3) = (q(&v, 0.25), q(&v, 0.75));
     let fence = 3.0 * (q3 - q1);
     let kept: Vec<f64> = v
@@ -36,7 +38,9 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
         .copied()
         .filter(|&x| x >= q1 - fence && x <= q3 + fence)
         .collect();
-    if kept.len() >= 2 && (v.len() - kept.len()) as f64 <= 0.03 * v.len() as f64 {
+    // One or two are always lone; more than that, 3% decides.
+    let lone = (0.03 * v.len() as f64).max(2.0);
+    if kept.len() >= 2 && (v.len() - kept.len()) as f64 <= lone {
         v = kept;
     }
     let (lo, hi) = (q(&v, 0.01), q(&v, 0.99));
@@ -98,11 +102,18 @@ pub fn round_step(x: f64) -> f64 {
 /// [`round_step`] at least a fifth of it.
 const SCALE_STEPS: f64 = 5.0;
 
+/// The grid step for a scale over `span`: the [`round_step`] at least a
+/// fifth of it ([`SCALE_STEPS`]), so every chart's grid cuts its span the
+/// same way.
+pub fn step_for(span: f64) -> f64 {
+    round_step((span / SCALE_STEPS).max(1e-12))
+}
+
 /// A scale with round ends: `lo` to `hi` snapped out to the nearest
 /// [`round_step`] about a fifth of their span, and that step, as
 /// `(lo, hi, step)`. −91.9 to −21.9 reads −100 to −20 in steps of 20.
 pub fn round_ends(lo: f64, hi: f64) -> (f64, f64, f64) {
-    let step = round_step(((hi - lo) / SCALE_STEPS).max(1e-12));
+    let step = step_for(hi - lo);
     let lo = (lo / step + 1e-9).floor() * step;
     let hi = (hi / step - 1e-9).ceil() * step;
     // A single value still gets a step of room.
@@ -162,6 +173,40 @@ mod tests {
             let (x, step) = (c["x"].as_f64().unwrap(), c["step"].as_f64().unwrap());
             assert!((round_step(x) - step).abs() < step * 1e-9, "{x}");
         }
+    }
+
+    #[test]
+    fn a_spread_reads_its_quartiles_and_ends_by_cores_one_quantile() {
+        // Interpolated (type 7), as dsp::quantile reads them: the 99th
+        // percentile of 0, 1, 2, 10 is 9.76, not the nearest rank's 10.
+        let (lo, hi) = spread(&[10.0, 0.0, 2.0, 1.0]).unwrap();
+        let pad = (9.76 - 0.03) * 0.12;
+        assert!((lo - (0.03 - pad)).abs() < 1e-9, "{lo}");
+        assert!((hi - (9.76 + pad)).abs() < 1e-9, "{hi}");
+    }
+
+    #[test]
+    fn two_wild_values_are_lone_even_past_three_percent_of_a_short_series() {
+        // 55 values, one wild at each end: 3.6%, yet still lone, so the
+        // scale is the one without them.
+        let calm: Vec<f64> = (0..53).map(|i| 0.4 + (i % 7) as f64 * 0.005).collect();
+        let mut wild = calm.clone();
+        wild.extend([-3.0, 1.4]);
+        assert_eq!(spread(&wild), spread(&calm));
+        // A third wild value past 3% is part of what the watch does.
+        wild.push(-2.9);
+        assert!(spread(&wild).unwrap().0 < spread(&calm).unwrap().0);
+    }
+
+    #[test]
+    fn a_grid_step_cuts_its_span_in_about_five() {
+        // At least a fifth of the span, rounded up to 1, 2 or 5.
+        assert_eq!(step_for(10.0), 2.0);
+        assert_eq!(step_for(12.0), 5.0);
+        assert_eq!(step_for(0.7), 0.2);
+        assert_eq!(step_for(500.0), 100.0);
+        // A span of nothing still has a step.
+        assert!(step_for(0.0) > 0.0);
     }
 
     #[test]
