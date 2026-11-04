@@ -70,7 +70,7 @@
      "defaults": 0
     },
     "crates/timegrapher-app/src/app/take_io.rs": {
-     "bounds": 2,
+     "bounds": 1,
      "comparisons": 4,
      "constants": 0,
      "defaults": 0
@@ -233,7 +233,7 @@
     }
    },
    "total": {
-    "bounds": 105,
+    "bounds": 104,
     "comparisons": 108,
     "constants": 58,
     "defaults": 2
@@ -351,6 +351,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 4648
+  "crates/timegrapher-app/src/app.rs": 4632
  }
 }

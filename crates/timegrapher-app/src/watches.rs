@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::library::{length_text, size_text, Reading};
 use timegrapher_core::library::{Field, FieldKind, Library, Take, Watch, WatchEntry};
 use timegrapher_core::session::Position;
@@ -1024,7 +1025,7 @@ pub fn take_cells(
         started_words(t),
         position,
         length,
-        figure(rate, &|r| format!("{r:+.1}").replace('-', "−")),
+        figure(rate, &|r| true_minus(&format!("{r:+.1}"))),
         figure(amp, &|x| format!("{x:.0}")),
         figure(be, &|b| format!("{:.1}", b.abs())),
         format!("{:.1}", t.bytes as f64 / 1e6),

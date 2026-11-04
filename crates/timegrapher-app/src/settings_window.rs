@@ -11,6 +11,7 @@ use crate::theme::{self, Icon};
 use eframe::egui::{self, RichText, Vec2};
 use std::path::Path;
 use timegrapher_core::clockstore::{ClockStore, DeviceClock};
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::library::Library;
 use timegrapher_core::library::{length_text, size_text};
 
@@ -369,7 +370,7 @@ pub fn ppm_words(ppm: f64) -> String {
 /// A rate error in s/d with its sign, "+1.06" or "−0.42", and "0.00" for
 /// one too small to show.
 pub fn sd_words(s_per_day: f64) -> String {
-    timegrapher_core::library::signed_text(s_per_day, 2).replace('-', "−")
+    true_minus(&timegrapher_core::library::signed_text(s_per_day, 2))
 }
 
 /// One kept clock's error in words: "12.3 ppm slow, +1.06 s/d on every rate".
