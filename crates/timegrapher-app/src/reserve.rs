@@ -493,18 +493,34 @@ fn cell(v: Option<f64>, text: impl Fn(f64) -> String) -> String {
     v.map_or_else(|| "–".to_string(), text)
 }
 
-/// The hour column's words: "0–1 h", and the last part hour's length.
+/// The hour column's words: "0–1 h", and the last part hour a range of
+/// the same form, its end in tenths of an hour, "46–46.4 h", never 46.0 or
+/// the next whole hour (Hugh's ruling on #1086).
 fn hour_label(h: &power_reserve::Hour) -> String {
     if h.whole() {
-        format!("{}–{} h", h.hour, h.hour + 1)
-    } else {
-        // Whole seconds, as the run's own words count them.
-        format!(
-            "{} h + {}",
-            h.hour,
-            length_text(power_reserve::whole_s(h.span_s))
-        )
+        return format!("{}–{} h", h.hour, h.hour + 1);
     }
+    let tenths = (h.span_s / 360.0).round().clamp(1.0, 9.0);
+    format!(
+        "{}–{} h",
+        h.hour,
+        fixed_text(f64::from(h.hour) + tenths / 10.0, 1)
+    )
+}
+
+/// A part hour's exact length, in its label's hover; whole seconds, as the
+/// run's own words count them.
+fn part_hour_hover(h: &power_reserve::Hour) -> Option<(String, bool)> {
+    (!h.whole()).then(|| {
+        (
+            format!(
+                "A part hour: {} past {} h",
+                length_text(power_reserve::whole_s(h.span_s)),
+                h.hour
+            ),
+            false,
+        )
+    })
 }
 
 /// The run hour by hour as a table, the hour in progress read like a
@@ -593,9 +609,13 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
     ),
 ];
 
-/// A table cell: its text, and for a beat error the words of its source
-/// and whether it is dimmed.
-type Cell = (String, Option<(&'static str, bool)>);
+/// Why an hour's Read (%) is a dash: its times can't belong to a real
+/// hour (core `Hour::read_share`).
+const NO_READ_SHARE: &str = "No share: the time read doesn't fit inside this hour";
+
+/// A table cell: its text, and the words of its hover with whether it is
+/// dimmed (a beat error's source; why a share is missing).
+type Cell = (String, Option<(String, bool)>);
 
 /// The table itself: the hour named at the left, the figures right-aligned
 /// under their titles.
@@ -609,7 +629,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
         .map(|h| {
             let src = h.beat_error_source;
             [
-                plain(hour_label(h)),
+                (hour_label(h), part_hour_hover(h)),
                 plain(cell(h.rate_s_per_day, |v| {
                     figure(v, None, base_digits::RATE, true).replace('-', "−")
                 })),
@@ -620,9 +640,15 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
                     }),
-                    Some((beat_error_source_label(src), beat_error_dimmed(src))),
+                    Some((beat_error_source_label(src).into(), beat_error_dimmed(src))),
                 ),
-                plain(cell(h.read_share(), |v| fixed_text(100.0 * v, 0))),
+                // A dash says why in its hover (Walter's walk of #1084).
+                (
+                    cell(h.read_share(), |v| fixed_text(100.0 * v, 0)),
+                    h.read_share()
+                        .is_none()
+                        .then(|| (NO_READ_SHARE.into(), false)),
+                ),
             ]
         })
         .collect();
@@ -673,38 +699,43 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     RichText::new(head).strong().color(pal.text_secondary),
                 )
                 .on_hover_text(hint);
-                titles.push((head, r.rect));
+                titles.push((head, hint, r.rect));
             }
             ui.end_row();
             for row in &rows {
                 for (c, (text, source)) in row.iter().enumerate() {
                     // A beat error not from the unlock dimmed, and every
                     // beat error's source in words.
-                    let colour = if source.is_some_and(|s| s.1) {
+                    let colour = if source.as_ref().is_some_and(|s| s.1) {
                         pal.text_secondary
                     } else {
                         pal.text
                     };
                     let r = put(ui, c, RichText::new(text).color(colour));
                     if let Some((words, _)) = source {
-                        r.on_hover_text(*words);
+                        r.on_hover_text(words.as_str());
                     }
                 }
                 ui.end_row();
             }
         });
-    pin_titles(ui, &titles, grid.response.rect, rows.len() + 1, row_h);
+    let key = hours.iter().any(|h| beat_error_dimmed(h.beat_error_source));
+    pin_titles(ui, &titles, key, grid.response.rect, rows.len() + 1, row_h);
 }
 
 /// The table's titles kept in view: once they scroll above the pane's
 /// top while rows still show, drawn again there over the rows, so each
 /// figure keeps its unit in sight (Walter's walk of #1055). The band under
 /// them reaches down to the first row that shows whole, so no row shows
-/// cut. `titles` are the titles as drawn, `table` the whole table of
-/// `rows` rows, titles included, each `row_h` tall.
+/// cut. The pinned titles keep their hovers, and with `key` (a beat error
+/// dimmed) the dimming's key is pinned above them, as it sits above the
+/// table (Walter's walk of #1084). `titles` are the titles as drawn with
+/// their hovers, `table` the whole table of `rows` rows, titles included,
+/// each `row_h` tall.
 fn pin_titles(
-    ui: &egui::Ui,
-    titles: &[(&str, egui::Rect)],
+    ui: &mut egui::Ui,
+    titles: &[(&str, &str, egui::Rect)],
+    key: bool,
     table: egui::Rect,
     rows: usize,
     row_h: f32,
@@ -713,14 +744,16 @@ fn pin_titles(
     let Some(first) = titles.first() else {
         return;
     };
+    // The key's line above the titles, when there is one.
+    let above = if key { row_h + GRID_GAP } else { 0.0 };
     // From one row's top to the next's, the gap between included.
     let pitch = (table.height() + GRID_GAP) / rows.max(1) as f32;
-    let next = ((top + row_h + GRID_GAP - table.top()) / pitch).ceil();
+    let next = ((top + above + row_h + GRID_GAP - table.top()) / pitch).ceil();
     let band_bottom = table.top() + next * pitch;
-    if first.1.top() >= top || table.bottom() <= band_bottom {
+    if first.2.top() >= top + above || table.bottom() <= band_bottom {
         return;
     }
-    let dy = top - first.1.top();
+    let dy = top + above - first.2.top();
     let pal = theme::pal(ui);
     let painter = ui.painter();
     painter.rect_filled(
@@ -735,7 +768,16 @@ fn pin_titles(
         pal.card,
     );
     let font = egui::TextStyle::Body.resolve(ui.style());
-    for (head, r) in titles {
+    if key {
+        painter.text(
+            egui::pos2(table.left(), top),
+            egui::Align2::LEFT_TOP,
+            dim_key!(),
+            font.clone(),
+            pal.text_secondary,
+        );
+    }
+    for (head, _, r) in titles {
         painter.text(
             r.left_top() + egui::vec2(0.0, dy),
             egui::Align2::LEFT_TOP,
@@ -743,6 +785,15 @@ fn pin_titles(
             font.clone(),
             pal.text_secondary,
         );
+    }
+    // Over the rows they cover, so their hovers win.
+    for (head, hint, r) in titles {
+        ui.interact(
+            r.translate(egui::vec2(0.0, dy)),
+            ui.id().with(("pinned title", *head)),
+            egui::Sense::hover(),
+        )
+        .on_hover_text(*hint);
     }
 }
 
@@ -1075,7 +1126,23 @@ mod tests {
         );
         // Whole seconds, as the run's own words count them: 99.8 s is
         // "1 min 39 s", never a second over.
-        assert_eq!(hour_label(&r.hours[0]), "0 h + 1:39");
+        assert_eq!(hour_label(&r.hours[0]), "0–0.1 h");
+        assert_eq!(
+            part_hour_hover(&r.hours[0]).map(|h| h.0).as_deref(),
+            Some("A part hour: 1:39 past 0 h")
+        );
+        // A run ending 22 min into its 47th hour reads "46–46.4 h"; one
+        // ending a minute short of 47 h is never "46–47.0 h".
+        let mut part = r.hours[0].clone();
+        part.hour = 46;
+        for (span, label) in [
+            (1320.0, "46–46.4 h"),
+            (3540.0, "46–46.9 h"),
+            (60.0, "46–46.1 h"),
+        ] {
+            part.span_s = span;
+            assert_eq!(hour_label(&part), label);
+        }
     }
 
     /// The run line's hover says only what is true of the take now: kept
@@ -1168,6 +1235,54 @@ mod tests {
         assert_eq!(colour(key), vec![Some(ink.1)], "{cells:?}");
         let y = |text: &str| cells.iter().find(|c| c.0 == text).map(|c| c.2);
         assert!(y(key) < y("Hours"), "{cells:?}");
+    }
+
+    /// An hour whose times can't belong to a real hour shows a dash in
+    /// Read (%), and the dash's hover says why (Walter's walk of #1084).
+    #[test]
+    fn a_dashed_share_says_why_on_hover() {
+        let mut t = finished_run(2);
+        if let Some(r) = t.results.as_mut() {
+            r.hours[1].read_s = 3700.0;
+        }
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        ctx.style_mut(|s| {
+            s.interaction.tooltip_delay = 0.0;
+            s.interaction.show_tooltips_only_when_still = false;
+        });
+        let mut texts = Vec::new();
+        let mut events = Vec::new();
+        for pass in 0..5 {
+            let out = ctx.run(
+                egui::RawInput {
+                    events: std::mem::take(&mut events),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        hour_table(ui, &t.results.as_ref().unwrap().hours, None);
+                    });
+                },
+            );
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(s) => Some((
+                        s.galley.text().to_string(),
+                        s.galley.rect.translate(s.pos.to_vec2()),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if pass == 1 {
+                let dash = texts.iter().filter(|t| t.0 == "–").map(|t| t.1);
+                let dash = dash.max_by(|a, b| a.left().total_cmp(&b.left()));
+                events.push(egui::Event::PointerMoved(dash.expect("dash").center()));
+            }
+        }
+        assert!(texts.iter().any(|t| t.0 == NO_READ_SHARE), "{texts:?}");
     }
 
     /// After a run, its two charts take the pane's height and nothing is
@@ -1483,13 +1598,13 @@ mod tests {
         // The first hour filling: its row, no chart yet.
         t.so_far = vec![hour(0, 1588.0)];
         let shown = texts(&t);
-        assert!(shown.iter().any(|s| s == "0 h + 26:28"), "{shown:?}");
+        assert!(shown.iter().any(|s| s == "0–0.4 h"), "{shown:?}");
         assert!(!shown.iter().any(|s| s == "0 h"), "no chart: {shown:?}");
         // Two whole hours and the third filling: three rows, and the
         // charts reach the second hour's point only.
         t.so_far = vec![hour(0, 3600.0), hour(1, 3600.0), hour(2, 1588.0)];
         let shown = texts(&t);
-        for row in ["0–1 h", "1–2 h", "2 h + 26:28"] {
+        for row in ["0–1 h", "1–2 h", "2–2.4 h"] {
             assert!(shown.iter().any(|s| s == row), "{row}: {shown:?}");
         }
         assert_eq!(shown.iter().filter(|s| *s == "0 h").count(), 2, "{shown:?}");
