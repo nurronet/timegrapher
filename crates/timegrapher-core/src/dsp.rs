@@ -222,6 +222,15 @@ pub fn median(v: &mut [f64]) -> f64 {
     middle(v, f64::total_cmp).map_or(f64::NAN, |(lo, hi)| if odd { hi } else { 0.5 * (lo + hi) })
 }
 
+/// The mean of the finite values `v` gives, summed in order from -0 as
+/// `Iterator::sum` sums; `None` when there are none.
+pub fn mean_of(v: impl Iterator<Item = f64>) -> Option<f64> {
+    let (sum, n) = v
+        .filter(|x| x.is_finite())
+        .fold((-0.0, 0usize), |(s, n), x| (s + x, n + 1));
+    (n > 0).then(|| sum / n as f64)
+}
+
 /// [`median`] of the finite values `v` gives; `None` when there are none
 /// (#512).
 pub fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {

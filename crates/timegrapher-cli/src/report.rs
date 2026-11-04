@@ -381,66 +381,56 @@ enum RasterKind {
 }
 
 /// The rows of `c`'s raster as drawn: at most 240 rows of at most 60
-/// columns, each the mean of the cycles and bins it merges; with the
-/// cycles each row merges and the columns.
-fn raster_rows(c: &Component, kind: RasterKind) -> (Vec<Vec<f64>>, usize, usize) {
+/// columns, thinned by core's one rule (`longterm::thin`), each cell the
+/// mean of the cycles and bins it covers.
+fn raster_rows(c: &Component, kind: RasterKind) -> timegrapher_core::longterm::Thinned {
     // A rate is read on the cycles themselves, before rows are merged: an
     // averaged row's last bin is not one bin before the next one's first.
-    let rates;
-    let rows = match kind {
-        RasterKind::Value(_) => &c.fold.raster,
-        RasterKind::Rate => {
-            rates = timegrapher_core::longterm::rate_rows(&c.fold.raster, c.period_s);
-            &rates
+    let mut t = match kind {
+        RasterKind::Value(_) => c.fold.thinned(240, 60),
+        RasterKind::Rate => timegrapher_core::longterm::thin(
+            &timegrapher_core::longterm::rate_rows(&c.fold.raster, c.period_s),
+            240,
+            60,
+        ),
+    };
+    if let RasterKind::Value(scale) = kind {
+        for v in t.cells.iter_mut().flatten() {
+            *v *= scale;
         }
-    };
-    // Merge consecutive rows so at most 240 are drawn, and columns so at
-    // most 60 are.
-    let group = rows.len().div_ceil(240);
-    let bins = c.fold.profile.len();
-    let cgroup = bins.div_ceil(60);
-    let cols = bins.div_ceil(cgroup);
-    let merged: Vec<Vec<f64>> = rows
-        .chunks(group)
-        .map(|g| {
-            (0..cols)
-                .map(|j| {
-                    let v: Vec<f64> = g
-                        .iter()
-                        .flat_map(|r| r[j * cgroup..((j + 1) * cgroup).min(bins)].iter().copied())
-                        .filter(|v| v.is_finite())
-                        .collect();
-                    if v.is_empty() {
-                        f64::NAN
-                    } else {
-                        v.iter().sum::<f64>() / v.len() as f64
-                    }
-                })
-                .collect()
-        })
-        .collect();
-    let merged = match kind {
-        RasterKind::Value(scale) => merged
-            .into_iter()
-            .map(|r| r.into_iter().map(|v| v * scale).collect())
-            .collect(),
-        RasterKind::Rate => merged,
-    };
-    (merged, group, cols)
+    }
+    t
+}
+
+/// The cycles a raster row averages, `[first, end)` from 0, counted
+/// from 1: "cycle 4", or "cycles 4–8 averaged".
+fn cycles_text([first, end]: [usize; 2]) -> String {
+    if end - first <= 1 {
+        format!("cycle {}", first + 1)
+    } else {
+        format!("cycles {}–{end} averaged", first + 1)
+    }
 }
 
 fn raster(c: &Component, kind: RasterKind, unit: &str) -> String {
     if c.fold.raster.is_empty() {
         return String::new();
     }
-    let (merged, group, cols) = raster_rows(c, kind);
+    let thinned = raster_rows(c, kind);
+    let merged = &thinned.cells;
+    let cols = thinned.columns.len();
+    let each = if merged.len() < c.fold.raster.len() {
+        "each row the mean of a run of cycles"
+    } else {
+        "one row each"
+    };
     // Full colour at core's limit for a colour map.
     let cells: Vec<f64> = merged.iter().flatten().copied().collect();
     let lim = timegrapher_core::chart_scale::colour_limit(&cells);
     let rh = (360.0 / merged.len() as f64).clamp(1.5, 12.0);
     let h = rh * merged.len() as f64;
     let cw = (W - ML - MR) / cols as f64;
-    let mut s = String::new();
+    let mut s = format!("<h4>Every cycle, {each}, top to bottom</h4>");
     let _ = write!(
         s,
         r#"<svg viewBox="0 0 {W} {}" role="img" aria-label="raster">"#,
@@ -451,13 +441,13 @@ fn raster(c: &Component, kind: RasterKind, unit: &str) -> String {
             let val = v;
             let _ = write!(
                 s,
-                r#"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}"><title>cycle {}, {:.1} s into it: {}</title></rect>"#,
+                r#"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}"><title>{}, {:.1} s into it: {}</title></rect>"#,
                 ML + j as f64 * cw,
                 MT + i as f64 * rh,
                 cw + 0.3,
                 rh + 0.3,
                 diverging(val / lim),
-                i * group + 1,
+                cycles_text(thinned.rows[i]),
                 (j as f64 + 0.5) / cols as f64 * c.period_s,
                 if val.is_finite() {
                     format!("{} {unit}", timegrapher_core::library::signed_text(val, 2))
@@ -532,7 +522,7 @@ fn component(
         r#"<div class="component"><h3>{kind}: {:.2} s cycle</h3>
 <p>{swing}; explains {:.0}% of the detrended variation; false-alarm chance {}; period known to ±{:.2} s. {}.</p>
 <h4>One cycle, averaged over {rows} cycles</h4>{}
-<h4>Every cycle, one row each, top to bottom</h4>{}</div>"#,
+{}</div>"#,
         c.period_s,
         c.explained * 100.0,
         false_alarm(c.significance),
@@ -848,7 +838,8 @@ mod tests {
             },
             harmonic_of: None,
         };
-        let (rows, group, cols) = raster_rows(&c, RasterKind::Rate);
+        let t = raster_rows(&c, RasterKind::Rate);
+        let (rows, group, cols) = (&t.cells, t.rows[0][1] - t.rows[0][0], t.columns.len());
         assert!(group > 1 && cols == bins);
         assert!(
             rows.iter().flatten().all(|v| (v - 8.64).abs() < 1e-6),
