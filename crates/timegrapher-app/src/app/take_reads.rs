@@ -102,6 +102,16 @@ impl<K, T: Send + 'static> Job<K, T> {
     }
 }
 
+/// The readings of a take on show being read in the background.
+#[derive(Default)]
+pub(super) struct Background {
+    /// The charts' run of readings.
+    pub(super) trend: Option<Job<TrendKey, Vec<TrendPoint>>>,
+    /// A long take's run for the Power reserve pane, once it is wanted:
+    /// `Some(None)` until its reading starts (#1014).
+    pub(super) reserve: Option<Option<Job<Revision, Option<reserve::Test>>>>,
+}
+
 /// A Positions Test table being read in the background, and what from.
 pub(super) type FreeJob = Job<FreeKey, Option<guided::FreeTable>>;
 
@@ -409,31 +419,67 @@ impl TimegrapherApp {
     pub(super) fn refresh_trend_shown(&mut self, ctx: &egui::Context) {
         let key: TrendKey = (self.rev, self.average_s.to_bits());
         if self.running() || self.live.is_none() {
-            self.trend_job = None;
+            self.bg.trend = None;
             self.refresh_trend();
             return;
         }
         if self.trend_key == key {
-            self.trend_job = None;
+            self.bg.trend = None;
             return;
         }
-        if self.trend_job.as_ref().is_some_and(|j| j.key != key) {
-            self.trend_job = None;
+        if self.bg.trend.as_ref().is_some_and(|j| j.key != key) {
+            self.bg.trend = None;
         }
-        let Some(job) = &self.trend_job else {
+        let Some(job) = &self.bg.trend else {
             let (live, average_s) = (self.live.clone(), self.average_s);
-            self.trend_job = Some(Job::start(key, ctx, move || {
+            self.bg.trend = Some(Job::start(key, ctx, move || {
                 live.map_or_else(Vec::new, |l| l.trend(average_s))
             }));
             return;
         };
         match job.done() {
             Ok(points) => {
-                self.trend_job = None;
+                self.bg.trend = None;
                 self.put_trend(points);
             }
             Err(true) => {}
-            Err(false) => self.trend_job = None,
+            Err(false) => self.bg.trend = None,
+        }
+    }
+
+    /// The readings a frame of the window reads in the background: the
+    /// charts' run, then a long take's run for the Power reserve pane.
+    pub(super) fn take_reads_shown(&mut self, ctx: &egui::Context) {
+        self.refresh_trend_shown(ctx);
+        self.long_reserve_shown(ctx);
+    }
+
+    /// [`Self::reserve_from_long_take`] for the window, read in the
+    /// background once a take has opened, so a take of many hours doesn't
+    /// hold the window as it lands (#1014). It is read again if what it
+    /// rests on changes before it comes, and let go when listening starts
+    /// or the pane gets a test of its own.
+    fn long_reserve_shown(&mut self, ctx: &egui::Context) {
+        let Some(wanted) = &self.bg.reserve else {
+            return;
+        };
+        if self.running() || self.reserve.is_some() {
+            self.bg.reserve = None;
+            return;
+        }
+        let key = self.rev;
+        match wanted.as_ref().filter(|j| j.key == key).map(Job::done) {
+            Some(Ok(t)) => {
+                self.reserve = t;
+                self.bg.reserve = None;
+            }
+            Some(Err(true)) => {}
+            Some(Err(false)) => self.bg.reserve = None,
+            None => {
+                self.bg.reserve = self
+                    .long_take_reader()
+                    .map(|read| Some(Job::start(key, ctx, read)));
+            }
         }
     }
 }
