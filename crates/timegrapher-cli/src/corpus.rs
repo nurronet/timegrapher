@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use timegrapher_core::analysis::{self, AnalysisConfig};
 use timegrapher_core::audio;
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::stream::{self, StreamConfig};
 
 /// The repository the release assets live in.
@@ -138,10 +139,10 @@ pub fn fetch(
             }
             if !quiet {
                 eprintln!(
-                    "fetching {}/{} ({:.0} MB)",
+                    "fetching {}/{} ({} MB)",
                     t.id,
                     f.name,
-                    f.bytes as f64 / 1e6
+                    fixed_text(f.bytes as f64 / 1e6, 0)
                 );
             }
             let url = format!(
@@ -177,7 +178,10 @@ pub fn fetch(
         }
     }
     if got > 0 {
-        eprintln!("fetched {:.0} MB of corpus audio", got as f64 / 1e6);
+        eprintln!(
+            "fetched {} MB of corpus audio",
+            fixed_text(got as f64 / 1e6, 0)
+        );
     }
     Ok(verified)
 }

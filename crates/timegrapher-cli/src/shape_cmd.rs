@@ -5,6 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use timegrapher_core::beats;
 use timegrapher_core::dsp::{envelope, EnvelopeConfig};
+use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::load;
 use timegrapher_core::shape::{self, Shape, ShapeReport, SideReport};
 
@@ -55,7 +56,7 @@ fn write_templates(p: &Path, r: &ShapeReport, fs: f64) -> std::io::Result<()> {
 
 fn opt(v: Option<f64>, digits: usize) -> String {
     v.filter(|x| x.is_finite())
-        .map_or("-".into(), |x| format!("{x:.digits$}"))
+        .map_or("-".into(), |x| fixed_text(x, digits))
 }
 
 fn print_report(r: &ShapeReport, bph: u32, beat_s: f64, lift_deg: f64) {
@@ -144,16 +145,19 @@ fn print_side(name: &str, s: &SideReport) {
     );
     if let Some(p) = &s.spread {
         println!(
-            "      single beats: interval 1-3 {:.2} ms, spread {:.0} us (robust SD, {} beats)",
-            p.i13_ms, p.i13_sd_us, p.beats
+            "      single beats: interval 1-3 {} ms, spread {} us (robust SD, {} beats)",
+            fixed_text(p.i13_ms, 2),
+            fixed_text(p.i13_sd_us, 0),
+            p.beats
         );
     }
     if let Some(w) = &s.whole {
         for (when, list) in [("before 1", &w.extra_pre), ("after 3", &w.extra_post)] {
             for e in list {
                 println!(
-                    "      extra event {when} at {:+.2} ms, level {:.3} of the drop",
-                    e.t_ms, e.level
+                    "      extra event {when} at {} ms, level {} of the drop",
+                    signed_text(e.t_ms, 2),
+                    fixed_text(e.level, 3)
                 );
             }
         }

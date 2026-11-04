@@ -504,6 +504,8 @@ pub struct Report {
     pub rate_amplitude: Option<CrossCorrelation>,
     /// The rate by amplitude over the take: the isochronism curve.
     pub isochronism: Option<IsochronismCurve>,
+    /// The rate against the amplitude by 5 min of time (#741).
+    pub walk: Option<crate::walk::IsochronismWalk>,
     /// The start of the take against 24 h later, or its end.
     pub wind_down: Option<WindDown>,
     /// How often each value came up, over the take and each stretch: the
@@ -1819,8 +1821,13 @@ fn lead(s: &SeriesCheck, cfg: &Config) -> Lead {
         .as_ref()
         .map_or(0.0, |t| t.explained.max(t.curve_explained));
     if let Some(ch) = family::level_moves(s, cfg) {
-        // A slide cut into steps is still a slide.
-        return if trend >= 0.8 * ch.explained && family::trend_holds(s, cfg) {
+        // A slide cut into steps is still a slide: whichever of the line
+        // and the steps explains more names it. A line explains a clean
+        // mid-take step about 0.75 as well, so a bar of 0.8 called 40 to
+        // 45% of 2σ steps at ρ 0.9 slides; at 1.0 a ramp cut into steps
+        // is sometimes called a level shift instead, which still says the
+        // level moved (#721).
+        return if trend >= ch.explained && family::trend_holds(s, cfg) {
             Lead::Drifting
         } else {
             Lead::ShiftingMean
@@ -2322,6 +2329,7 @@ pub fn check(
     let be_readings = rebin(&be_grid, t0, r, n);
     let rate_amplitude = cross_correlation(&rate_grid, &amp_paired, &amp_noise, cfg);
     let isochronism = isochronism_curve(&rate_grid, &amp_paired, &amp_noise, cfg);
+    let walk = crate::walk::walk(&rate_grid, &amp_paired, cfg.wind_h);
     let wind_down = wind_down_sourced(&rate_grid, &amp_readings, log, clock, &long.breaks, cfg);
     let distributions = {
         use distribution::{Input, AMPLITUDE, BEAT_ERROR, RATE};
@@ -2507,6 +2515,7 @@ pub fn check(
         series,
         rate_amplitude,
         isochronism,
+        walk,
         wind_down,
         distributions,
         spectra,

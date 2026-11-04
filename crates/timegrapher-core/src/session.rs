@@ -1481,6 +1481,12 @@ pub fn no_regular_beat(jitter_us: Option<f64>, bph_set: Option<u32>) -> String {
     )
 }
 
+/// What a recording with no regular beat has none of, said after
+/// [`no_regular_beat`] or [`no_regular_beat_in`] where the readings would
+/// otherwise stand (#510): "No regular beat found (…). There are no rate,
+/// amplitude or beat error readings."
+pub const NO_READINGS: &str = "There are no rate, amplitude or beat error readings.";
+
 /// [`no_regular_beat`] for a measurement, or, when its beats' sound shows
 /// no unlock or drop on either side, that fact.
 pub fn no_regular_beat_in(m: &Measurement, bph_set: Option<u32>) -> String {

@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::redact::{os_version, recent_files, Redactor};
 use timegrapher_core::{clockstore, excerpt, recorder};
 
@@ -167,7 +168,11 @@ fn excerpt_into(
         parts.left_out.push("the recording (--no-audio)".into());
         return Ok(Value::Null);
     }
-    eprintln!("cutting {:.0} s from {:.0} s", o.span, o.at);
+    eprintln!(
+        "cutting {} s from {} s",
+        fixed_text(o.span, 0),
+        fixed_text(o.at, 0)
+    );
     let pcm = excerpt::cut(files, o.at, o.span).map_err(|e| e.to_string())?;
     if pcm.frames() == 0 {
         return Err(format!("the recording ends before {} s (--at)", o.at));
@@ -365,8 +370,8 @@ fn write_report(
     } else {
         println!("Report     {}", zip.display());
         println!(
-            "Size       {:.1} MB{}",
-            bytes as f64 / 1e6,
+            "Size       {} MB{}",
+            fixed_text(bytes as f64 / 1e6, 1),
             if bytes > 25_000_000 {
                 " (over GitHub's 25 MB limit for attachments: shorten --span)"
             } else {

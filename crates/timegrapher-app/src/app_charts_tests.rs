@@ -267,3 +267,116 @@ fn a_charts_scale_neither_zooms_nor_pans() {
     let dragged = settle(&mut app, Vec::new());
     assert_eq!(dragged, before, "a drag up or down left the scale");
 }
+
+/// On the Charts, the wheel or a swipe pans time, and Cmd or Ctrl with
+/// the wheel (a zoom) zooms it about the pointer (Play Head rule 10).
+#[test]
+fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let pass_held = |app: &mut TimegrapherApp, events: Vec<egui::Event>, modifiers| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            modifiers,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let pass = |app: &mut TimegrapherApp, events| pass_held(app, events, egui::Modifiers::NONE);
+    let mut out = pass(&mut app, Vec::new());
+    for _ in 0..3 {
+        out = pass(&mut app, Vec::new());
+    }
+    let label = out
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "20.00 s/d" => Some(t.pos),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    let at = label + Vec2::new(500.0, 0.0);
+    // The time axis's labels a few frames after `events`, the keys a
+    // wheel turn in them was made with held throughout, as a hand holds
+    // them while the turn plays out.
+    let look = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let held = events
+            .iter()
+            .find_map(|e| match e {
+                egui::Event::MouseWheel { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or_default();
+        pass_held(app, events, held);
+        let mut text = String::new();
+        for _ in 0..4 {
+            text = painted_text(&pass_held(app, vec![egui::Event::PointerMoved(at)], held));
+        }
+        text
+    };
+    let before = look(&mut app, vec![egui::Event::PointerMoved(at)]);
+    let wheel = |dy: f32, modifiers| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0.0, dy),
+        modifiers,
+    };
+    let span = |l: &[f64]| l[l.len() - 1] - l[0];
+    // The whole session has nowhere to pan to.
+    let whole = look(&mut app, vec![wheel(60.0, egui::Modifiers::NONE)]);
+    assert_eq!(time_labels(&whole), time_labels(&before));
+    // A zoom (Cmd or Ctrl and the wheel, or a pinch): a shorter time.
+    let zoomed = look(&mut app, vec![egui::Event::Zoom(2.0)]);
+    let (b, z) = (time_labels(&before), time_labels(&zoomed));
+    assert!(span(&z) < span(&b) * 0.75, "{b:?} {z:?}");
+    // Scrolled forward: later times, over the same length.
+    let panned = look(&mut app, vec![wheel(-60.0, egui::Modifiers::NONE)]);
+    let p = time_labels(&panned);
+    assert!(p[0] > z[0], "{z:?} {p:?}");
+    assert!((span(&p) - span(&z)).abs() <= 10.0, "{z:?} {p:?}");
+    // With Shift too, the same, back.
+    let shifted = look(&mut app, vec![wheel(60.0, egui::Modifiers::SHIFT)]);
+    assert!(time_labels(&shifted)[0] < p[0], "{p:?} {shifted:?}");
+    // Alt and the wheel (the strip's width) does nothing here.
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let still = look(&mut app, vec![wheel(-60.0, alt)]);
+    assert_eq!(time_labels(&still), time_labels(&shifted));
+    // Panned far past either end, the chart stops at the take's first or
+    // last reading, its length kept.
+    for dy in [-6000.0, 6000.0] {
+        let end = time_labels(&look(&mut app, vec![wheel(dy, egui::Modifiers::NONE)]));
+        assert!(end[0] >= 0.0 && end[end.len() - 1] <= 120.0, "{end:?}");
+        assert!((span(&end) - span(&z)).abs() <= 10.0, "{z:?} {end:?}");
+        assert!(zoomed_off(&look(&mut app, Vec::new())), "{end:?}");
+    }
+    // Zoomed out past the take, it shows the whole session again.
+    let out = look(&mut app, vec![egui::Event::Zoom(0.1)]);
+    assert_eq!(time_labels(&out), b);
+    assert!(!zoomed_off(&out));
+}
+
+/// A chart moved off the whole session offers the way back to it.
+fn zoomed_off(text: &str) -> bool {
+    text.lines()
+        .any(|l| l == "Show Whole Session" || l == "Follow Live")
+}
+
+fn time_labels(text: &str) -> Vec<f64> {
+    text.lines()
+        .skip_while(|l| *l != "Charts")
+        .filter_map(|l| {
+            let (m, s) = l.split_once(':')?;
+            Some(m.parse::<f64>().ok()? * 60.0 + s.parse::<f64>().ok()?)
+        })
+        .collect()
+}

@@ -1481,19 +1481,7 @@ pub fn note_icon(ui: &Ui, icon: Icon, name: &str) {
 /// comes back out when the pane is wide enough again; a pane's plot never
 /// gives up room for its tools.
 pub fn pane_toolbar(ui: &mut Ui, title: &str, help_text: &[&str], controls: impl FnMut(&mut Ui)) {
-    pane_toolbar_full(ui, title, help_text, None, None, controls)
-}
-
-/// A pane's toolbar with `note`, a fact about what the pane shows (such
-/// as the moment it is from), at its right end before the "?".
-pub fn pane_toolbar_at(
-    ui: &mut Ui,
-    title: &str,
-    help_text: &[&str],
-    at: Option<&str>,
-    controls: impl FnMut(&mut Ui),
-) {
-    pane_toolbar_full(ui, title, help_text, Some(at), None, controls)
+    pane_toolbar_full(ui, title, help_text, None, controls)
 }
 
 /// [`pane_toolbar`] with one control `pinned` just left of the "?": it
@@ -1505,17 +1493,15 @@ pub fn pane_toolbar_pinned(
     pinned: Option<&mut dyn FnMut(&mut Ui)>,
     controls: impl FnMut(&mut Ui),
 ) {
-    pane_toolbar_full(ui, title, help_text, None, pinned, controls)
+    pane_toolbar_full(ui, title, help_text, pinned, controls)
 }
 
-/// A pane's toolbar: its controls, then at its right end its slot for the
-/// moment it shows (`at`: a slot, and what is in it), its `pinned` control
-/// and the "?".
+/// A pane's toolbar: its controls, then at its right end its `pinned`
+/// control and the "?".
 fn pane_toolbar_full(
     ui: &mut Ui,
     title: &str,
     help_text: &[&str],
-    at: Option<Option<&str>>,
     pinned: Option<&mut dyn FnMut(&mut Ui)>,
     mut controls: impl FnMut(&mut Ui),
 ) {
@@ -1536,9 +1522,6 @@ fn pane_toolbar_full(
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| pin(ui));
     }
-    let note_w = at.map_or(0.0, |n| {
-        toolbar_at(ui, title, n, full.right() - 26.0 - pin_w, q)
-    });
     let mut text = help_text.to_vec();
     text.push(crate::help::TOOLBAR);
     // The key from the row as last drawn.
@@ -1549,7 +1532,7 @@ fn pane_toolbar_full(
     ui.scope_builder(egui::UiBuilder::new().max_rect(q), |ui| {
         help_with_key(ui, title, &text, &key)
     });
-    let room = full.with_max_x(full.right() - 26.0 - pin_w - note_w);
+    let room = full.with_max_x(full.right() - 26.0 - pin_w);
     // Last frame's controls and their widths decide what folds now.
     let known: Vec<(String, f32)> = ui
         .ctx()
@@ -1596,40 +1579,6 @@ fn pane_toolbar_full(
         d.insert_temp(key_id(title), icons);
     });
 }
-
-/// A toolbar's slot for the moment a pane shows, `at` in it if any,
-/// ending at `right` and centred on the "?" at `q`; the room it takes,
-/// the same whether it holds a time or not, so nothing shifts.
-fn toolbar_at(ui: &mut Ui, title: &str, at: Option<&str>, right: f32, q: egui::Rect) -> f32 {
-    let p = pal(ui);
-    let font = egui::FontId::proportional(12.0);
-    let room = ui
-        .painter()
-        .layout_no_wrap(AT_WIDEST.to_owned(), font.clone(), p.text_tertiary)
-        .size()
-        .x;
-    if let Some(n) = at {
-        let g = ui
-            .painter()
-            .layout_no_wrap(n.to_owned(), font, p.text_tertiary);
-        let w = g.size().x;
-        ui.painter().galley(
-            egui::pos2(right - w, q.center().y - g.size().y / 2.0),
-            g,
-            p.text_tertiary,
-        );
-        note_drawn(
-            ui,
-            title,
-            n,
-            egui::Rect::from_min_size(egui::pos2(right - w, q.top()), Vec2::new(w, q.height())),
-        );
-    }
-    room + 12.0
-}
-
-/// The widest moment a toolbar's slot holds: a time under 100 hours.
-const AT_WIDEST: &str = "at 00:00:00";
 
 /// Each of the controls `met` in a toolbar's row and its width: as drawn
 /// now, or as last measured (`known`) while it is folded.

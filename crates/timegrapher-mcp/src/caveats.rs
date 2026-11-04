@@ -44,7 +44,7 @@ pub fn no_regular_beat(m: &Value, bph: Option<f64>) -> String {
         ),
         None => timegrapher_core::session::no_regular_beat(m["jitter_us"].as_f64(), None),
     };
-    format!("{said}. There are no rate, amplitude or beat error readings.")
+    format!("{said}. {}", timegrapher_core::session::NO_READINGS)
 }
 
 /// The `_meta` key the views read each series' own caveats from.

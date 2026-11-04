@@ -10,6 +10,7 @@ use super::readouts::{
     amplitude_figure, beat_error_figure, card_rects, heard, rate_figure, six_widths,
 };
 use super::*;
+use timegrapher_core::figure_text::true_minus;
 
 /// The strip's height, and the pin's card's, pt.
 pub(super) const STRIP_H: f32 = 44.0;
@@ -193,7 +194,7 @@ impl TimegrapherApp {
             ("Beat Error", r.and_then(beat_error_figure), "ms"),
         ];
         for (i, (label, f, unit)) in figures.into_iter().enumerate() {
-            let f = f.unwrap_or_else(|| "—".into()).replace('-', "−");
+            let f = true_minus(&f.unwrap_or_else(|| "—".into()));
             let mut whole = vec![quiet(label, 13.0), strong(&f, 22.0)];
             let mut bare = vec![strong(&f, 22.0)];
             // At the narrowest window, the figure smaller, its unit kept.

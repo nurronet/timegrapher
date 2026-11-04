@@ -711,14 +711,22 @@ the run time in true time (through the input's clock as measured
 while listening, else its stored correction), then, scrolling in the rest
 of the pane, the rate and amplitude against hours since the first beat, and a table
 of each hour (the last as long as is left): its rate, median amplitude
-and beat error from the unlock, each measured as `timegrapher session`
+and beat error from the unlock (from the drop in an hour where the unlock
+isn't found), each measured as `timegrapher session`
 measures a stretch (core `session::measure_masked`), and how much of it
 its whole 10 s readings cover (core `clean`). The table starts at the
 charts' plot edge, their value labels alone in the margin to its left, is
 no wider than the plots (scrolling sideways when it would be), and gives
 the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
-Read (%), the figures right-aligned. **Save as CSV…** and
-**Copy** give the watch, the run and the table. The take
+Read (%), the figures right-aligned and written by core `figure_text`.
+Scrolled down, the titles stay at the pane's top. A beat error from the
+drop, or with no source recorded, is drawn dimmed, with the key "Grey
+beat errors: from the drop, or source not recorded." over the table (and in the Beat Error title's hover), and
+every beat error's hover names its source (core
+`session::beat_error_source_label`).
+**Save as CSV…** and **Copy** give the watch, the run and the table, with
+a "Beat error from" column (unlock or drop; empty when not recorded, as
+for a figure not measured). The take
 is kept in the picked watch's history, named by its local start time and
 "Power Reserve", with
 `power-reserve.json` beside the standard files; with Analysis Only it is
@@ -913,8 +921,10 @@ background, one row, under the trace (Unlock starts right of its line
 where the facts box has the corner, and a name that would crowd the one
 before, usually Peak beside Drop, is left to its line's hover); the
 sounds keep their dots, and hovering one names it. Stacked, the one
-time axis is under Tock. The moment shown ("At
-10:00") is at the right end of the toolbar. The noise floor is a flat
+time axis is under Tock. With the strip moved back, the moment shown
+is said on the strip; the facts box's hover starts with it ("at 10:00,
+set by the Paper Strip."), as the Scope's Unlock and Drop marks' hovers
+do. The noise floor is a flat
 dashed line. The Tick tock
 profile card switches the edges and the sounds on and off, switches
 **dB Scale** (lit: decibels below the loudest point; off: linear)
@@ -1016,8 +1026,9 @@ on), shows the whole session so far along the strip, up to its latest
 beat (its last 80 hours when it is longer):
 
 - While it is on, the length keeps growing with the take as beats arrive.
-- Zooming the strip's time (the wheel, or a length typed or picked) or
-  looking back through it (dragging, or a click on a chart) turns it off.
+- Zooming the strip's time (Cmd or Ctrl and the wheel, a pinch, or a
+  length typed or picked) or looking back through it (the wheel,
+  dragging, or a click on a chart) turns it off.
   Changing the width leaves it on.
 - Opening a take turns it on and sets the width to the narrowest of the
   listed widths that holds all its beats without wrapping (leaving out
@@ -1025,10 +1036,12 @@ beat (its last 80 hours when it is longer):
   once. Listen then brings back the width, length and Fit the strip had
   before, unless they were changed by hand meanwhile.
 
-On the strip, the mouse wheel changes the length about the time under the
-pointer, which stays where it is, Shift or Ctrl and the wheel (or a
-pinch) changes the width, dragging along the time axis looks back through
-the session (live or not), dragging across slides the trace, and a double
+On the strip, the mouse wheel or a trackpad swipe either way (with Shift
+too) moves along the session (live or not), as dragging along the
+time axis does, and back at the newest beat it is live again. Cmd on the
+Mac, or Ctrl elsewhere, and the wheel (or a pinch) changes the length, out
+to no more than the take: live, the newest beat stays at the edge; looking
+back, the time under the pointer stays where it is; Alt (Option on a Mac) and the wheel changes the width. Dragging across slides the trace, and a double
 click returns to the newest beats and centres them. **Auto-Centre** (a
 pushpin on a dashed line, lit while on) keeps
 the newest beats on the centre line all the time, so the older ones slide
@@ -1174,7 +1187,10 @@ strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
 anywhere over a chart, a vertical line marks that moment and a box lists
 every line's value there. Their time axes move together:
-the mouse wheel zooms time around the pointer, dragging pans it, and the
+the mouse wheel, a swipe or dragging pans time, never past the take's
+first or last reading, Cmd or Ctrl and the wheel (or a pinch) zooms it
+around the pointer, and zoomed out to the whole take it shows the whole
+session again; the
 vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
 Once a chart has been panned or zoomed a **Follow Live** button

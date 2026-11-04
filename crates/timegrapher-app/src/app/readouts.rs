@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::sparkline;
-use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm};
+use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm, true_minus};
 use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
 
 /// What the reading cards draw from.
@@ -337,7 +337,7 @@ impl TimegrapherApp {
             unheard,
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
-            moment: self.card_moment(),
+            moment: self.moment_hover(),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -382,11 +382,11 @@ impl TimegrapherApp {
             let se = w.m.confidence.and_then(|c| c.rate.se);
             let spread = w.m.rate_p05.zip(w.m.rate_p95).map(|(a, b)| {
                 let at = |x| signed_text(x, base::RATE_RANGE);
-                format!("10 s rates {} to {} s/d", at(a), at(b)).replace('-', "−")
+                true_minus(&format!("10 s rates {} to {} s/d", at(a), at(b)))
             });
             behind += &whole_text(
                 &c.whole_breaks,
-                format!("{} s/d", with_pm(v, se, base::RATE, true)).replace('-', "−"),
+                true_minus(&format!("{} s/d", with_pm(v, se, base::RATE, true))),
                 spread,
                 w.span,
             );
@@ -453,12 +453,6 @@ impl TimegrapherApp {
             Some(_) => self.reading_at_time(self.strip_end_s()),
             None => self.reading(),
         }
-    }
-
-    /// The moment the cards are read at, for their figures' hovers, when
-    /// it is not the newest: said once on the strip, which sets it.
-    pub(super) fn card_moment(&self) -> Option<String> {
-        Some(format!("{}, set by the Paper Strip.", self.sound_moment()?))
     }
 
     /// The figures the reading cards showed each whole second over the
@@ -759,7 +753,7 @@ impl TimegrapherApp {
             ));
         }
         let c = self.clock.as_ref()?;
-        let v = format!("{:+.1}", c.correct_rate(rate)).replace('-', "−");
+        let v = true_minus(&format!("{:+.1}", c.correct_rate(rate)));
         Some(format!(
             "True Clock {v} seconds per day, with the clock kept {}: the rate corrected \
              for this input's own clock. The big figure stays on the card's clock, the one \
@@ -1454,7 +1448,7 @@ pub(super) fn figure_row(
     let pal = theme::pal(ui);
     let (text, colour) = match value {
         // A true minus sign, as wide as the plus.
-        Some(v) => (v.replace('-', "−"), pal.text),
+        Some(v) => (true_minus(v), pal.text),
         None => ("—".to_string(), pal.text_tertiary),
     };
     let side_text = status.map_or(unit, |s| s.0.as_str());

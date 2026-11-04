@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use timegrapher_core::audio::{self, Audio};
 use timegrapher_core::diagnose::{self, DiagnoseConfig, SignalCheck};
+use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::mixer::{self, Fix, Mixer};
 
 pub struct Options {
@@ -112,7 +113,11 @@ fn acquire(o: &Options) -> Result<(Audio, Value), String> {
 #[cfg(feature = "live")]
 fn live(o: &Options) -> Result<(Audio, Value), String> {
     let (dev, info) = timegrapher_core::capture::find(o.device.as_deref())?;
-    eprintln!("listening to '{}' for {:.0} s", info.name, o.seconds);
+    eprintln!(
+        "listening to '{}' for {} s",
+        info.name,
+        fixed_text(o.seconds, 0)
+    );
     let (a, rec) = timegrapher_core::capture::record(&dev, info, o.seconds)?;
     let v = serde_json::to_value(&rec).map_err(|e| e.to_string())?;
     Ok((a, v))
@@ -151,7 +156,7 @@ fn opt(v: Option<f64>, unit: &str) -> String {
 /// rather than printing "-" (#811).
 fn signal_line(signal_x: Option<f64>) -> String {
     match signal_x {
-        Some(x) => format!("Signal       {x:.0}× above the background"),
+        Some(x) => format!("Signal       {}× above the background", fixed_text(x, 0)),
         None => {
             "Signal       not measured: no beats, or the sound is mostly digital silence".into()
         }
@@ -175,18 +180,21 @@ fn gap_rise_line(gap_rise_db: Option<f64>) -> String {
 /// [`timegrapher_core::library::signed_text`]).
 fn quick_look_line(rate_s_per_day: f64, beat_error_ms: f64) -> String {
     format!(
-        "Quick look   rate {} s/d, beat error {beat_error_ms:.1} ms (on the sound card's clock)",
-        timegrapher_core::library::signed_text(rate_s_per_day, 1)
+        "Quick look   rate {} s/d, beat error {} ms (on the sound card's clock)",
+        timegrapher_core::library::signed_text(rate_s_per_day, 1),
+        fixed_text(beat_error_ms, 1)
     )
 }
 
 fn print_check(c: &SignalCheck) {
     println!(
-        "Level        peak {:.1} dBFS, RMS {:.1} dBFS, {} clipped samples",
-        c.peak_dbfs, c.rms_dbfs, c.clipped_samples
+        "Level        peak {} dBFS, RMS {} dBFS, {} clipped samples",
+        fixed_text(c.peak_dbfs, 1),
+        fixed_text(c.rms_dbfs, 1),
+        c.clipped_samples
     );
     println!(
-        "Ticks        {} of about {} beats at {} bph; {}, background {:.1} dBFS",
+        "Ticks        {} of about {} beats at {} bph; {}, background {} dBFS",
         c.beats_found,
         c.beats_expected,
         c.bph,
@@ -195,7 +203,7 @@ fn print_check(c: &SignalCheck) {
                 "tick {}",
                 opt(Some(t), " dBFS")
             )),
-        c.noise_level_dbfs,
+        fixed_text(c.noise_level_dbfs, 1),
     );
     println!("{}", signal_line(c.signal_x));
     println!("{}", gap_rise_line(c.gap_rise_db));
@@ -236,7 +244,7 @@ fn print_report(r: &Report, apply: bool) {
                 "'{}' {cur}/{hi}{}",
                 c.name,
                 c.capture_db
-                    .map_or(String::new(), |d| format!(" ({d:+.1} dB)"))
+                    .map_or(String::new(), |d| format!(" ({} dB)", signed_text(d, 1)))
             )
         });
         println!(
