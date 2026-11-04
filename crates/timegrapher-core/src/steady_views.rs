@@ -320,6 +320,13 @@ fn phase_bins(period: f64, step: f64) -> usize {
         .map_or((r.round() as usize).clamp(6, 40), |x| x.round() as usize)
 }
 
+/// What a reference line ([`crate::periodicity::reference_lines`]) says on
+/// hover, on a period plot with no wheel named: it is a period alone, not a
+/// wheel's (#1065).
+pub fn reference_hover(label: &str) -> String {
+    format!("Reference period, {label}. This calibre's wheels aren't known.")
+}
+
 /// The periods the searches cover between them, log10 seconds.
 pub fn period_span(searches: &[Option<Search>; 3]) -> Option<(f64, f64)> {
     searches
@@ -461,6 +468,14 @@ pub fn views(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reference_line_says_it_is_a_period_alone() {
+        assert_eq!(
+            super::reference_hover("1 min"),
+            "Reference period, 1 min. This calibre's wheels aren't known."
+        );
+    }
+
     #[test]
     fn thinning_long_readings_keeps_the_original_grid_stride() {
         let mut g = super::Grid {

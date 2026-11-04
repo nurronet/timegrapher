@@ -47,6 +47,7 @@ pub fn page() -> &'static str {
             .replace("/*BASE_DIGITS*/null", &base_digits())
             .replace("/*VIRIDIS*/null", &viridis)
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
+            .replace("/*REFERENCE_HOVER*/null", &reference_hover())
             .replace(
                 "/*MARK_ROOM_PX*/null",
                 &timegrapher_core::period_ticks::MARK_ROOM_PX.to_string(),
@@ -55,6 +56,19 @@ pub fn page() -> &'static str {
             .replace("/*POSITIONS*/null", &positions)
             .replace("/*NO_BEAT_TITLE*/null", &no_beat)
     })
+}
+
+/// What each core reference line says on hover, by its label, for the
+/// page's `REFERENCE_HOVER` (core `steady_views::reference_hover`).
+fn reference_hover() -> String {
+    let said: serde_json::Map<String, Value> = timegrapher_core::periodicity::reference_lines()
+        .iter()
+        .map(|r| {
+            let text = timegrapher_core::steady_views::reference_hover(r.label);
+            (r.label.to_string(), Value::from(text))
+        })
+        .collect();
+    Value::Object(said).to_string()
 }
 
 /// Each figure's decimals with no ± to follow, as core's
@@ -900,6 +914,9 @@ mod tests {
         assert!(!page.contains("/*PERIOD_TICKS*/"));
         let ticks = serde_json::to_string(&timegrapher_core::period_ticks::TICKS).unwrap();
         assert!(page.contains(&format!("const PERIOD_TICKS = {ticks};")));
+        assert!(!page.contains("/*REFERENCE_HOVER*/"));
+        let hover = timegrapher_core::steady_views::reference_hover("1 min");
+        assert!(page.contains(&format!("\"1 min\":\"{hover}\"")));
         assert!(!page.contains("/*MARK_ROOM_PX*/"));
         let room = timegrapher_core::period_ticks::MARK_ROOM_PX;
         assert!(page.contains(&format!("const MARK_ROOM_PX = {room};")));

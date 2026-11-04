@@ -14,13 +14,17 @@ const ticksRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src
 const PERIOD_TICKS = [...ticksRs.matchAll(/tick\(([\d.]+), "([^"]+)", (\d)\)/g)]
   .map(([, p, label, level]) => ({ period_s: +p, label, level: +level }));
 const MARK_ROOM_PX = +ticksRs.match(/pub const MARK_ROOM_PX: f64 = ([\d.]+);/)[1];
+// What each reference line says on hover, from core steady_views::reference_hover.
+const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
+const hoverText = viewsRs.match(/pub fn reference_hover[\s\S]*?format!\("([^"]*)"\)/)[1];
+const REFERENCE_HOVER = Object.fromEntries(["1 min", "1 h"].map((l) => [l, hoverText.replace("{label}", l)]));
 function definition(name) {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
   if (!match) throw new Error(`Missing renderer ${name}`);
   return match[0];
 }
 const context = vm.createContext({
-  VIRIDIS, PERIOD_TICKS, MARK_ROOM_PX, mapPaints: [], mapsLog: false, showWheels: true, Uint8ClampedArray,
+  VIRIDIS, PERIOD_TICKS, MARK_ROOM_PX, REFERENCE_HOVER, mapPaints: [], mapsLog: false, showWheels: true, Uint8ClampedArray,
   steadyView: "periods", periodsLog: false, fftTiming: false,
   chartWidth: () => 600, logTicks: () => [], linTicks: () => [], fmtTime: (t) => `t${t}`, TIME_STEPS: [],
   plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "", CHAR_W: 6.6, secs: (t) => `${t} s`, wheelTitle: String,
@@ -108,9 +112,10 @@ test("wheels are marked in call-out grey dots, else 1 min and 1 h solid and fain
     { label: "1 min", period_s: 60 }, { label: "1 h", period_s: 3600 }] } } };
   context.showWheels = true;
   assert.deepEqual(plain(context.wheelMarks(plainDoc, [0, 5])), [
-    { x: Math.log10(60), color: "--callout", width: 1, name: "1 min", rank: "faint", ink: "--callout", hover: "1 min" },
-    { x: Math.log10(3600), color: "--callout", width: 1, name: "1 h", rank: "faint", ink: "--callout", hover: "1 h" },
+    { x: Math.log10(60), color: "--callout", width: 1, name: "1 min", rank: "faint", ink: "--callout", hover: "Reference period, 1 min. This calibre's wheels aren't known." },
+    { x: Math.log10(3600), color: "--callout", width: 1, name: "1 h", rank: "faint", ink: "--callout", hover: "Reference period, 1 h. This calibre's wheels aren't known." },
   ]);
+  assert.ok(html.includes("const REFERENCE_HOVER = /*REFERENCE_HOVER*/null;"), "the server fills the hovers in");
   // Only those inside the axis.
   assert.equal(context.wheelMarks(plainDoc, [0, 3]).length, 1);
   // A named wheel densely dotted and its half turn more loosely, both in
