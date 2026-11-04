@@ -27,6 +27,7 @@ pub mod distribution;
 pub mod dsp;
 pub mod edge_takes;
 pub mod excerpt;
+pub mod figure_text;
 pub mod filter;
 pub mod gappy;
 pub mod histogram;
