@@ -532,6 +532,7 @@ fn walk_of(v: &Value) -> Option<IsochronismWalk> {
                 rate_s_per_day: p["rate_s_per_day"].as_f64()?,
                 amplitude_deg: p["amplitude_deg"].as_f64()?,
                 readings: p["readings"].as_u64()? as usize,
+                amp_windows: p["amp_windows"].as_u64()? as usize,
             })
         })
         .collect::<Option<Vec<_>>>()?;
@@ -812,7 +813,7 @@ mod tests {
             .map(|i| {
                 let t = 150.0 + 300.0 * i as f64;
                 json!({ "t_s": t, "wind_h": t / 3600.0, "rate_s_per_day": i as f64 / 100.0,
-                    "amplitude_deg": 300.0 - i as f64 / 10.0, "readings": 30 })
+                    "amplitude_deg": 300.0 - i as f64 / 10.0, "readings": 30, "amp_windows": 150 })
             })
             .collect();
         let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points } });

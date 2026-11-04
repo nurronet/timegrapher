@@ -536,6 +536,7 @@ mod tests {
                     rate_s_per_day: rate,
                     amplitude_deg: amp,
                     readings: 30,
+                    amp_windows: 150,
                 })
                 .collect(),
         }
