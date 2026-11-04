@@ -834,7 +834,20 @@ impl Recorder {
         if self.lock.take().is_some() {
             let _ = fs::remove_file(lock_path(&self.dir));
         }
-        Ok(self.dir)
+        Ok(self.dir.clone())
+    }
+}
+
+/// A recorder let go without [`Recorder::finish`] (a new session, a
+/// fault, the app closing) waits for the hours still being kept as FLAC,
+/// as `finish` does, and writes `session.json` naming them. Left to run
+/// on, a conversion would delete a WAV the folder's `session.json` still
+/// names, after the app had moved on from the folder.
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        if self.reap(true) {
+            let _ = self.write_session(None, None);
+        }
     }
 }
 
