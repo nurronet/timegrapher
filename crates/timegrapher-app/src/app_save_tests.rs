@@ -291,7 +291,16 @@ fn recording_failure_stops_capture_and_retains_scratch_with_or_without_input_err
         } else {
             app.new_session();
         }
-        assert!(scratch.join("audio-001.wav").is_file());
+        // The retained hour is kept as FLAC before the recorder is let go,
+        // and the folder's session.json names it, so nothing is still
+        // writing there once the app has moved on.
+        assert!(scratch.join("audio-001.flac").is_file());
+        assert!(!scratch.join("audio-001.wav").exists());
+        let json = std::fs::read_to_string(scratch.join("session.json")).unwrap();
+        assert!(
+            json.contains("audio-001.flac") && !json.contains("audio-001.wav"),
+            "{json}"
+        );
         assert_eq!(saved_file_bytes(&saved), saved_bytes);
         assert!(app.session.recorder.is_none());
         assert!(app.session.recording_fault().is_none());
