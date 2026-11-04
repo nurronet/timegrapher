@@ -138,3 +138,58 @@ fn the_fft_timing_switch_needs_rate_shown() {
         assert_eq!(app.fft_timing, flips, "{series:?}");
     }
 }
+
+/// Outside a toolbar, as in the "…" menu, a dimmed switch still says
+/// why in its hover, on its name and on the switch.
+#[test]
+fn a_dimmed_menu_switch_says_why_in_its_hover() {
+    let ctx = super::tests::themed();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(300.0, 200.0));
+    let why = "Turn Rate on to draw it as the beat timing's spectrum.";
+    let mut on = false;
+    let mut row = egui::Rect::NOTHING;
+    // A second a frame, so a still pointer is past the hover's delay.
+    let mut time = 0.0;
+    let mut pass = |events: Vec<egui::Event>, on: &mut bool, row: &mut egui::Rect| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            time: Some(time),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let drawn = ui.scope(|ui| {
+                    let clicked = theme::tool_switch_unless(
+                        ui,
+                        Icon::Stopwatch,
+                        egui::Color32::WHITE,
+                        "Timing",
+                        on,
+                        "The hint",
+                        Some(why),
+                    );
+                    assert!(!clicked);
+                });
+                *row = drawn.response.rect;
+            });
+        });
+        time += 1.0;
+        super::tests::painted_text(&out)
+    };
+    for _ in 0..2 {
+        pass(Vec::new(), &mut on, &mut row);
+    }
+    // The name at the row's left, then the switch at its right.
+    for at in [
+        egui::pos2(row.left() + 8.0, row.center().y),
+        egui::pos2(row.right() - 8.0, row.center().y),
+    ] {
+        pass(vec![egui::Event::PointerMoved(at)], &mut on, &mut row);
+        pass(Vec::new(), &mut on, &mut row);
+        let hovered = pass(Vec::new(), &mut on, &mut row);
+        assert!(hovered.contains(why), "{at:?}: {hovered}");
+        assert!(!hovered.contains("The hint"), "{hovered}");
+    }
+    assert!(!on);
+}
