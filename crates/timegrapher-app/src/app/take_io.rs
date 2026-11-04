@@ -2454,7 +2454,7 @@ fn open_in_background(
                     progress.store(s.to_bits(), Relaxed);
                 }
                 let _ = tx.send(r.map(|o| {
-                    let clock = o.clock.as_ref().filter(|f| f.corrects());
+                    let clock = TimegrapherApp::rate_clock(&o.clock);
                     let live = ready_engine(o.log, &inputs, &o.breaks, clock);
                     let trend = live.trend(inputs.average_s);
                     Some(Opened {
