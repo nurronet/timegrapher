@@ -213,6 +213,18 @@ impl Hour {
     pub fn whole(&self) -> bool {
         self.span_s >= 3599.0
     }
+
+    /// How much of the hour its whole 10 s readings cover, 0 to 1. [`hours`]
+    /// never reads more than the hour, but a `power-reserve.json` written
+    /// elsewhere might say so: it reads as the whole hour, never more, and
+    /// an hour of no length as none (#1081 walkthrough).
+    pub fn read_share(&self) -> f64 {
+        if self.span_s > 0.0 {
+            (self.read_s / self.span_s).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
 }
 
 /// A run's results, as `power-reserve.json` keeps them.
@@ -960,5 +972,25 @@ mod tests {
         assert!(hour(3600.0).whole());
         assert!(hour(3599.4).whole());
         assert!(!hour(3598.0).whole());
+    }
+
+    /// An hour's share read is never more than the whole hour, nor less
+    /// than none, whatever its file says.
+    #[test]
+    fn an_hours_share_read_is_between_none_and_all() {
+        let hour = |span_s: f64, read_s: f64| Hour {
+            hour: 0,
+            span_s,
+            rate_s_per_day: None,
+            amplitude_deg: None,
+            beat_error_ms: None,
+            beat_error_source: None,
+            caveats: Vec::new(),
+            read_s,
+        };
+        assert_eq!(hour(3600.0, 3500.0).read_share(), 3500.0 / 3600.0);
+        assert_eq!(hour(1800.0, 3500.0).read_share(), 1.0);
+        assert_eq!(hour(3600.0, -10.0).read_share(), 0.0);
+        assert_eq!(hour(0.0, 10.0).read_share(), 0.0);
     }
 }

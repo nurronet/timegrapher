@@ -721,7 +721,7 @@ the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
 Read (%), the figures right-aligned and written by core `figure_text`.
 Scrolled down, the titles stay at the pane's top. A beat error from the
 drop, or with no source recorded, is drawn dimmed, with the key "Grey
-beat errors: from the drop, or source not recorded." under the table, and
+beat errors: from the drop, or source not recorded." over the table (and in the Beat Error title's hover), and
 every beat error's hover names its source (core
 `session::beat_error_source_label`).
 **Save as CSV…** and **Copy** give the watch, the run and the table, with
