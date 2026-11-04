@@ -27,23 +27,68 @@ pub(super) type TrendKey = (Revision, u64);
 /// How often the Positions Test table is read again while listening.
 const FREE_TABLE_STEP_S: f64 = 1.0;
 
-/// A reading under way on a thread of its own, and what it is read from.
+/// A reading under way in the background, and what it is read from.
 pub(super) struct Job<K, T> {
     pub(super) key: K,
     rx: std::sync::mpsc::Receiver<T>,
+    /// Held while the reading is wanted: one let go before its turn is
+    /// never read.
+    _wanted: std::sync::Arc<()>,
+}
+
+/// A reading for the background thread.
+type Task = Box<dyn FnOnce() + Send>;
+
+/// The one thread the take's readings are read on, one after another,
+/// in the order asked for: the charts first. One thread, not one each,
+/// leaves the other cores to the window's drawing (#978).
+fn reader() -> Option<&'static std::sync::mpsc::Sender<Task>> {
+    static READER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<Task>>> =
+        std::sync::OnceLock::new();
+    READER
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<Task>();
+            let spawned = std::thread::Builder::new()
+                .name("take readings".into())
+                .spawn(move || {
+                    for task in rx {
+                        // A reading that panics loses its answer, not the
+                        // thread.
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                    }
+                });
+            spawned.ok().map(|_| tx)
+        })
+        .as_ref()
 }
 
 impl<K, T: Send + 'static> Job<K, T> {
-    /// Run `read` on a thread of its own; the window is drawn again when
-    /// it is done.
+    /// Read `read` on the background thread, after those asked for
+    /// before; the window is drawn again when it is done.
     fn start(key: K, ctx: &egui::Context, read: impl FnOnce() -> T + Send + 'static) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let _ = tx.send(read());
-            ctx.request_repaint();
+        let wanted = std::sync::Arc::new(());
+        let still = std::sync::Arc::downgrade(&wanted);
+        let task: Task = Box::new(move || {
+            if still.strong_count() > 0 {
+                let _ = tx.send(read());
+                ctx.request_repaint();
+            }
         });
-        Job { key, rx }
+        // With no thread to read on, it is read on one of its own.
+        let unsent = match reader() {
+            Some(r) => r.send(task).err().map(|e| e.0),
+            None => Some(task),
+        };
+        if let Some(task) = unsent {
+            std::thread::spawn(task);
+        }
+        Job {
+            key,
+            rx,
+            _wanted: wanted,
+        }
     }
 
     /// What it read, once it is done; `Err(true)` while it runs, and
@@ -84,8 +129,8 @@ impl TimegrapherApp {
     pub(super) fn whole_take(&self) -> Option<WholeTake> {
         match self.whole_read()? {
             Ok(w) => w,
-            Err((key, read)) => {
-                let w = read();
+            Err(key) => {
+                let w = self.whole_reader(key.1.clone())();
                 *self.whole_take.borrow_mut() = Some((key, w.clone()));
                 w
             }
@@ -101,12 +146,13 @@ impl TimegrapherApp {
         if !opened && self.trend_key != (self.rev, self.average_s.to_bits()) {
             return None;
         }
-        let (key, read) = match self.whole_read()? {
+        let key = match self.whole_read()? {
             Ok(w) => return w,
-            Err(r) => r,
+            Err(key) => key,
         };
         let mut job = self.whole_job.borrow_mut();
         if job.as_ref().is_none_or(|j| j.key != key) {
+            let read = self.whole_reader(key.1.clone());
             *job = Some(Job::start(key, ctx, read));
             return None;
         }
@@ -125,9 +171,9 @@ impl TimegrapherApp {
         }
     }
 
-    /// The whole take as kept (`Ok`), or the key and the reading that
-    /// gives it (`Err`); none while listening or with nothing to read.
-    fn whole_read(&self) -> Option<Result<Option<WholeTake>, (WholeKey, WholeRead)>> {
+    /// The whole take as kept (`Ok`), or what it is to be read from
+    /// (`Err`); none while listening or with nothing to read.
+    fn whole_read(&self) -> Option<Result<Option<WholeTake>, WholeKey>> {
         if self.running() {
             return None;
         }
@@ -156,7 +202,15 @@ impl TimegrapherApp {
                 return Some(Ok(w.clone()));
             }
         }
-        let log = steady::log_of(live);
+        Some(Err(key))
+    }
+
+    /// The reading of the whole take over its stretches `spans` (see
+    /// [`Self::whole_read`]), with what it reads copied in, ready to run
+    /// here or in the background.
+    fn whole_reader(&self, spans: Vec<(f64, f64)>) -> WholeRead {
+        let opened = self.take_breaks.is_some();
+        let log = self.live.as_ref().and_then(steady::log_of);
         let masks = self.masked.clone();
         let (take_clock, take_breaks, ppm) = (
             self.take_clock.clone(),
@@ -190,7 +244,7 @@ impl TimegrapherApp {
             m.take_doubts(lift_known, unlisted);
             Some(WholeTake { m, span })
         };
-        Some(Err((key, Box::new(read))))
+        Box::new(read)
     }
 
     /// The Positions Test table of the take on show or under way, when no

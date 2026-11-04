@@ -72,6 +72,13 @@ impl Drop for Shell {
     }
 }
 
+/// Whether every frame's time goes in the log: with
+/// `TIMEGRAPHER_FRAME_LOG` set, to see where a slow window spends it.
+fn frame_log() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("TIMEGRAPHER_FRAME_LOG").is_some())
+}
+
 /// The app, even if a panic on the other thread left the lock poisoned:
 /// the window should still show what was kept and let it be saved.
 pub(crate) fn lock(app: &Mutex<TimegrapherApp>) -> MutexGuard<'_, TimegrapherApp> {
@@ -118,7 +125,17 @@ fn run(app: &Mutex<TimegrapherApp>, stop: &AtomicBool) {
 
 impl eframe::App for Shell {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.app().update(ctx, frame);
+        let asked = Instant::now();
+        let mut app = self.app();
+        let waited = asked.elapsed();
+        app.update(ctx, frame);
+        drop(app);
+        if frame_log() {
+            applog::info(&format!(
+                "frame: waited {waited:?} for the app, built in {:?}",
+                asked.elapsed() - waited
+            ));
+        }
         if crate::pick::answer(&self.app, crate::pick::show) {
             ctx.request_repaint();
         }
