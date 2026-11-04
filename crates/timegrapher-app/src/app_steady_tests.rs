@@ -104,7 +104,7 @@ fn the_fft_timing_switch_needs_rate_shown() {
     theme::install(&ctx);
     let mut app = synthetic(40.0, 0.0);
     app.reveal_pane(Pane::SteadyFft);
-    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -113,7 +113,7 @@ fn the_fft_timing_switch_needs_rate_shown() {
             events,
             ..Default::default()
         };
-        ctx.run(input, |ctx| app.panels(ctx));
+        let _ = ctx.run(input, |ctx| app.panels(ctx));
         theme::tools_drawn_at(&ctx)
             .into_iter()
             .find(|(k, _)| k == "FFT/Timing")
