@@ -39,7 +39,7 @@ impl TimegrapherApp {
     /// so it describes the same beats as the readings, up to the engine's
     /// limit.
     pub(super) fn sound_span(&self) -> f64 {
-        profile_span(self.average_s)
+        profile_span_s(self.average_s)
     }
 
     /// A new averaging time, for the readings and every pane: the readings
@@ -1955,7 +1955,7 @@ impl TimegrapherApp {
                 .is_none_or(|h| r.time_s - h.0 >= SOUND_EVERY_S);
             if due && p.iter().any(Option::is_some) {
                 let kept = scope_panes::Kept {
-                    span_s: profile_span(self.average_s),
+                    span_s: profile_span_s(self.average_s),
                     sides: p.clone(),
                 };
                 self.sound_history.push((r.time_s, kept));
@@ -2403,18 +2403,12 @@ fn config_for(i: &OpenInputs) -> LiveConfig {
     c.analysis.bph = i.bph;
     c.analysis.amplitude.lift_deg = i.lift_deg;
     c.analysis.lift_known = i.lift_known;
-    c.profile_s = profile_span(i.average_s);
+    c.profile_s = profile_span_s(i.average_s);
     // Every beat of as long as the strip can show, a power reserve
     // run's limit, rather than the engine's day: a take listened to
     // for longer keeps its first hours on the strip and the charts.
     c.max_beats = c.max_beats.max(reserve::RUN_BEATS_KEPT);
     c
-}
-
-/// Seconds of beats the tick and tock sound covers for averaging time
-/// `average_s`: the same beats as the readings, up to the engine's limit.
-fn profile_span(average_s: f64) -> f64 {
-    average_s.clamp(0.5, MAX_PROFILE_S)
 }
 
 /// An opened take's engine, from its beat log on `i`, with the take's
@@ -2459,7 +2453,7 @@ fn retune(
         live.set_known(now.lift_known, false);
     }
     if now.average_s != was.average_s {
-        live.set_profile_span(profile_span(now.average_s));
+        live.set_profile_span(profile_span_s(now.average_s));
     }
     if (&now.changes, &now.settles) != (&was.changes, &was.settles) {
         live.set_breaks(timegrapher_core::take::reading_cuts(

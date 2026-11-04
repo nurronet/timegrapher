@@ -24,6 +24,12 @@ pub use crate::clean::GAP_S;
 /// Longest stretch the tick and tock profiles can cover, seconds.
 pub const MAX_PROFILE_S: f64 = 60.0;
 
+/// Seconds of settled beats the tick and tock profiles cover when asked
+/// for `seconds`: 0.5 s at the least, [`MAX_PROFILE_S`] at the most.
+pub fn profile_span_s(seconds: f64) -> f64 {
+    seconds.clamp(0.5, MAX_PROFILE_S)
+}
+
 /// How far back the rate's ± looks for its 10 s windows, seconds: the
 /// latest unbroken run of beats, up to this long. The averaging time
 /// holds too few windows to judge the rate on its own.
@@ -322,7 +328,7 @@ impl LiveAnalyzer {
     }
 
     fn profile_span(&self) -> f64 {
-        self.cfg.profile_s.clamp(0.5, MAX_PROFILE_S)
+        profile_span_s(self.cfg.profile_s)
     }
 
     /// Times of the settled beats whose sound clipped, oldest first.

@@ -8,6 +8,7 @@ use crate::strip::side_colors;
 use crate::theme;
 use eframe::egui::{self, Color32};
 use egui_plot::{HLine, Line, LineStyle, Plot, Polygon};
+use timegrapher_core::figure_text::true_minus;
 // The facts on each plot, a row each, top to bottom, and a time's words:
 // core's (#510).
 pub use timegrapher_core::profile::ms_text;
@@ -915,7 +916,7 @@ fn time_axis(ui: &egui::Ui, t: &egui_plot::PlotTransform, foot: egui::Rect) {
             painter.text(
                 egui::pos2(x, foot.bottom()),
                 egui::Align2::CENTER_BOTTOM,
-                format!("{} ms", v + 0.0).replace('-', "−"),
+                true_minus(&format!("{} ms", v + 0.0)),
                 egui::FontId::proportional(11.0),
                 pal.text_secondary,
             );
