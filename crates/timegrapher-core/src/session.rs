@@ -1141,6 +1141,10 @@ pub struct PositionValue {
     pub beat_error_ms: Option<f64>,
     /// Readings averaged into this value.
     pub readings: usize,
+    /// Source and input counts for this aggregate's beat-error statistic.
+    pub beat_error_source: Option<BeatErrorSource>,
+    pub beat_error_sources: BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
 }
 
 /// Witschi's characteristic values for one state of wind.
@@ -1169,6 +1173,10 @@ pub struct StateIndices {
     pub beat_error_mean: Option<f64>,
     /// Largest difference between the positions' unsigned beat errors, ms.
     pub d_beat_error: Option<f64>,
+    /// Source and input counts for this aggregate's beat-error statistic.
+    pub beat_error_source: Option<BeatErrorSource>,
+    pub beat_error_sources: BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
 }
 
 /// How one position's rate and amplitude change as the watch runs down.
@@ -1182,6 +1190,10 @@ pub struct Isochronism {
     /// Change in the unsigned beat error (from the unlock where found,
     /// else from the drop), ms.
     pub beat_error_change: Option<f64>,
+    /// Source and input counts for this aggregate's beat-error statistic.
+    pub beat_error_source: Option<BeatErrorSource>,
+    pub beat_error_sources: BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
 }
 
 /// A condition detected in one recording's sound, with the figures that
@@ -1234,7 +1246,7 @@ fn wind_key(w: Option<f64>) -> i64 {
 }
 
 fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
-    let figures: Vec<Figures> = readings
+    let figures: Vec<SourcedFigures> = readings
         .iter()
         .map(|r| {
             let m = &r.measurement;
@@ -1243,10 +1255,11 @@ fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
                 m.rate_s_per_day,
                 m.amplitude_deg,
                 m.beat_error(),
+                m.beat_error_source,
             )
         })
         .collect();
-    indices(wind_h, &figures)
+    sourced_indices(wind_h, &figures)
 }
 
 /// One reading's position, rate (s/d), amplitude (deg) and unsigned beat
@@ -1256,68 +1269,9 @@ pub type Figures = (Position, Option<f64>, Option<f64>, Option<f64>);
 /// Witschi's characteristic values for one state of wind `wind_h`, from
 /// each reading's figures, repeat readings of a position averaged: the
 /// values `session` gives, for any interface that shows them.
-pub fn indices(wind_h: f64, figures: &[Figures]) -> StateIndices {
-    let positions: Vec<PositionValue> = Position::ALL
-        .iter()
-        .filter_map(|&p| {
-            let rs: Vec<&Figures> = figures.iter().filter(|f| f.0 == p).collect();
-            if rs.is_empty() {
-                return None;
-            }
-            Some(PositionValue {
-                position: p,
-                rate_s_per_day: mean(rs.iter().filter_map(|f| f.1)),
-                amplitude_deg: mean(rs.iter().filter_map(|f| f.2)),
-                beat_error_ms: mean(rs.iter().filter_map(|f| f.3)),
-                readings: rs.len(),
-            })
-        })
-        .collect();
-    let rate = |pred: &dyn Fn(Position) -> bool| -> Vec<f64> {
-        positions
-            .iter()
-            .filter(|v| pred(v.position))
-            .filter_map(|v| v.rate_s_per_day)
-            .collect()
-    };
-    let amp = |pred: &dyn Fn(Position) -> bool| -> Vec<f64> {
-        positions
-            .iter()
-            .filter(|v| pred(v.position))
-            .filter_map(|v| v.amplitude_deg)
-            .collect()
-    };
-    let all = |_: Position| true;
-    let vert = |p: Position| p.is_vertical();
-    let hor = |p: Position| !p.is_vertical();
-    let xh = mean(rate(&hor).into_iter());
-    let xv = mean(rate(&vert).into_iter());
-    let ah = mean(amp(&hor).into_iter());
-    let av = mean(amp(&vert).into_iter());
-    let get = |p: Position| {
-        positions
-            .iter()
-            .find(|v| v.position == p)
-            .and_then(|v| v.rate_s_per_day)
-    };
-    StateIndices {
-        wind_h,
-        x: mean(rate(&all).into_iter()),
-        xh,
-        xv,
-        d_rate: spread(rate(&all).into_iter()),
-        d_amplitude: spread(amp(&all).into_iter()),
-        dv_rate: spread(rate(&vert).into_iter()),
-        dh_rate: spread(rate(&hor).into_iter()),
-        dvh_rate: xv.zip(xh).map(|(v, h)| v - h),
-        dvh_amplitude: av.zip(ah).map(|(v, h)| v - h),
-        di: get(Position::H6).zip(get(Position::CH)).map(|(a, b)| a - b),
-        amplitude_mean: mean(amp(&all).into_iter()),
-        beat_error_mean: mean(positions.iter().filter_map(|v| v.beat_error_ms)),
-        d_beat_error: spread(positions.iter().filter_map(|v| v.beat_error_ms)),
-        positions,
-    }
-}
+#[path = "session_aggregates.rs"]
+mod session_aggregates;
+pub use session_aggregates::{indices, sourced_indices, SourcedFigures};
 
 fn largest(v: impl Iterator<Item = f64>) -> Option<f64> {
     v.max_by(|a, b| a.abs().total_cmp(&b.abs()))
@@ -1392,7 +1346,7 @@ pub fn positions_table(
             }
         })
         .collect();
-    let figures: Vec<Figures> = rows
+    let figures: Vec<SourcedFigures> = rows
         .iter()
         .filter_map(|r| {
             let m = r.measurement.as_ref()?;
@@ -1401,11 +1355,12 @@ pub fn positions_table(
                 m.rate_s_per_day,
                 m.amplitude_deg,
                 m.beat_error(),
+                m.beat_error_source,
             ))
         })
         .collect();
     PositionsTable {
-        indices: indices(0.0, &figures),
+        indices: sourced_indices(0.0, &figures),
         rows,
     }
 }
@@ -1443,13 +1398,21 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             .collect();
         if let (Some(a), Some(b)) = (at.first(), at.last()) {
             if at.len() >= 2 {
+                let selected = select_beat_errors([
+                    a.1.beat_error_ms.zip(a.1.beat_error_source),
+                    b.1.beat_error_ms.zip(b.1.beat_error_source),
+                ]);
                 isochronism.push(Isochronism {
                     position: p,
                     from_wind_h: a.0.wind_h,
                     to_wind_h: b.0.wind_h,
                     rate_change: b.1.rate_s_per_day.unwrap() - a.1.rate_s_per_day.unwrap(),
                     amplitude_change: b.1.amplitude_deg.zip(a.1.amplitude_deg).map(|(x, y)| x - y),
-                    beat_error_change: b.1.beat_error_ms.zip(a.1.beat_error_ms).map(|(x, y)| x - y),
+                    beat_error_change: (selected.values.len() == 2)
+                        .then(|| selected.values[1].1 - selected.values[0].1),
+                    beat_error_source: selected.beat_error_source,
+                    beat_error_sources: selected.beat_error_sources,
+                    caveats: selected.caveats(),
                 });
             }
         }

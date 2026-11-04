@@ -1,0 +1,190 @@
+//! Source-aware position and session aggregates, sharing the legacy estimator.
+use super::*;
+
+/// Position, rate, amplitude, unsigned beat error, and its known source.
+pub type SourcedFigures = (
+    Position,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<BeatErrorSource>,
+);
+
+/// Temporary source-less app adapter, to be removed in #658 part 2b.
+/// Legacy saved results keep unknown provenance; both paths use the same estimators.
+pub fn indices(wind_h: f64, figures: &[Figures]) -> StateIndices {
+    let sourced: Vec<_> = figures
+        .iter()
+        .map(|&(p, r, a, b)| (p, r, a, b, None))
+        .collect();
+    indices_inner(wind_h, &sourced, true)
+}
+
+/// Position averages and state indices, choosing one beat-error source per statistic.
+pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices {
+    indices_inner(wind_h, figures, false)
+}
+
+fn indices_inner(wind_h: f64, figures: &[SourcedFigures], legacy: bool) -> StateIndices {
+    let positions: Vec<PositionValue> = Position::ALL
+        .iter()
+        .filter_map(|&p| {
+            let rs: Vec<&SourcedFigures> = figures.iter().filter(|f| f.0 == p).collect();
+            if rs.is_empty() {
+                return None;
+            }
+            let selected = select_beat_errors(rs.iter().map(|r| r.3.zip(r.4)));
+            let values = selected.values.iter().map(|(_, value)| *value);
+            Some(PositionValue {
+                position: p,
+                rate_s_per_day: mean(rs.iter().filter_map(|f| f.1)),
+                amplitude_deg: mean(rs.iter().filter_map(|f| f.2)),
+                beat_error_ms: if legacy {
+                    mean(rs.iter().filter_map(|f| f.3))
+                } else {
+                    mean(values)
+                },
+                beat_error_source: selected.beat_error_source,
+                beat_error_sources: selected.beat_error_sources,
+                caveats: selected.caveats(),
+                readings: rs.len(),
+            })
+        })
+        .collect();
+    let rate = |pred: &dyn Fn(Position) -> bool| -> Vec<f64> {
+        positions
+            .iter()
+            .filter(|v| pred(v.position))
+            .filter_map(|v| v.rate_s_per_day)
+            .collect()
+    };
+    let amp = |pred: &dyn Fn(Position) -> bool| -> Vec<f64> {
+        positions
+            .iter()
+            .filter(|v| pred(v.position))
+            .filter_map(|v| v.amplitude_deg)
+            .collect()
+    };
+    let all = |_: Position| true;
+    let vert = |p: Position| p.is_vertical();
+    let hor = |p: Position| !p.is_vertical();
+    let xh = mean(rate(&hor).into_iter());
+    let xv = mean(rate(&vert).into_iter());
+    let ah = mean(amp(&hor).into_iter());
+    let av = mean(amp(&vert).into_iter());
+    let get = |p: Position| {
+        positions
+            .iter()
+            .find(|v| v.position == p)
+            .and_then(|v| v.rate_s_per_day)
+    };
+    let selected = select_beat_errors(
+        positions
+            .iter()
+            .map(|p| p.beat_error_ms.zip(p.beat_error_source)),
+    );
+    let beat_errors: Vec<_> = if legacy {
+        positions.iter().filter_map(|p| p.beat_error_ms).collect()
+    } else {
+        selected.values.iter().map(|(_, value)| *value).collect()
+    };
+    StateIndices {
+        wind_h,
+        x: mean(rate(&all).into_iter()),
+        xh,
+        xv,
+        d_rate: spread(rate(&all).into_iter()),
+        d_amplitude: spread(amp(&all).into_iter()),
+        dv_rate: spread(rate(&vert).into_iter()),
+        dh_rate: spread(rate(&hor).into_iter()),
+        dvh_rate: xv.zip(xh).map(|(v, h)| v - h),
+        dvh_amplitude: av.zip(ah).map(|(v, h)| v - h),
+        di: get(Position::H6).zip(get(Position::CH)).map(|(a, b)| a - b),
+        amplitude_mean: mean(amp(&all).into_iter()),
+        beat_error_mean: mean(beat_errors.iter().copied()),
+        d_beat_error: spread(beat_errors.iter().copied()),
+        beat_error_source: selected.beat_error_source,
+        beat_error_sources: selected.beat_error_sources,
+        caveats: selected.caveats(),
+        positions,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn row(p: Position, value: f64, source: BeatErrorSource) -> SourcedFigures {
+        (p, Some(1.0), Some(270.0), Some(value), Some(source))
+    }
+    #[test]
+    fn position_and_state_aggregates_never_mix_sources() {
+        let s = sourced_indices(
+            0.0,
+            &[
+                row(Position::CH, 0.2, BeatErrorSource::Unlock),
+                row(Position::CH, 0.4, BeatErrorSource::Unlock),
+                row(Position::CH, 8.0, BeatErrorSource::Drop),
+                row(Position::CB, 9.0, BeatErrorSource::Drop),
+            ],
+        );
+        let du = s
+            .positions
+            .iter()
+            .find(|p| p.position == Position::CH)
+            .unwrap();
+        assert!((du.beat_error_ms.unwrap() - 0.3).abs() < 1e-12);
+        assert_eq!(
+            du.beat_error_sources,
+            BeatErrorSources { unlock: 2, drop: 1 }
+        );
+        assert!(matches!(
+            du.caveats.as_slice(),
+            [crate::measure::Caveat::BeatErrorSourceReadings {
+                used: 2,
+                readings: 3,
+                ..
+            }]
+        ));
+        assert!((s.beat_error_mean.unwrap() - 0.3).abs() < 1e-12);
+        assert_eq!(s.beat_error_source, Some(BeatErrorSource::Unlock));
+        assert_eq!(
+            s.beat_error_sources,
+            BeatErrorSources { unlock: 1, drop: 1 }
+        );
+        assert_eq!(
+            s.d_beat_error, None,
+            "one chosen-source position cannot give a spread"
+        );
+    }
+    #[test]
+    fn drop_only_position_statistics_keep_their_source() {
+        let s = sourced_indices(
+            0.0,
+            &[
+                row(Position::CH, 0.4, BeatErrorSource::Drop),
+                row(Position::CB, 0.8, BeatErrorSource::Drop),
+            ],
+        );
+        assert_eq!(s.beat_error_source, Some(BeatErrorSource::Drop));
+        assert!((s.beat_error_mean.unwrap() - 0.6).abs() < 1e-12);
+        assert_eq!(s.d_beat_error, Some(0.4));
+        assert!(matches!(
+            s.caveats.as_slice(),
+            [crate::measure::Caveat::BeatErrorFromDrop]
+        ));
+    }
+    #[test]
+    fn legacy_indices_preserve_values_without_inventing_sources() {
+        let s = indices(
+            0.0,
+            &[
+                (Position::CH, None, None, Some(0.4)),
+                (Position::CB, None, None, Some(0.8)),
+            ],
+        );
+        assert!((s.beat_error_mean.unwrap() - 0.6).abs() < 1e-12);
+        assert_eq!(s.beat_error_source, None);
+        assert!(s.positions.iter().all(|p| p.beat_error_source.is_none()));
+        assert!(s.caveats.is_empty());
+    }
+}

@@ -342,6 +342,9 @@ pub struct Period {
 /// Everything about one series.
 #[derive(Debug, Clone, Serialize)]
 pub struct SeriesCheck {
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    pub beat_error_sources: crate::session::BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
     pub series: SeriesKind,
     pub unit: &'static str,
     #[serde(skip)]
@@ -451,6 +454,9 @@ pub struct IsochronismCurve {
 #[derive(Debug, Clone, Serialize)]
 pub struct Stretch {
     /// Hours since full wind at the stretch's start and end.
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    pub beat_error_sources: crate::session::BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
     pub from_wind_h: f64,
     pub to_wind_h: f64,
     pub readings: usize,
@@ -465,6 +471,9 @@ pub struct Stretch {
 /// commercial 0 h / 24 h test gives for one position.
 #[derive(Debug, Clone, Serialize)]
 pub struct WindDown {
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    pub beat_error_sources: crate::session::BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
     pub start: Stretch,
     pub end: Stretch,
     /// Hours between the two stretches' middles, and whether the end
@@ -480,6 +489,8 @@ pub struct WindDown {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    pub beat_error_sources: crate::session::BeatErrorSources,
     pub duration_s: f64,
     pub bph: u32,
     /// Pauses and resumes in the take; times run on with each gap in.
@@ -959,6 +970,9 @@ pub fn check_series(
     let y = &g.y;
     let n = y.iter().filter(|v| v.is_finite()).count();
     let mut out = SeriesCheck {
+        beat_error_source: None,
+        beat_error_sources: Default::default(),
+        caveats: Vec::new(),
         series: kind,
         unit: kind.unit(),
         lead: Lead::TooShort,
@@ -2292,7 +2306,8 @@ pub fn check(
 
     // Amplitude and beat error windows.
     let aw = &log.amplitude_windows;
-    let [amp_grid, be_grid] = window_grids(log, clock, &long.breaks);
+    let amp_grid = windows_grid(log, clock, &long.breaks, &|w| w.mean());
+    let (be_grid, selected_be) = beat_error::grid(log, clock, &long.breaks, None);
     // The tests read every series at the rate's reading length: the
     // amplitude and beat error windows are averaged into the rate's
     // readings, so one reading means the same time for all three. The
@@ -2307,7 +2322,7 @@ pub fn check(
     let be_readings = rebin(&be_grid, t0, r, n);
     let rate_amplitude = cross_correlation(&rate_grid, &amp_readings, &amp_noise, cfg);
     let isochronism = isochronism_curve(&rate_grid, &amp_readings, &amp_noise, cfg);
-    let wind_down = wind_down(&rate_grid, &amp_readings, &be_readings, cfg);
+    let wind_down = wind_down_sourced(&rate_grid, &amp_readings, log, clock, &long.breaks, cfg);
     let distributions = {
         use distribution::{Input, AMPLITUDE, BEAT_ERROR, RATE};
         let grids = [&rate_grid, &amp_grid];
@@ -2432,6 +2447,7 @@ pub fn check(
         &long_cfg.wheels,
         cfg,
     );
+    beat_error::set_provenance(&mut series, &selected_be);
     // An amplitude split one side carries alone is the unlock mark
     // hopping (the two-state finder's direct check): whatever the
     // amplitude and the beat error from the unlock seem to do may be the
@@ -2469,10 +2485,18 @@ pub fn check(
         }
     }
     Report {
+        beat_error_source: selected_be.beat_error_source,
+        beat_error_sources: selected_be.beat_error_sources,
         duration_s: long.duration_s,
         bph: log.bph,
         breaks: long.breaks.clone(),
-        caveats: long.caveats.clone(),
+        caveats: {
+            let mut caveats = long.caveats.clone();
+            for caveat in selected_be.caveats() {
+                crate::measure::add(&mut caveats, caveat);
+            }
+            caveats
+        },
         config: cfg.clone(),
         series,
         rate_amplitude,
@@ -2560,13 +2584,7 @@ pub(crate) fn window_grids(
         windows_grid(log, clock, breaks, f)
     };
     let amp_grid = grid_of(&|w| w.mean());
-    // As sizes when the sign turns over across a break, as the take's
-    // beat errors are.
-    let turned = crate::longrun::beat_error_turns(log, clock, breaks);
-    let be_grid = grid_of(&|w| {
-        w.beat_error_unlock_ms
-            .map(|v| if turned { v.abs() } else { v })
-    });
+    let (be_grid, _) = beat_error::grid(log, clock, breaks, None);
     [amp_grid, be_grid]
 }
 
@@ -2820,81 +2838,11 @@ fn isochronism_curve(
     })
 }
 
-/// Length of each stretch in the wind-down comparison, seconds.
-const WIND_STRETCH_S: f64 = 1800.0;
-
-fn stretch(rate: &Grid, amp: &Grid, be: &Grid, from_s: f64, cfg: &Config) -> Stretch {
-    let to_s = from_s + WIND_STRETCH_S;
-    let med = |g: &Grid| {
-        let mut v: Vec<f64> = (0..g.y.len())
-            .filter(|&i| g.time(i) >= from_s && g.time(i) < to_s && g.y[i].is_finite())
-            .map(|i| g.y[i])
-            .collect();
-        (v.len() >= 30).then(|| median(&mut v))
-    };
-    Stretch {
-        from_wind_h: cfg.wind_h + from_s / 3600.0,
-        to_wind_h: cfg.wind_h + to_s / 3600.0,
-        readings: (0..rate.y.len())
-            .filter(|&i| rate.time(i) >= from_s && rate.time(i) < to_s && rate.y[i].is_finite())
-            .count(),
-        rate_s_per_day: med(rate),
-        amplitude_deg: med(amp),
-        beat_error_ms: med(be),
-    }
-}
-
-/// The first half hour against the half hour 24 h after full wind, or the
-/// last half hour when the take ends sooner. Needs a take of at least two
-/// hours.
-fn wind_down(rate: &Grid, amp: &Grid, be: &Grid, cfg: &Config) -> Option<WindDown> {
-    if rate.y.is_empty() {
-        return None;
-    }
-    let t_end = rate.t0 + rate.span();
-    let t_start = rate.t0;
-    if t_end - t_start < 2.0 * 3600.0 {
-        return None;
-    }
-    let at24 = t_start + (24.0 - cfg.wind_h) * 3600.0;
-    let (end_from, at_24h) = if at24 > t_start + WIND_STRETCH_S && at24 + WIND_STRETCH_S <= t_end {
-        (at24, true)
-    } else {
-        (t_end - WIND_STRETCH_S, false)
-    };
-    let start = stretch(rate, amp, be, t_start, cfg);
-    let end = stretch(rate, amp, be, end_from, cfg);
-    let diff = |a: Option<f64>, b: Option<f64>| Some(b? - a?);
-    let rate_change = diff(start.rate_s_per_day, end.rate_s_per_day);
-    let amplitude_change = diff(start.amplitude_deg, end.amplitude_deg);
-    let beat_error_change = diff(start.beat_error_ms, end.beat_error_ms);
-    let hours_apart = (end_from - t_start) / 3600.0;
-    let headline = match (rate_change, amplitude_change) {
-        (Some(r), Some(a)) => format!(
-            "From {:.1} h to {:.1} h after full wind the rate moves {:+.1} s/d ({:+.1} to {:+.1}) and the amplitude {:+.0}° ({:.0}° to {:.0}°){}.",
-            start.from_wind_h,
-            end.from_wind_h,
-            r,
-            start.rate_s_per_day.unwrap_or(f64::NAN),
-            end.rate_s_per_day.unwrap_or(f64::NAN),
-            a,
-            start.amplitude_deg.unwrap_or(f64::NAN),
-            end.amplitude_deg.unwrap_or(f64::NAN),
-            beat_error_change.map_or(String::new(), |b| format!(", beat error {b:+.2} ms"))
-        ),
-        _ => "Too few readings at the start or the end to compare them.".to_string(),
-    };
-    Some(WindDown {
-        start,
-        end,
-        hours_apart,
-        at_24h,
-        rate_change_s_per_day: rate_change,
-        amplitude_change_deg: amplitude_change,
-        beat_error_change_ms: beat_error_change,
-        headline,
-    })
-}
+#[path = "steadiness_beat_error.rs"]
+mod beat_error;
+#[cfg(test)]
+use beat_error::wind_down;
+use beat_error::wind_down_sourced;
 
 #[cfg(test)]
 #[path = "steadiness_tests.rs"]
