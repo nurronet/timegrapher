@@ -163,12 +163,33 @@ pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
             return Err(failed("the FLAC does not decode to the WAV's samples"));
         }
         std::fs::rename(&part, flac).map_err(AudioError::Io)?;
+        sync_folder(flac)?;
         Ok(frames)
     })();
     if written.is_err() {
         std::fs::remove_file(&part).ok();
     }
     written
+}
+
+/// Make the names in the folder holding `file` last: once this returns,
+/// a power cut cannot undo a rename into it, so a WAV deleted after its
+/// FLAC took its name is never lost with it. Windows has no folder to sync;
+/// its renames are written through by the file system.
+fn sync_folder(file: &Path) -> Result<(), AudioError> {
+    #[cfg(unix)]
+    {
+        let dir = match file.parent() {
+            Some(d) if !d.as_os_str().is_empty() => d,
+            _ => Path::new("."),
+        };
+        File::open(dir)
+            .and_then(|d| d.sync_all())
+            .map_err(AudioError::Io)?;
+    }
+    #[cfg(not(unix))]
+    let _ = file;
+    Ok(())
 }
 
 /// The open WAV `wav`, read from its start.
@@ -179,7 +200,8 @@ fn wav_reader(wav: &File) -> Result<hound::WavReader<BufReader<&File>>, AudioErr
 }
 
 /// Keep the WAV `wav` as FLAC: [`encode_wav`] beside it under the same
-/// name, then delete the WAV once the FLAC checks. Readers take the FLAC
+/// name, then delete the WAV once the FLAC checks and its name is synced
+/// to disk. Readers take the FLAC
 /// over a WAV of the same name ([`crate::recording_order::recordings_in`]),
 /// so at no moment is the sound missing or there twice. Returns the FLAC.
 pub fn keep_as_flac(wav: &Path) -> Result<PathBuf, AudioError> {

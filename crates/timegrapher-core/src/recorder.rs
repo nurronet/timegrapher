@@ -2208,4 +2208,52 @@ mod tests {
         drop(r);
         fs::remove_dir_all(&base).unwrap();
     }
+
+    #[test]
+    fn an_hour_that_cannot_be_kept_as_flac_stays_a_whole_wav() {
+        let (mut r, base) = save_fixture("flac-fails");
+        append_second(&mut r, 2);
+        let dir = r.dir().to_path_buf();
+        // A folder where the FLAC is written first: the conversion fails.
+        fs::create_dir(dir.join("audio-001.flac.part")).unwrap();
+        r.pause().unwrap();
+        let wav = crate::audio::load(&dir.join("audio-001.wav")).unwrap();
+        assert_eq!(wav.samples.len(), 2 * 8000);
+        r.resume("test");
+        append_second(&mut r, 62);
+        settle(&mut r);
+        let whole = || {
+            assert_eq!(
+                crate::audio::load(&dir.join("audio-001.wav"))
+                    .unwrap()
+                    .samples,
+                wav.samples
+            );
+            assert!(!dir.join("audio-001.flac").exists());
+        };
+        whole();
+        let session = || -> serde_json::Value {
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap()
+        };
+        // Nothing was renamed, so nothing in session.json was either.
+        assert_eq!(session()["segments"], serde_json::json!(["audio-001.wav"]));
+        assert_eq!(r.segments, ["audio-001.wav", "audio-002.wav"]);
+        assert_eq!(r.breaks()[0].segment, "audio-002.wav");
+        // A save still holds the hour, as FLAC of the same samples, and
+        // leaves the recording's WAV as it was.
+        let copy = r.save_copy(&base.join("saved"), "", None).unwrap();
+        let saved = crate::audio::load(&copy.join("audio-001.flac")).unwrap();
+        assert_eq!(saved.samples, wav.samples);
+        whole();
+        // Finished, the recording still names and holds the WAV.
+        let done = r.finish(None).unwrap();
+        assert_eq!(done, dir);
+        whole();
+        assert_eq!(
+            session()["segments"],
+            serde_json::json!(["audio-001.wav", "audio-002.wav"])
+        );
+        assert_eq!(session()["breaks"][0]["segment"], "audio-002.wav");
+        fs::remove_dir_all(&base).unwrap();
+    }
 }
