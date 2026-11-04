@@ -230,6 +230,38 @@ fn plot_frames(out: &egui::FullOutput, fill: egui::Color32, ran: egui::Rect) -> 
         .collect()
 }
 
+/// The hours' rows cut by the band under the table's pinned titles, drawn
+/// in `fill`: a row half under it would show as a sliver of text.
+fn rows_cut(out: &egui::FullOutput, fill: egui::Color32) -> Vec<String> {
+    let texts = clipped_texts(out);
+    let Some(title) = texts.iter().find(|t| t.0 == "Rate (s/d)") else {
+        return Vec::new();
+    };
+    let band = out.shapes.iter().find_map(|c| match &c.shape {
+        egui::Shape::Rect(r)
+            if r.fill == fill
+                && (r.rect.top() - title.1.top()).abs() < 4.0
+                && r.rect.width() > 100.0 =>
+        {
+            Some(r.rect)
+        }
+        _ => None,
+    });
+    let Some(band) = band else {
+        return Vec::new();
+    };
+    texts
+        .into_iter()
+        .filter(|t| {
+            t.0.ends_with(" h")
+                && t.0.contains('–')
+                && t.1.top() < band.bottom()
+                && t.1.bottom() > band.bottom()
+        })
+        .map(|t| t.0)
+        .collect()
+}
+
 /// A 46 h run's take opened in `app`, as from the Watches view, its rate
 /// falling away and its amplitude with it; `tag` names its folder.
 fn open_long_run(app: &mut TimegrapherApp, tag: &str) {
@@ -303,7 +335,10 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
         let whole = |t: &(String, egui::Rect, egui::Rect)| t.2 == t.1;
         let mut shown = clipped_texts(&out);
         for step in 0..14 {
-            let now = clipped_texts(&pass(&mut app, Some(at)));
+            let o = pass(&mut app, Some(at));
+            let cut = rows_cut(&o, ctx.style().visuals.extreme_bg_color);
+            assert!(cut.is_empty(), "{w}, step {step}: {cut:?}");
+            let now = clipped_texts(&o);
             let rows = now
                 .iter()
                 .any(|t| whole(t) && t.0.ends_with(" h") && t.0.contains('–'));
