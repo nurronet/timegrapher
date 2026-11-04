@@ -10,8 +10,13 @@ function definition(name, optional = false) {
   if (!match && !optional) throw new Error(`Missing renderer ${name}`);
   return match ? match[0] : "";
 }
+// The Periods plot's words, as the server puts them in from core steady_views.rs.
+const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
+const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
+const SCORE_WORDS = { axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"), threshold_hover: coreStr("THRESHOLD_HOVER") };
 const context = vm.createContext({
-  fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], periodsLog: false, wheelTitle: String,
+  SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 in 10 (${lo}..${hi})`]],
+  fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], wheelTitle: String,
   xyChart: (chart) => { context.last = JSON.parse(JSON.stringify(chart)); return "<svg data-test='FFT'></svg>"; },
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
@@ -57,6 +62,19 @@ test("malformed support cannot claim complete FFT input", () => {
   for (const support of [null, {}, { finite_bins: true, total_bins: 10 }, { finite_bins: 11, total_bins: 10 }, { finite_bins: 0, total_bins: 0 }]) {
     assert.ok(render(support).markup.includes("FFT input support was not recorded."));
   }
+});
+
+test("the Periods score is drawn as it is, marked in chances, with its threshold named in core's words", () => {
+  const views = { search: { period_s: [100, 99, 98, 97, 90], score: [1, 9, 0.5, 2, 1], threshold: 3 } };
+  context.steadyPlot({ series: "rate", views }, "periods", { period_span: [1.9, 2.1] });
+  const c = context.last;
+  // No log or dB: the points are the scores.
+  assert.deepEqual(c.lines[0].pts.map(([, y]) => y), [1, 9, 0.5, 2, 1]);
+  assert.deepEqual(c.y, [0, 9 * 1.15]);
+  assert.equal(c.yHover, "Chance that noise alone makes a peak this tall at this period.");
+  assert.deepEqual(c.hlines.map((h) => [h.y, h.name, h.hover, h.dash]),
+    [[3, "Threshold", SCORE_WORDS.threshold_hover, "loose"]]);
+  assert.ok(SCORE_WORDS.threshold_hover.includes("1 in 100"));
 });
 
 test("the Periods label sits on its line's top, not a thinned slice's low point", () => {

@@ -48,6 +48,7 @@ pub fn page() -> &'static str {
             .replace("/*VIRIDIS*/null", &viridis)
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
             .replace("/*REFERENCE_HOVER*/null", &reference_hover())
+            .replace("/*SCORE_WORDS*/null", &score_words())
             .replace(
                 "/*MARK_ROOM_PX*/null",
                 &timegrapher_core::period_ticks::MARK_ROOM_PX.to_string(),
@@ -69,6 +70,17 @@ fn reference_hover() -> String {
         })
         .collect();
     Value::Object(said).to_string()
+}
+
+/// The Periods plot's words from core, for the page's `SCORE_WORDS`.
+fn score_words() -> String {
+    use timegrapher_core::steady_views as v;
+    json!({
+        "axis_hover": v::SCORE_AXIS_HOVER,
+        "threshold_name": v::THRESHOLD_NAME,
+        "threshold_hover": v::THRESHOLD_HOVER,
+    })
+    .to_string()
 }
 
 /// Each figure's decimals with no ± to follow, as core's
@@ -917,6 +929,8 @@ mod tests {
         assert!(!page.contains("/*REFERENCE_HOVER*/"));
         let hover = timegrapher_core::steady_views::reference_hover("1 min");
         assert!(page.contains(&format!("\"1 min\":\"{hover}\"")));
+        assert!(!page.contains("/*SCORE_WORDS*/"));
+        assert!(page.contains(timegrapher_core::steady_views::THRESHOLD_HOVER));
         assert!(!page.contains("/*MARK_ROOM_PX*/"));
         let room = timegrapher_core::period_ticks::MARK_ROOM_PX;
         assert!(page.contains(&format!("const MARK_ROOM_PX = {room};")));

@@ -25,7 +25,7 @@ function definition(name) {
 }
 const context = vm.createContext({
   VIRIDIS, PERIOD_TICKS, MARK_ROOM_PX, REFERENCE_HOVER, mapPaints: [], mapsLog: false, showWheels: true, Uint8ClampedArray,
-  steadyView: "periods", periodsLog: false, fftTiming: false,
+  steadyView: "periods", fftTiming: false,
   chartWidth: () => 600, logTicks: () => [], linTicks: () => [], fmtTime: (t) => `t${t}`, TIME_STEPS: [],
   plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "", CHAR_W: 6.6, secs: (t) => `${t} s`, wheelTitle: String,
 });
@@ -144,10 +144,13 @@ test("wheels are marked in call-out grey dots, else 1 min and 1 h solid and fain
 });
 
 test("Wheel Periods sits beside each period view's own switch, with the app's hint", () => {
-  for (const [view, other] of [["periods", "log"], ["spectrum", "timing"], ["stft", "mapslog"], ["wavelet", "mapslog"]]) {
+  for (const [view, other] of [["periods", null], ["spectrum", "timing"], ["stft", "mapslog"], ["wavelet", "mapslog"]]) {
     context.steadyView = view;
     const bar = context.steadySwitch();
-    assert.ok(bar.includes(`data-switch="${other}"`), bar);
+    // Periods has no scale switch: its score is already the log of a
+    // chance (Norm, #1065).
+    if (other) assert.ok(bar.includes(`data-switch="${other}"`), bar);
+    else assert.ok(!bar.includes('data-switch="log"'), bar);
     assert.ok(bar.includes('data-switch="wheels" aria-pressed="true"'), bar);
     assert.ok(bar.includes("one minute and one hour are marked in grey"), bar);
   }

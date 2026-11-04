@@ -327,6 +327,62 @@ pub fn reference_hover(label: &str) -> String {
     format!("Reference period, {label}. This calibre's wheels aren't known.")
 }
 
+/// The Periods plot's score axis (#1065, Norm and Hugh): a period's
+/// score is −log10 of the chance of a peak that tall from noise alone at
+/// that one period ([`Search::score`]), so the axis is linear in the score
+/// and its ticks are written as those chances. No title: the ticks say it,
+/// and this is the axis' hover.
+pub const SCORE_AXIS_HOVER: &str = "Chance that noise alone makes a peak this tall at this period.";
+/// The name of the line a period's score must pass to be named
+/// ([`Search::threshold`]), beside the plot.
+pub const THRESHOLD_NAME: &str = "Threshold";
+/// That line's hover: with the trials correction in it, noise alone puts a
+/// peak above it somewhere in the whole search 1 time in 100.
+pub const THRESHOLD_HOVER: &str = "Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about 1 in 100 times.";
+
+/// A whole score as the chance it stands for: 1 in 10 to the score, with
+/// thousands separators up to a million ("1 in 1,000") and as a power of
+/// ten above ("1 in 10⁷").
+pub fn chance_label(score: f64) -> String {
+    let k = score.round().max(0.0) as u32;
+    if k <= 6 {
+        let digits = 10u64.pow(k).to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i).is_multiple_of(3) {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        format!("1 in {out}")
+    } else {
+        const SUP: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
+        let power: String = k
+            .to_string()
+            .chars()
+            .map(|c| SUP[c.to_digit(10).unwrap_or(0) as usize])
+            .collect();
+        format!("1 in 10{power}")
+    }
+}
+
+/// The ticks of a score axis from `lo` to `hi`, `px` tall, at least
+/// `min_px` apart: whole scores from 1 up, on a [`chart_scale::round_step`]
+/// of at least 1, each with its [`chance_label`].
+pub fn score_ticks(lo: f64, hi: f64, px: f64, min_px: f64) -> Vec<(f64, String)> {
+    if hi.partial_cmp(&lo) != Some(std::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    let want = (hi - lo) / (px / min_px).max(1.0);
+    let step = chart_scale::round_step(want.max(1.0));
+    let first = (lo.max(1.0) / step - 1e-9).ceil() as i64;
+    (first..)
+        .map(|k| k as f64 * step)
+        .take_while(|v| *v <= hi + 1e-9)
+        .map(|v| (v, chance_label(v)))
+        .collect()
+}
+
 /// The periods the searches cover between them, log10 seconds.
 pub fn period_span(searches: &[Option<Search>; 3]) -> Option<(f64, f64)> {
     searches
@@ -468,6 +524,27 @@ pub fn views(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_score_axis_is_marked_in_chances_at_whole_scores() {
+        // The MCP view's scoreTicks reads the same cases (score_ticks.test.cjs).
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/score_ticks.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let f = |k: &str| c[k].as_f64().unwrap();
+            let want: Vec<(f64, String)> = serde_json::from_value(c["ticks"].clone()).unwrap();
+            assert_eq!(
+                super::score_ticks(f("lo"), f("hi"), f("px"), f("min_px")),
+                want,
+                "{c}"
+            );
+        }
+        assert_eq!(super::chance_label(0.0), "1 in 1");
+        assert_eq!(super::chance_label(3.0), "1 in 1,000");
+        assert_eq!(super::chance_label(6.0), "1 in 1,000,000");
+        assert_eq!(super::chance_label(12.0), "1 in 10¹²");
+    }
+
     #[test]
     fn a_reference_line_says_it_is_a_period_alone() {
         assert_eq!(
