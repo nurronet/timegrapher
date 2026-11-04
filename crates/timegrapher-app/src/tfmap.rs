@@ -268,7 +268,7 @@ fn wheel_rows(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::P
             egui_plot::HLine::new(l.name.clone(), l.x)
                 .color(l.ink(pal))
                 .style(LineStyle::dotted_dense())
-                .width(crate::strength::CALL_OUT_W),
+                .width(l.width()),
         );
     }
 }

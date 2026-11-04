@@ -1245,3 +1245,21 @@ fn a_few_wild_readings_leave_the_scale_alone() {
     let (lo, hi) = spread(&two).unwrap();
     assert!(lo < 10.0 && hi > 30.0, "{lo} to {hi}");
 }
+
+/// A wheel's line is a full call-out; a ×2 or a reference period is a
+/// fainter one, in the same grey.
+#[test]
+fn a_wheels_twice_and_a_reference_are_fainter_call_outs() {
+    let line = |turn| WheelLine {
+        x: 1.0,
+        turn,
+        name: String::new(),
+        short: String::new(),
+        hover: String::new(),
+    };
+    assert_eq!(line(Turn::Wheel).width(), crate::strength::CALL_OUT_W);
+    assert_eq!(line(Turn::Twice).width(), 1.0);
+    assert_eq!(line(Turn::Reference).width(), 1.0);
+    let pal = &theme::DARK;
+    assert_eq!(line(Turn::Twice).ink(pal), line(Turn::Wheel).ink(pal));
+}

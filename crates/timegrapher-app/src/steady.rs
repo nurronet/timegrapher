@@ -1698,6 +1698,16 @@ impl WheelLine {
     pub fn ink(&self, pal: &theme::Palette) -> Color32 {
         strength::colour(Strength::CallOut, pal)
     }
+
+    /// Its line's width: a wheel's a full call-out, a ×2 or a reference
+    /// a fainter one.
+    pub fn width(&self) -> f32 {
+        if self.turn == Turn::Wheel {
+            strength::CALL_OUT_W
+        } else {
+            strength::FAINT_CALL_OUT_W
+        }
+    }
 }
 
 /// The lines to mark on a period axis spanning `span`: each wheel's turn
@@ -1758,7 +1768,7 @@ fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::
     for l in lines {
         let v = VLine::new(l.name.clone(), l.x)
             .color(l.ink(pal))
-            .width(strength::CALL_OUT_W);
+            .width(l.width());
         p.vline(match l.turn {
             Turn::Wheel => v.style(LineStyle::dotted_dense()),
             Turn::Twice => v.style(LineStyle::dotted_loose()),

@@ -37,6 +37,10 @@ pub const DATA_W: f32 = 1.5;
 /// A call-out's width.
 pub const CALL_OUT_W: f32 = 1.2;
 
+/// A fainter call-out's width (a wheel's ×2, a reference period): the
+/// same grey, thinner.
+pub const FAINT_CALL_OUT_W: f32 = 1.0;
+
 /// The colour of a grid, axis or call-out line. Grid and axis are the
 /// text colour see-through, so they keep their strength over a tint such
 /// as the Paper Strip's wash.
