@@ -41,33 +41,34 @@ impl TimegrapherApp {
                 if let Some(parent) = root.parent() {
                     d = d.set_directory(parent);
                 }
-                let Some(parent) = d.pick_folder() else {
-                    return;
-                };
                 let name = root
                     .file_name()
                     .map_or_else(|| library::DEFAULT_NAME.into(), |n| n.to_owned());
-                self.library_move_ask = Some(parent.join(name));
+                self.pick(Picker::one(d, Pick::Folder, move |a, parent| {
+                    a.library_move_ask = Some(parent.join(name));
+                }));
             }
             LibraryAction::Choose => {
-                let Some(dir) = rfd::FileDialog::new()
-                    .set_title("Choose a Watches Folder, or an Empty Folder for a New One")
-                    .pick_folder()
-                else {
-                    return;
-                };
-                let empty = std::fs::read_dir(&dir).map_or(true, |mut d| d.next().is_none());
-                if !library::Library::is_library(&dir) && !empty {
-                    return self.error(format!(
-                        "{} holds files but no watches: choose a Watches folder, or an empty folder \
-                         for a new one",
-                        dir.display()
-                    ));
-                }
-                self.use_library(Some(dir));
+                let d = rfd::FileDialog::new()
+                    .set_title("Choose a Watches Folder, or an Empty Folder for a New One");
+                self.pick(Picker::one(d, Pick::Folder, Self::choose_library));
             }
             LibraryAction::UseDefault => self.use_library(None),
         }
+    }
+
+    /// Use the folder picked in Choose…'s dialog as the library, unless it
+    /// holds files but no watches.
+    fn choose_library(&mut self, dir: PathBuf) {
+        let empty = std::fs::read_dir(&dir).map_or(true, |mut d| d.next().is_none());
+        if !library::Library::is_library(&dir) && !empty {
+            return self.error(format!(
+                "{} holds files but no watches: choose a Watches folder, or an empty folder for a \
+                 new one",
+                dir.display()
+            ));
+        }
+        self.use_library(Some(dir));
     }
 
     /// Use the library at `dir` (`None`: the default) from now on.

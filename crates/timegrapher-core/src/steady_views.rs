@@ -709,14 +709,7 @@ mod tests {
         let r = &v.series[0].readings;
         assert_eq!(r.stride, 1);
         assert_eq!(r.t_s.len(), tests.n);
-        let mut sorted = r.values.clone();
-        sorted.sort_by(f64::total_cmp);
-        let n = sorted.len();
-        let median = if n % 2 == 1 {
-            sorted[n / 2]
-        } else {
-            0.5 * (sorted[n / 2 - 1] + sorted[n / 2])
-        };
+        let median = crate::dsp::median(&mut r.values.clone());
         assert!(
             (median - tests.median).abs() < 1e-9,
             "{median} {}",

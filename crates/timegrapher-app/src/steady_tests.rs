@@ -1263,3 +1263,76 @@ fn a_wheels_twice_and_a_reference_are_fainter_call_outs() {
     let pal = &theme::DARK;
     assert_eq!(line(Turn::Twice).ink(pal), line(Turn::Wheel).ink(pal));
 }
+
+/// A trend or a split of levels the headline leaves out says why, in
+/// core's words, as `series` and the MCP view do (#954, #971); one it
+/// names says nothing more.
+#[test]
+fn the_stats_line_says_why_a_trend_or_split_is_left_out() {
+    use timegrapher_core::steadiness::{Changes, Segment, Trend};
+    let mut c = steadiness::check_series(
+        SeriesKind::Rate,
+        Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: (0..40).map(|i| (i as f64).sin()).collect(),
+        },
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    let dropped = "not significant after Holm's correction (p 0.031 alone)";
+    c.trend = Some(Trend {
+        per_hour: 0.42,
+        explained: 0.1,
+        curve_explained: 0.1,
+        start: 0.0,
+        end: 0.0,
+        turn: None,
+        p_value: 0.031,
+        significant: false,
+        named: false,
+        note: Some(dropped.into()),
+    });
+    let small = "under the 20% a level change needs";
+    let seg = |a: f64| Segment {
+        start_s: a,
+        end_s: a + 100.0,
+        mean: a,
+    };
+    c.changes = Some(Changes {
+        block_s: 60.0,
+        block_sigma: 1.0,
+        long_run_sigma: 1.0,
+        segments: vec![seg(0.0), seg(100.0), seg(200.0)],
+        explained: 0.1,
+        p_value: 0.5,
+        named: false,
+        note: Some(small.into()),
+    });
+    let line = stats_line(&c);
+    assert!(
+        line.contains(&format!("trend +0.42 s/d/h, {dropped}")),
+        "{line}"
+    );
+    assert!(
+        line.contains(&format!("3 stretches of one level, {small}")),
+        "{line}"
+    );
+    // Named, with one stretch: no note, no stretches.
+    if let Some(t) = c.trend.as_mut() {
+        t.named = true;
+        t.note = None;
+    }
+    if let Some(ch) = c.changes.as_mut() {
+        ch.segments.truncate(1);
+    }
+    let line = stats_line(&c);
+    assert!(
+        line.contains("trend +0.42 s/d/h ·") || line.ends_with("trend +0.42 s/d/h"),
+        "{line}"
+    );
+    assert!(!line.contains("stretches"), "{line}");
+}
