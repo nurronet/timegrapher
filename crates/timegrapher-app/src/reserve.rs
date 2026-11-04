@@ -489,6 +489,14 @@ fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
 /// The steps, in hours, the Power Reserve charts' hours go up in.
 const HOUR_STEPS: [f64; 7] = [1.0, 2.0, 3.0, 6.0, 12.0, 24.0, 48.0];
 
+/// The Power Reserve charts' hour marks: none before the run, in the
+/// margin left of 0 h.
+fn hour_marks(g: egui_plot::GridInput) -> Vec<egui_plot::GridMark> {
+    let mut marks = theme::even_grid(g, 48.0, &HOUR_STEPS);
+    marks.retain(|m| m.value >= 0.0);
+    marks
+}
+
 /// The least width of the Power Reserve charts' value axis, points.
 const GUTTER: f32 = 64.0;
 
@@ -559,10 +567,7 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
             .iter()
             .filter_map(|h| get(h).map(|v| [x(h), v]))
             .collect();
-        let mut grid = Grid::new(
-            |g| theme::even_grid(g, 48.0, &HOUR_STEPS),
-            |g| theme::even_grid(g, 24.0, &[]),
-        );
+        let mut grid = Grid::new(hour_marks, |g| theme::even_grid(g, 24.0, &[]));
         if name == "rate" {
             grid = grid.zero_y();
         }
@@ -1185,5 +1190,18 @@ mod tests {
             assert_eq!(xs.len(), 2, "{name}: {texts:?}");
             assert!((xs[0] - xs[1]).abs() < 0.5, "{name}: {xs:?}");
         }
+    }
+
+    /// A long run's margin left of 0 h, wider than an hour step, marks no
+    /// hour before the run.
+    #[test]
+    fn no_hour_is_marked_before_the_run() {
+        let marks = hour_marks(egui_plot::GridInput {
+            bounds: (-2.3, 48.8),
+            base_step_size: 0.2,
+        });
+        assert!(!marks.is_empty());
+        assert!(marks.iter().all(|m| m.value >= 0.0), "{marks:?}");
+        assert_eq!(marks[0].value, 0.0);
     }
 }
