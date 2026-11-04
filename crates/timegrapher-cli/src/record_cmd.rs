@@ -1094,6 +1094,71 @@ fn say_break(lost: &breaks::Live) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
+        use session::BeatErrorSource::{Drop, Unlock};
+        use timegrapher_core::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-live-sources-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("live.json");
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: None,
+        };
+        let mut feed = Feed::new(&path, Position::CH, 20.0, 48000, &set);
+        let sound = generate(
+            &SynthConfig {
+                duration_s: 20.0,
+                ..Default::default()
+            },
+            |_| 270.0,
+            |_| 0.0,
+        );
+        feed.live.push(&sound.samples);
+        feed.trend = (0..MAX_TREND)
+            .map(|i| {
+                let (value, source) = if i % 2 == 0 {
+                    (0.2, Unlock)
+                } else {
+                    (0.8, Drop)
+                };
+                (
+                    [Some(i as f64 / 100.0), None, None, Some(value)],
+                    Some(source),
+                )
+            })
+            .collect();
+        feed.finish();
+        let doc: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let trend = &doc["trend"];
+        let times = trend["t_s"].as_array().unwrap();
+        let sources = trend["beat_error_source"].as_array().unwrap();
+        let values = trend["beat_error"].as_array().unwrap();
+        assert!(times.len() < MAX_TREND);
+        assert_eq!(times.len(), sources.len());
+        assert_eq!(times.len(), values.len());
+        for i in 0..times.len() - 1 {
+            let original = (times[i].as_f64().unwrap() * 100.0).round() as usize;
+            let (value, source) = if original % 2 == 0 {
+                (0.2, "unlock")
+            } else {
+                (0.8, "drop")
+            };
+            assert_eq!(sources[i], source);
+            assert_eq!(values[i], value);
+        }
+        assert!(doc["reading"]["beat_error_source"].is_string());
+        assert_eq!(
+            sources.last().unwrap(),
+            &doc["reading"]["beat_error_source"]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
     /// The take in `dir` checked as `record` checks the take it saved:
     /// listed in its own session file, here with no clock log.
     fn check_saved(dir: &Path, set: &Settings) -> Result<Check, String> {
