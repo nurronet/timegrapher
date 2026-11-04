@@ -514,14 +514,20 @@ fn hour_label(h: &power_reserve::Hour) -> String {
 /// span, none with no chart.
 fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<egui::Rangef>) {
     let Some(x) = plot_x else {
-        dim_key(ui, hours);
+        dim_key(
+            ui,
+            hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
+        );
         hour_grid(ui, hours);
         return;
     };
     // The plots' span across, from here down.
     let below = egui::Rect::from_x_y_ranges(x, ui.available_rect_before_wrap().y_range());
     ui.scope_builder(egui::UiBuilder::new().max_rect(below), |ui| {
-        dim_key(ui, hours);
+        dim_key(
+            ui,
+            hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
+        );
         egui::ScrollArea::horizontal()
             .id_salt("reserve hours across")
             // egui shows a scroll area's content a clip margin past its
@@ -540,18 +546,29 @@ macro_rules! dim_key {
     };
 }
 
-/// An hour whose beat error is dimmed: not from the unlock.
-fn dimmed(h: &power_reserve::Hour) -> bool {
-    h.beat_error_source != Some(BeatErrorSource::Unlock)
+/// Whether a beat error is dimmed: one not taken from the unlock (from
+/// the drop, or its source not recorded). The one rule for every table
+/// that shows beat errors, Power Reserve and Positions Test (#1076).
+pub fn beat_error_dimmed(source: Option<BeatErrorSource>) -> bool {
+    source != Some(BeatErrorSource::Unlock)
 }
 
-/// The dimming's key, over the table so it is in view with the rows,
-/// only when an hour is dimmed (Hugh's rulings on Walter's walks of #1079
-/// and #1081).
-fn dim_key(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
-    if hours.iter().any(dimmed) {
+/// The dimming's key, over a table so it is in view with the rows, only
+/// when a row is dimmed (Hugh's rulings on Walter's walks of #1079 and
+/// #1081).
+pub fn dim_key(ui: &mut egui::Ui, any_dimmed: bool) {
+    if any_dimmed {
         ui.label(RichText::new(dim_key!()).color(theme::pal(ui).text_secondary));
     }
+}
+
+/// The key's words, for tests that look for it as drawn.
+#[cfg(test)]
+pub const DIM_KEY_TEXT: &str = dim_key!();
+
+/// The Beat Error column's hover ends with the key.
+pub fn beat_error_hint(lead: &str) -> String {
+    format!("{lead} {}", dim_key!())
 }
 
 /// The table's titles, with units, and what each column holds.
@@ -603,7 +620,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
                     }),
-                    Some((beat_error_source_label(src), dimmed(h))),
+                    Some((beat_error_source_label(src), beat_error_dimmed(src))),
                 ),
                 plain(cell(h.read_share(), |v| fixed_text(100.0 * v, 0))),
             ]

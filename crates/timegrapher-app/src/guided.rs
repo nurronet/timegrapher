@@ -998,6 +998,11 @@ fn table_grid(
     let pal = theme::pal(ui);
     const FROM: &str = "From Average, s/d";
     let from_w = FIGURE_W.max(head_w(ui, FROM));
+    // The dimming's key over the table, as the Power Reserve table's.
+    crate::reserve::dim_key(ui, t.beat_error_dimmed.iter().any(|d| *d));
+    let be_hint = crate::reserve::beat_error_hint(
+        "As a size, from the unlock, or from the drop where the unlock isn't found.",
+    );
     egui::Grid::new(id)
         .num_columns(5)
         .spacing(Vec2::new(16.0, 5.0))
@@ -1015,7 +1020,7 @@ fn table_grid(
                     "Amplitude, °",
                     "The balance's swing, from the lift angle set",
                 ),
-                ("Beat Error, ms", "From the unlock, as a size"),
+                ("Beat Error, ms", be_hint.as_str()),
             ] {
                 column_head(ui, FIGURE_W, h, hint);
             }
@@ -1028,7 +1033,12 @@ fn table_grid(
                         right(ui, signed(*rate, 1), false, pal.text);
                         right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
                         right(ui, plain(*amp, 0), false, pal.text);
-                        right(ui, plain(*be, 2), false, pal.text).on_hover_text(
+                        let be_ink = if t.beat_error_dimmed.get(i).copied().unwrap_or(false) {
+                            pal.text_secondary
+                        } else {
+                            pal.text
+                        };
+                        right(ui, plain(*be, 2), false, be_ink).on_hover_text(
                             t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
                         );
                     }
@@ -1431,6 +1441,9 @@ pub type Row = (String, Option<f64>, Option<f64>, Option<f64>, Option<f64>);
 pub struct Table {
     pub rows: Vec<Row>,
     pub beat_error_hovers: Vec<String>,
+    /// Each position's beat error dimmed: not from the unlock (from the
+    /// drop, or its source not recorded), as in the Power Reserve table.
+    pub beat_error_dimmed: Vec<bool>,
     pub beat_error_summary: String,
     pub mean_rate: Option<f64>,
     pub mean_amplitude: Option<f64>,
@@ -1541,6 +1554,10 @@ fn table_of(figures: &[SourcedFigures], mut notes: Vec<String>) -> Table {
         beat_error_hovers: figures
             .iter()
             .map(|f| session::beat_error_source_label(f.4).into())
+            .collect(),
+        beat_error_dimmed: figures
+            .iter()
+            .map(|f| crate::reserve::beat_error_dimmed(f.4))
             .collect(),
         beat_error_summary,
         rows: figures
@@ -2808,6 +2825,7 @@ mod tests {
     fn the_table_is_written_for_a_spreadsheet() {
         let t = Table {
             beat_error_hovers: Vec::new(),
+            beat_error_dimmed: Vec::new(),
             beat_error_summary: String::new(),
             rows: vec![
                 (
@@ -2864,7 +2882,80 @@ mod tests {
         assert_eq!(t.notes.len(), 1);
         assert_eq!(t.beat_error_hovers[0], "Beat Error from the Unlock");
         assert_eq!(t.beat_error_hovers[1], "Beat Error from the Drop");
+        // Dimmed as the Power Reserve table dims it (#1076).
+        assert_eq!(t.beat_error_dimmed, vec![false, true, false]);
         assert!(t.beat_error_summary.contains("mean of 2 of 3 positions"));
         assert_eq!(t.notes[0], t.beat_error_summary);
+    }
+
+    /// The table's beat-error cells and key, as drawn: a beat error from
+    /// the drop in secondary ink, one from the unlock in text ink, and the
+    /// key above the table only when a row is dimmed (#1076).
+    #[test]
+    fn a_position_from_the_drop_is_drawn_grey_under_its_key() {
+        use session::{BeatErrorSource as S, Position as P};
+        let draw = |drop_source: S| {
+            let t = table_of(
+                &[
+                    (P::CH, Some(1.0), Some(270.0), Some(0.2), Some(S::Unlock)),
+                    (P::CB, Some(2.0), Some(280.0), Some(0.8), Some(drop_source)),
+                ],
+                Vec::new(),
+            );
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            let mut ink = (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
+            let mut cells = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ink = (theme::pal(ui).text, theme::pal(ui).text_secondary);
+                        table_grid(ui, "positions", &t, None, None);
+                    });
+                });
+                cells = out
+                    .shapes
+                    .iter()
+                    .filter_map(|c| match &c.shape {
+                        egui::Shape::Text(s) => Some((
+                            s.galley.text().to_string(),
+                            s.galley.job.sections.first().map(|f| f.format.color),
+                            s.pos.y,
+                        )),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+            }
+            (cells, ink)
+        };
+        let find = |cells: &[(String, Option<egui::Color32>, f32)], text: &str| {
+            cells.iter().find(|c| c.0 == text).map(|c| (c.1, c.2))
+        };
+        let (cells, ink) = draw(S::Drop);
+        assert_eq!(
+            find(&cells, "0.80").map(|c| c.0),
+            Some(Some(ink.1)),
+            "{cells:?}"
+        );
+        assert_eq!(
+            find(&cells, "0.20").map(|c| c.0),
+            Some(Some(ink.0)),
+            "{cells:?}"
+        );
+        let key = find(&cells, crate::reserve::DIM_KEY_TEXT).expect("key drawn");
+        assert_eq!(key.0, Some(ink.1));
+        let head = find(&cells, "Beat Error, ms").expect("title drawn");
+        assert!(key.1 < head.1, "{cells:?}");
+        // Every row from the unlock: no grey cell, and no key.
+        let (cells, ink) = draw(S::Unlock);
+        assert_eq!(
+            find(&cells, "0.80").map(|c| c.0),
+            Some(Some(ink.0)),
+            "{cells:?}"
+        );
+        assert!(
+            find(&cells, crate::reserve::DIM_KEY_TEXT).is_none(),
+            "{cells:?}"
+        );
     }
 }
