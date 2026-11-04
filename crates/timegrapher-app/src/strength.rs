@@ -45,8 +45,8 @@ pub const FAINT_CALL_OUT_W: f32 = 1.0;
 const DASH: f32 = 6.0;
 
 /// The pattern of a reference or fitted call-out (a threshold, a band, a
-/// state level, a reference period): named marks are solid, sounds and
-/// wheels dotted.
+/// state level): named marks (and a reference period) are solid, sounds
+/// and wheels dotted.
 pub fn dashed() -> egui_plot::LineStyle {
     egui_plot::LineStyle::Dashed { length: DASH }
 }

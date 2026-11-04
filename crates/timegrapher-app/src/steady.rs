@@ -1757,7 +1757,7 @@ pub(crate) fn wheel_lines(wheels: Option<&[Wheel]>, (x_lo, x_hi): (f64, f64)) ->
 }
 
 /// The lines in the plot, under its trace, all call-outs: a wheel's
-/// dotted, a ×2's looser, a reference period's dashed. Their names are drawn by
+/// dotted, a ×2's looser, a reference period's solid (a named mark). Their names are drawn by
 /// [`wheel_names`].
 fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::Palette) {
     for l in lines {
@@ -1767,7 +1767,7 @@ fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::
         p.vline(match l.turn {
             Turn::Wheel => v.style(LineStyle::dotted_dense()),
             Turn::Twice => v.style(LineStyle::dotted_loose()),
-            Turn::Reference => v.style(strength::dashed()),
+            Turn::Reference => v,
         });
     }
 }
