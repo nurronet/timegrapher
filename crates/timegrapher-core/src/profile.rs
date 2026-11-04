@@ -34,7 +34,7 @@ pub const FACT_NAMES: [&str; 5] = ["Beats", "Unlock", "Drop", "Unlock to Drop", 
 
 /// A time from the reference point as the Profile words it: "−0.27 ms".
 pub fn ms_text(v: f64) -> String {
-    format!("{v:+.2} ms").replace('-', "−")
+    crate::figure_text::true_minus(&format!("{v:+.2} ms"))
 }
 
 /// One side's facts with their units, in [`FACT_NAMES`]' order: "–" for

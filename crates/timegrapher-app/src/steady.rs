@@ -15,6 +15,7 @@ use egui_plot::{
     GridInput, GridMark, HLine, Line, LineStyle, Plot, PlotPoint, Points, Polygon, Text, VLine,
 };
 use serde::{Deserialize, Serialize};
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::library::length_text;
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
@@ -318,8 +319,8 @@ pub fn compute_with(
 fn stats_line(c: &SeriesCheck) -> String {
     let u = c.unit;
     // A true minus sign, as in the readings.
-    let n = |v: f64| format!("{v:.2}").replace('-', "−");
-    let signed = |v: f64| format!("{v:+.2}").replace('-', "−");
+    let n = |v: f64| true_minus(&format!("{v:.2}"));
+    let signed = |v: f64| true_minus(&format!("{v:+.2}"));
     let mut parts = vec![format!("Tested on {}", counted(c.readings, c.step_s))];
     if c.outliers > 0 {
         parts.push(format!(
@@ -555,7 +556,7 @@ const BOX_OPACITY: f32 = 0.6;
 
 /// A level in dB as an axis or a key gives it: "0 dB", "−10 dB".
 pub fn db_label(v: f64) -> String {
-    format!("{:.0} dB", v + 0.0).replace('-', "−")
+    true_minus(&format!("{:.0} dB", v + 0.0))
 }
 
 /// The series the pane can show, in the order the switches list them.

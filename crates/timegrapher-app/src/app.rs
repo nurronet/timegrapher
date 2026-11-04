@@ -34,7 +34,7 @@ use timegrapher_core::capture::{self, Capture, Event, InputDevice, Level};
 use timegrapher_core::clockstore;
 use timegrapher_core::library;
 use timegrapher_core::library::{length_text, size_text};
-use timegrapher_core::live::{LiveAnalyzer, LiveConfig, LiveReading, AVERAGES, MAX_PROFILE_S};
+use timegrapher_core::live::{profile_span_s, LiveAnalyzer, LiveConfig, LiveReading, AVERAGES};
 use timegrapher_core::measure::Caveat;
 use timegrapher_core::mixer::{self, GainState, InputGain};
 use timegrapher_core::periodicity::Wheel;
@@ -1558,10 +1558,6 @@ const SPANS: [f64; 11] = [
     10.0, 30.0, 60.0, 300.0, 1800.0, 3600.0, 7200.0, 21_600.0, 86_400.0, 172_800.0, 259_200.0,
 ];
 
-fn span_label(v: f64) -> String {
-    fields::duration(v)
-}
-
 /// The strip's width either side of the centre: ±250 ms, ±2 s.
 fn width_label(v: f64) -> String {
     if v >= 1000.0 {
@@ -2202,8 +2198,7 @@ pub struct TimegrapherApp {
     /// session so far, growing as beats arrive. Any zoom or pan of the
     /// strip's time turns it off.
     strip_fit: bool,
-    /// The length a run of zooms is heading for, unrounded, so small
-    /// zooms add up while the strip shows the round length nearest it.
+    /// The unrounded length a run of strip zooms is heading for.
     strip_zoom_s: Option<f64>,
     /// Whether Fit was on before an opened take was fitted.
     live_fit: bool,

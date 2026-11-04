@@ -8,6 +8,7 @@ use crate::output;
 use serde_json::json;
 use timegrapher_core::calibre_store::{self, Catalog, Entry, Origin, UserCalibres};
 use timegrapher_core::calibres::{self, Calibre};
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::periodicity::{Component, Wheel};
 use timegrapher_core::steadiness;
 
@@ -197,7 +198,7 @@ fn print_table(cat: &Catalog, list: &[Entry], yours: usize, everything: usize, c
             e.name(),
             e.bph().map(|b| b.to_string()).unwrap_or_else(dash),
             e.lift_angle_deg()
-                .map(|l| format!("{l:.0}°"))
+                .map(|l| format!("{}°", fixed_text(l, 0)))
                 .unwrap_or_else(dash),
             e.escape_teeth().map(|t| t.to_string()).unwrap_or_else(dash),
             known,
@@ -253,7 +254,7 @@ fn print_one(cat: &Catalog, e: Entry) {
     for s in cat.slots(e) {
         let period = s
             .period_s
-            .map(|p| format!("{p:>10.2} s"))
+            .map(|p| format!("{:>10} s", fixed_text(p, 2)))
             .unwrap_or_else(|| format!("{:>12}", "unknown"));
         let from = match s.origin {
             Origin::Shipped => "table",
@@ -262,7 +263,7 @@ fn print_one(cat: &Catalog, e: Entry) {
         };
         let mut line = format!("  {:<16} {period}  {from}", s.name);
         if let Some(t) = s.shipped_period_s {
-            line.push_str(&format!(" (the table says {t:.2} s)"));
+            line.push_str(&format!(" (the table says {} s)", fixed_text(t, 2)));
         }
         println!("{}", line.trim_end());
     }

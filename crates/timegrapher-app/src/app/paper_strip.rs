@@ -208,7 +208,7 @@ impl TimegrapherApp {
                     StripView::MIN_SPAN_S..=StripView::MAX_SPAN_S,
                     &DURATION,
                     &SPANS,
-                    span_label,
+                    fields::duration,
                     "",
                     92.0,
                 );
