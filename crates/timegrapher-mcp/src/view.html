@@ -830,13 +830,15 @@ function logTicks(lo, hi, fmt) {
   }
   return ticks;
 }
-// Core period_ticks::TICKS, put in by the server.
+// Core period_ticks::TICKS, and the room a mark's label wants along an axis
+// (period_ticks::MARK_ROOM_PX), put in by the server.
 const PERIOD_TICKS = /*PERIOD_TICKS*/null;
+const MARK_ROOM_PX = /*MARK_ROOM_PX*/null;
 // A period axis in log10 seconds, as the app's steady::period_grid marks it:
 // core's period_ticks, the finest level with no more marks than one per
-// 64 px, and at least the level 0 ones. [[log10 s, label]].
+// MARK_ROOM_PX, and at least the level 0 ones. [[log10 s, label]].
 function periodTicks(lo, hi, px) {
-  const room = Math.max(2, Math.floor(px / 64));
+  const room = Math.max(2, Math.floor(px / MARK_ROOM_PX));
   const a = Math.pow(10, lo), b = Math.pow(10, hi);
   const at = (level) => PERIOD_TICKS.filter((t) => t.period_s >= a && t.period_s <= b && t.level <= level);
   const fit = [2, 1, 0].map(at).find((v) => v.length <= room) || at(0);

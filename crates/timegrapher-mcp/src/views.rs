@@ -47,6 +47,10 @@ pub fn page() -> &'static str {
             .replace("/*BASE_DIGITS*/null", &base_digits())
             .replace("/*VIRIDIS*/null", &viridis)
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
+            .replace(
+                "/*MARK_ROOM_PX*/null",
+                &timegrapher_core::period_ticks::MARK_ROOM_PX.to_string(),
+            )
             .replace("/*PROBABILITY_MARKS*/null", &marks)
             .replace("/*POSITIONS*/null", &positions)
             .replace("/*NO_BEAT_TITLE*/null", &no_beat)
@@ -896,6 +900,9 @@ mod tests {
         assert!(!page.contains("/*PERIOD_TICKS*/"));
         let ticks = serde_json::to_string(&timegrapher_core::period_ticks::TICKS).unwrap();
         assert!(page.contains(&format!("const PERIOD_TICKS = {ticks};")));
+        assert!(!page.contains("/*MARK_ROOM_PX*/"));
+        let room = timegrapher_core::period_ticks::MARK_ROOM_PX;
+        assert!(page.contains(&format!("const MARK_ROOM_PX = {room};")));
     }
 
     #[test]
