@@ -815,6 +815,30 @@ impl ClockFit {
 
     /// The audio seconds of the log's first entry after `e`, or `e` when
     /// there is none.
+    /// A break with no gap at the end of each break's backlog the log
+    /// shows ([`breaks::backlog_s`]): the log's first entry after the step
+    /// rose more than the entries after it keep ([`breaks::held_step`]),
+    /// so the sound up to that excess past it came late from before the
+    /// gap. Read on the log's own offsets, as [`breaks::GapWatch`] reads
+    /// the blocks'.
+    pub fn backlog_cuts(&self) -> Vec<Break> {
+        let off = |q: &(f64, f64)| q.1 - q.0;
+        self.entry_before
+            .iter()
+            .filter_map(|&e| {
+                let j = self.entries.iter().position(|q| q.0 > e + 1e-6)?;
+                let before = off(self.entries[..j].last()?);
+                let later: Vec<f64> = self.entries[j..].iter().map(off).collect();
+                let rise = later[0] - before;
+                let kept = breaks::held_step(before, &later).min(rise);
+                breaks::backlog_s(rise, kept).map(|excess| Break {
+                    audio_s: self.entries[j].0 + excess,
+                    gap_s: 0.0,
+                })
+            })
+            .collect()
+    }
+
     fn entry_after(&self, e: f64) -> f64 {
         let next = self
             .entries

@@ -57,6 +57,26 @@ pub fn kept_gap(step: f64, held: f64) -> Option<f64> {
     (step >= MIN_GAP_S && held >= 0.5 * step).then(|| held.min(step))
 }
 
+/// The backlog after a break: how far a step's first entry (or first late
+/// block) rose beyond the `gap` the entries after it keep, when that is at
+/// least [`BACKLOG_MIN_S`]. That much sound after it came late from before
+/// the gap, so the sound truly jumps there, and it is culled with a break
+/// at its end ([`Live::Cut`]). The one rule, live ([`GapWatch`]) and in a
+/// clock log ([`crate::clock::ClockFit::backlog_cuts`]).
+pub fn backlog_s(step: f64, gap: f64) -> Option<f64> {
+    let excess = step - gap;
+    (excess >= BACKLOG_MIN_S).then_some(excess)
+}
+
+/// The shortest backlog culled, seconds: under it, too little sound lies
+/// between the break and the jump for a beat to fall there.
+pub const BACKLOG_MIN_S: f64 = 0.001;
+
+/// How far after a backlog's end, in audio seconds, a listed break with
+/// no gap can be its cut: live, the cut falls at the first whole block at
+/// or past the end, and blocks are far shorter than this.
+pub const CUT_MATCH_S: f64 = 0.5;
+
 /// What a live input's blocks become once [`GapWatch`] has seen them: the
 /// blocks, in order, with a break before the first block after a gap.
 #[derive(Debug)]
@@ -231,12 +251,11 @@ impl GapWatch {
             // from before the gap that came late after it: with it, the
             // backlog.
             let first_end = rest.peek().expect("a held block").2;
-            let backlog = step - gap;
+            let backlog_end = backlog_s(step, gap).map(|b| first_end + b);
             let rate = self.rate;
-            let backlog_end = first_end + backlog;
             let mut culled = false;
             while let Some((b, off, end_s)) = rest.next_if(|h| {
-                backlog > 1e-6 && h.2 - h.0.samples.len() as f64 / rate < backlog_end - 1e-6
+                backlog_end.is_some_and(|e| h.2 - h.0.samples.len() as f64 / rate < e - 1e-6)
             }) {
                 self.let_through(b, off, end_s, out);
                 culled = true;
@@ -445,7 +464,9 @@ pub fn of_files_on_clock(
 /// put each gap at the same audio second, and with every step in the
 /// clock log that no listed break explains (a system clock step, or a
 /// dropout the recorder did not list) as a break of its own, as it is
-/// when nothing is listed. Sorted.
+/// when nothing is listed; and with a break at the end of each backlog
+/// the log shows ([`crate::clock::ClockFit::backlog_cuts`]) that none
+/// listed already ends. Sorted.
 pub fn on_clock(listed: Vec<Break>, clock: Option<&mut crate::clock::ClockFit>) -> Vec<Break> {
     let Some(c) = clock else {
         return listed;
@@ -458,6 +479,15 @@ pub fn on_clock(listed: Vec<Break>, clock: Option<&mut crate::clock::ClockFit>) 
             .filter(|cb| !listed.iter().any(|b| (b.audio_s - cb.audio_s).abs() < 1e-9))
             .copied(),
     );
+    // The end of each backlog the log shows, unless a listed break with no
+    // gap is already its cut.
+    out.extend(c.backlog_cuts().into_iter().filter(|cut| {
+        !listed.iter().any(|b| {
+            b.gap_s.abs() < MIN_GAP_S
+                && b.audio_s > cut.audio_s - BACKLOG_MIN_S
+                && b.audio_s < cut.audio_s + CUT_MATCH_S
+        })
+    }));
     out.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
     out
 }
