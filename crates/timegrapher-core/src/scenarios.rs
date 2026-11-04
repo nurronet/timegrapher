@@ -55,11 +55,14 @@ fn sine(v: f64, ptp: f64, period: f64) -> Track {
 }
 
 /// The scenarios, in the order they are listed.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn all() -> Vec<Scenario> {
+    let mut all = cycle_scenarios();
+    all.extend(change_scenarios());
+    all
+}
+
+/// The control, and the scenarios with a cycle in them.
+fn cycle_scenarios() -> Vec<Scenario> {
     vec![
         Scenario {
             name: "control",
@@ -137,6 +140,12 @@ pub fn all() -> Vec<Scenario> {
             amplitude: steady(AMPLITUDE),
             beat_error: sine(BEAT_ERROR, 0.2, 120.0),
         },
+    ]
+}
+
+/// The scenarios where a series slides, steps, wanders or drops for a while.
+fn change_scenarios() -> Vec<Scenario> {
+    vec![
         Scenario {
             name: "letting-down",
             summary: "The amplitude falls steadily from 280° to 260° over the take, as a mainspring lets down.",
