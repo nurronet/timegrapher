@@ -209,6 +209,32 @@ fn sound_the_input_dropped_is_a_break() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// A glitch the input carries on after (a buffer underrun or overrun,
+/// #1046) doesn't stop the take: it is a break of no time lost where it
+/// fell, the sound either side never read across, and the message says
+/// so. Two with no sound between are one.
+#[test]
+fn a_glitch_is_a_break_not_a_stop() {
+    let (mut app, base, tx, heard) = listened("glitch");
+    let saved = app.session.recorder.as_ref().unwrap().duration_s();
+    tx.send(Event::Glitch).unwrap();
+    tx.send(Event::Glitch).unwrap();
+    send_after(&tx, 0, 500);
+    while app.poll_for(Duration::from_secs(60)) > 0 {}
+    assert!(app.running());
+    assert!(app.input_fault.is_none());
+    let breaks = app.session.recorder.as_ref().unwrap().breaks();
+    assert_eq!(breaks.len(), 1, "{breaks:?}");
+    assert_eq!(breaks[0].gap_s, 0.0);
+    assert!((breaks[0].audio_s - saved).abs() < 1e-9, "{breaks:?}");
+    assert!((app.heard_s() - heard - 10.0).abs() < 1e-6);
+    let (m, error) = app.message.clone().unwrap();
+    assert!(!error);
+    assert_eq!(m, timegrapher_core::breaks::GLITCH_TEXT);
+    drop(tx);
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// Sound held by core's gap rule after a jump counts as heard, so the
 /// input isn't taken for silent ("No sound is arriving") while the rule
 /// waits on it (#689).
