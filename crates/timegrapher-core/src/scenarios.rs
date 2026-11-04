@@ -55,11 +55,14 @@ fn sine(v: f64, ptp: f64, period: f64) -> Track {
 }
 
 /// The scenarios, in the order they are listed.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn all() -> Vec<Scenario> {
+    let mut all = cycle_scenarios();
+    all.extend(change_scenarios());
+    all
+}
+
+/// The control, and the scenarios with a cycle in them.
+fn cycle_scenarios() -> Vec<Scenario> {
     vec![
         Scenario {
             name: "control",
@@ -137,6 +140,12 @@ pub fn all() -> Vec<Scenario> {
             amplitude: steady(AMPLITUDE),
             beat_error: sine(BEAT_ERROR, 0.2, 120.0),
         },
+    ]
+}
+
+/// The scenarios where a series slides, steps, wanders or drops for a while.
+fn change_scenarios() -> Vec<Scenario> {
+    vec![
         Scenario {
             name: "letting-down",
             summary: "The amplitude falls steadily from 280° to 260° over the take, as a mainspring lets down.",
@@ -512,18 +521,23 @@ mod tests {
         let wheels = crate::periodicity::standard_wheels(BPH, 20);
         let s = find("control").unwrap();
         let quiet = "no cycle, level change, trend or correlation between readings detected.";
-        let named = (1..=200)
-            .filter(|&seed| {
-                let log = beat_log(&s, seed);
-                let lc = LongConfig {
-                    wheels: wheels.clone(),
-                    ..Default::default()
-                };
-                let long = crate::longrun::analyse(&log, None, &lc);
-                let r = steadiness::check(&log, None, &long, &lc, &Config::default());
-                !r.findings.is_empty() || r.series.iter().any(|c| !c.headline.ends_with(quiet))
-            })
-            .count();
+        let lc = LongConfig {
+            wheels,
+            ..Default::default()
+        };
+        let names = |seed: u64| {
+            let log = beat_log(&s, seed);
+            let long = crate::longrun::analyse(&log, None, &lc);
+            let r = steadiness::check(&log, None, &long, &lc, &Config::default());
+            !r.findings.is_empty() || r.series.iter().any(|c| !c.headline.ends_with(quiet))
+        };
+        // The seeds in four interleaved sets, side by side (#907).
+        let named: usize = std::thread::scope(|sc| {
+            let runs: Vec<_> = (1..=4u64)
+                .map(|k| sc.spawn(move || (k..=200).step_by(4).filter(|&seed| names(seed)).count()))
+                .collect();
+            runs.into_iter().map(|h| h.join().unwrap()).sum()
+        });
         assert!(named <= 8, "{named} of 200 steady takes name something");
     }
 

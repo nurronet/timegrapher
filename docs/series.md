@@ -73,8 +73,12 @@ minutes.
 
 All three series are tested on readings of the same length, the rate's.
 The amplitude and the beat error are measured in 2 s windows; the
-windows that fall in each rate reading are averaged into one reading.
-No reading is averaged over part of its span: an amplitude or beat
+windows that fall in each rate reading make one reading, their median,
+as the session's figures take theirs (`session::window_figures`). The
+median of k windows has c(k) times the variance of their mean, c(k)
+between 1 and π/2 (`dsp::median_variance_factor`), and the isochronism
+slope counts that in each reading's noise.
+No reading is taken over part of its span: an amplitude or beat
 error reading needs every 2 s window its span holds (a 2 s window that
 reaches into a break's gap is left out, so a reading beside a gap is
 too), and a rate reading
@@ -445,8 +449,8 @@ Each entry of `series[]`:
 | `autocorrelation` | `lag_s[]`, `r[]` (thinned to about 600 points), `band`, `band_by_lag[]` (the band at each of `lag_s`, 1.96/√pairs from the pairs that lag was read from: wider than `band` where gaps leave fewer pairs; null where none), `ljung_box_q`, `ljung_box_lags`, `p_value`, `max_short_lag_r`, `memory_s`, `repeat_lag_s`, `repeat_r` |
 | `allan` | `tau_s[]`, `deviation[]`, `white[]`, `pairs[]`, `slope_short`, `best_tau_s`, `best_deviation`, `max_excess` (largest deviation over the white line) |
 | `cusum` | `t_s[]`, `s[]` (thinned, scaled by `long_run_sd`), `max`, `at_s`, `at` (the CUSUM there, signed), `p_value`, `band` (1.36: readings with no change of level, correlated or not, stay inside ±band about 95% of the time) and `shift` (the headline names a level change, so the level changes near `at_s`, the change finder's cut nearest `max`; `max` past the band alone does not set it). Without a cut, `at_s` and `at` are where `max` is |
-| `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained` |
-| `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null), `p_value` (the quadratic's F test on the readings' effective count, before Holm's correction) |
+| `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained`, `named` (whether the headline names the levels: a level change, or the steps of a slide) and `note` (when it does not, why: under the share a level change needs, or not the headline's finding; null when named) |
+| `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null), `p_value` (the quadratic's F test on the readings' effective count, before Holm's correction), `significant` (whether that test passes `trend_alpha` and Holm's correction), `named` (whether the headline names the trend) and `note` (when it does not, why: "not significant: p …, over the 0.01 a trend needs" when its own test fails, "not significant after Holm's correction (p … alone)" when it passes that but not Holm's correction, under the share a trend needs, or not the headline's finding; null when named). The text output adds the note to the detail row, so a trend or levels row under a headline that names neither says so |
 | `period` | the period search's strongest component (`other_periods_s`: the weaker ones, each also tried as a cycle): `period_s`, `significance` (−log10 false alarm), `explained`, `peak_to_peak` (for the rate, the swing of the rate itself from the slope of the average cycle, which 10 s readings show less of; see [long-runs.md](long-runs.md)), `timing_peak_to_peak_ms` (rate only), `size` and `size_unit` (the figure to show: ms of timing for a rate cycle under 30 s, see [long-runs.md](long-runs.md)), `wheel`, `harmonic_of` and `other_harmonic_of[]` (one per `other_periods_s`): null, or `period_s` and `n` when a longer cycle the search also found is n times this period (n 2 to 8, when n times the longer cycle's frequency is within one resolution, 1/span, of this one's, and only when one n and one longer cycle fit: neighbouring n are 1/q apart, so two can fit only when the longer cycle is over half the span, and then none is told) |
 | `two_state` | the two-state finder's full result (rate and amplitude only) |
 | `cycle` | the cycle found, if any, from the 2 s windows for the amplitude and the beat error: `period_s`, `peak_to_peak`, `explained`, `source` (`two_state`, `autocorrelation`, `period_search`), `wheel`, and `inner_period_s`, `inner_explained`, `turns` when the period is a whole number of turns of a shorter cycle that explains at least half as much |

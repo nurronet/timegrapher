@@ -308,10 +308,6 @@ printf '%s\n' '{"schema":"timegrapher.test/1"}'
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn child_exit_status_controls_success_even_with_json() {
     let dir = Scratch(std::env::temp_dir().join(format!(
         "timegrapher-mcp-child-outcome-{}",
@@ -368,71 +364,95 @@ fn child_exit_status_controls_success_even_with_json() {
             true,
         ),
     ] {
-        let cli = dir.0.join(case);
-        let invocations = dir.0.join(format!("{case}.calls"));
-        // Fixtures contain no apostrophes; all arguments to the double are ignored.
-        let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' call >> '{}'\nprintf '%s\\n' '{stdout}'\nprintf '%s\\n' 'child diagnostic' >&2\n{finish}\n",
-            invocations.display()
-        );
-        std::fs::write(&cli, script).unwrap();
-        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let (cli, invocations) = calibres_double(&dir.0, case, &stdout, finish);
         let mut client = Client::start(&cli, &dir.0.join("config"));
         let result = client.request(
             "tools/call",
             json!({ "name": "list_calibres", "arguments": {} }),
         );
-        let text = result["content"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|c| c["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("child diagnostic"), "{case}: {result}");
-        if case == "success" {
-            assert_ne!(result["isError"], true, "{result}");
-        } else {
-            assert_eq!(result["isError"], true, "{case}: {result}");
-            assert!(text.contains(expected_code), "{case}: {result}");
-            assert!(text.contains("timegrapher calibres failed"), "{result}");
-        }
-        if expected_json {
-            assert_eq!(
-                result["structuredContent"],
-                serde_json::from_str::<Value>(&stdout).unwrap(),
-                "{case}: {result}"
-            );
-            assert!(text.contains(&stdout), "{case}: {result}");
-        } else {
-            assert!(result.get("structuredContent").is_none(), "{result}");
-        }
+        result_says_how_the_child_ended(&result, case, &stdout, expected_code, expected_json);
         if case == "failed-json" {
-            let params = json!({
-                "name": "record_position",
-                "arguments": { "folder": dir.0.to_string_lossy(), "position": "DU",
-                    "take_id": "failed-take" },
-            });
-            // A failed take with diagnostics is never remembered as a successful
-            // recording, even when retried using the same take identifier.
-            for _ in 0..2 {
-                assert_eq!(
-                    client.request("tools/call", params.clone())["isError"],
-                    true
-                );
-            }
-            assert_eq!(
-                std::fs::read_to_string(&invocations)
-                    .unwrap()
-                    .lines()
-                    .count(),
-                3,
-                "one calibre call and both failed recording attempts ran"
-            );
+            failed_takes_are_not_remembered(&mut client, &dir.0, &invocations);
         }
         // An ordinary tool failure leaves the server usable for the next request.
         assert!(client.request("tools/list", json!({}))["tools"].is_array());
     }
+}
+
+/// A CLI double that logs each call to `<case>.calls`, prints `stdout`
+/// and a line on stderr, and ends with `finish`: the double and its log.
+fn calibres_double(dir: &Path, case: &str, stdout: &str, finish: &str) -> (PathBuf, PathBuf) {
+    let cli = dir.join(case);
+    let invocations = dir.join(format!("{case}.calls"));
+    // Fixtures contain no apostrophes; all arguments to the double are ignored.
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' call >> '{}'\nprintf '%s\\n' '{stdout}'\nprintf '%s\\n' 'child diagnostic' >&2\n{finish}\n",
+        invocations.display()
+    );
+    std::fs::write(&cli, script).unwrap();
+    std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+    (cli, invocations)
+}
+
+/// The result of `list_calibres` on the double of `case`: an error unless
+/// the child exited 0 with JSON, saying how it ended, and carrying the JSON
+/// it printed whenever it printed any.
+fn result_says_how_the_child_ended(
+    result: &Value,
+    case: &str,
+    stdout: &str,
+    expected_code: &str,
+    expected_json: bool,
+) {
+    let text = result["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("child diagnostic"), "{case}: {result}");
+    if case == "success" {
+        assert_ne!(result["isError"], true, "{result}");
+    } else {
+        assert_eq!(result["isError"], true, "{case}: {result}");
+        assert!(text.contains(expected_code), "{case}: {result}");
+        assert!(text.contains("timegrapher calibres failed"), "{result}");
+    }
+    if expected_json {
+        assert_eq!(
+            result["structuredContent"],
+            serde_json::from_str::<Value>(stdout).unwrap(),
+            "{case}: {result}"
+        );
+        assert!(text.contains(stdout), "{case}: {result}");
+    } else {
+        assert!(result.get("structuredContent").is_none(), "{result}");
+    }
+}
+
+/// A failed take with diagnostics is never remembered as a successful
+/// recording, even when retried using the same take identifier.
+fn failed_takes_are_not_remembered(client: &mut Client, dir: &Path, invocations: &Path) {
+    let params = json!({
+        "name": "record_position",
+        "arguments": { "folder": dir.to_string_lossy(), "position": "DU",
+            "take_id": "failed-take" },
+    });
+    for _ in 0..2 {
+        assert_eq!(
+            client.request("tools/call", params.clone())["isError"],
+            true
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(invocations)
+            .unwrap()
+            .lines()
+            .count(),
+        3,
+        "one calibre call and both failed recording attempts ran"
+    );
 }
 
 #[test]

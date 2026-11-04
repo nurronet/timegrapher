@@ -49,11 +49,13 @@ mod listen_card;
 mod masks;
 mod menus;
 mod pane_export;
+mod pane_room;
 mod paper_strip;
 mod positions_test;
 mod power_reserve_pane;
 mod readouts;
 mod scope_panes;
+mod session_marks;
 mod settings_pane;
 mod steadiness_panes;
 mod take_io;
@@ -61,6 +63,9 @@ mod watches_pane;
 
 use dock::PaneBehavior;
 use pane_export::PaneExport;
+use pane_room::keep_room;
+use session_marks::save_marks_to_take;
+use take_io::Opened;
 
 /// The A and B sides' sounds.
 type Profiles = [Option<TickProfile>; 2];
@@ -1267,146 +1272,124 @@ const MIN_PANE_W: f32 = 240.0;
 /// The height of a pane's tab bar.
 const TAB_BAR_H: f32 = 24.0;
 
-/// Give every pane on show at least [`MIN_PANE_H`] (or [`MIN_PANE_W`]
-/// across), or the height `need` says its tab on show needs if more,
-/// taken from the panes with room to spare, so opening a pane never
-/// crushes the others into a sliver. Worked from the sizes of the last
-/// frame; a window too small for them all shares its room in proportion.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
-fn keep_room(
-    tiles: &mut Tiles<Pane>,
-    need: impl Fn(Pane) -> Option<f32>,
-    dragged: &std::collections::HashSet<TileId>,
-) {
-    // The Paper Strip's row, whose least is kept first.
-    let strip_row: Vec<TileId> = tiles
-        .find_pane(&Pane::Strip)
-        .map(|mut id| {
-            let mut up = vec![id];
-            while let Some(p) = tiles.parent_of(id) {
-                up.push(p);
-                id = p;
-            }
-            up
-        })
-        .unwrap_or_default();
-    let ids: Vec<TileId> = tiles.tile_ids().collect();
-    for id in ids {
-        // A divider the user dragged stands where they left it.
-        if dragged.contains(&id) {
-            continue;
-        }
-        let Some(rect) = tiles.rect(id) else { continue };
-        let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(l))) = tiles.get(id)
-        else {
-            continue;
-        };
-        let shown: Vec<TileId> = l
-            .children
-            .iter()
-            .copied()
-            .filter(|&c| tiles.is_visible(c))
-            .collect();
-        let n = shown.len();
-        let vertical = l.dir == LinearDir::Vertical;
-        let room = if vertical {
-            rect.height()
-        } else {
-            rect.width()
-        };
-        let room = room - 8.0 * (n as f32 - 1.0);
-        if n < 2 || room <= 0.0 {
-            continue;
-        }
-        // Each child's least: a tab bar's panes may need more than the
-        // usual height, under its tab bar. The most any of its tabs needs,
-        // not the one on show, so changing tabs never moves the divider.
-        let mut least: Vec<f32> = shown
-            .iter()
-            .map(|&c| {
-                if !vertical {
-                    return MIN_PANE_W;
-                }
-                let more = match tiles.get(c) {
-                    Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(t))) => t
-                        .children
-                        .iter()
-                        .filter(|&&a| tiles.is_visible(a))
-                        .filter_map(|&a| match tiles.get(a) {
-                            Some(egui_tiles::Tile::Pane(p)) => need(*p),
-                            _ => None,
-                        })
-                        .reduce(f32::max)
-                        .map(|h| h + TAB_BAR_H),
-                    _ => None,
-                };
-                more.unwrap_or(0.0).max(MIN_PANE_H)
-            })
-            .collect();
-        // A window too small for them all keeps the Paper Strip's least,
-        // and shares the rest out in proportion.
-        let sum: f32 = least.iter().sum();
-        if sum > room {
-            let first: f32 = shown
+/// Each Steadiness pane's series, at least one shown; a pane not set yet
+/// takes `old`, the choice the one Steadiness pane had, unless that was
+/// every series, which older apps wrote whatever was chosen: those panes
+/// show Rate alone, as at first.
+fn steady_series_from(
+    shown: Vec<(steady::View, [bool; 3])>,
+    old: [bool; 3],
+) -> std::collections::BTreeMap<steady::View, [bool; 3]> {
+    let every = Some(old).filter(|s| *s != [true; 3]);
+    shown
+        .into_iter()
+        .chain(
+            Pane::STEADY
                 .iter()
-                .zip(&least)
-                .filter(|(c, _)| strip_row.contains(c))
-                .map(|(_, l)| *l)
-                .sum();
-            let (keep, k) = if first < room && sum > first {
-                (first, (room - first) / (sum - first))
-            } else {
-                (0.0, room / sum)
-            };
-            for (c, l) in shown.iter().zip(&mut least) {
-                if keep == 0.0 || !strip_row.contains(c) {
-                    *l *= k;
-                }
-            }
-        }
-        let least: Vec<f32> = least.iter().map(|l| l / room).collect();
-        let share: Vec<f32> = shown.iter().map(|&c| l.shares[c]).collect();
-        let total: f32 = share.iter().sum();
-        // Raise the smallest to their least, then share the rest out as
-        // before, until none of the rest falls under theirs.
-        let mut small = vec![false; n];
-        let rest_and_left = |small: &[bool]| {
-            let rest: f32 = (0..n).filter(|&i| !small[i]).map(|i| share[i]).sum();
-            let left = 1.0 - (0..n).filter(|&i| small[i]).map(|i| least[i]).sum::<f32>();
-            (rest, left)
-        };
-        loop {
-            let (rest, left) = rest_and_left(&small);
-            let under: Vec<usize> = (0..n)
-                .filter(|&i| !small[i] && share[i] / rest * left < least[i])
-                .collect();
-            if under.is_empty() {
-                break;
-            }
-            for i in under {
-                small[i] = true;
-            }
-        }
-        if !small.contains(&true) {
-            continue;
-        }
-        let (rest, left) = rest_and_left(&small);
-        if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(l))) =
-            tiles.get_mut(id)
-        {
-            for (i, &c) in shown.iter().enumerate() {
-                let f = if small[i] {
-                    least[i]
-                } else {
-                    share[i] / rest * left
-                };
-                l.shares.set_share(c, f * total);
-            }
+                .filter_map(|p| Some((p.steady_view()?, every?))),
+        )
+        .filter(|(_, s)| s.contains(&true))
+        .fold(Default::default(), |mut m, (v, s)| {
+            m.entry(v).or_insert(s);
+            m
+        })
+}
+
+/// A saved pane layout brought up to this app's panes: Watches out, as a
+/// view of the window now, and each pane added since in.
+fn upgraded_layout(mut p: Tree<Pane>) -> Tree<Pane> {
+    if let Some(w) = p.tiles.find_pane(&Pane::Watch) {
+        p.remove_recursively(w);
+    }
+    add_missing(&mut p, Pane::SteadyReadings);
+    // The views that were choices in the one Steadiness pane join
+    // it hidden, each to be shown from its icon.
+    for v in Pane::STEADY.into_iter().skip(1) {
+        if p.tiles.find_pane(&v).is_none() {
+            add_missing(&mut p, v);
+            set_pane_visible(&mut p.tiles, v, false);
         }
     }
+    add_missing(&mut p, Pane::Scope);
+    add_missing(&mut p, Pane::Isochronism);
+    add_missing(&mut p, Pane::PositionsTest);
+    if p.tiles.find_pane(&Pane::PowerReserve).is_none() {
+        add_missing(&mut p, Pane::PowerReserve);
+        set_pane_visible(&mut p.tiles, Pane::PowerReserve, false);
+    }
+    p
+}
+
+/// A group of the pane icons: its name, its hover and its panes.
+type PaneGroup = (&'static str, &'static str, &'static [Pane]);
+
+/// The pane icons' groups: the core panes, unnamed, then Analysis and
+/// Tests.
+fn pane_groups() -> [PaneGroup; 3] {
+    [
+        ("", "", &Pane::CORE),
+        (
+            "Analysis",
+            "The readings over the take as charts and as distributions, how the rate, \
+             amplitude and beat error each change over the session, from the same tests \
+             the command line runs, and how the rate moves with the amplitude: each \
+             view a pane of its own, so two can sit side by side",
+            &Pane::ANALYSIS,
+        ),
+        (
+            "Tests",
+            "The Positions Test and the Power Reserve Test, each with its results",
+            &Pane::TESTS,
+        ),
+    ]
+}
+
+/// Which of `groups` fold into a menu: where the bar is too narrow for
+/// every icon, the largest groups fold into a menu under their name,
+/// until the rest fit.
+fn folded_groups(ui: &egui::Ui, groups: &[PaneGroup; 3]) -> [bool; 5] {
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let words = |ui: &egui::Ui, t: &str| {
+        ui.fonts_mut(|f| f.layout_no_wrap(t.to_string(), small.clone(), Color32::WHITE))
+            .size()
+            .x
+    };
+    let icon_w = 28.0;
+    let open_w = |ui: &egui::Ui, name: &str, n: usize| {
+        let label = if name.is_empty() {
+            0.0
+        } else {
+            14.0 + words(ui, name) + 4.0
+        };
+        label + n as f32 * icon_w
+    };
+    let folded_w = |ui: &egui::Ui, name: &str| 14.0 + words(ui, name) + 28.0;
+    let mut folded = [false; 5];
+    let width = |folded: &[bool; 5], ui: &egui::Ui| {
+        groups
+            .iter()
+            .zip(folded)
+            .map(|((name, _, panes), &f)| {
+                if f {
+                    folded_w(ui, name)
+                } else {
+                    open_w(ui, name, panes.len())
+                }
+            })
+            .sum::<f32>()
+            + 14.0
+            + 2.0 * icon_w
+    };
+    let room = ui.available_width();
+    let mut order: Vec<usize> = (1..groups.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(groups[i].2.len()));
+    for i in order {
+        if width(&folded, ui) <= room {
+            break;
+        }
+        folded[i] = true;
+    }
+    folded
 }
 
 /// Each row or column of panes' shares, to see which a drag changed.
@@ -1793,20 +1776,6 @@ fn trend_beat_error(p: &TrendPoint) -> Option<f64> {
 
 /// Where each position began, seconds, and the position, oldest first.
 type Stretches = Vec<(f64, Position)>;
-
-/// A take opened by core's `take::open_entry`, for the window: its beats,
-/// clock and breaks, and for a take kept as its analysis alone, the Tick
-/// Tock profiles it kept.
-#[derive(Debug)]
-struct Opened {
-    log: BeatLog,
-    clock: Option<timegrapher_core::clock::ClockFit>,
-    /// Where the clock came from, in core's words.
-    clock_source: Option<String>,
-    breaks: Vec<timegrapher_core::breaks::Break>,
-    unlisted: Option<timegrapher_core::breaks::Unlisted>,
-    profiles: Option<Vec<analysis_take::StretchProfiles>>,
-}
 
 struct Batch {
     rx: std::sync::mpsc::Receiver<Result<Option<Opened>, String>>,
@@ -2408,10 +2377,6 @@ impl TimegrapherApp {
     /// Put back the views and choices from the last time. A pane layout
     /// from another version of the app, missing a pane or holding one twice,
     /// is set aside for the starting one.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     pub fn apply_settings(&mut self, s: Settings) {
         let Settings {
             device,
@@ -2476,12 +2441,7 @@ impl TimegrapherApp {
         self.cal.migrate(custom_calibres);
         self.cal
             .restore(recent_calibres, short_added, short_removed);
-        // Checked against the inputs when they are listed.
-        if let Some(d) = device.filter(|d| {
-            !self.devices_listed || capture::choices(&self.devices).iter().any(|c| &c.id == d)
-        }) {
-            self.device = Some(d);
-        }
+        self.restore_device(device);
         let mut strip = strip;
         strip.set_half_width(strip.half_width_ms);
         strip.set_span(strip.span_s);
@@ -2504,52 +2464,10 @@ impl TimegrapherApp {
         self.maps_db = maps_db;
         self.show_wheels = show_wheels;
         self.steady_info = steady_info;
-        self.guided_settle_s =
-            positions_settle_s.clamp(*guided::SETTLE_RANGE.start(), *guided::SETTLE_RANGE.end());
-        self.session.set_settle_s(self.guided_settle_s);
-        self.guided_measure_s =
-            positions_measure_s.clamp(*guided::MEASURE_RANGE.start(), *guided::MEASURE_RANGE.end());
-        // Each pane's series, at least one shown; a pane not set yet takes
-        // the choice the one Steadiness pane had, unless that was every
-        // series, which older apps wrote whatever was chosen: those panes
-        // show Rate alone, as at first.
-        let every = Some(steady_series).filter(|s| *s != [true; 3]);
-        self.steady_series = steady_shown
-            .into_iter()
-            .chain(
-                Pane::STEADY
-                    .iter()
-                    .filter_map(|p| Some((p.steady_view()?, every?))),
-            )
-            .filter(|(_, s)| s.contains(&true))
-            .fold(Default::default(), |mut m, (v, s)| {
-                m.entry(v).or_insert(s);
-                m
-            });
+        self.set_positions_times(positions_settle_s, positions_measure_s);
+        self.steady_series = steady_series_from(steady_shown, steady_series);
         self.scope_view = scope;
-        self.panes = match panes.map(|mut p| {
-            // Watches is a view of the window now, not a pane.
-            if let Some(w) = p.tiles.find_pane(&Pane::Watch) {
-                p.remove_recursively(w);
-            }
-            add_missing(&mut p, Pane::SteadyReadings);
-            // The views that were choices in the one Steadiness pane join
-            // it hidden, each to be shown from its icon.
-            for v in Pane::STEADY.into_iter().skip(1) {
-                if p.tiles.find_pane(&v).is_none() {
-                    add_missing(&mut p, v);
-                    set_pane_visible(&mut p.tiles, v, false);
-                }
-            }
-            add_missing(&mut p, Pane::Scope);
-            add_missing(&mut p, Pane::Isochronism);
-            add_missing(&mut p, Pane::PositionsTest);
-            if p.tiles.find_pane(&Pane::PowerReserve).is_none() {
-                add_missing(&mut p, Pane::PowerReserve);
-                set_pane_visible(&mut p.tiles, Pane::PowerReserve, false);
-            }
-            p
-        }) {
+        self.panes = match panes.map(upgraded_layout) {
             Some(p) if layout_is_whole(&p) => {
                 self.panes_dragged = panes_dragged.into_iter().collect();
                 p
@@ -2558,11 +2476,31 @@ impl TimegrapherApp {
         };
     }
 
+    /// The input `device` saved last time, checked against the inputs
+    /// when they are listed.
+    fn restore_device(&mut self, device: Option<String>) {
+        if let Some(d) = device.filter(|d| {
+            !self.devices_listed || capture::choices(&self.devices).iter().any(|c| &c.id == d)
+        }) {
+            self.device = Some(d);
+        }
+    }
+
+    /// The Positions Test's settle and measure times, each kept in its
+    /// range.
+    fn set_positions_times(&mut self, settle_s: f64, measure_s: f64) {
+        self.guided_settle_s =
+            settle_s.clamp(*guided::SETTLE_RANGE.start(), *guided::SETTLE_RANGE.end());
+        self.session.set_settle_s(self.guided_settle_s);
+        self.guided_measure_s =
+            measure_s.clamp(*guided::MEASURE_RANGE.start(), *guided::MEASURE_RANGE.end());
+    }
+
     /// The app with a given device list. Tests pass an empty one: listing
     /// devices from several test threads at once crashes on Windows.
     #[expect(
         clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
+        reason = "the app's one struct literal, a line a field: shorter needs its state grouped, which waits for a need (#514)"
     )]
     fn with_devices(devices: Vec<InputDevice>, file: Option<PathBuf>) -> Self {
         let device = capture::choices(&devices).first().map(|c| c.id.clone());
@@ -2623,7 +2561,7 @@ impl TimegrapherApp {
             input_fault: None,
             pump_fault: None,
             check_pending: false,
-            average_s: 10.0,
+            average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
             watch: String::new(),
             calibre: String::new(),
             cal: calibre_ui::Calibres::in_memory(),
@@ -2679,11 +2617,8 @@ impl TimegrapherApp {
             open_note: None,
             may_close: false,
             save_dir: home.join("Timegrapher recordings").display().to_string(),
-            strip: StripView {
-                half_width_ms: 10.0,
-                span_s: 30.0,
-                horizontal: true,
-            },
+            // As the settings first are.
+            strip: Settings::default().strip,
             follow: false,
             rate_line: true,
             rate_guides: true,
@@ -2803,8 +2738,19 @@ impl TimegrapherApp {
     /// Work the charts out again over the whole session, for a new
     /// averaging time or lift angle.
     fn rebuild_trend(&mut self) {
+        let points = self
+            .live
+            .as_ref()
+            .map_or_else(Vec::new, |l| l.trend(self.average_s));
+        self.put_trend(points);
+    }
+
+    /// The charts from the engine's readings at the averaging time,
+    /// `points`, read here or off the window's thread.
+    fn put_trend(&mut self, mut points: Vec<TrendPoint>) {
         self.strip_points = None;
-        self.trend = self.context_trend(self.average_s);
+        points.retain(|p| self.session.replay_reading_allowed(p.t));
+        self.trend = points;
         self.trend_key = (self.rev, self.average_s.to_bits());
     }
 
@@ -2814,15 +2760,6 @@ impl TimegrapherApp {
         if self.trend_key != (self.rev, self.average_s.to_bits()) {
             self.rebuild_trend();
         }
-    }
-
-    fn context_trend(&self, seconds: f64) -> Vec<TrendPoint> {
-        let mut points = self
-            .live
-            .as_ref()
-            .map_or_else(Vec::new, |l| l.trend(seconds));
-        points.retain(|p| self.session.replay_reading_allowed(p.t));
-        points
     }
 
     fn latest_s(&self) -> f64 {
@@ -3505,10 +3442,6 @@ impl TimegrapherApp {
         self.settings_gear(ui);
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn pane_icon_groups(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.x = 2.0;
         let pal = theme::pal(ui);
@@ -3524,117 +3457,73 @@ impl TimegrapherApp {
         {
             self.show_readings = !self.show_readings;
         }
-        let groups: [(&str, &str, &[Pane]); 3] = [
-            ("", "", &Pane::CORE),
-            (
-                "Analysis",
-                "The readings over the take as charts and as distributions, how the rate, \
-                 amplitude and beat error each change over the session, from the same tests \
-                 the command line runs, and how the rate moves with the amplitude: each \
-                 view a pane of its own, so two can sit side by side",
-                &Pane::ANALYSIS,
-            ),
-            (
-                "Tests",
-                "The Positions Test and the Power Reserve Test, each with its results",
-                &Pane::TESTS,
-            ),
-        ];
-        // Where the bar is too narrow for every icon, the largest groups
-        // fold into a menu under their name, until the rest fit.
-        let small = egui::TextStyle::Small.resolve(ui.style());
-        let words = |ui: &egui::Ui, t: &str| {
-            ui.fonts_mut(|f| f.layout_no_wrap(t.to_string(), small.clone(), Color32::WHITE))
-                .size()
-                .x
-        };
-        let icon_w = 28.0;
-        let open_w = |ui: &egui::Ui, name: &str, n: usize| {
-            let label = if name.is_empty() {
-                0.0
-            } else {
-                14.0 + words(ui, name) + 4.0
-            };
-            label + n as f32 * icon_w
-        };
-        let folded_w = |ui: &egui::Ui, name: &str| 14.0 + words(ui, name) + 28.0;
-        let mut folded = [false; 5];
-        let width = |folded: &[bool; 5], ui: &egui::Ui| {
-            groups
-                .iter()
-                .zip(folded)
-                .map(|((name, _, panes), &f)| {
-                    if f {
-                        folded_w(ui, name)
-                    } else {
-                        open_w(ui, name, panes.len())
-                    }
-                })
-                .sum::<f32>()
-                + 14.0
-                + 2.0 * icon_w
-        };
-        let room = ui.available_width();
-        let mut order: Vec<usize> = (1..groups.len()).collect();
-        order.sort_by_key(|&i| std::cmp::Reverse(groups[i].2.len()));
-        for i in order {
-            if width(&folded, ui) <= room {
-                break;
-            }
-            folded[i] = true;
-        }
+        let groups = pane_groups();
+        let folded = folded_groups(ui, &groups);
         for (g, (name, hint, panes)) in groups.into_iter().enumerate() {
             if !name.is_empty() {
                 ui.add_space(6.0);
                 ui.separator();
             }
             if folded[g] {
-                let on = panes
+                self.folded_group(ui, name, hint, panes);
+            } else {
+                self.group_icons(ui, name, hint, panes);
+            }
+        }
+    }
+
+    /// A group of pane icons folded into a menu under its `name`, the
+    /// number shown beside it.
+    fn folded_group(&mut self, ui: &mut egui::Ui, name: &str, hint: &str, panes: &[Pane]) {
+        let on = panes
+            .iter()
+            .filter(|&&p| pane_visible(&self.panes.tiles, p))
+            .count();
+        let label = if on > 0 {
+            format!("{name} ({on}) ⏷")
+        } else {
+            format!("{name} ⏷")
+        };
+        let button = ui
+            .add(egui::Button::new(RichText::new(label).small()).frame_when_inactive(false))
+            .on_hover_text(format!(
+                "{hint}. Folded into a menu while the window is narrow: {}.",
+                panes
                     .iter()
-                    .filter(|&&p| pane_visible(&self.panes.tiles, p))
-                    .count();
-                let label = if on > 0 {
-                    format!("{name} ({on}) ⏷")
-                } else {
-                    format!("{name} ⏷")
-                };
-                let button = ui
-                    .add(egui::Button::new(RichText::new(label).small()).frame_when_inactive(false))
-                    .on_hover_text(format!(
-                        "{hint}. Folded into a menu while the window is narrow: {}.",
-                        panes
-                            .iter()
-                            .map(|p| p.title())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
-                egui::Popup::menu(&button).show(|ui| {
-                    for &pane in panes {
-                        let mut shown = pane_visible(&self.panes.tiles, pane);
-                        if ui
-                            .checkbox(&mut shown, pane.title())
-                            .on_hover_text(pane.hint())
-                            .changed()
-                        {
-                            self.show_pane(pane, shown);
-                        }
-                    }
-                });
-                continue;
-            }
-            if !name.is_empty() {
-                ui.label(RichText::new(name).small().color(pal.text_tertiary))
-                    .on_hover_text(hint);
-            }
+                    .map(|p| p.title())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        egui::Popup::menu(&button).show(|ui| {
             for &pane in panes {
-                let on = pane_visible(&self.panes.tiles, pane);
-                let icon = pane_icon(pane);
-                if theme::icon_toggle_off(ui, icon, on, pal.accent, pal.text_secondary)
-                    .on_hover_text(format!("{}: {}", pane.title(), pane.hint()))
-                    .clicked()
+                let mut shown = pane_visible(&self.panes.tiles, pane);
+                if ui
+                    .checkbox(&mut shown, pane.title())
+                    .on_hover_text(pane.hint())
+                    .changed()
                 {
-                    self.show_pane(pane, !on);
+                    self.show_pane(pane, shown);
                 }
+            }
+        });
+    }
+
+    /// A group of pane icons under its `name`, each showing or hiding its
+    /// pane.
+    fn group_icons(&mut self, ui: &mut egui::Ui, name: &str, hint: &str, panes: &[Pane]) {
+        let pal = theme::pal(ui);
+        if !name.is_empty() {
+            ui.label(RichText::new(name).small().color(pal.text_tertiary))
+                .on_hover_text(hint);
+        }
+        for &pane in panes {
+            let on = pane_visible(&self.panes.tiles, pane);
+            let icon = pane_icon(pane);
+            if theme::icon_toggle_off(ui, icon, on, pal.accent, pal.text_secondary)
+                .on_hover_text(format!("{}: {}", pane.title(), pane.hint()))
+                .clicked()
+            {
+                self.show_pane(pane, !on);
             }
         }
     }
@@ -4209,63 +4098,6 @@ fn take_entry(
     Ok((base, m, entry))
 }
 
-/// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`
-/// on a thread of its own, sending what it read to `tx`: `progress` holds
-/// the seconds of sound read (for a take kept as its analysis alone, its
-/// length `kept_s` once read) and setting `cancel` stops it, sending
-/// nothing.
-fn open_in_background(
-    opening: (PathBuf, Manifest, RecordingEntry),
-    settings: timegrapher_core::take::EntrySettings,
-    tx: std::sync::mpsc::Sender<Result<Option<Opened>, String>>,
-    progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    kept_s: Option<f64>,
-) {
-    use std::sync::atomic::Ordering::Relaxed;
-    use timegrapher_core::take;
-    std::thread::spawn(move || {
-        let (base, m, e) = opening;
-        // A cancel unwinds out of the analysis from its progress report
-        // (resume_unwind runs no panic hook, so nothing is printed).
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            take::open_entry(
-                &base,
-                &m,
-                &e,
-                &settings,
-                take::usb,
-                |first| take::correction_for(&m, first, None, None),
-                |s, _| {
-                    progress.store(s.to_bits(), Relaxed);
-                    if cancel.load(Relaxed) {
-                        std::panic::resume_unwind(Box::new(Cancelled));
-                    }
-                },
-            )
-        }));
-        match r {
-            Ok(r) => {
-                if let Some(s) = kept_s {
-                    progress.store(s.to_bits(), Relaxed);
-                }
-                let _ = tx.send(r.map(|o| {
-                    Some(Opened {
-                        log: o.log,
-                        clock: o.clock,
-                        clock_source: o.clock_source,
-                        breaks: o.breaks,
-                        unlisted: o.unlisted,
-                        profiles: o.kept.map(|k| k.profiles),
-                    })
-                }));
-            }
-            Err(e) if e.is::<Cancelled>() => {}
-            Err(e) => std::panic::resume_unwind(e),
-        }
-    });
-}
-
 /// Where a bug report starts: the repository's bug form.
 const BUG_REPORT_URL: &str =
     "https://github.com/peterhudson/timegrapher/issues/new?template=bug.yml";
@@ -4432,200 +4264,6 @@ fn lists(dir: &Path, file: &str, path: &Path) -> bool {
             && named.is_dir()
             && path.parent().is_some_and(|p| same(p, &named))
             && recordings_in(&named).is_ok_and(|f| f.len() == 1 && same(&f[0], path)))
-}
-
-/// Save `masked` to the entries for `path` in its take's session file,
-/// leaving the rest of the file as it was, comments and keys this app
-/// doesn't read too, and with `positions` (start, end and position
-/// code of each stretch, as [`App::opened_entries`] gives them) put one
-/// entry per stretch in place of those entries, each keeping what the
-/// first of them said besides. Positions are refused where the entries
-/// list more than one file.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
-fn save_marks_to_take(
-    path: &Path,
-    masked: &[[f64; 2]],
-    positions: Option<&Entries>,
-    recorded: &[RecordedPosition],
-) -> Result<PathBuf, String> {
-    let dir = if path.is_dir() {
-        path.to_path_buf()
-    } else {
-        path.parent()
-            .ok_or_else(|| format!("{} has no folder", path.display()))?
-            .to_path_buf()
-    };
-    let file = dir.join(MANIFEST);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let mut doc: toml_edit::DocumentMut = text
-        .parse()
-        .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
-    let listed = |t: &dyn toml_edit::TableLike| {
-        t.get("file")
-            .and_then(|f| f.as_str())
-            .is_some_and(|f| lists(&dir, f, path))
-    };
-    let mut spans = toml_edit::Array::new();
-    for m in masked {
-        spans.push(toml_edit::Array::from_iter([m[0], m[1]]));
-    }
-    let set = |t: &mut dyn toml_edit::TableLike| {
-        if masked.is_empty() {
-            t.remove("masked");
-        } else {
-            t.insert("masked", toml_edit::value(spans.clone()));
-        }
-    };
-    // One stretch's entry: the first entry listed, with its position and
-    // times.
-    let place = |t: &mut dyn toml_edit::TableLike,
-                 (start, end, code): &(Option<f64>, Option<f64>, String)| {
-        t.insert("position", toml_edit::value(code.as_str()));
-        for (key, v) in [("start_s", start), ("end_s", end)] {
-            match v {
-                Some(v) => t.insert(key, toml_edit::value(*v)),
-                None => t.remove(key),
-            };
-        }
-        // Each start is already after its settling: nothing to skip again.
-        t.insert("settle_s", toml_edit::value(0.0));
-    };
-    let one_file = |files: Vec<String>| {
-        if files.windows(2).any(|w| w[0] != w[1]) {
-            Err(format!(
-                "{} lists {} as more than one file, so its positions can't be saved",
-                file.display(),
-                capture_label(path)
-            ))
-        } else {
-            Ok(())
-        }
-    };
-    let file_of = |t: &dyn toml_edit::TableLike| {
-        t.get("file")
-            .and_then(|f| f.as_str())
-            .unwrap_or_default()
-            .to_string()
-    };
-    let mut changed = 0;
-    match doc.get_mut("recording") {
-        Some(toml_edit::Item::ArrayOfTables(tables)) => match positions {
-            None => {
-                for t in tables.iter_mut().filter(|t| listed(*t)) {
-                    set(t);
-                    changed += 1;
-                }
-            }
-            Some(positions) => {
-                one_file(
-                    tables
-                        .iter()
-                        .filter(|t| listed(*t))
-                        .map(|t| file_of(t))
-                        .collect(),
-                )?;
-                let mut out = toml_edit::ArrayOfTables::new();
-                let mut done = false;
-                for t in tables.iter() {
-                    if !listed(t) {
-                        out.push(t.clone());
-                        continue;
-                    }
-                    changed += 1;
-                    if std::mem::replace(&mut done, true) {
-                        continue;
-                    }
-                    for (i, p) in positions.iter().enumerate() {
-                        let mut e = t.clone();
-                        // A comment stays on the first copy alone.
-                        if i > 0 {
-                            e.decor_mut().set_prefix("\n");
-                            for (_, item) in e.iter_mut() {
-                                if let Some(v) = item.as_value_mut() {
-                                    v.decor_mut().clear();
-                                }
-                            }
-                        }
-                        place(&mut e, p);
-                        set(&mut e);
-                        out.push(e);
-                    }
-                }
-                *tables = out;
-            }
-        },
-        Some(toml_edit::Item::Value(toml_edit::Value::Array(entries))) => match positions {
-            None => {
-                for t in entries.iter_mut().filter_map(|v| v.as_inline_table_mut()) {
-                    if listed(t) {
-                        set(t);
-                        changed += 1;
-                    }
-                }
-            }
-            Some(positions) => {
-                one_file(
-                    entries
-                        .iter()
-                        .filter_map(|v| v.as_inline_table())
-                        .filter(|t| listed(*t))
-                        .map(|t| file_of(t))
-                        .collect(),
-                )?;
-                let mut out = toml_edit::Array::new();
-                let mut done = false;
-                for v in entries.iter() {
-                    let Some(t) = v.as_inline_table().filter(|t| listed(*t)) else {
-                        out.push_formatted(v.clone());
-                        continue;
-                    };
-                    changed += 1;
-                    if std::mem::replace(&mut done, true) {
-                        continue;
-                    }
-                    for p in positions {
-                        let mut e = t.clone();
-                        place(&mut e, p);
-                        set(&mut e);
-                        out.push(e);
-                    }
-                }
-                *entries = out;
-            }
-        },
-        _ => {}
-    }
-    if changed == 0 {
-        return Err(format!(
-            "{} doesn't list {}",
-            file.display(),
-            capture_label(path)
-        ));
-    }
-    // With the positions, what was recorded under any painting of them.
-    if positions.is_some() {
-        if recorded.is_empty() {
-            doc.remove("recorded");
-        } else {
-            let mut out = toml_edit::ArrayOfTables::new();
-            for r in recorded {
-                let mut t = toml_edit::Table::new();
-                t.insert("position", toml_edit::value(r.position.as_str()));
-                for (key, v) in [("start_s", r.start_s), ("end_s", r.end_s)] {
-                    if let Some(v) = v {
-                        t.insert(key, toml_edit::value(v));
-                    }
-                }
-                out.push(t);
-            }
-            doc.insert("recorded", toml_edit::Item::ArrayOfTables(out));
-        }
-    }
-    write_replacing(&file, &doc.to_string())?;
-    Ok(file)
 }
 
 /// `t` seconds to the nearest tenth.

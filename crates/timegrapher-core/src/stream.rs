@@ -153,59 +153,21 @@ struct State {
 impl State {
     /// Analyse `x`, which starts at sample `x0`, keeping the beats whose
     /// time falls in `[core_a, core_b)` (seconds).
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn chunk(&mut self, x: &[f32], x0: usize, core_a: f64, core_b: f64) {
         let fs = self.fs;
         let a = &self.cfg.analysis;
         let env = envelope(x, fs, &a.envelope);
-        let mut heard_first = false;
-        let local = match &self.template {
+        let (local, heard_first) = match &self.template {
             Some(t) => {
                 let (b, level) = beats::detect_after(&env, fs, self.bph, t, self.level);
                 self.level = level;
-                b
+                (b, false)
             }
             None => {
-                // Until a regular beat is heard, each chunk is looked at
-                // afresh from where its sound starts, and the template is
-                // kept only once its beats are a watch's (#476): silence or
-                // noise before the watch is placed sets neither the rate nor
-                // the beat's sound for the rest of the file.
-                let Some(from) = beats::sound_onset(&env, fs) else {
+                let Some(found) = self.first_beats(&env) else {
                     return;
                 };
-                self.bph = a.bph.unwrap_or_else(|| beats::guess_bph(&env, fs));
-                let (b, t, level) = beats::detect_levelled(&env[from..], fs, self.bph);
-                let shift = from as f64 / fs;
-                let b: Vec<Beat> = b
-                    .into_iter()
-                    .map(|x| Beat {
-                        time: x.time + shift,
-                        ..x
-                    })
-                    .collect();
-                // Judged as every reading judges a stretch: the median
-                // timing scatter of its 10 s windows.
-                let windows = crate::session::scatter_windows(
-                    &crate::clean::Cuts::new(None, &[], &[]),
-                    &b,
-                    self.bph,
-                    0.0,
-                    env.len() as f64 / fs,
-                    a.amplitude_window_s,
-                );
-                let jitter_us = crate::session::scatter_jitter_us(&windows);
-                if beats::watch_heard(jitter_us, self.bph) {
-                    self.template = Some(t);
-                    self.level = level;
-                    // The beats found before the watch was heard are noise,
-                    // and no count of beats runs on from them.
-                    heard_first = !self.beats.is_empty();
-                }
-                b
+                found
             }
         };
         let off = x0 as f64 / fs;
@@ -270,8 +232,67 @@ impl State {
                 swap_sides_from(j - off, &mut numbered, &mut []);
             }
         }
+        self.count_clipping(x, off, core_a, core_b, kept_from);
 
-        // Clipping, counted on this chunk's own stretch.
+        self.amplitude_chunk(
+            &env,
+            &numbered,
+            off,
+            off + x.len() as f64 / fs,
+            core_b,
+            beat,
+        );
+    }
+
+    /// The beats of a chunk before a watch has been heard, and whether the
+    /// watch is first heard in it after beats were already kept; none
+    /// where the chunk holds no sound.
+    fn first_beats(&mut self, env: &[f32]) -> Option<(Vec<Beat>, bool)> {
+        let fs = self.fs;
+        let a = &self.cfg.analysis;
+        let mut heard_first = false;
+        // Until a regular beat is heard, each chunk is looked at
+        // afresh from where its sound starts, and the template is
+        // kept only once its beats are a watch's (#476): silence or
+        // noise before the watch is placed sets neither the rate nor
+        // the beat's sound for the rest of the file.
+        let from = beats::sound_onset(env, fs)?;
+        self.bph = a.bph.unwrap_or_else(|| beats::guess_bph(env, fs));
+        let (b, t, level) = beats::detect_levelled(&env[from..], fs, self.bph);
+        let shift = from as f64 / fs;
+        let b: Vec<Beat> = b
+            .into_iter()
+            .map(|x| Beat {
+                time: x.time + shift,
+                ..x
+            })
+            .collect();
+        // Judged as every reading judges a stretch: the median
+        // timing scatter of its 10 s windows.
+        let windows = crate::session::scatter_windows(
+            &crate::clean::Cuts::new(None, &[], &[]),
+            &b,
+            self.bph,
+            0.0,
+            env.len() as f64 / fs,
+            a.amplitude_window_s,
+        );
+        let jitter_us = crate::session::scatter_jitter_us(&windows);
+        if beats::watch_heard(jitter_us, self.bph) {
+            self.template = Some(t);
+            self.level = level;
+            // The beats found before the watch was heard are noise,
+            // and no count of beats runs on from them.
+            heard_first = !self.beats.is_empty();
+        }
+        Some((b, heard_first))
+    }
+
+    /// Clipping, counted on this chunk's own stretch: its clipped samples
+    /// in `[core_a, core_b)`, and which beats kept from `kept_from` on
+    /// clipped.
+    fn count_clipping(&mut self, x: &[f32], off: f64, core_a: f64, core_b: f64, kept_from: usize) {
+        let fs = self.fs;
         let idx = crate::diagnose::clipped_indices(x, crate::analysis::CLIP_LEVEL);
         if !idx.is_empty() {
             let at = |i: usize| off + i as f64 / fs;
@@ -289,19 +310,30 @@ impl State {
                 }
             }
         }
+    }
 
-        // Amplitude on a fixed grid of windows starting inside this chunk.
+    /// Amplitude on a fixed grid of windows starting inside a chunk that
+    /// starts at `off` and ends at `x_end` seconds.
+    fn amplitude_chunk(
+        &mut self,
+        env: &[f32],
+        numbered: &[Beat],
+        off: f64,
+        x_end: f64,
+        core_b: f64,
+        beat: f64,
+    ) {
+        let fs = self.fs;
         let w = self.cfg.analysis.amplitude_window_s;
-        let x_end = off + x.len() as f64 / fs;
         let mut to = self.next_amp_s;
         while to < core_b && to + w <= x_end {
             to += w;
         }
         if to > self.next_amp_s {
             let wins = amplitude::windows_between(
-                &env,
+                env,
                 fs,
-                &numbered,
+                numbered,
                 2.0 * beat,
                 w,
                 self.next_amp_s - off,

@@ -186,10 +186,6 @@ pub fn clipped_indices(x: &[f32], clip_level: f32) -> Vec<usize> {
 }
 
 /// Measure a short recording and name the conditions detected in it.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
     let fs = audio.sample_rate as f64;
     let x = &audio.samples;
@@ -212,6 +208,97 @@ pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
     let good: Vec<_> = found.iter().filter(|b| b.is_good()).copied().collect();
     let fit = timing::fit(&good, bph);
 
+    let Levels {
+        tick,
+        noise,
+        gap_rise,
+    } = tick_levels(&env, fs, &good, beat_s);
+    let tick_to_noise = tick.map(|t| db(t) - db(noise));
+    // The readings' own signal figure (`live::signal_figure`), none with
+    // no beat found or where the envelope's median is zero, as over
+    // digital silence, which has no figure (#784).
+    let signal_x = (!found.is_empty())
+        .then(|| crate::live::signal_figure(&env, fs, &found))
+        .flatten()
+        .map(f64::from);
+
+    let mut issues = Vec::new();
+    let (silent, clipping) = level_issues(&mut issues, peak, clipped, gap_rise);
+    let mut add = |code, title: String, evidence: String| {
+        issues.push(Issue {
+            code,
+            title,
+            evidence,
+        })
+    };
+    let few_beats = good.len() < expected / 2 || fit.is_none();
+    let faint = faint(signal_x);
+    let signal = signal_x.map_or("no signal figure".into(), |x| format!("signal {x:.1}×"));
+    if !silent && (few_beats || faint) {
+        // The title names the test that fired: no timing fit, under half
+        // the beats expected, or ticks too faint over the noise however
+        // well they time (#772).
+        let title = if fit.is_none() {
+            beats::no_regular_beat_text(None, None)
+        } else if few_beats {
+            format!(
+                "No regular beat found (only {} of about {expected} beats)",
+                good.len()
+            )
+        } else {
+            format!("Ticks too faint over the noise ({signal}, under {NO_TICKS_SIGNAL_X:.0}×)")
+        };
+        add(
+            IssueCode::NoTicks,
+            title,
+            format!("{} of about {expected} beats found, {signal}", good.len()),
+        );
+    }
+    let too_quiet = !silent && !clipping && db(peak) < QUIET_PEAK_DBFS;
+    if too_quiet {
+        add(
+            IssueCode::TooQuiet,
+            format!("Peak {:.0} dBFS", db(peak)),
+            format!("under {QUIET_PEAK_DBFS:.0} dBFS, too quiet to time well"),
+        );
+    }
+    let suggested = suggested_gain(peak, silent, clipping, too_quiet);
+
+    SignalCheck {
+        sample_rate: audio.sample_rate,
+        duration_s,
+        peak_dbfs: db(peak),
+        rms_dbfs: db(rms),
+        dc_offset: dc,
+        clipped_samples: clipped,
+        bph,
+        beats_expected: expected,
+        beats_found: good.len(),
+        tick_level_dbfs: tick.map(db),
+        noise_level_dbfs: db(noise),
+        tick_to_noise_db: tick_to_noise,
+        signal_x,
+        gap_rise_db: gap_rise,
+        rate_s_per_day: fit.map(|f| f.rate_s_per_day),
+        beat_error_ms: fit.map(|f| f.beat_error_ms.abs()),
+        suggested_gain_change_db: suggested,
+        issues,
+    }
+}
+
+/// The tick, background and in-gap rise levels of a recording.
+struct Levels {
+    /// The median tick peak, none with no good beat.
+    tick: Option<f64>,
+    /// The background, scaled to read as RMS.
+    noise: f64,
+    /// How far the background late in the gap sits above early in it, in
+    /// dB, once there are 8 gaps to compare.
+    gap_rise: Option<f64>,
+}
+
+/// Levels around each tick, from the envelope `env`.
+fn tick_levels(env: &[f32], fs: f64, good: &[beats::Beat], beat_s: f64) -> Levels {
     // Levels around each tick, from the envelope (high-passed, rectified):
     // tick peak just around the beat, background in the gap after it.
     let at = |t: f64| ((t * fs).round().max(0.0) as usize).min(env.len());
@@ -222,7 +309,7 @@ pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
     let mut ticks = Vec::new();
     let mut early = Vec::new();
     let mut late = Vec::new();
-    for b in &good {
+    for b in good {
         let (i, j) = (at(b.time - 0.015), at(b.time + 0.005));
         if j > i {
             ticks.push(env[i..j].iter().fold(0f32, |m, &v| m.max(v)) as f64);
@@ -263,16 +350,22 @@ pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
             median(&mut r)
         }
     });
-    let tick_to_noise = tick.map(|t| db(t) - db(noise));
-    // The readings' own signal figure (`live::signal_figure`), none with
-    // no beat found or where the envelope's median is zero, as over
-    // digital silence, which has no figure (#784).
-    let signal_x = (!found.is_empty())
-        .then(|| crate::live::signal_figure(&env, fs, &found))
-        .flatten()
-        .map(f64::from);
+    Levels {
+        tick,
+        noise,
+        gap_rise,
+    }
+}
 
-    let mut issues = Vec::new();
+/// Adds the issues the levels alone show (no signal, clipping, a hot peak,
+/// a background rising between ticks) to `issues`, and says whether the
+/// recording is silent and whether it clips.
+fn level_issues(
+    issues: &mut Vec<Issue>,
+    peak: f64,
+    clipped: usize,
+    gap_rise: Option<f64>,
+) -> (bool, bool) {
     let mut add = |code, title: String, evidence: String| {
         issues.push(Issue {
             code,
@@ -316,38 +409,12 @@ pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
             format!("background late in the gap {r:.1} dB above early in it"),
         );
     }
-    let few_beats = good.len() < expected / 2 || fit.is_none();
-    let faint = faint(signal_x);
-    let signal = signal_x.map_or("no signal figure".into(), |x| format!("signal {x:.1}×"));
-    if !silent && (few_beats || faint) {
-        // The title names the test that fired: no timing fit, under half
-        // the beats expected, or ticks too faint over the noise however
-        // well they time (#772).
-        let title = if fit.is_none() {
-            beats::no_regular_beat_text(None, None)
-        } else if few_beats {
-            format!(
-                "No regular beat found (only {} of about {expected} beats)",
-                good.len()
-            )
-        } else {
-            format!("Ticks too faint over the noise ({signal}, under {NO_TICKS_SIGNAL_X:.0}×)")
-        };
-        add(
-            IssueCode::NoTicks,
-            title,
-            format!("{} of about {expected} beats found, {signal}", good.len()),
-        );
-    }
-    let too_quiet = !silent && !clipping && db(peak) < QUIET_PEAK_DBFS;
-    if too_quiet {
-        add(
-            IssueCode::TooQuiet,
-            format!("Peak {:.0} dBFS", db(peak)),
-            format!("under {QUIET_PEAK_DBFS:.0} dBFS, too quiet to time well"),
-        );
-    }
-    let suggested = if silent {
+    (silent, clipping)
+}
+
+/// The gain change to suggest, in dB: none for silence or a good level.
+fn suggested_gain(peak: f64, silent: bool, clipping: bool, too_quiet: bool) -> Option<f64> {
+    if silent {
         None
     } else if clipping {
         // The true peak is unknown once clipped; step down and re-check.
@@ -356,27 +423,6 @@ pub fn check(audio: &Audio, cfg: &DiagnoseConfig) -> SignalCheck {
         Some(((TARGET_PEAK_DBFS - db(peak)) * 2.0).round() / 2.0)
     } else {
         None
-    };
-
-    SignalCheck {
-        sample_rate: audio.sample_rate,
-        duration_s,
-        peak_dbfs: db(peak),
-        rms_dbfs: db(rms),
-        dc_offset: dc,
-        clipped_samples: clipped,
-        bph,
-        beats_expected: expected,
-        beats_found: good.len(),
-        tick_level_dbfs: tick.map(db),
-        noise_level_dbfs: db(noise),
-        tick_to_noise_db: tick_to_noise,
-        signal_x,
-        gap_rise_db: gap_rise,
-        rate_s_per_day: fit.map(|f| f.rate_s_per_day),
-        beat_error_ms: fit.map(|f| f.beat_error_ms.abs()),
-        suggested_gain_change_db: suggested,
-        issues,
     }
 }
 

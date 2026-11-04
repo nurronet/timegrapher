@@ -719,13 +719,87 @@ enum ClockAction {
     Forget { device: String },
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let res = match cli.command {
+        Command::Regress {
+            root,
+            baseline,
+            write_baseline,
+            takes,
+            jobs,
+            rate_margin,
+            amplitude_margin,
+            beat_error_margin,
+            all,
+            json,
+            quiet,
+            fetch,
+            smoke,
+            holdout,
+            reveal,
+        } => {
+            let o = regress_cmd::Options {
+                fetch,
+                smoke,
+                holdout,
+                reveal,
+                root,
+                baseline,
+                write_baseline,
+                takes,
+                jobs,
+                margins: regress_cmd::Margins {
+                    rate_s_per_day: rate_margin,
+                    amplitude_deg: amplitude_margin,
+                    beat_error_ms: beat_error_margin,
+                    ..Default::default()
+                },
+                all,
+                json,
+                quiet,
+            };
+            match regress_cmd::run(&o) {
+                Ok(true) => Ok(()),
+                Ok(false) => return ExitCode::from(3),
+                Err(e) => Err(e),
+            }
+        }
+        c => run(c),
+    };
+    match res {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Every command but `regress`, which says how it ended in its exit code.
+fn run(c: Command) -> Result<(), String> {
+    match c {
+        c @ (Command::Analyze { .. } | Command::Shape { .. } | Command::Profile { .. }) => {
+            measure_command(c)
+        }
+        c @ (Command::Long { .. } | Command::Series { .. }) => long_command(c),
+        c @ (Command::Session { .. } | Command::Report { .. }) => session_command(c),
+        c @ (Command::Synth { .. }
+        | Command::Calibres { .. }
+        | Command::Watches { .. }
+        | Command::Devices { .. }
+        | Command::Update { .. }) => table_command(c),
+        c @ (Command::Clock { .. } | Command::Doctor { .. } | Command::Record { .. }) => {
+            tool_command(c)
+        }
+        // Listed so a new command can't go unrouted.
+        Command::Regress { .. } => unreachable!("main runs regress itself"),
+    }
+}
+
+/// Analyze, shape and profile: the commands that read one recording.
+fn measure_command(c: Command) -> Result<(), String> {
+    match c {
         Command::Analyze {
             file,
             calibre,
@@ -823,6 +897,13 @@ fn main() -> ExitCode {
             };
             profile_cmd::run(&file, &o)
         }
+        _ => unreachable!("run passes measure_command only Analyze, Shape, Profile"),
+    }
+}
+
+/// Long and series: the commands that read a long run.
+fn long_command(c: Command) -> Result<(), String> {
+    match c {
         Command::Long {
             files,
             clock,
@@ -908,6 +989,122 @@ fn main() -> ExitCode {
                 })
             }
         }
+        _ => unreachable!("run passes long_command only Long, Series"),
+    }
+}
+
+/// Session and report.
+fn session_command(c: Command) -> Result<(), String> {
+    match c {
+        Command::Session {
+            paths,
+            init,
+            bph,
+            lift,
+            calibre,
+            settle,
+            no_shape,
+            no_cycles,
+            out,
+            json,
+        } => session_cmd::run(
+            &paths,
+            &session_cmd::Options {
+                bph,
+                lift,
+                calibre,
+                settle,
+                out,
+                json,
+                init,
+                no_shape,
+                no_cycles,
+            },
+        ),
+        Command::Report {
+            recording,
+            at,
+            span,
+            no_audio,
+            kind,
+            note,
+            bph,
+            lift,
+            out,
+            listened_back,
+            cc0,
+            replay,
+            json,
+        } => match replay {
+            Some(b) => bundle_cmd::replay(&b, json),
+            None => {
+                let kind = kind.unwrap_or(if recording.is_empty() {
+                    bundle_cmd::Kind::Bug
+                } else {
+                    bundle_cmd::Kind::Reading
+                });
+                bundle_cmd::run(&bundle_cmd::Options {
+                    recording,
+                    at,
+                    span,
+                    no_audio,
+                    kind,
+                    note,
+                    bph,
+                    lift,
+                    out,
+                    json,
+                    listened_back,
+                    cc0,
+                })
+            }
+        },
+        _ => unreachable!("run passes session_command only Session, Report"),
+    }
+}
+
+/// Synth, the calibre table, watches, devices and updates.
+fn table_command(c: Command) -> Result<(), String> {
+    match c {
+        Command::Synth {
+            out,
+            scenario,
+            seed,
+            duration,
+            bph,
+            amplitude,
+            rate,
+            beat_error,
+            snr,
+            fault_period,
+            fault_length,
+            fault_rate,
+            fault_amplitude,
+        } => match (scenario.as_deref(), out) {
+            (Some("list"), _) => {
+                print!("{}", synth_cmd::list());
+                Ok(())
+            }
+            (Some(name), Some(out)) => synth_cmd::write(&out, name, seed),
+            (_, None) => Err("synth needs OUT: a WAV file, or with --scenario a folder".into()),
+            (None, Some(out)) => {
+                let cfg = SynthConfig {
+                    duration_s: duration,
+                    bph,
+                    rate_s_per_day: rate,
+                    beat_error_ms: beat_error,
+                    snr_db: snr,
+                    ..Default::default()
+                };
+                let bad = |t: f64| fault_period.is_some_and(|p| t % p < fault_length);
+                let audio = synth::generate(
+                    &cfg,
+                    |t| amplitude + if bad(t) { fault_amplitude } else { 0.0 },
+                    |t| if bad(t) { fault_rate } else { 0.0 },
+                );
+                timegrapher_core::audio::write_wav(&out, &audio).map_err(|e| e.to_string())
+            }
+        },
         Command::Calibres { name, search, json } => {
             calibres_cmd::run(name.as_deref(), search.as_deref(), json)
         }
@@ -929,6 +1126,15 @@ fn main() -> ExitCode {
         }
         Command::Devices { json, .. } => run_devices(json),
         Command::Update { json } => update_cmd::run(json),
+        _ => {
+            unreachable!("run passes table_command only Synth, Calibres, Watches, Devices, Update")
+        }
+    }
+}
+
+/// The clock, the doctor and recording.
+fn tool_command(c: Command) -> Result<(), String> {
+    match c {
         Command::Clock { action, json } => {
             let a = match action {
                 ClockAction::List => clock_cmd::Action::List,
@@ -1013,158 +1219,7 @@ fn main() -> ExitCode {
             };
             record_cmd::run(&o)
         }
-        Command::Session {
-            paths,
-            init,
-            bph,
-            lift,
-            calibre,
-            settle,
-            no_shape,
-            no_cycles,
-            out,
-            json,
-        } => session_cmd::run(
-            &paths,
-            &session_cmd::Options {
-                bph,
-                lift,
-                calibre,
-                settle,
-                out,
-                json,
-                init,
-                no_shape,
-                no_cycles,
-            },
-        ),
-        Command::Regress {
-            root,
-            baseline,
-            write_baseline,
-            takes,
-            jobs,
-            rate_margin,
-            amplitude_margin,
-            beat_error_margin,
-            all,
-            json,
-            quiet,
-            fetch,
-            smoke,
-            holdout,
-            reveal,
-        } => {
-            let o = regress_cmd::Options {
-                fetch,
-                smoke,
-                holdout,
-                reveal,
-                root,
-                baseline,
-                write_baseline,
-                takes,
-                jobs,
-                margins: regress_cmd::Margins {
-                    rate_s_per_day: rate_margin,
-                    amplitude_deg: amplitude_margin,
-                    beat_error_ms: beat_error_margin,
-                    ..Default::default()
-                },
-                all,
-                json,
-                quiet,
-            };
-            match regress_cmd::run(&o) {
-                Ok(true) => Ok(()),
-                Ok(false) => return ExitCode::from(3),
-                Err(e) => Err(e),
-            }
-        }
-        Command::Report {
-            recording,
-            at,
-            span,
-            no_audio,
-            kind,
-            note,
-            bph,
-            lift,
-            out,
-            listened_back,
-            cc0,
-            replay,
-            json,
-        } => match replay {
-            Some(b) => bundle_cmd::replay(&b, json),
-            None => {
-                let kind = kind.unwrap_or(if recording.is_empty() {
-                    bundle_cmd::Kind::Bug
-                } else {
-                    bundle_cmd::Kind::Reading
-                });
-                bundle_cmd::run(&bundle_cmd::Options {
-                    recording,
-                    at,
-                    span,
-                    no_audio,
-                    kind,
-                    note,
-                    bph,
-                    lift,
-                    out,
-                    json,
-                    listened_back,
-                    cc0,
-                })
-            }
-        },
-        Command::Synth {
-            out,
-            scenario,
-            seed,
-            duration,
-            bph,
-            amplitude,
-            rate,
-            beat_error,
-            snr,
-            fault_period,
-            fault_length,
-            fault_rate,
-            fault_amplitude,
-        } => match (scenario.as_deref(), out) {
-            (Some("list"), _) => {
-                print!("{}", synth_cmd::list());
-                Ok(())
-            }
-            (Some(name), Some(out)) => synth_cmd::write(&out, name, seed),
-            (_, None) => Err("synth needs OUT: a WAV file, or with --scenario a folder".into()),
-            (None, Some(out)) => {
-                let cfg = SynthConfig {
-                    duration_s: duration,
-                    bph,
-                    rate_s_per_day: rate,
-                    beat_error_ms: beat_error,
-                    snr_db: snr,
-                    ..Default::default()
-                };
-                let bad = |t: f64| fault_period.is_some_and(|p| t % p < fault_length);
-                let audio = synth::generate(
-                    &cfg,
-                    |t| amplitude + if bad(t) { fault_amplitude } else { 0.0 },
-                    |t| if bad(t) { fault_rate } else { 0.0 },
-                );
-                timegrapher_core::audio::write_wav(&out, &audio).map_err(|e| e.to_string())
-            }
-        },
-    };
-    match res {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
+        _ => unreachable!("run passes tool_command only Clock, Doctor, Record"),
     }
 }
 
@@ -1439,16 +1494,12 @@ pub fn beat_error_text(unlock_ms: Option<f64>, drop_ms: f64) -> String {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn print_summary(
     a: &Analysis,
     clock: Option<&(f64, String)>,
     calibre: Option<&timegrapher_core::take::Calibre>,
 ) {
-    use timegrapher_core::measure::{self, Caveat};
+    use timegrapher_core::measure;
     let s = &a.summary;
     println!("Duration     {:.1} s at {} Hz", s.duration_s, s.sample_rate);
     if !s.watch_heard {
@@ -1475,6 +1526,33 @@ fn print_summary(
             s.bph
         );
     }
+    print_rate(s, clock);
+    println!(
+        "Jitter       {} us per beat (within 10 s windows)",
+        opt(s.jitter_us, 0)
+    );
+    println!(
+        "Rate spread  {} to {} s/d (5th-95th percentile of 10 s windows)",
+        opt(s.rate_p05, 1),
+        opt(s.rate_p95, 1)
+    );
+    println!(
+        "Amplitude    {}{} deg (Tick {}, Tock {}; lift angle {} deg)",
+        opt(s.amplitude_deg, 0),
+        s.amplitude_se_deg
+            .and_then(|e| timegrapher_core::library::pm_text(e, 0))
+            .map_or(String::new(), |t| format!(" ± {t}")),
+        opt(s.amplitude_even_deg, 0),
+        opt(s.amplitude_odd_deg, 0),
+        s.lift_deg
+    );
+    print_conditions(s, calibre);
+    print_shape_and_periods(s);
+}
+
+/// The rate, corrected for the card's clock where it can be, and the beat
+/// error, each with its ±.
+fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, String)>) {
     let se = |r: Option<&timegrapher_core::confidence::Reading>, unit: &str, d: usize| {
         r.and_then(|r| r.se)
             .and_then(|e| timegrapher_core::library::pm_text(e, d))
@@ -1511,25 +1589,14 @@ fn print_summary(
     } else {
         println!("Rate         not enough clean beats to fit");
     }
-    println!(
-        "Jitter       {} us per beat (within 10 s windows)",
-        opt(s.jitter_us, 0)
-    );
-    println!(
-        "Rate spread  {} to {} s/d (5th-95th percentile of 10 s windows)",
-        opt(s.rate_p05, 1),
-        opt(s.rate_p95, 1)
-    );
-    println!(
-        "Amplitude    {}{} deg (Tick {}, Tock {}; lift angle {} deg)",
-        opt(s.amplitude_deg, 0),
-        s.amplitude_se_deg
-            .and_then(|e| timegrapher_core::library::pm_text(e, 0))
-            .map_or(String::new(), |t| format!(" ± {t}")),
-        opt(s.amplitude_even_deg, 0),
-        opt(s.amplitude_odd_deg, 0),
-        s.lift_deg
-    );
+}
+
+/// The conditions the figures were read under, and clipping.
+fn print_conditions(
+    s: &timegrapher_core::analysis::Summary,
+    calibre: Option<&timegrapher_core::take::Calibre>,
+) {
+    use timegrapher_core::measure::Caveat;
     let conditions: Vec<String> = s
         .caveats
         .iter()
@@ -1562,6 +1629,10 @@ fn print_summary(
             c.peak_dbfs
         );
     }
+}
+
+/// The beat's shape on each side, and the strongest periodic components.
+fn print_shape_and_periods(s: &timegrapher_core::analysis::Summary) {
     if let Some(m) = &s.shape {
         let pct = |v: Option<f64>| v.map_or("-".to_string(), |v| format!("{:.0}%", v * 100.0));
         for (i, (side, d)) in [("Tick", &m.even), ("Tock", &m.odd)].iter().enumerate() {

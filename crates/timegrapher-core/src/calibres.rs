@@ -387,6 +387,47 @@ mod tests {
     }
 
     #[test]
+    fn dd_jh_32xx_empirical_lift_setting_covers_aliases_only() {
+        // Match the catalogue source label; this test does not read the document.
+        let source = "dd32xx-optical-amplitude-validation";
+        let covered: Vec<_> = all()
+            .iter()
+            .filter(|c| c.sources.iter().any(|s| s.contains(source)))
+            .map(|c| c.calibre.as_str())
+            .collect();
+        for name in ["Dandong 3235", "JH3235"] {
+            let c = find(name).unwrap();
+            assert_eq!(c.lift_angle_deg, Some(59.0), "{name}");
+            assert!(c.sources.iter().any(|s| s.contains(source)), "{name}");
+            for alias in &c.family {
+                assert_eq!(find(alias).unwrap().lift_angle_deg, Some(59.0), "{alias}");
+                assert_eq!(search(alias)[0].calibre, c.calibre, "{alias}");
+            }
+        }
+        assert_eq!(covered, ["Dandong 3235", "JH3235"]);
+        for (name, lift) in [
+            ("Rolex 3235", Some(55.0)),
+            ("Rolex 3235 (53°)", Some(53.0)),
+            ("Rolex 3255 (53°)", Some(53.0)),
+            ("VR3235", Some(52.0)),
+            ("VR3285", None),
+            ("DD3135", None),
+            ("DD324", Some(52.0)),
+        ] {
+            let c = find(name).unwrap();
+            assert_eq!(c.lift_angle_deg, lift, "{name}");
+            assert!(c.sources.iter().all(|s| !s.contains(source)), "{name}");
+        }
+        for name in ["SH3235", "SH3285", "SH3285-2"] {
+            assert!(find(name)
+                .unwrap()
+                .sources
+                .iter()
+                .all(|s| !s.contains(source)));
+        }
+    }
+
+    #[test]
     fn counted_32xx_train_resolves_for_covered_makers_and_lift_variants() {
         let mut names = vec![
             "Rolex 32xx".to_string(),
@@ -421,7 +462,11 @@ mod tests {
                     "{name}: {wheel}"
                 );
             }
-            let expected_lift = if name.contains("53°") { 53.0 } else { 55.0 };
+            let expected_lift = match c.calibre.as_str() {
+                "Dandong 3235" | "JH3235" => 59.0,
+                _ if name.contains("53°") => 53.0,
+                _ => 55.0,
+            };
             assert_eq!(c.lift_angle_deg, Some(expected_lift), "{name}");
             assert!(c
                 .sources

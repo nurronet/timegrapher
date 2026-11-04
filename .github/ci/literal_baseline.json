@@ -268,7 +268,7 @@
     "crates/timegrapher-cli/src/record_cmd.rs": {
      "bounds": 2,
      "comparisons": 3,
-     "constants": 3,
+     "constants": 1,
      "defaults": 0
     },
     "crates/timegrapher-cli/src/regress_cmd.rs": {
@@ -305,7 +305,7 @@
    "total": {
     "bounds": 12,
     "comparisons": 19,
-    "constants": 20,
+    "constants": 18,
     "defaults": 28
    }
   },
@@ -339,6 +339,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 5364
+  "crates/timegrapher-app/src/app.rs": 5013
  }
 }

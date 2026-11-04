@@ -715,10 +715,6 @@ fn explained_at(g: &Grid, period: f64, bins: usize) -> f64 {
         / total.max(1) as f64
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
     let detrended = detrend(g, cfg.detrend_s);
     let span = g.span();
@@ -745,19 +741,7 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
                 detrend_window(g, cfg.detrend_s).map(|w| w as f64 * g.step),
             );
             let threshold = s.threshold;
-            // A sinusoid at 60 s also lights up the harmonics of 120 s and
-            // 180 s, which can sum to a higher score when another component
-            // adds power at one of them. Take the shortest submultiple whose
-            // fold explains nearly as much as the strongest period's.
-            let pick = s.best().map(|(i, subs)| {
-                let var = |p: f64| explained_at(&work, p, fold_bins(p, g.step));
-                let top = var(s.period_s[i]);
-                let k = subs
-                    .into_iter()
-                    .find(|&k| var(s.period_s[k]) >= 0.9 * top)
-                    .unwrap_or(i);
-                (s.period_s[k], s.score[k], s.harmonics[k])
-            });
+            let pick = pick_period(&s, &work, g.step);
             if first.is_none() {
                 first = Some(s);
             }
@@ -769,19 +753,7 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
             }
             found.push(period);
             let bins = fold_bins(period, g.step);
-            // Refine the period to the fold that explains the most variance.
-            let res = period * period / span;
-            // Two passes, each over 41 trial periods across +-1 resolution
-            // and then +-1/20 of it.
-            let mut period = period;
-            for width in [res, res / 20.0] {
-                period = (-20..=20)
-                    .map(|k| period + width * k as f64 / 20.0)
-                    .max_by(|&a, &b| {
-                        explained_at(&work, a, bins).total_cmp(&explained_at(&work, b, bins))
-                    })
-                    .expect("non-empty");
-            }
+            let period = refined(&work, period, bins, span);
             let explained = explained_at(&work, period, bins) / total_var;
             let f = fold(&work, period, bins);
             subtract(&mut work, &f);
@@ -807,20 +779,7 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
             // The shape seen in the raster is from the series before subtraction.
             let f = fold(&detrended, period, bins);
             let resolution = period * period / span;
-            let nearest = cfg
-                .wheels
-                .iter()
-                .min_by(|a, b| {
-                    (period / a.period_s - 1.0)
-                        .abs()
-                        .total_cmp(&(period / b.period_s - 1.0).abs())
-                })
-                .map(|w| (w.name.clone(), (period / w.period_s - 1.0) * 100.0));
-            let wheel = cfg
-                .wheels
-                .iter()
-                .find(|w| (period - w.period_s).abs() <= resolution.max(0.01 * w.period_s))
-                .map(|w| w.name.clone());
+            let (wheel, nearest) = wheel_of(&cfg.wheels, period, resolution);
             components.push(Component {
                 period_s: period,
                 resolution_s: resolution,
@@ -840,14 +799,76 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
     SeriesReport {
         grid: g.clone(),
         detrended,
-        search: first.unwrap_or(Search {
+        search: first.unwrap_or_else(Search::none),
+        components,
+    }
+}
+
+/// A sinusoid at 60 s also lights up the harmonics of 120 s and
+/// 180 s, which can sum to a higher score when another component
+/// adds power at one of them. Take the shortest submultiple whose
+/// fold explains nearly as much as the strongest period's.
+/// Gives that period, its score and its harmonics; none without a best one.
+fn pick_period(s: &Search, work: &Grid, step: f64) -> Option<(f64, f64, u8)> {
+    s.best().map(|(i, subs)| {
+        let var = |p: f64| explained_at(work, p, fold_bins(p, step));
+        let top = var(s.period_s[i]);
+        let k = subs
+            .into_iter()
+            .find(|&k| var(s.period_s[k]) >= 0.9 * top)
+            .unwrap_or(i);
+        (s.period_s[k], s.score[k], s.harmonics[k])
+    })
+}
+
+/// The period near `period` whose fold in `bins` explains the most of
+/// `work`'s variance.
+fn refined(work: &Grid, period: f64, bins: usize, span: f64) -> f64 {
+    let res = period * period / span;
+    // Two passes, each over 41 trial periods across +-1 resolution
+    // and then +-1/20 of it.
+    let mut period = period;
+    for width in [res, res / 20.0] {
+        period = (-20..=20)
+            .map(|k| period + width * k as f64 / 20.0)
+            .max_by(|&a, &b| explained_at(work, a, bins).total_cmp(&explained_at(work, b, bins)))
+            .expect("non-empty");
+    }
+    period
+}
+
+/// The wheel of `wheels` that `period` is, within `resolution`, and the
+/// nearest one with how far off it is in percent.
+fn wheel_of(
+    wheels: &[Wheel],
+    period: f64,
+    resolution: f64,
+) -> (Option<String>, Option<(String, f64)>) {
+    let nearest = wheels
+        .iter()
+        .min_by(|a, b| {
+            (period / a.period_s - 1.0)
+                .abs()
+                .total_cmp(&(period / b.period_s - 1.0).abs())
+        })
+        .map(|w| (w.name.clone(), (period / w.period_s - 1.0) * 100.0));
+    let wheel = wheels
+        .iter()
+        .find(|w| (period - w.period_s).abs() <= resolution.max(0.01 * w.period_s))
+        .map(|w| w.name.clone());
+    (wheel, nearest)
+}
+
+impl Search {
+    /// No search made: a series too short or too flat to search.
+    fn none() -> Search {
+        Search {
             period_s: Vec::new(),
             score: Vec::new(),
             harmonics: Vec::new(),
             threshold: 0.0,
             first_j: 0,
-        }),
-        components,
+        }
     }
 }
 

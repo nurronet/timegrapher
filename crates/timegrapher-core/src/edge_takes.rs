@@ -59,11 +59,16 @@ const MADE: Truth = Truth {
 };
 
 /// The takes, in the order they are written.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn all() -> Vec<EdgeTake> {
+    let mut all = first_takes();
+    all.extend(card_and_quiet_takes());
+    all.extend(session_takes());
+    all.extend(clock_and_lift_takes());
+    all
+}
+
+/// The first takes: short ones, pauses and silence.
+fn first_takes() -> Vec<EdgeTake> {
     vec![
         EdgeTake {
             id: "edge_short_8s",
@@ -122,6 +127,12 @@ pub fn all() -> Vec<EdgeTake> {
             truth: Some(MADE),
             known: None,
         },
+    ]
+}
+
+/// A slow sound card, long and digital silence, and the watch heard more quietly.
+fn card_and_quiet_takes() -> Vec<EdgeTake> {
+    vec![
         EdgeTake {
             id: "edge_card_20ppm",
             summary: "120 s on a sound card 20 ppm slow, measured by its clock log",
@@ -190,6 +201,12 @@ pub fn all() -> Vec<EdgeTake> {
             truth: Some(MADE),
             known: None,
         },
+    ]
+}
+
+/// Takes that test how a session is listed and read: several readings, clock steps, masks, jumps and a watch that stops.
+fn session_takes() -> Vec<EdgeTake> {
+    vec![
         EdgeTake {
             id: "edge_sleep_two_entries",
             summary: "the computer slept 1,283 s at 60 s, shown by the clock log alone, in \
@@ -243,6 +260,12 @@ pub fn all() -> Vec<EdgeTake> {
             truth: Some(MADE),
             known: None,
         },
+    ]
+}
+
+/// Takes that test the clock sources and the lift, a silent unlock, and the later short and pause takes.
+fn clock_and_lift_takes() -> Vec<EdgeTake> {
+    vec![
         EdgeTake {
             id: "edge_usb_lines_and_log",
             summary: "120 s on a sound card 20 ppm slow whose recording carries the USB \
@@ -525,215 +548,239 @@ fn write(dir: &Path, name: &str, text: &str) -> Result<(), String> {
 /// Write every edge take under `root`, laid out as a corpus: `corpus.json`
 /// and `takes/<id>/` (`audio-001.wav`, `session.toml`, `session.json`,
 /// `clock.csv`). Returns the takes written.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn write_all(root: &Path) -> Result<Vec<EdgeTake>, String> {
     let takes = all();
     for (n, take) in takes.iter().enumerate() {
         let dir = root.join("takes").join(take.id);
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let seed = 100 + n as u64;
-        let r = match take.id {
-            "edge_short_8s" => Recipe::of(watch(8.0, seed)),
-            "edge_45s" => Recipe::of(watch(45.0, seed)),
-            "edge_short_25s_settle_20" => Recipe {
-                extra: "settle_s = 20\n",
-                ..Recipe::of(watch(25.0, seed))
-            },
-            "edge_listed_pause" | "edge_unreadable_session_json" => {
-                let mut s = watch(90.0, seed);
-                let join = s.len();
-                s.extend(watch(90.0, seed + 50));
-                Recipe {
-                    breaks: vec![(join, 90.0)],
-                    steps: vec![(join, 90.0)],
-                    ..Recipe::of(s)
-                }
-            }
-            "edge_zero_gap_pause" => {
-                let mut s = watch(90.0, seed);
-                let join = s.len();
-                s.extend(watch(90.0, seed + 50));
-                Recipe {
-                    breaks: vec![(join, 0.0)],
-                    steps: vec![(join, 0.0)],
-                    ..Recipe::of(s)
-                }
-            }
-            "edge_sleep_jump" => {
-                let mut s = watch(60.0, seed);
-                let join = s.len();
-                s.extend(watch(60.0, seed + 50));
-                let small = 30 * FS as usize;
-                Recipe {
-                    steps: vec![(small, 0.4), (join, 1283.0)],
-                    ..Recipe::of(s)
-                }
-            }
-            "edge_silence_mid" => {
-                // The watch runs on unheard: its beats come back in step.
-                let mut s = watch(150.0, seed);
-                let quiet = silence(60.0, seed + 50);
-                let from = 45 * FS as usize;
-                s[from..from + quiet.len()].copy_from_slice(&quiet);
-                Recipe::of(s)
-            }
-            "edge_silence_long" => {
-                let mut s = watch(420.0, seed);
-                let quiet = silence(300.0, seed + 50);
-                let from = 60 * FS as usize;
-                s[from..from + quiet.len()].copy_from_slice(&quiet);
-                Recipe::of(s)
-            }
-            "edge_digital_silence" => {
-                let mut s = watch(420.0, seed);
-                s[60 * FS as usize..360 * FS as usize].fill(0.0);
-                Recipe::of(s)
-            }
-            "edge_all_silence" => Recipe::of(silence(30.0, seed)),
-            "edge_quiet_step_12db" => Recipe::of(watch_stepping_down(240.0, 100.0, 12.0, seed)),
-            "edge_quiet_step" => Recipe::of(watch_stepping_down(240.0, 100.0, 16.0, seed)),
-            "edge_quiet_step_20db" => Recipe::of(watch_stepping_down(240.0, 100.0, 20.0, seed)),
-            "edge_card_20ppm" => Recipe {
-                ppm: 20.0,
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_sleep_two_entries" => {
-                let mut s = watch(60.0, seed);
-                let join = s.len();
-                s.extend(watch(120.0, seed + 50));
-                Recipe {
-                    steps: vec![(join, 1283.0)],
-                    entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
-                              clock = \"clock.csv\"\nstart_s = 0\nend_s = 90\n\n\
-                              [[recording]]\nfile = \".\"\nposition = \"DD\"\n\
-                              clock = \"clock.csv\"\nstart_s = 90\nend_s = 180\n",
-                    ..Recipe::of(s)
-                }
-            }
-            "edge_clock_back" => Recipe {
-                steps: vec![(60 * FS as usize, -0.6)],
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_mask_across_settle" => Recipe {
-                entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
-                          clock = \"clock.csv\"\nmasked = [[15.0, 30.0]]\n",
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_sides_turn_at_jump" => {
-                // Tock sounds unlike Tick, so the sides can be told by
-                // ear; the second stretch opens a beat in, on the other side.
-                let two_sides = |d: f64, seed: u64| {
-                    let cfg = SynthConfig {
-                        odd_gains: Some([0.2, 0.25, 0.7]),
-                        ..made(d, seed)
-                    };
-                    generate(&cfg, |_| AMPLITUDE, |_| 0.0).samples
-                };
-                let mut s = two_sides(60.0, seed);
-                let beat = (FS as f64 * 3600.0 / 28_800.0) as usize;
-                s.extend_from_slice(&two_sides(61.0, seed + 50)[beat + beat * 2 / 5..]);
-                Recipe::of(s)
-            }
-            "edge_reads_nothing" => Recipe {
-                entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
-                          clock = \"clock.csv\"\nend_s = 90\n\n\
-                          [[recording]]\nfile = \".\"\nposition = \"DD\"\n\
-                          clock = \"clock.csv\"\nstart_s = 90\nend_s = 90\n",
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_watch_stops" => {
-                let mut s = watch(120.0, seed);
-                s.extend(silence(120.0, seed + 50));
-                Recipe::of(s)
-            }
-            "edge_usb_lines_and_log" => Recipe {
-                ppm: 20.0,
-                ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
-            },
-            "edge_usb_lines_and_correction" => Recipe {
-                ppm: 20.0,
-                extra: "card_ppm = 20\n",
-                entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
-                ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
-            },
-            "edge_usb_lines_and_other_correction" => Recipe {
-                ppm: 20.0,
-                extra: "card_ppm = 15\n",
-                entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
-                ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
-            },
-            "edge_lift_48" => Recipe {
-                lift: 48.0,
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_kept_lift_48" => Recipe {
-                lift: 48.0,
-                kept_at: Some(LIFT),
-                ..Recipe::of(watch(120.0, seed - 1))
-            },
-            "edge_old_bare_lift" => Recipe {
-                lift_known: false,
-                ..Recipe::of(watch(120.0, seed))
-            },
-            "edge_no_unlock" => {
-                let mut cfg = made(120.0, seed);
-                cfg.sounds[0].gain = 0.0;
-                Recipe::of(generate(&cfg, |_| AMPLITUDE, |_| 0.0).samples)
-            }
-            other => return Err(format!("no recipe for {other}")),
-        };
-        let Recipe {
-            samples,
-            breaks,
-            steps,
-            ppm,
-            extra,
-            entries,
-            lift,
-            lift_known,
-            kept_at,
-        } = r;
-        let frames = samples.len();
-        let wav = dir.join("audio-001.wav");
-        write_wav(
-            &wav,
-            &Audio {
-                samples,
-                sample_rate: FS,
-            },
-        )
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-        match kept_at {
-            Some(at) => {
-                keep_analysis(
-                    &dir,
-                    &manifest(take, at, lift_known, extra, entries),
-                    frames,
-                )?;
-                let kept = format!("audio = false\n{extra}");
-                write(
-                    &dir,
-                    "session.toml",
-                    &manifest(take, lift, lift_known, &kept, entries),
-                )?;
-            }
-            None => write(
-                &dir,
-                "session.toml",
-                &manifest(take, lift, lift_known, extra, entries),
-            )?,
-        }
-        write(&dir, "clock.csv", &clock_log(frames, ppm, &steps))?;
-        let json = record(&breaks);
-        if take.id == "edge_unreadable_session_json" {
-            write(&dir, "session.json", &json[..json.len() / 2])?;
-        } else {
-            write(&dir, "session.json", &json)?;
-        }
+        let r = recipe(take.id, seed)?;
+        write_take(&dir, take, r)?;
     }
+    write_corpus(root, &takes)?;
+    Ok(takes)
+}
+
+/// How the take `id` is made, from `seed`.
+fn recipe(id: &str, seed: u64) -> Result<Recipe, String> {
+    sound_recipe(id, seed)
+        .or_else(|| session_recipe(id, seed))
+        .ok_or_else(|| format!("no recipe for {id}"))
+}
+
+/// The recipes of the short, pause, silence, quiet and card takes.
+fn sound_recipe(id: &str, seed: u64) -> Option<Recipe> {
+    match id {
+        "edge_short_8s" => Some(Recipe::of(watch(8.0, seed))),
+        "edge_45s" => Some(Recipe::of(watch(45.0, seed))),
+        "edge_short_25s_settle_20" => Some(Recipe {
+            extra: "settle_s = 20\n",
+            ..Recipe::of(watch(25.0, seed))
+        }),
+        "edge_listed_pause" | "edge_unreadable_session_json" => Some({
+            let mut s = watch(90.0, seed);
+            let join = s.len();
+            s.extend(watch(90.0, seed + 50));
+            Recipe {
+                breaks: vec![(join, 90.0)],
+                steps: vec![(join, 90.0)],
+                ..Recipe::of(s)
+            }
+        }),
+        "edge_zero_gap_pause" => Some({
+            let mut s = watch(90.0, seed);
+            let join = s.len();
+            s.extend(watch(90.0, seed + 50));
+            Recipe {
+                breaks: vec![(join, 0.0)],
+                steps: vec![(join, 0.0)],
+                ..Recipe::of(s)
+            }
+        }),
+        "edge_sleep_jump" => Some({
+            let mut s = watch(60.0, seed);
+            let join = s.len();
+            s.extend(watch(60.0, seed + 50));
+            let small = 30 * FS as usize;
+            Recipe {
+                steps: vec![(small, 0.4), (join, 1283.0)],
+                ..Recipe::of(s)
+            }
+        }),
+        "edge_silence_mid" => Some({
+            // The watch runs on unheard: its beats come back in step.
+            let mut s = watch(150.0, seed);
+            let quiet = silence(60.0, seed + 50);
+            let from = 45 * FS as usize;
+            s[from..from + quiet.len()].copy_from_slice(&quiet);
+            Recipe::of(s)
+        }),
+        "edge_silence_long" => Some({
+            let mut s = watch(420.0, seed);
+            let quiet = silence(300.0, seed + 50);
+            let from = 60 * FS as usize;
+            s[from..from + quiet.len()].copy_from_slice(&quiet);
+            Recipe::of(s)
+        }),
+        "edge_digital_silence" => Some({
+            let mut s = watch(420.0, seed);
+            s[60 * FS as usize..360 * FS as usize].fill(0.0);
+            Recipe::of(s)
+        }),
+        "edge_all_silence" => Some(Recipe::of(silence(30.0, seed))),
+        "edge_quiet_step_12db" => Some(Recipe::of(watch_stepping_down(240.0, 100.0, 12.0, seed))),
+        "edge_quiet_step" => Some(Recipe::of(watch_stepping_down(240.0, 100.0, 16.0, seed))),
+        "edge_quiet_step_20db" => Some(Recipe::of(watch_stepping_down(240.0, 100.0, 20.0, seed))),
+        "edge_card_20ppm" => Some(Recipe {
+            ppm: 20.0,
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        _ => None,
+    }
+}
+
+/// The recipes of the session, clock, lift and silent-unlock takes.
+fn session_recipe(id: &str, seed: u64) -> Option<Recipe> {
+    match id {
+        "edge_sleep_two_entries" => Some({
+            let mut s = watch(60.0, seed);
+            let join = s.len();
+            s.extend(watch(120.0, seed + 50));
+            Recipe {
+                steps: vec![(join, 1283.0)],
+                entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+                          clock = \"clock.csv\"\nstart_s = 0\nend_s = 90\n\n\
+                          [[recording]]\nfile = \".\"\nposition = \"DD\"\n\
+                          clock = \"clock.csv\"\nstart_s = 90\nend_s = 180\n",
+                ..Recipe::of(s)
+            }
+        }),
+        "edge_clock_back" => Some(Recipe {
+            steps: vec![(60 * FS as usize, -0.6)],
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        "edge_mask_across_settle" => Some(Recipe {
+            entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+                      clock = \"clock.csv\"\nmasked = [[15.0, 30.0]]\n",
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        "edge_sides_turn_at_jump" => Some({
+            // Tock sounds unlike Tick, so the sides can be told by
+            // ear; the second stretch opens a beat in, on the other side.
+            let two_sides = |d: f64, seed: u64| {
+                let cfg = SynthConfig {
+                    odd_gains: Some([0.2, 0.25, 0.7]),
+                    ..made(d, seed)
+                };
+                generate(&cfg, |_| AMPLITUDE, |_| 0.0).samples
+            };
+            let mut s = two_sides(60.0, seed);
+            let beat = (FS as f64 * 3600.0 / 28_800.0) as usize;
+            s.extend_from_slice(&two_sides(61.0, seed + 50)[beat + beat * 2 / 5..]);
+            Recipe::of(s)
+        }),
+        "edge_reads_nothing" => Some(Recipe {
+            entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+                      clock = \"clock.csv\"\nend_s = 90\n\n\
+                      [[recording]]\nfile = \".\"\nposition = \"DD\"\n\
+                      clock = \"clock.csv\"\nstart_s = 90\nend_s = 90\n",
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        "edge_watch_stops" => Some({
+            let mut s = watch(120.0, seed);
+            s.extend(silence(120.0, seed + 50));
+            Recipe::of(s)
+        }),
+        "edge_usb_lines_and_log" => Some(Recipe {
+            ppm: 20.0,
+            ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
+        }),
+        "edge_usb_lines_and_correction" => Some(Recipe {
+            ppm: 20.0,
+            extra: "card_ppm = 20\n",
+            entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+            ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
+        }),
+        "edge_usb_lines_and_other_correction" => Some(Recipe {
+            ppm: 20.0,
+            extra: "card_ppm = 15\n",
+            entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+            ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
+        }),
+        "edge_lift_48" => Some(Recipe {
+            lift: 48.0,
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        "edge_kept_lift_48" => Some(Recipe {
+            lift: 48.0,
+            kept_at: Some(LIFT),
+            ..Recipe::of(watch(120.0, seed - 1))
+        }),
+        "edge_old_bare_lift" => Some(Recipe {
+            lift_known: false,
+            ..Recipe::of(watch(120.0, seed))
+        }),
+        "edge_no_unlock" => Some({
+            let mut cfg = made(120.0, seed);
+            cfg.sounds[0].gain = 0.0;
+            Recipe::of(generate(&cfg, |_| AMPLITUDE, |_| 0.0).samples)
+        }),
+        _ => None,
+    }
+}
+
+/// Writes one take made by `r` into `dir`: its sound, session file, clock
+/// log and session.json, or its kept analysis.
+fn write_take(dir: &Path, take: &EdgeTake, r: Recipe) -> Result<(), String> {
+    let Recipe {
+        samples,
+        breaks,
+        steps,
+        ppm,
+        extra,
+        entries,
+        lift,
+        lift_known,
+        kept_at,
+    } = r;
+    let frames = samples.len();
+    let wav = dir.join("audio-001.wav");
+    write_wav(
+        &wav,
+        &Audio {
+            samples,
+            sample_rate: FS,
+        },
+    )
+    .map_err(|e| format!("{}: {e}", dir.display()))?;
+    match kept_at {
+        Some(at) => {
+            keep_analysis(dir, &manifest(take, at, lift_known, extra, entries), frames)?;
+            let kept = format!("audio = false\n{extra}");
+            write(
+                dir,
+                "session.toml",
+                &manifest(take, lift, lift_known, &kept, entries),
+            )?;
+        }
+        None => write(
+            dir,
+            "session.toml",
+            &manifest(take, lift, lift_known, extra, entries),
+        )?,
+    }
+    write(dir, "clock.csv", &clock_log(frames, ppm, &steps))?;
+    let json = record(&breaks);
+    if take.id == "edge_unreadable_session_json" {
+        write(dir, "session.json", &json[..json.len() / 2])?;
+    } else {
+        write(dir, "session.json", &json)?;
+    }
+    Ok(())
+}
+
+/// Writes the corpus list of `takes` under `root`.
+fn write_corpus(root: &Path, takes: &[EdgeTake]) -> Result<(), String> {
     let list: Vec<serde_json::Value> = takes
         .iter()
         .map(|t| {
@@ -755,7 +802,7 @@ pub fn write_all(root: &Path) -> Result<Vec<EdgeTake>, String> {
         "corpus.json",
         &serde_json::to_string_pretty(&corpus).expect("JSON"),
     )?;
-    Ok(takes)
+    Ok(())
 }
 
 /// The take written under `root`, each of its entries read as `timegrapher

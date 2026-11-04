@@ -9,6 +9,12 @@ uncertainty allowances and matched Tick/Tock windows. This single-specimen study
 is not a calibrated reference, a corpus regression gate, or a family-wide
 lift-angle determination. Raw-media public archival upload remains pending.
 
+The [DD3285 four-take study](dd32xx-optical-amplitude-validation.md) preserves
+19 further blind optical intervals spanning roughly 180–267°, their matched
+Tick/Tock audio, and a separate rest-position observation. The catalogue adopts
+59° for DD32xx/JH32xx as an empirical family default; one DD3285 was measured,
+and no exact physical lift angle or JH-specific validation is claimed.
+
 ## Synthetic recordings
 
 `cargo test` generates recordings with known values and checks that they
