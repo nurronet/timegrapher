@@ -28,6 +28,7 @@ mod icons;
 mod isochronism;
 mod marks;
 mod photos;
+mod pick;
 mod profiles;
 mod pump;
 mod report;

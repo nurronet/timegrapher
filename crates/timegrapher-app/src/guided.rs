@@ -1964,9 +1964,9 @@ pub fn export_text(test: &Test, about: &About, sep: char) -> String {
     out
 }
 
-/// Ask where to save the full-wind results for the 24 hour half, starting
-/// in `dir`, and save them. Says what happened, or None when cancelled.
-pub fn save_results(k: &FullWind, dir: &std::path::Path) -> Option<String> {
+/// The dialog for saving the full-wind results for the 24 hour half,
+/// starting in `dir`.
+pub fn results_dialog(k: &FullWind, dir: &std::path::Path) -> rfd::FileDialog {
     let stamp: String = k
         .began_utc
         .chars()
@@ -1980,16 +1980,11 @@ pub fn save_results(k: &FullWind, dir: &std::path::Path) -> Option<String> {
     if dir.is_dir() {
         d = d.set_directory(dir);
     }
-    let path = d.save_file()?;
-    Some(match std::fs::write(&path, k.to_json()) {
-        Ok(()) => format!("Saved the Positions Test's results to {}", path.display()),
-        Err(e) => format!("Couldn't save the results to {}: {e}", path.display()),
-    })
+    d
 }
 
-/// Ask where to save the test as a CSV file, starting in `dir`, and save
-/// it there. Says what happened, or None when the dialog was cancelled.
-pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
+/// The dialog for saving the test as a CSV file, starting in `dir`.
+pub fn csv_dialog(dir: &std::path::Path) -> rfd::FileDialog {
     let stamp: String = timegrapher_core::recorder::utc(std::time::SystemTime::now())
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == 'T')
@@ -2002,14 +1997,7 @@ pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
     if dir.is_dir() {
         d = d.set_directory(dir);
     }
-    let path = d.save_file()?;
-    Some(match std::fs::write(&path, text) {
-        Ok(()) => format!("Saved the Positions Test to {}", path.display()),
-        Err(e) => format!(
-            "Couldn't save the Positions Test to {}: {e}",
-            path.display()
-        ),
-    })
+    d
 }
 
 #[cfg(test)]

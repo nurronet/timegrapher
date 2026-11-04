@@ -13,11 +13,12 @@ impl TimegrapherApp {
                     .parent()
                     .map(Path::to_path_buf)
             });
-            if let Some(path) = export::ask_path(pane.title(), dir.as_deref()) {
-                self.export_dir = path.parent().map(Path::to_path_buf);
-                self.start_export(pane, path);
-                ui.ctx().request_repaint();
-            }
+            let d = export::dialog(pane.title(), dir.as_deref());
+            self.pick(Picker::one(d, Pick::Save, move |a, path| {
+                let path = export::png_unless_named(path);
+                a.export_dir = path.parent().map(Path::to_path_buf);
+                a.start_export(pane, path);
+            }));
         }
     }
 
