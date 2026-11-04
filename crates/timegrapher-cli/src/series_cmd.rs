@@ -519,6 +519,59 @@ fn add_scales(maps: &mut serde_json::Value, tf: &[timegrapher_core::timefreq::Ti
 )]
 mod tests {
     use super::*;
+
+    fn walk_of(points: &[(f64, f64, f64)]) -> timegrapher_core::walk::IsochronismWalk {
+        timegrapher_core::walk::IsochronismWalk {
+            bin_s: 300.0,
+            points: points
+                .iter()
+                .map(|&(t_s, rate, amp)| timegrapher_core::walk::WalkPoint {
+                    t_s,
+                    wind_h: t_s / 3600.0,
+                    rate_s_per_day: rate,
+                    amplitude_deg: amp,
+                    readings: 30,
+                })
+                .collect(),
+        }
+    }
+
+    /// The walk line says what the walk is, gives each end's time from the
+    /// start, the range between, and the 5 min points' width only when
+    /// it merged them (#741).
+    #[test]
+    fn the_walk_line_says_what_it_is_its_ends_and_its_range() {
+        let w = walk_of(&[
+            (150.0, 43.2, 240.0),
+            (450.0, 17.0, 235.0),
+            (750.0, 50.8, 243.0),
+            (1050.0, 30.0, 238.0),
+            (1350.0, 35.0, 239.0),
+            (1645.0, 40.8, 240.0),
+        ]);
+        assert_eq!(
+            walk_line(&w),
+            "Walk         The rate against the amplitude in time order, one point per 5:00 (6 points). \
+             It starts at 240° and +43.2 s/d at 2:30 and ends at 240° and +40.8 s/d at 27:25; \
+             between, the rate runs +17.0 s/d to +50.8 s/d and the amplitude 235° to 243°."
+        );
+        let long: Vec<(f64, f64, f64)> = (0..300)
+            .map(|i| {
+                (
+                    150.0 + 300.0 * i as f64,
+                    0.2 * i as f64,
+                    300.0 - 0.2 * i as f64,
+                )
+            })
+            .collect();
+        assert_eq!(
+            walk_line(&walk_of(&long)),
+            "Walk         The rate against the amplitude in time order, one point per 10:00 (150 points; \
+             one per 5:00 in the JSON's walk). It starts at 300° and +0.1 s/d at 5:00 and ends at 240° \
+             and +59.7 s/d at 24:55:00; between, the rate runs +0.1 s/d to +59.7 s/d and the amplitude \
+             240° to 300°."
+        );
+    }
     use crate::clock_cmd::resolve as resolve_clock;
     use std::fs;
     use timegrapher_core::audio;
