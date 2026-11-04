@@ -508,10 +508,11 @@ impl From<crate::clock::SourcesDisagree> for Caveat {
 
 /// [`Caveat::PeriodMayBeNoise`] as a sentence.
 fn may_be_noise_text(rho: f64, span_s: f64) -> String {
+    use crate::longterm::{MEASURED_CROSSING_IN, SHORT_CORRELATED_CROSSING_IN};
     format!(
         "On a take this short with its 2 s windows this correlated (ρ {rho:.2} from one to \
          the next, over {:.0} min), the period search names a cycle in noise alone about 1 \
-         time in 10, not 1 in 33: this cycle may be noise.",
+         time in {SHORT_CORRELATED_CROSSING_IN}, not 1 in {MEASURED_CROSSING_IN}: this cycle may be noise.",
         span_s / 60.0
     )
 }

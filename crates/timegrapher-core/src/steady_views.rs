@@ -337,19 +337,11 @@ pub const SCORE_AXIS_HOVER: &str = "Score: how far a peak stands above the noise
 /// The name of the line a period's score must pass to be named
 /// ([`Search::threshold`]), beside the plot.
 pub const THRESHOLD_NAME: &str = "Threshold";
-/// One series' search crossed its threshold about 1 time in this many on
-/// seeded white and AR(1) noise, the noise its model fits: 3 to 3.5% in
-/// Percy's #916 grid (400 seeds a cell), about 3× the design rate.
-pub const MEASURED_CROSSING_IN: u32 = 33;
-/// …and up to 1 time in this many on 30 min takes with a slow wander under
-/// white noise, lag one ρ 0.5 to 0.8 (9 to 10%, the same grid), the case
-/// [`longterm::period_may_be_noise`] names.
-pub const SHORT_CORRELATED_CROSSING_IN: u32 = 10;
-
 /// That line's hover (Norm, worded by Hugh): the model's search-wide rate,
 /// the search's [`LongConfig::false_alarm`] (1 in 100 by default), and the
 /// rates measured on seeded noise, so it agrees with `period_may_be_noise`.
 pub fn threshold_hover(false_alarm: f64) -> String {
+    use longterm::{MEASURED_CROSSING_IN, SHORT_CORRELATED_CROSSING_IN};
     let n = thousands((1.0 / false_alarm).round() as u64);
     format!(
         "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in {n}. \
