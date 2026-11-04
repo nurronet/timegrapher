@@ -177,3 +177,24 @@ test("a named line across a plot is named right of it, with its hover, and the y
   assert.match(svg, /stroke-dasharray="6 5"/);
   assert.match(svg, /<g><title>Score: how far a peak stands above the noise expected at its period.<\/title><text[^>]*>1<\/text><text[^>]*>2<\/text><\/g>/);
 });
+
+test("a y axis' name sits above its top tick, left of the plot, in the ticks' style and with their hover", () => {
+  const chart = (names) => context.xyChart({ x: [0, 1], y: [0, 5], xTicks: () => [], yTicks: () => [[1, "1"], [5, "5"]],
+    yName: "Score", yHover: "Score: how far a peak stands above the noise expected at its period.", names,
+    vlines: names ? [{ x: 0.02, color: "--callout", name: "1 min", rank: "faint", ink: "--callout", hover: "1 min" }] : [],
+    lines: [{ pts: [[0, 1], [1, 4]], color: "--rate" }] });
+  for (const names of [false, true]) {
+    const svg = chart(names);
+    const plot = svg.match(/<rect class="plot" x="([\d.]+)" y="([\d.]+)"/).slice(1).map(Number);
+    const name = svg.match(/<g><title>Score: how far[^<]*<\/title>(?:<text[^>]*>[^<]*<\/text>)*<text x="([\d.]+)" y="([\d.]+)" text-anchor="end">Score<\/text><\/g>/);
+    assert.ok(name, svg);
+    // Right of nothing in the plot: it ends where the tick labels end.
+    assert.equal(+name[1], plot[0] - 5);
+    // Above the plot's top, and inside the chart.
+    assert.ok(+name[2] < plot[1] && +name[2] > 0, `${name[2]} vs ${plot[1]}`);
+    // No style of its own: the tick labels' size and colour.
+    assert.ok(!/style="[^"]*">Score</.test(svg));
+  }
+  // With no lane above, the plot keeps a row for it.
+  assert.ok(+chart(false).match(/<rect class="plot" x="[\d.]+" y="([\d.]+)"/)[1] >= 14);
+});

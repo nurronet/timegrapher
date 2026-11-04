@@ -851,8 +851,9 @@ const MARK_ROOM_PX = /*MARK_ROOM_PX*/null;
 // What each reference line says on hover, by its label: core
 // steady_views::reference_hover, put in by the server.
 const REFERENCE_HOVER = /*REFERENCE_HOVER*/null;
-// The Periods plot's words, core steady_views's SCORE_AXIS_HOVER,
-// THRESHOLD_NAME and threshold_hover, put in by the server.
+// The Periods plot's words, core steady_views's SCORE_AXIS_NAME and
+// SCORE_AXIS_HOVER, THRESHOLD_NAME and threshold_hover, put in by the
+// server.
 const SCORE_WORDS = /*SCORE_WORDS*/null;
 // A period axis in log10 seconds, as the app's steady::period_grid marks it:
 // core's period_ticks, the finest level with no more marks than one per
@@ -883,7 +884,7 @@ function scoreTicks(lo, hi, px, minPx) {
 // A plot as the steadiness views draw theirs: an x and a y scale with their
 // own tick labels, and lines, dots, rules and notes, all inside the plot.
 //   x, y: [lo, hi]; xTicks(lo, hi, plotW), yTicks(lo, hi, plotH): [[v, label]];
-//   yHover: the y axis' hover
+//   yName: the y axis' name, above its top tick; yHover: the y axis' hover
 //   hlines: [{y, color, dash, name, hover}], a named one named right of the plot;
 //   vlines: [{x, color, opacity, width, dash, name, rank, ink, hover}]
 //   named, by marks.rs's rules: in a lane of two rows above the plot, which
@@ -900,7 +901,11 @@ function xyChart(o) {
   // never jumps as they come and go; a short one names them inside.
   const short = o.names && (o.height || 150) - 4 - B < MARKS.SHORT_PLOT;
   const room = o.names && !short ? MARKS.LANE + MARKS.LANE_GAP : 0;
-  const H = (o.height || 150) + room, T = 4 + room;
+  // A y axis' name sits above its top tick, left of the plot: in the lane's
+  // room when there is one (the lane's names stay over the plot), else in a
+  // row of its own.
+  const nameRow = o.yName && !room ? 14 : 0;
+  const H = (o.height || 150) + room + nameRow, T = 4 + room + nameRow;
   const plotH = H - T - B;
   const [x0, x1] = o.x, y0 = o.y[0];
   // steady: the plot keeps a note's room above the trace's highest point,
@@ -924,6 +929,8 @@ function xyChart(o) {
     inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     if (t) ylabels += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
+  // The axis' name, lined up with its tick labels above the top one.
+  if (o.yName) ylabels += `<text x="${L - 5}" y="${T - 4}" text-anchor="end">${esc(o.yName)}</text>`;
   g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
   for (const [v, t] of xt) {
     inside += `${gridDown(sx(v), L, T, plotH)}`;
@@ -1388,7 +1395,7 @@ function steadyPlot(s, view, doc) {
       return xyChart({
         title: "Periods", x: span, y,
         xTicks: periodTicks,
-        yTicks: (a, b, h) => scoreTicks(a, b, h, 24), yHover: SCORE_WORDS && SCORE_WORDS.axis_hover,
+        yTicks: (a, b, h) => scoreTicks(a, b, h, 24), yName: SCORE_WORDS && SCORE_WORDS.axis_name, yHover: SCORE_WORDS && SCORE_WORDS.axis_hover,
         vlines: wheelMarks(doc, span), names: showWheels,
         hlines: [{ y: p.threshold, color: "--callout", width: CALL_OUT_W, dash: "loose", name: SCORE_WORDS && SCORE_WORDS.threshold_name, hover: SCORE_WORDS && SCORE_WORDS.threshold_hover }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes, noteRoom: true,

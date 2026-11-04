@@ -15,7 +15,7 @@ const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src
 const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
 // The threshold's hover is core's threshold_hover, which views.rs's test
 // checks the page carries; here a stand-in.
-const SCORE_WORDS = { axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"),
+const SCORE_WORDS = { axis_name: coreStr("SCORE_AXIS_NAME"), axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"),
   threshold_hover: "Peaks above this line are named." };
 const context = vm.createContext({
   SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 (${lo}..${hi})`]],
@@ -74,6 +74,7 @@ test("the Periods score is drawn as it is, in whole scores, with its threshold n
   // No log or dB: the points are the scores.
   assert.deepEqual(c.lines[0].pts.map(([, y]) => y), [1, 9, 0.5, 2, 1]);
   assert.deepEqual(c.y, [0, 9 * 1.15]);
+  assert.equal(c.yName, "Score");
   assert.equal(c.yHover, SCORE_WORDS.axis_hover);
   assert.ok(c.yHover.includes("If the noise is as expected"), "a chance only under the model");
   assert.deepEqual(c.hlines.map((h) => [h.y, h.name, h.hover, h.dash]),
