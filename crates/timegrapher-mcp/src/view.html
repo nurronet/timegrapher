@@ -494,10 +494,11 @@ function stripCards(strip) {
       ].filter((s) => s.points.length),
     })]);
   }
-  if (has("beat_error_unlock") || has("beat_error_drop")) {
+  if (has("beat_error_unlock") || has("beat_error_drop") || has("beat_error_unknown")) {
     cards.push(["Beat Error", over("The beat error over the whole recording"), lineChart({
-      title: "Beat Error", time: true, legend: has("beat_error_unlock") && has("beat_error_drop"), yRange: range("beat_error"), unit: " ms", decimals: 2,
+      title: "Beat Error", time: true, legend: has("beat_error_unknown") || (has("beat_error_unlock") && has("beat_error_drop")), yRange: range("beat_error"), unit: " ms", decimals: 2,
       series: [
+        { name: "Source not recorded", color: "--beat-error", dash: "dotted", points: strip.beat_error_unknown || [] },
         { name: "From the Unlock", color: "--beat-error", points: strip.beat_error_unlock || [] },
         { name: "From the Drop", color: "--beat-error", opacity: 0.6, dash: "dashed", main: false, points: strip.beat_error_drop || [] },
       ].filter((s) => s.points.length),
@@ -1907,11 +1908,11 @@ function trendStrip(t) {
   // the whole-take measures do not agree on its sign.
   const sourced = (source) => {
     const values = (t.beat_error || []).map((y, i) => [t.t_s[i],
-      (t.beat_error_source || [])[i] === source && Number.isFinite(y) ? Math.abs(y) : NaN]);
+      ((t.beat_error_source || [])[i] ?? null) === source && Number.isFinite(y) ? Math.abs(y) : NaN]);
     return values.some(([, y]) => Number.isFinite(y)) ? values : [];
   };
   return { rate: pts(t.rate), amplitude: pts(t.amplitude),
-    beat_error_unlock: sourced("unlock"), beat_error_drop: sourced("drop") };
+    beat_error_unlock: sourced("unlock"), beat_error_drop: sourced("drop"), beat_error_unknown: sourced(null) };
 }
 
 // strip::wrap: fold into [-half, half).

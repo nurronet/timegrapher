@@ -109,7 +109,7 @@ harness uses core's amplitude coverage instead of its own 60% threshold.
 Direct readings carry `beat_error_source`: `"unlock"` when the unlock was
 found, `"drop"` when the reading falls back to the drop, and `null` when
 neither is read. It accompanies the analyze summary, session `measurement`,
-Watches `reading`, and Power Reserve `hours[]`. It describes the selected
+Watches `reading`, Power Reserve `hours[]`, and live `reading`. It describes the selected
 beat error; the separate raw unlock and drop fields retain their meanings.
 The choice and all measured figures are unchanged.
 
@@ -120,9 +120,9 @@ two types can lack these additive fields; they read as a null source and an
 empty caveat list, without guessing provenance for an old value. Withheld
 readings have no source or drop-derived caveat.
 
-Position and state aggregates do not yet carry provenance; mixing their
-sources, and separating sources in charts and MCP views, remain follow-up
-work under #658.
+Position and state aggregates select one source as described below. Live and
+saved charts keep unlock and drop series separate. Older live trend documents
+without source metadata keep their values in a separate unknown-source series.
 
 ## Calibres
 
@@ -359,7 +359,7 @@ The file holds one `timegrapher.live/1` document:
 | `beats_heard` | Beats heard so far |
 | `reading` | The live reading as the app shows it: `rate_s_per_day`, `amplitude_deg` (`amplitude_error_deg`), `beat_error_unlock_ms` (the headline) and `beat_error_ms` (from the drop), `bph`, `beats_used`, `span_s`, `jitter_us`, `timing_scatter_fraction` (as for `analyze`), `snr`, `clipped_beats`, `clipped_fraction`, `watch_heard`, `rate_error_s_per_day` (the scatter of 10 s windows over the run so far scaled to `average_s`, `null` until about 30 s of unbroken beats), `beat_error_unlock_error_ms` (the standard error of the 2 s windows) and `caveats[]` (as `analyze` gives them, over the averaging time); readings are null until enough beats are heard, and whenever `watch_heard` is false (no regular beat found over an averaging time of 10 s or more, as `analyze` nulls them; under 10 s regularity is not assessed) |
 | `strip` | The paper strip: `span_s` (30), `period_s`, and `beats` as `[time_s, lead_ms, side]` for the last 30 s. `lead_ms` is how early the beat came against a clock at the nominal rate, anchored on the first 16 beats as the app anchors its strip. `side` is 0 for the Tick and 1 for the Tock |
-| `trend` | The readings about once a second as columns `t_s`, `rate`, `amplitude`, `beat_error` (signed: from the unlock, else from the drop where the unlock is not found). It keeps the whole take, up to 300 points: past that, every other point of the older half is dropped |
+| `trend` | The readings about once a second as columns `t_s`, `rate`, `amplitude`, `beat_error`, and aligned `beat_error_source` (`"unlock"`, `"drop"`, or null). Beat error is signed: from the unlock, else from the drop where the unlock is not found. It keeps the whole take, up to 300 points: past that, every other point of the older half is dropped |
 
 The file stays bounded: at most 300 trend points, and 30 s of beats
 (300 at 36,000 bph).
@@ -568,9 +568,14 @@ wind-down difference. Steadiness series and wind-down stretches count eligible
 fine-window readings before binning; excluded sources leave holes in the grid.
 Series-level provenance applies to its spread, trend, cycles and other tests.
 
-The temporary source-less `Figures`/`indices` app adapter uses the same estimators
-but cannot recover the source of legacy saved results. Its provenance remains
-null and its source counts zero until #658 part 2b migrates those callers.
+Saved FullWind rows now persist `beat_error_source`; absent fields deserialize
+as null. Their individual values remain visible without an invented source.
+The app uses source-aware aggregates; unknown-source rows are excluded from
+pooled beat-error means and spreads, while rate and amplitude stay available.
+A `beat_error_unknown_source` caveat carries the number of excluded `readings`,
+including when no beat-error aggregate can be given. Source counts continue to
+count only known unlock/drop inputs. The temporary `Figures`/`indices` adapter
+has been removed.
 Raw explicitly named unlock/drop fields retain their meaning. A direct
 `Measurement` falling back to the beat-time fit still has no beat-error ±;
 no uncertainty from drop windows is attached to that different estimator.

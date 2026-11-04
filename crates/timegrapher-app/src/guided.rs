@@ -13,7 +13,7 @@ use crate::app::Position;
 use crate::theme;
 use eframe::egui::{self, RichText, Vec2};
 use timegrapher_core::clock::ClockFit;
-use timegrapher_core::session::{self, Figures, Measurement, Reading};
+use timegrapher_core::session::{self, Measurement, Reading, SourcedFigures};
 use timegrapher_core::stream::BeatLog;
 
 /// The file a finished test just after winding is saved to, from the
@@ -59,6 +59,9 @@ pub struct KeptRow {
     pub amplitude_deg: Option<f64>,
     /// A size, from the unlock where found, ms.
     pub beat_error_ms: Option<f64>,
+    /// Older saved rows retain an unknown source.
+    #[serde(default)]
+    pub beat_error_source: Option<session::BeatErrorSource>,
 }
 
 pub fn unix_now() -> f64 {
@@ -294,6 +297,7 @@ impl Test {
                     rate_s_per_day: r.measurement.rate_s_per_day,
                     amplitude_deg: r.measurement.amplitude_deg,
                     beat_error_ms: r.measurement.beat_error(),
+                    beat_error_source: r.measurement.beat_error_source,
                 })
                 .collect(),
         })
@@ -1471,7 +1475,7 @@ fn caveat_condition(label: &str, c: &timegrapher_core::measure::Caveat) -> Optio
 /// The table from the readings, with the figures `timegrapher session`
 /// prints for the same stretches and its position names.
 pub fn table(readings: &[Reading]) -> Table {
-    let figures: Vec<Figures> = readings
+    let figures: Vec<SourcedFigures> = readings
         .iter()
         .map(|r| {
             let m = &r.measurement;
@@ -1480,6 +1484,7 @@ pub fn table(readings: &[Reading]) -> Table {
                 m.rate_s_per_day,
                 m.amplitude_deg,
                 m.beat_error(),
+                m.beat_error_source,
             )
         })
         .collect();
@@ -1492,7 +1497,7 @@ pub fn table(readings: &[Reading]) -> Table {
 
 /// The table of an earlier test's saved results.
 pub fn kept_table(full: &FullWind) -> Table {
-    let figures: Vec<Figures> = full
+    let figures: Vec<SourcedFigures> = full
         .positions
         .iter()
         .filter_map(|k| {
@@ -1501,21 +1506,36 @@ pub fn kept_table(full: &FullWind) -> Table {
                 k.rate_s_per_day,
                 k.amplitude_deg,
                 k.beat_error_ms,
+                k.beat_error_source,
             ))
         })
         .collect();
     table_of(&figures, Vec::new())
 }
 
-/// The table's summary lines are core `session::indices`, the values
+/// The table's summary lines are core `session::sourced_indices`, the values
 /// `timegrapher session` gives for the same readings (repeat readings of
 /// a position averaged first).
-fn table_of(figures: &[Figures], notes: Vec<String>) -> Table {
-    let ix = session::indices(0.0, figures);
+fn table_of(figures: &[SourcedFigures], mut notes: Vec<String>) -> Table {
+    let ix = session::sourced_indices(0.0, figures);
+    notes.extend(figures.iter().filter(|f| f.3.is_some()).map(|f| {
+        format!(
+            "{}: {}",
+            position_label(f.0),
+            session::beat_error_source_label(f.4)
+        )
+    }));
+    if ix.beat_error_mean.is_some() {
+        notes.push(format!(
+            "Average: {}",
+            session::beat_error_source_label(ix.beat_error_source)
+        ));
+    }
+    notes.extend(ix.caveats.iter().filter_map(|c| c.long(None)));
     Table {
         rows: figures
             .iter()
-            .map(|&(p, rate, amp, be)| {
+            .map(|&(p, rate, amp, be, _)| {
                 (
                     position_label(p),
                     rate,
@@ -1743,8 +1763,13 @@ pub fn comparison(full: &FullWind, hours: f64, readings: &[Reading]) -> Option<C
             let mut measurement = template.measurement.clone();
             measurement.rate_s_per_day = k.rate_s_per_day;
             measurement.amplitude_deg = k.amplitude_deg;
-            measurement.beat_error_unlock_ms = k.beat_error_ms;
-            measurement.beat_error_ms = k.beat_error_ms;
+            measurement.beat_error_source = k.beat_error_source;
+            measurement.beat_error_unlock_ms = k
+                .beat_error_ms
+                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Unlock));
+            measurement.beat_error_ms = k
+                .beat_error_ms
+                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Drop));
             Some(Reading {
                 label: position_label(position),
                 position,
@@ -2035,6 +2060,7 @@ mod tests {
                     rate_s_per_day: Some(1.0),
                     amplitude_deg: None,
                     beat_error_ms: None,
+                    beat_error_source: None,
                 }],
             };
             std::fs::write(take.join(RESULTS_FILE), f.to_json()).unwrap();
@@ -2062,6 +2088,7 @@ mod tests {
             rate_s_per_day: Some(1.0),
             amplitude_deg: None,
             beat_error_ms: None,
+            beat_error_source: None,
         };
         let mut f = FullWind {
             format: RESULTS_FORMAT.into(),
@@ -2669,19 +2696,84 @@ mod tests {
         assert_eq!(t.measured(s + sm + m + 30.0), [(s + sm, s + sm + m)]);
     }
 
+    #[test]
+    fn unknown_saved_sources_stay_visible_but_do_not_enter_the_table_mean() {
+        let t = table_of(
+            &[
+                (
+                    session::Position::CH,
+                    Some(2.0),
+                    Some(280.0),
+                    Some(0.4),
+                    None,
+                ),
+                (
+                    session::Position::CB,
+                    Some(4.0),
+                    Some(260.0),
+                    Some(0.8),
+                    None,
+                ),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(t.rows[0].4, Some(0.4));
+        assert_eq!(t.rows[1].4, Some(0.8));
+        assert_eq!(t.mean_beat_error, None);
+        assert_eq!(t.largest_beat_error, None);
+        assert_eq!(t.mean_rate, Some(3.0));
+        assert_eq!(t.mean_amplitude, Some(270.0));
+        assert!(t.notes.iter().any(|n| n.contains("source not recorded")));
+        assert!(t.notes.iter().any(|n| n.contains("leaves out 2 readings")));
+    }
+
+    #[test]
+    fn saved_beat_error_rows_keep_values_without_guessing_old_sources() {
+        let old =
+            r#"{"position":"DU","rate_s_per_day":1.0,"amplitude_deg":270.0,"beat_error_ms":0.8}"#;
+        let mut row: KeptRow = serde_json::from_str(old).unwrap();
+        assert_eq!(row.beat_error_ms, Some(0.8));
+        assert_eq!(row.beat_error_source, None);
+        assert_eq!(
+            serde_json::to_value(&row).unwrap()["beat_error_source"],
+            serde_json::Value::Null
+        );
+        row.beat_error_source = Some(session::BeatErrorSource::Drop);
+        let saved = serde_json::to_string(&row).unwrap();
+        assert_eq!(serde_json::from_str::<KeptRow>(&saved).unwrap(), row);
+    }
+
     /// The table's means and differences are `session`'s: a position read
     /// twice counts once, its readings averaged, as core
-    /// `session::indices` takes it.
+    /// `session::sourced_indices` takes it.
     #[test]
     fn the_table_summary_is_the_session_values() {
         use session::Position as P;
-        let figures: Vec<Figures> = vec![
-            (P::CH, Some(10.0), Some(280.0), Some(0.2)),
-            (P::CH, Some(20.0), Some(290.0), Some(0.4)),
-            (P::H3, Some(0.0), Some(250.0), Some(0.1)),
+        let figures: Vec<SourcedFigures> = vec![
+            (
+                P::CH,
+                Some(10.0),
+                Some(280.0),
+                Some(0.2),
+                Some(session::BeatErrorSource::Unlock),
+            ),
+            (
+                P::CH,
+                Some(20.0),
+                Some(290.0),
+                Some(0.4),
+                Some(session::BeatErrorSource::Unlock),
+            ),
+            (
+                P::H3,
+                Some(0.0),
+                Some(250.0),
+                Some(0.1),
+                Some(session::BeatErrorSource::Unlock),
+            ),
         ];
         let t = table_of(&figures, Vec::new());
-        let ix = session::indices(0.0, &figures);
+        let ix = session::sourced_indices(0.0, &figures);
         // Dial Up averages to 15 s/d before the mean and the difference.
         assert_eq!(t.mean_rate, Some(7.5));
         assert_eq!(t.largest_difference, Some(15.0));

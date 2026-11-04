@@ -928,7 +928,7 @@ pub fn started_words(t: &Take) -> String {
 }
 
 /// A Positions Test take's positions measured and its Mean row: rate,
-/// amplitude and beat error over those positions, the figures its table shows (core `session::indices`
+/// amplitude and beat error over those positions, the figures its table shows (core `session::sourced_indices`
 /// on its saved results); `None` for any other take. Read once per change
 /// of the results file.
 pub fn positions_means(dir: &std::path::Path) -> Option<(usize, [Option<f64>; 3])> {
@@ -2517,6 +2517,7 @@ mod tests {
             rate_s_per_day: Some(rate),
             amplitude_deg: Some(280.0),
             beat_error_ms: Some(0.2),
+            beat_error_source: Some(timegrapher_core::session::BeatErrorSource::Unlock),
         };
         let full = crate::guided::FullWind {
             format: crate::guided::RESULTS_FORMAT.into(),
