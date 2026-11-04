@@ -42,6 +42,10 @@ pub const TICKS: [PeriodTick; 19] = [
     tick(172800.0, "48 h", 2),
 ];
 
+/// The room a period mark's label wants along an axis, points: an axis
+/// `w` wide has room for `w / MARK_ROOM_PX` marks, and at least 2.
+pub const MARK_ROOM_PX: f64 = 64.0;
+
 /// The marks between `lo_s` and `hi_s`: the finest level whose marks
 /// number no more than `room`, and at least the level 0 marks.
 pub fn period_ticks(lo_s: f64, hi_s: f64, room: usize) -> Vec<PeriodTick> {
