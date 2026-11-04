@@ -314,7 +314,7 @@ impl TimegrapherApp {
         let Some(id) = self.open_watch().map(|e| e.watch.id.clone()) else {
             return;
         };
-        let Some(files) = rfd::FileDialog::new()
+        let d = rfd::FileDialog::new()
             .set_title("Add Photos of the Watch")
             .add_filter(
                 "Photos",
@@ -322,15 +322,18 @@ impl TimegrapherApp {
                     "jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "JPG", "JPEG", "PNG",
                     "HEIC", "HEIF", "TIF", "TIFF",
                 ],
-            )
-            .pick_files()
-        else {
-            return;
-        };
+            );
+        self.pick(Picker::files(d, move |a, files| {
+            a.add_photo_files(&id, &files)
+        }));
+    }
+
+    /// Copy `files` into the photos of the watch `id`, saying how many.
+    fn add_photo_files(&mut self, id: &str, files: &[PathBuf]) {
         let Ok(Some(lib)) = &mut self.library else {
             return;
         };
-        match lib.add_photos(&id, &files) {
+        match lib.add_photos(id, files) {
             Ok(added) => self.info_msg(format!(
                 "Added {}.",
                 if added.len() == 1 {
