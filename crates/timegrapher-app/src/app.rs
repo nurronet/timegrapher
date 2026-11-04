@@ -3567,15 +3567,9 @@ impl TimegrapherApp {
             self.undrag(pane);
         }
         set_pane_visible(&mut self.panes.tiles, pane, true);
-        // A test's pane opens at its content's height, no less than a
-        // pane's least: the Paper Strip keeps the rest until dragged. With
-        // a run already read (a long take's, shown before the pane was),
-        // grown to show its charts and table, as an opened run's take is.
+        // A test's pane opens at its content's height, or its run's.
         if pane == Pane::PowerReserve && !was {
-            match self.reserve.as_ref().and_then(|t| t.results.as_ref()) {
-                Some(r) => grow_row(&mut self.panes.tiles, pane, reserve::run_h(r.hours.len())),
-                None => fit_row(&mut self.panes.tiles, pane, MIN_PANE_H),
-            }
+            self.fit_reserve_row();
         }
         let Some(id) = self.panes.tiles.find_pane(&pane) else {
             return;

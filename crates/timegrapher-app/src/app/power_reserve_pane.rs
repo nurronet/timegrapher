@@ -323,6 +323,19 @@ impl TimegrapherApp {
         )
     }
 
+    /// The Power Reserve pane's row as the pane is first shown: at its
+    /// content's height, no less than a pane's least, the Paper Strip
+    /// keeping the rest until dragged; with a run already read (a long
+    /// take's, read before the pane showed), grown to show its charts and
+    /// table, as an opened run's take is.
+    pub(super) fn fit_reserve_row(&mut self) {
+        let pane = Pane::PowerReserve;
+        match self.reserve.as_ref().and_then(|t| t.results.as_ref()) {
+            Some(r) => grow_row(&mut self.panes.tiles, pane, reserve::run_h(r.hours.len())),
+            None => fit_row(&mut self.panes.tiles, pane, MIN_PANE_H),
+        }
+    }
+
     /// A take opened whole that isn't a Power Reserve Test: when core
     /// reads it as a run ([`power_reserve::from_long_take`]: six hours or
     /// more of the watch heard, in one position), the pane shows that run
