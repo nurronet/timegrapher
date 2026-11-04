@@ -287,3 +287,58 @@ fn the_live_hours_match_a_fresh_read_after_each_refresh() {
         }
     }
 }
+
+/// A take of `run_s` of beats at 3,600 bph (few, so the test is quick),
+/// then a minute of silence.
+fn long_log(run_s: f64) -> BeatLog {
+    let n = run_s as i64;
+    BeatLog {
+        sample_rate: 48000,
+        duration_s: run_s + 60.0,
+        bph: 3600,
+        lift_deg: 52.0,
+        beats: (0..n)
+            .map(|index| timegrapher_core::beats::Beat {
+                index,
+                time: index as f64,
+                quality: 1.0,
+            })
+            .collect(),
+        amplitude_windows: vec![],
+        clipped_beats: vec![],
+        clipped_samples: 0,
+        jumps: vec![],
+        sided: Vec::new(),
+        by_count: Vec::new(),
+        snippets: Vec::new(),
+    }
+}
+
+/// A long take that isn't a test fills the Power Reserve pane with its
+/// run, hour by hour, saying where it came from and keeping nothing; a
+/// short one leaves the pane as before a test.
+#[test]
+fn a_long_take_shows_its_run_in_the_power_reserve_pane() {
+    let run = power_reserve::LONG_TAKE_S + 1800.0;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.show_log(long_log(run), "long".into(), vec![], vec![]);
+    let t = app.reserve.as_ref().expect("the run of a long take");
+    assert!(!app.reserve_running());
+    assert!(t.saved.is_none(), "nothing kept");
+    let r = t.results.as_ref().unwrap();
+    assert_eq!(r.source, power_reserve::Source::LongTake);
+    assert_eq!(r.ending, power_reserve::Ending::TakeEnded);
+    assert_eq!(r.hours.len(), 7);
+    let text = reserve::results_text(r, "", ',');
+    assert!(text.contains("Read from,\"Read from a long take, not a Power Reserve Test\""));
+    assert!(!text.contains("Started (UTC)"), "no start known");
+
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.show_log(
+        long_log(power_reserve::LONG_TAKE_S - 600.0),
+        "short".into(),
+        vec![],
+        vec![],
+    );
+    assert!(app.reserve.is_none());
+}

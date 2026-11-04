@@ -2261,6 +2261,8 @@ impl TimegrapherApp {
         self.anchor = None;
         self.strip_end = None;
         self.fit_take();
+        // A long take that isn't a test: its run, read as one.
+        self.reserve_from_long_take();
         let done = if self.no_sound {
             "Opened the analysis kept without its sound: the readings, charts and tests are as \
              they were measured, and the Scope needs the sound. Drag the strip to look \

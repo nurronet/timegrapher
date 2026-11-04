@@ -248,6 +248,12 @@ fn power_reserve(p: &Value) -> Option<String> {
         timegrapher_core::power_reserve::run_text(run_s),
         ending.text()
     );
+    // Read from a long take, not a test: said where it came from.
+    let source: timegrapher_core::power_reserve::Source =
+        serde_json::from_value(p["source"].clone()).unwrap_or_default();
+    if let Some(w) = source.text() {
+        s += &format!(" {w}.");
+    }
     let pauses = p["pauses"].as_array().map_or(0, |a| a.len()) as u64;
     if pauses > 0 {
         s += &format!(
@@ -706,6 +712,14 @@ mod tests {
         assert!(lead(&by_hand, &Map::new()).unwrap().starts_with(
             "Power reserve: 42 h 03 min in Dial Up (DU). Stopped by hand while the watch \
              still ran.\nReadings"
+        ));
+        // A long take's run, read as one, says so.
+        let mut long = by_hand.clone();
+        long["power_reserve"]["ending"] = json!("take_ended");
+        long["power_reserve"]["source"] = json!("long_take");
+        assert!(lead(&long, &Map::new()).unwrap().starts_with(
+            "Power reserve: 42 h 03 min in Dial Up (DU). The take ended while the watch \
+             still ran. Read from a long take, not a Power Reserve Test.\nReadings"
         ));
         let mut plain = doc.clone();
         plain.as_object_mut().unwrap().remove("power_reserve");
