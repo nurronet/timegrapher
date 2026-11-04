@@ -553,6 +553,8 @@ mod tests {
 
     fn report() -> Report {
         Report {
+            beat_error_source: None,
+            beat_error_sources: Default::default(),
             duration_s: 600.0,
             bph: 28800,
             breaks: vec![],

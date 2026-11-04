@@ -1,3 +1,7 @@
+beat_error_source
+beat_error_sources
+beat_error_sources.drop
+beat_error_sources.unlock
 bph
 caveats
 clock
@@ -71,6 +75,11 @@ schema
 series
 series[].allan
 series[].autocorrelation
+series[].beat_error_source
+series[].beat_error_sources
+series[].beat_error_sources.drop
+series[].beat_error_sources.unlock
+series[].caveats
 series[].changes
 series[].cusum
 series[].cycle
