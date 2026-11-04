@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { BASE_DIGITS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 const definition = (name) => {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
@@ -13,6 +14,7 @@ const definition = (name) => {
 };
 const charts = [];
 const context = vm.createContext({
+  BASE_DIGITS,
   num: (v, d) => v.toFixed(d),
   signed: (v, d) => (v >= 0 ? "+" : "") + v.toFixed(d),
   lineChart: (c) => { charts.push(JSON.parse(JSON.stringify(c))); return "<svg/>"; },
