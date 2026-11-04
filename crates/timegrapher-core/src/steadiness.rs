@@ -1821,8 +1821,13 @@ fn lead(s: &SeriesCheck, cfg: &Config) -> Lead {
         .as_ref()
         .map_or(0.0, |t| t.explained.max(t.curve_explained));
     if let Some(ch) = family::level_moves(s, cfg) {
-        // A slide cut into steps is still a slide.
-        return if trend >= 0.8 * ch.explained && family::trend_holds(s, cfg) {
+        // A slide cut into steps is still a slide: whichever of the line
+        // and the steps explains more names it. A line explains a clean
+        // mid-take step about 0.75 as well, so a bar of 0.8 called 40 to
+        // 45% of 2σ steps at ρ 0.9 slides; at 1.0 a ramp cut into steps
+        // is sometimes called a level shift instead, which still says the
+        // level moved (#721).
+        return if trend >= ch.explained && family::trend_holds(s, cfg) {
             Lead::Drifting
         } else {
             Lead::ShiftingMean

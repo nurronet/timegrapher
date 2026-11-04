@@ -24,6 +24,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::stream::StreamConfig;
 use timegrapher_core::synth::{self, SynthConfig};
 use timegrapher_core::{analyze, load, Analysis, AnalysisConfig};
@@ -1335,7 +1336,7 @@ fn take_lines(t: &serde_json::Value) -> Vec<String> {
     )];
     for r in t["readings"].as_array().into_iter().flatten() {
         let m = &r["measurement"];
-        let at = |k: &str| m[k].as_f64().map_or("-".into(), |x| format!("{x:.0}"));
+        let at = |k: &str| m[k].as_f64().map_or("-".into(), |x| fixed_text(x, 0));
         let said = timegrapher_core::reading_text::measurement(m);
         lines.push(format!(
             "             {} from {} to {} s: {said}",
@@ -1469,7 +1470,12 @@ fn run_usb_agc(json: bool, set: Option<bool>) -> Result<(), String> {
             println!("    after the change {}", state(f.after));
         }
         if let Some((cur, lo, hi)) = f.volume_db {
-            println!("    capture volume {cur:+.1} dB (from {lo:+.1} to {hi:+.1} dB)");
+            println!(
+                "    capture volume {} dB (from {} to {} dB)",
+                signed_text(cur, 1),
+                signed_text(lo, 1),
+                signed_text(hi, 1)
+            );
         }
         if let Some(e) = &f.error {
             println!("    {e}");
@@ -1479,18 +1485,21 @@ fn run_usb_agc(json: bool, set: Option<bool>) -> Result<(), String> {
 }
 
 fn opt(v: Option<f64>, digits: usize) -> String {
-    v.map_or("-".into(), |x| format!("{x:.digits$}"))
+    v.map_or("-".into(), |x| fixed_text(x, digits))
 }
 
 /// Beat error from the unlock as the headline, with the drop's alongside.
 pub fn beat_error_text(unlock_ms: Option<f64>, drop_ms: f64) -> String {
     match unlock_ms {
         Some(u) => format!(
-            "{:.2} ms (from the unlock; {:.2} ms from the drop)",
-            u.abs(),
-            drop_ms.abs()
+            "{} ms (from the unlock; {} ms from the drop)",
+            fixed_text(u.abs(), base_digits::BEAT_ERROR),
+            fixed_text(drop_ms.abs(), base_digits::BEAT_ERROR)
         ),
-        None => format!("{:.2} ms from the drop (unlock not found)", drop_ms.abs()),
+        None => format!(
+            "{} ms from the drop (unlock not found)",
+            fixed_text(drop_ms.abs(), base_digits::BEAT_ERROR)
+        ),
     }
 }
 
@@ -1501,7 +1510,11 @@ fn print_summary(
 ) {
     use timegrapher_core::measure;
     let s = &a.summary;
-    println!("Duration     {:.1} s at {} Hz", s.duration_s, s.sample_rate);
+    println!(
+        "Duration     {} s at {} Hz",
+        fixed_text(s.duration_s, 1),
+        s.sample_rate
+    );
     if !s.watch_heard {
         let reason = measure::no_watch_reason_in(&s.caveats).unwrap_or_default();
         println!("{}", measure::no_watch_text(reason, s.jitter_us, s.bph_set));
@@ -1509,16 +1522,16 @@ fn print_summary(
     }
     if !measure::regularity_assessed(s.duration_s) {
         println!(
-            "Beat regularity not assessed: {:.1} s of sound, {} s needed",
-            s.duration_s,
+            "Beat regularity not assessed: {} s of sound, {} s needed",
+            fixed_text(s.duration_s, 1),
             measure::SHORT_SPAN_S
         );
     }
     println!(
-        "Beat rate    {} bph, {} beats found ({:.1}% of those expected)",
+        "Beat rate    {} bph, {} beats found ({}% of those expected)",
         s.bph,
         s.beats_found,
-        s.beats_found_fraction * 100.0
+        fixed_text(s.beats_found_fraction * 100.0, 1)
     );
     if let Some(heard) = s.bph_heard {
         println!(
@@ -1563,13 +1576,19 @@ fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, Stri
         let pm = se(c.map(|c| &c.rate), "", 1);
         match clock {
             Some((ppm, from)) => println!(
-                "Rate         {:+.1}{pm} s/d, corrected for the sound card's clock ({:.1} ppm {}, {from}); {:+.1} s/d on the card's clock",
-                timegrapher_core::clockstore::correct_rate(f.rate_s_per_day, *ppm),
-                ppm.abs(),
+                "Rate         {}{pm} s/d, corrected for the sound card's clock ({} ppm {}, {from}); {} s/d on the card's clock",
+                signed_text(
+                    timegrapher_core::clockstore::correct_rate(f.rate_s_per_day, *ppm),
+                    base_digits::RATE
+                ),
+                fixed_text(ppm.abs(), base_digits::CLOCK),
                 if *ppm >= 0.0 { "slow" } else { "fast" },
-                f.rate_s_per_day
+                signed_text(f.rate_s_per_day, base_digits::RATE)
             ),
-            None => println!("Rate         {:+.1}{pm} s/d", f.rate_s_per_day),
+            None => println!(
+                "Rate         {}{pm} s/d",
+                signed_text(f.rate_s_per_day, base_digits::RATE)
+            ),
         }
         // The ± is the unlock figure's.
         let be_se = c
@@ -1577,9 +1596,9 @@ fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, Stri
             .and_then(|e| timegrapher_core::library::pm_text(e, 2));
         match (s.beat_error_unlock_ms, be_se) {
             (Some(u), Some(e)) => println!(
-                "Beat error   {:.2} ± {e} ms (from the unlock; {:.2} ms from the drop)",
-                u.abs(),
-                f.beat_error_ms.abs()
+                "Beat error   {} ± {e} ms (from the unlock; {} ms from the drop)",
+                fixed_text(u.abs(), base_digits::BEAT_ERROR),
+                fixed_text(f.beat_error_ms.abs(), base_digits::BEAT_ERROR)
             ),
             _ => println!(
                 "Beat error   {}",
@@ -1621,12 +1640,12 @@ fn print_conditions(
     let c = &s.clipping;
     if c.samples > 0 {
         println!(
-            "Clipping     on {:.1}% of beats ({} of {}, {} samples), peak {:.1} dBFS",
-            c.beat_fraction * 100.0,
+            "Clipping     on {}% of beats ({} of {}, {} samples), peak {} dBFS",
+            fixed_text(c.beat_fraction * 100.0, 1),
             c.beats,
             s.beats_found,
             c.samples,
-            c.peak_dbfs
+            fixed_text(c.peak_dbfs, 1)
         );
     }
 }
@@ -1634,7 +1653,11 @@ fn print_conditions(
 /// The beat's shape on each side, and the strongest periodic components.
 fn print_shape_and_periods(s: &timegrapher_core::analysis::Summary) {
     if let Some(m) = &s.shape {
-        let pct = |v: Option<f64>| v.map_or("-".to_string(), |v| format!("{:.0}%", v * 100.0));
+        let pct = |v: Option<f64>| {
+            v.map_or("-".to_string(), |v| {
+                format!("{}%", fixed_text(v * 100.0, 0))
+            })
+        };
         for (i, (side, d)) in [("Tick", &m.even), ("Tock", &m.odd)].iter().enumerate() {
             println!(
                 "{:<13}{side}: sound 1 in {}, sound 2 in {} of {} windows; 1-2 {} ms, 1-3 {} ms, level 1/3 {}, tail {}",
@@ -1650,8 +1673,10 @@ fn print_shape_and_periods(s: &timegrapher_core::analysis::Summary) {
         }
         if let (Some(a), Some(b)) = (m.beat_error_first_quarter_ms, m.beat_error_last_quarter_ms) {
             println!(
-                "{:<13}beat error from the unlock {a:+.2} ms in the first quarter, {b:+.2} ms in the last ({} window{} each)",
+                "{:<13}beat error from the unlock {} ms in the first quarter, {} ms in the last ({} window{} each)",
                 "",
+                signed_text(a, base_digits::BEAT_ERROR),
+                signed_text(b, base_digits::BEAT_ERROR),
                 m.beat_error_quarter_windows,
                 if m.beat_error_quarter_windows == 1 { "" } else { "s" }
             );
@@ -1667,9 +1692,9 @@ fn print_shape_and_periods(s: &timegrapher_core::analysis::Summary) {
         println!("Periodic components in {title}:");
         for c in list.iter().take(3) {
             println!(
-                "  {:>8.1} s  explains {:>4.0}% of variance  {}",
-                c.period_s,
-                c.power * 100.0,
+                "  {:>8} s  explains {:>4}% of variance  {}",
+                fixed_text(c.period_s, 1),
+                fixed_text(c.power * 100.0, 0),
                 c.wheel
                     .as_deref()
                     .map(|w| format!("({w}?)"))
