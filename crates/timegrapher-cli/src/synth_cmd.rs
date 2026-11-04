@@ -18,7 +18,8 @@ pub fn list() -> String {
 }
 
 /// Write scenario `name` into the folder `out`: FLAC files of ten
-/// minutes, `session.json` and a README with what is hidden.
+/// minutes, `session.json`, `session.toml` and a README with what is
+/// hidden.
 pub fn write(out: &Path, name: &str, seed: u64) -> Result<(), String> {
     let s = scenarios::find(name).ok_or_else(|| {
         format!(
@@ -48,12 +49,25 @@ pub fn write(out: &Path, name: &str, seed: u64) -> Result<(), String> {
         files.push(file);
         Ok(())
     })?;
+    session_files(out, &s, seed, cfg.sample_rate, &files)
+}
+
+/// The take's `session.json`, the `session.toml` a take folder opens with
+/// and its README, for the sound `files` of scenario `s`.
+fn session_files(
+    out: &Path,
+    s: &Scenario,
+    seed: u64,
+    sample_rate: u32,
+    files: &[String],
+) -> Result<(), String> {
+    let watch = format!("Synthetic: {} ({} layout)", s.name, scenarios::CALIBRE);
     let json = serde_json::json!({
-        "watch": format!("Synthetic: {} ({} layout)", s.name, scenarios::CALIBRE),
+        "watch": watch,
         "position": "DU",
         "lift_deg": scenarios::LIFT_DEG,
         "bph": scenarios::BPH,
-        "sample_rate": cfg.sample_rate,
+        "sample_rate": sample_rate,
         "bits": 16,
         "software": format!("timegrapher {} synth --scenario {} --seed {seed}", env!("CARGO_PKG_VERSION"), s.name),
         "duration_s": s.duration_s,
@@ -64,7 +78,19 @@ pub fn write(out: &Path, name: &str, seed: u64) -> Result<(), String> {
     });
     let text = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())? + "\n";
     std::fs::write(out.join(timegrapher_core::take::RECORD), text).map_err(|e| e.to_string())?;
-    std::fs::write(out.join("README.md"), readme(&s, seed)).map_err(|e| e.to_string())
+    // The session file a take folder opens with, so `series`, `long` and
+    // the app read it at its own beat rate and lift, not the defaults.
+    let set = crate::record_cmd::Settings {
+        watch: Some(watch),
+        calibre: None,
+        bph: Some(scenarios::BPH),
+        lift: scenarios::LIFT_DEG,
+        lift_known: true,
+        settle_s: None,
+    };
+    let dial_up = timegrapher_core::session::Position::parse("DU").expect("DU is a position");
+    crate::record_cmd::write_take_manifest(out, dial_up, &set, None)?;
+    std::fs::write(out.join("README.md"), readme(s, seed)).map_err(|e| e.to_string())
 }
 
 fn readme(s: &Scenario, seed: u64) -> String {
@@ -83,4 +109,34 @@ fn readme(s: &Scenario, seed: u64) -> String {
         calibre = scenarios::CALIBRE,
         lift = scenarios::LIFT_DEG,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use timegrapher_core::take;
+
+    /// A scenario's take folder opens with its own lift angle and beat
+    /// rate (50°, 28,800 bph), not the default lift of 52°: read at 52°,
+    /// every amplitude was 4% high and a slope against it 4% low (#951).
+    #[test]
+    fn a_scenario_take_opens_at_its_own_lift() {
+        let dir = std::env::temp_dir().join(format!("tg-synth-lift-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = scenarios::find("rub").unwrap();
+        session_files(&dir, &s, 3, 48_000, &["take_part01-001.flac".into()]).unwrap();
+        let (m, _, _) = crate::session_cmd::load_manifest_file(&dir.join(take::MANIFEST)).unwrap();
+        let given = take::Given {
+            bph: None,
+            lift_deg: None,
+        };
+        let set = take::stream_settings(&m, None, given);
+        assert_eq!(set.analysis.amplitude.lift_deg, scenarios::LIFT_DEG);
+        assert!(set.analysis.lift_known);
+        assert_eq!(set.analysis.bph, Some(scenarios::BPH));
+        assert_eq!(m.recordings.len(), 1);
+        assert_eq!(m.recordings[0].file, ".");
+        assert!(m.recordings[0].clock.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

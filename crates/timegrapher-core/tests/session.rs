@@ -191,6 +191,40 @@ fn isochronism_from_two_states_of_wind() {
 }
 
 #[test]
+fn isochronism_never_subtracts_different_beat_error_sources() {
+    use session::{BeatErrorSource, BeatErrorSources};
+    use timegrapher_core::measure::Caveat;
+
+    let mut full = reading(Position::CH, 0.0, 4.0, 290.0, 0.2);
+    full.measurement.beat_error_unlock_ms = Some(0.2);
+    full.measurement.beat_error_source = Some(BeatErrorSource::Unlock);
+    let mut unwound = reading(Position::CH, 24.0, 7.0, 250.0, 0.8);
+    unwound.measurement.beat_error_unlock_ms = None;
+    unwound.measurement.beat_error_ms = Some(0.8);
+    unwound.measurement.beat_error_source = Some(BeatErrorSource::Drop);
+
+    let report = evaluate(&[full, unwound]);
+    assert_eq!(report.isochronism.len(), 1);
+    let change = &report.isochronism[0];
+    assert_eq!(change.from_wind_h, 0.0);
+    assert_eq!(change.to_wind_h, 24.0);
+    assert_eq!(change.beat_error_change, None);
+    assert_eq!(change.beat_error_source, Some(BeatErrorSource::Unlock));
+    assert_eq!(
+        change.beat_error_sources,
+        BeatErrorSources { unlock: 1, drop: 1 }
+    );
+    assert!(matches!(
+        change.caveats.as_slice(),
+        [Caveat::BeatErrorSourceReadings {
+            source: BeatErrorSource::Unlock,
+            used: 1,
+            readings: 2
+        }]
+    ));
+}
+
+#[test]
 fn ie_pairs_only_positions_with_a_rate_in_both_states() {
     // CH reads 0 s/d at both states of wind. 6H reads 100 s/d when full
     // and has no rate when run down (as for no regular beat found), so it

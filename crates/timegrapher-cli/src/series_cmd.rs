@@ -76,15 +76,13 @@ pub fn run(o: Options) -> Result<(), String> {
         Some(_) => longrun::analyse_on_clock(&log, clock, &breaks, &lc),
         None => longrun::analyse_with_breaks(&log, clock, &breaks, &lc),
     };
-    if let Some(why) = unlisted {
-        timegrapher_core::measure::add(
-            &mut long.caveats,
-            timegrapher_core::measure::Caveat::BreaksUnlisted { why },
-        );
-    }
-    for c in positions.into_iter().chain(pauses_unseen) {
-        timegrapher_core::measure::add(&mut long.caveats, c);
-    }
+    crate::long::add_caveats(
+        &mut long.caveats,
+        &stream_cfg,
+        unlisted,
+        positions,
+        pauses_unseen,
+    );
     // A take read in stretches is on its clock already.
     let clock = clock.filter(|_| stretches.is_none());
     let rep = steadiness::check(&log, clock, &long, &lc, &o.check);
@@ -553,6 +551,8 @@ mod tests {
 
     fn report() -> Report {
         Report {
+            beat_error_source: None,
+            beat_error_sources: Default::default(),
             duration_s: 600.0,
             bph: 28800,
             breaks: vec![],
