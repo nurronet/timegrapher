@@ -754,18 +754,18 @@ fn live(
             break;
         }
         for live in came {
-            let dropped = matches!(live, breaks::Live::Dropped(_));
             let b = match live {
                 breaks::Live::Block(b) => b,
-                breaks::Live::Break(gap) | breaks::Live::Dropped(gap) => {
+                lost => {
                     // The computer slept, the input stalled, or its queue
                     // filled, and sound was lost: a break, as after a
                     // pause, with the time between left out.
+                    let gap = lost.lost_s();
                     rec.sound_lost(gap);
                     if let Some(f) = feed.as_mut() {
                         f.live.skip(gap);
                     }
-                    say_break(gap, dropped);
+                    say_break(&lost);
                     continue;
                 }
             };
@@ -1070,14 +1070,19 @@ fn print_report(r: &Report) {
 
 /// What `record` says about a break: sound the input dropped (#483), or a
 /// stop in its sound.
-fn say_break(gap: f64, dropped: bool) {
-    if dropped {
-        eprintln!(
+fn say_break(lost: &breaks::Live) {
+    match *lost {
+        breaks::Live::Dropped(gap) => eprintln!(
             "  {} of sound was lost (the input's queue filled); left out as a break",
             timegrapher_core::breaks::lost_text(gap)
-        );
-    } else {
-        eprintln!("  the sound stopped for {gap:.1} s (the computer slept?); left out as a break");
+        ),
+        breaks::Live::Break(gap) => {
+            eprintln!(
+                "  the sound stopped for {gap:.1} s (the computer slept?); left out as a break"
+            );
+        }
+        // The end of a backlog culled after a break: said with the break.
+        breaks::Live::Block(_) | breaks::Live::Cut => {}
     }
 }
 

@@ -17,7 +17,7 @@ use timegrapher_core::library::{Field, FieldKind, Library, Take, Watch, WatchEnt
 use timegrapher_core::session::Position;
 
 pub const HELP: &[&str] = &[
-    "Watches is the window's second view: the switch at the top left, or View > Watches \
+    "Watches is the window's second view: the switch in the top row, or View > Watches \
      (Ctrl+2, Cmd+2 on a Mac), shows it, and Bench (Ctrl+1) goes back. A take keeps running \
      behind it. Open on a take, or starting one from a watch, goes to the Bench.",
     "Your watches, each with its details and every take made of it, kept in the Watches \

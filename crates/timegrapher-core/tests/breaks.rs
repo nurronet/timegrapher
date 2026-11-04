@@ -615,6 +615,10 @@ fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64,
                 rec.write(&b).unwrap();
             }
             breaks::Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
+            breaks::Live::Cut => {
+                live.push((written as f64 / 8000.0, 0.0));
+                rec.sound_lost(0.0);
+            }
         }
     }
     let files = rec.segment_paths();
@@ -665,6 +669,47 @@ fn a_lost_gap_and_a_late_backlog_read_the_same_live_and_saved() {
         (found[0].0 - 30.0).abs() < 1e-6 && (found[0].1 - 3.0).abs() < 1e-6,
         "{found:?}"
     );
+}
+
+#[test]
+fn a_suspend_the_input_resumes_from_unsaid_is_a_break_live_and_saved() {
+    // The machine sleeps 40 minutes 30 s in. On Linux, cpal 0.18 resumes
+    // the input with no error, and its stream clock (CLOCK_MONOTONIC)
+    // stops while the machine sleeps, so the input's own timestamps
+    // see no gap. Each block's arrival is wall time, which keeps
+    // running: the last 0.3 s captured before the sleep arrives at once
+    // on waking, then the input goes on, 40 minutes later than its sound.
+    let sleep_s: f64 = 2400.0;
+    let found = live_and_saved_breaks("suspend", &|k| {
+        let t = 0.1 * (k + 1) as f64;
+        if k < 297 {
+            t
+        } else {
+            (30.0 + sleep_s).max(t + sleep_s)
+        }
+    });
+    // The break is found at the first late block, 29.7 s, but the sound
+    // jumps at the end of the backlog that came with it, 30.0 s: that
+    // backlog is culled, a break at each end.
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!((found[0].0 - 29.7).abs() < 1e-6, "{found:?}");
+    assert!((found[0].1 - sleep_s).abs() < 1e-3, "{found:?}");
+    assert!((found[1].0 - 30.0).abs() < 1e-6, "{found:?}");
+    assert_eq!(found[1].1, 0.0, "{found:?}");
+    // No amplitude (2 s) or rate window that holds the jump reads across it.
+    let cut: Vec<breaks::Break> = found
+        .iter()
+        .map(|&(audio_s, gap_s)| breaks::Break { audio_s, gap_s })
+        .collect();
+    for len in [2.0, timegrapher_core::measure::RATE_WINDOW_S] {
+        for i in 0..(len * 100.0) as usize {
+            let start = 30.0 - len + 0.005 + i as f64 * 0.01;
+            assert!(
+                breaks::straddles(&cut, start, start + len),
+                "{start} + {len}"
+            );
+        }
+    }
 }
 
 /// Each way a take's own list of breaks goes unused is said, never silent

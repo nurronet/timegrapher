@@ -1086,7 +1086,7 @@ fn the_paper_strip_keeps_its_dots_under_a_map() {
 }
 
 /// A pane left too short for its plot under the Paper Strip, as at
-/// 800 x 600, says so in one line in its place instead of drawing a
+/// 800 x 560, says so in one line in its place instead of drawing a
 /// sliver; with room again it draws its plot.
 #[test]
 fn a_pane_too_short_for_its_plot_says_so() {
@@ -1116,7 +1116,7 @@ fn a_pane_too_short_for_its_plot_says_so() {
                 .join("\n")
         };
         let words = format!("{} not shown: no room.", pane.title());
-        let text = run(&mut app, 800.0, 600.0);
+        let text = run(&mut app, 800.0, 560.0);
         assert!(text.contains(&words), "{pane:?}: {text}");
         assert!(app.panes_short.contains(&pane));
         let text = run(&mut app, 1280.0, 1000.0);
