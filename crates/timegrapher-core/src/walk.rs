@@ -19,8 +19,8 @@ pub const WALK_BIN_S: f64 = 300.0;
 /// The most points [`default_merge`] leaves a take.
 pub const WALK_MAX_POINTS: usize = 250;
 
-/// One stretch of the take: the median rate and amplitude of the readings
-/// in it where both were read.
+/// One stretch of the take: the median of its rate readings and the
+/// median of its amplitude's 2 s windows.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WalkPoint {
     /// The stretch's middle, seconds from the take's start, and hours
@@ -29,34 +29,54 @@ pub struct WalkPoint {
     pub wind_h: f64,
     pub rate_s_per_day: f64,
     pub amplitude_deg: f64,
-    /// Readings with both a rate and an amplitude.
+    /// The rate readings and the amplitude windows each median read
+    /// (`readings` kept as the rate's, its name since #1080).
     pub readings: usize,
+    pub amp_windows: usize,
 }
 
 /// The walk on its base bins, in time order. A bin with under half its
-/// readings is left out, never filled.
+/// rate readings or under half its amplitude windows is left out, never
+/// filled.
 #[derive(Debug, Clone, Serialize)]
 pub struct IsochronismWalk {
     pub bin_s: f64,
     pub points: Vec<WalkPoint>,
 }
 
-/// The walk from the rate and the amplitude read at the same reading
-/// length on the same grid (the steadiness report's readings), with
-/// `wind_h` the hours since full wind at the take's start. `None` with
-/// fewer than two bins.
+/// The walk from the rate's readings (the steadiness report's) and the
+/// amplitude's 2 s windows, with their masks and culls (one-sided windows
+/// left out), on the same true time, with `wind_h` the hours since full
+/// wind at the take's start. Each series is read on its own: pairing a
+/// reading's rate with its amplitude needs every window of the reading,
+/// and with 82% of windows read that left 37% of readings (#741). `None`
+/// with fewer than two bins.
 pub fn walk(rate: &Grid, amp: &Grid, wind_h: f64) -> Option<IsochronismWalk> {
-    let n = rate.y.len().min(amp.y.len());
+    let n = rate.y.len();
     let per_bin = (WALK_BIN_S / rate.step).round().max(1.0) as usize;
+    let bin_s = per_bin as f64 * rate.step;
+    let per_bin_windows = (bin_s / amp.step).round().max(1.0) as usize;
+    let mut windows: Vec<Vec<f64>> = vec![Vec::new(); n.div_ceil(per_bin)];
+    for (i, &v) in amp.y.iter().enumerate() {
+        let b = ((amp.time(i) - rate.t0) / bin_s).floor();
+        let in_take = amp.time(i) < rate.t0 + n as f64 * rate.step;
+        if v.is_finite() && b >= 0.0 && in_take {
+            if let Some(w) = windows.get_mut(b as usize) {
+                w.push(v);
+            }
+        }
+    }
     let points: Vec<WalkPoint> = (0..n)
         .step_by(per_bin)
-        .filter_map(|i0| {
+        .zip(&windows)
+        .filter_map(|(i0, a)| {
             let end = (i0 + per_bin).min(n);
-            let both: Vec<(f64, f64)> = (i0..end)
-                .map(|i| (rate.y[i], amp.y[i]))
-                .filter(|(r, a)| r.is_finite() && a.is_finite())
+            let r: Vec<f64> = rate.y[i0..end]
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
                 .collect();
-            if 2 * both.len() < per_bin {
+            if 2 * r.len() < per_bin || 2 * a.len() < per_bin_windows {
                 return None;
             }
             // The middle of what the bin holds: the take's last bin can end early.
@@ -64,16 +84,14 @@ pub fn walk(rate: &Grid, amp: &Grid, wind_h: f64) -> Option<IsochronismWalk> {
             Some(WalkPoint {
                 t_s,
                 wind_h: wind_h + t_s / 3600.0,
-                rate_s_per_day: median_of(both.iter().map(|b| b.0))?,
-                amplitude_deg: median_of(both.iter().map(|b| b.1))?,
-                readings: both.len(),
+                rate_s_per_day: median_of(r.iter().copied())?,
+                amplitude_deg: median_of(a.iter().copied())?,
+                readings: r.len(),
+                amp_windows: a.len(),
             })
         })
         .collect();
-    (points.len() >= 2).then_some(IsochronismWalk {
-        bin_s: per_bin as f64 * rate.step,
-        points,
-    })
+    (points.len() >= 2).then_some(IsochronismWalk { bin_s, points })
 }
 
 /// How many base bins to merge so the walk has at most
@@ -83,8 +101,9 @@ pub fn default_merge(w: &IsochronismWalk) -> usize {
 }
 
 /// The walk with every `k` base bins (by time, so a left-out bin leaves
-/// its merged bin thinner) merged into one: each point is the
-/// readings-weighted mean of its bins' medians and time.
+/// its merged bin thinner) merged into one: each series the mean of its
+/// bins' medians weighted by its own count (the rate and the time by rate
+/// readings, the amplitude by windows).
 pub fn merged(w: &IsochronismWalk, k: usize) -> IsochronismWalk {
     let k = k.max(1);
     let width = w.bin_s * k as f64;
@@ -111,16 +130,19 @@ fn merge(g: &[&WalkPoint]) -> WalkPoint {
     if let [p] = g {
         return (*p).clone();
     }
-    let n: usize = g.iter().map(|p| p.readings).sum();
-    let mean = |f: fn(&WalkPoint) -> f64| {
-        g.iter().map(|p| f(p) * p.readings as f64).sum::<f64>() / n.max(1) as f64
+    let mean = |f: fn(&WalkPoint) -> f64, n: fn(&WalkPoint) -> usize| {
+        let total: usize = g.iter().map(|p| n(p)).sum();
+        g.iter().map(|p| f(p) * n(p) as f64).sum::<f64>() / total.max(1) as f64
     };
+    let rate_n = |p: &WalkPoint| p.readings;
+    let amp_n = |p: &WalkPoint| p.amp_windows;
     WalkPoint {
-        t_s: mean(|p| p.t_s),
-        wind_h: mean(|p| p.wind_h),
-        rate_s_per_day: mean(|p| p.rate_s_per_day),
-        amplitude_deg: mean(|p| p.amplitude_deg),
-        readings: n,
+        t_s: mean(|p| p.t_s, rate_n),
+        wind_h: mean(|p| p.wind_h, rate_n),
+        rate_s_per_day: mean(|p| p.rate_s_per_day, rate_n),
+        amplitude_deg: mean(|p| p.amplitude_deg, amp_n),
+        readings: g.iter().map(|p| p.readings).sum(),
+        amp_windows: g.iter().map(|p| p.amp_windows).sum(),
     }
 }
 
@@ -128,20 +150,23 @@ fn merge(g: &[&WalkPoint]) -> WalkPoint {
 mod tests {
     use super::*;
 
-    /// A run-down: amplitude falls 300° to 200° over `hours`, the rate
-    /// rises 2 s/d per 10° lost, readings every 10 s.
+    /// A run-down over `hours`: the amplitude falls 300° to 200° and the
+    /// rate rises 2 s/d per 10° lost, as rate readings every 10 s and
+    /// amplitude windows every 2 s.
     fn run_down(hours: f64) -> (Grid, Grid) {
-        let n = (hours * 360.0) as usize;
-        let amp: Vec<f64> = (0..n)
-            .map(|i| 300.0 - 100.0 * i as f64 / n as f64)
-            .collect();
-        let rate = amp.iter().map(|a| 2.0 * (300.0 - a) / 10.0).collect();
-        let g = |y| Grid {
+        let span = hours * 3600.0;
+        let amp_at = |t: f64| 300.0 - 100.0 * t / span;
+        let grid = |step: f64, f: &dyn Fn(f64) -> f64| Grid {
             t0: 0.0,
-            step: 10.0,
-            y,
+            step,
+            y: (0..(span / step) as usize)
+                .map(|i| f((i as f64 + 0.5) * step))
+                .collect(),
         };
-        (g(rate), g(amp))
+        (
+            grid(10.0, &|t| 2.0 * (300.0 - amp_at(t)) / 10.0),
+            grid(2.0, &amp_at),
+        )
     }
 
     #[test]
@@ -151,39 +176,64 @@ mod tests {
         assert_eq!(w.bin_s, 300.0);
         assert_eq!(w.points.len(), 120);
         let p = &w.points[0];
-        assert_eq!((p.t_s, p.readings), (150.0, 30));
+        assert_eq!((p.t_s, p.readings, p.amp_windows), (150.0, 30, 150));
         assert!((p.wind_h - (1.0 + 150.0 / 3600.0)).abs() < 1e-12);
-        assert!((p.amplitude_deg - (300.0 - 100.0 * 14.5 / 3600.0)).abs() < 1e-9);
-        assert!((p.rate_s_per_day - 2.0 * (300.0 - p.amplitude_deg) / 10.0).abs() < 1e-9);
+        assert!((p.amplitude_deg - (300.0 - 100.0 * 150.0 / 36000.0)).abs() < 1e-9);
+        assert!((p.rate_s_per_day - 20.0 * 150.0 / 36000.0).abs() < 1e-9);
         assert!(w.points.windows(2).all(|q| q[1].t_s > q[0].t_s
             && q[1].amplitude_deg < q[0].amplitude_deg
             && q[1].rate_s_per_day > q[0].rate_s_per_day));
     }
 
     #[test]
-    fn a_bin_under_half_read_is_left_out_not_filled() {
+    fn a_bin_under_half_read_in_either_series_is_left_out_not_filled() {
         let (mut rate, mut amp) = run_down(1.0);
-        // Bin 2 keeps 15 of 30 readings, bin 3 keeps 14; a rate without an
-        // amplitude does not count.
+        // The rate keeps 15 of bin 2's 30 readings and 14 of bin 3's; the
+        // amplitude keeps 75 of bin 4's 150 windows and 74 of bin 5's.
         rate.y[60..75].fill(f64::NAN);
         rate.y[90..106].fill(f64::NAN);
-        amp.y[30] = f64::NAN;
+        amp.y[600..675].fill(f64::NAN);
+        amp.y[750..826].fill(f64::NAN);
         let w = walk(&rate, &amp, 0.0).unwrap();
         let ts: Vec<f64> = w.points.iter().map(|p| p.t_s).collect();
-        assert_eq!(ts.len(), 11);
-        assert!(ts.contains(&750.0) && !ts.contains(&1050.0));
-        assert_eq!(w.points[1].readings, 29);
-        assert_eq!(w.points[2].readings, 15);
+        assert_eq!(
+            ts,
+            [150.0, 450.0, 750.0, 1350.0, 1950.0, 2250.0, 2550.0, 2850.0, 3150.0, 3450.0]
+        );
+        assert_eq!((w.points[2].readings, w.points[2].amp_windows), (15, 150));
+        assert_eq!((w.points[3].readings, w.points[3].amp_windows), (30, 75));
+    }
+
+    /// With 82% of the windows read, as on dd3235_DU_30min, nearly every
+    /// reading misses one of its five windows, but every bin keeps well
+    /// over half its windows: the walk keeps every bin.
+    #[test]
+    fn a_take_with_most_windows_read_keeps_every_bin() {
+        let (rate, mut amp) = run_down(1.0);
+        for (i, v) in amp.y.iter_mut().enumerate() {
+            if (i * 37) % 100 < 18 {
+                *v = f64::NAN;
+            }
+        }
+        let w = walk(&rate, &amp, 0.0).unwrap();
+        assert_eq!(w.points.len(), 12);
+        assert!(w
+            .points
+            .iter()
+            .all(|p| p.amp_windows >= 120 && p.amp_windows <= 125));
     }
 
     #[test]
     fn a_last_bin_cut_short_sits_at_its_own_middle() {
         let (mut rate, mut amp) = run_down(1.0);
         rate.y.extend(vec![0.0; 20]);
-        amp.y.extend(vec![200.0; 20]);
+        amp.y.extend(vec![200.0; 100]);
         let w = walk(&rate, &amp, 0.0).unwrap();
         let last = w.points.last().unwrap();
-        assert_eq!((w.points.len(), last.t_s, last.readings), (13, 3700.0, 20));
+        assert_eq!(
+            (w.points.len(), last.t_s, last.readings, last.amp_windows),
+            (13, 3700.0, 20, 100)
+        );
         assert_eq!(w.points[11].t_s, 3450.0);
     }
 
@@ -194,24 +244,27 @@ mod tests {
     }
 
     #[test]
-    fn merging_keeps_a_long_take_to_250_points_weighted_by_readings() {
+    fn merging_keeps_a_long_take_to_250_points_each_series_by_its_own_count() {
         let (rate, amp) = run_down(65.0);
         let w = walk(&rate, &amp, 0.0).unwrap();
         assert_eq!(w.points.len(), 780);
         assert_eq!(default_merge(&w), 4);
         let m = merged(&w, default_merge(&w));
         assert_eq!((m.bin_s, m.points.len()), (1200.0, 195));
-        assert_eq!(m.points[0].readings, 120);
+        assert_eq!((m.points[0].readings, m.points[0].amp_windows), (120, 600));
         assert!((m.points[0].t_s - 600.0).abs() < 1e-9);
         let a: f64 = w.points[..4].iter().map(|p| p.amplitude_deg).sum::<f64>() / 4.0;
         assert!((m.points[0].amplitude_deg - a).abs() < 1e-9);
-        // A thin bin weighs less.
+        // A thin bin weighs less, in its own series only.
         let mut thin = w.clone();
         thin.points[0].readings = 15;
+        thin.points[1].amp_windows = 75;
+        let (p0, p1) = (&thin.points[0], &thin.points[1]);
         let m = merged(&thin, 2);
-        let want =
-            (15.0 * thin.points[0].rate_s_per_day + 30.0 * thin.points[1].rate_s_per_day) / 45.0;
-        assert!((m.points[0].rate_s_per_day - want).abs() < 1e-12);
+        let rate = (15.0 * p0.rate_s_per_day + 30.0 * p1.rate_s_per_day) / 45.0;
+        let amp = (150.0 * p0.amplitude_deg + 75.0 * p1.amplitude_deg) / 225.0;
+        assert!((m.points[0].rate_s_per_day - rate).abs() < 1e-12);
+        assert!((m.points[0].amplitude_deg - amp).abs() < 1e-12);
         assert_eq!(merged(&w, 1).points, w.points);
         let (rate, amp) = run_down(10.0);
         assert_eq!(default_merge(&walk(&rate, &amp, 0.0).unwrap()), 1);

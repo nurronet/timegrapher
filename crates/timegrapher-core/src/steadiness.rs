@@ -504,7 +504,8 @@ pub struct Report {
     pub rate_amplitude: Option<CrossCorrelation>,
     /// The rate by amplitude over the take: the isochronism curve.
     pub isochronism: Option<IsochronismCurve>,
-    /// The rate against the amplitude by 5 min of time (#741).
+    /// The rate against the amplitude by 5 min of time (#741), the rate
+    /// from its readings and the amplitude from its 2 s windows.
     pub walk: Option<crate::walk::IsochronismWalk>,
     /// The start of the take against 24 h later, or its end.
     pub wind_down: Option<WindDown>,
@@ -2329,7 +2330,7 @@ pub fn check(
     let be_readings = rebin(&be_grid, t0, r, n);
     let rate_amplitude = cross_correlation(&rate_grid, &amp_paired, &amp_noise, cfg);
     let isochronism = isochronism_curve(&rate_grid, &amp_paired, &amp_noise, cfg);
-    let walk = crate::walk::walk(&rate_grid, &amp_paired, cfg.wind_h);
+    let walk = crate::walk::walk(&rate_grid, &amp_grid, cfg.wind_h);
     let wind_down = wind_down_sourced(&rate_grid, &amp_readings, log, clock, &long.breaks, cfg);
     let distributions = {
         use distribution::{Input, AMPLITUDE, BEAT_ERROR, RATE};
