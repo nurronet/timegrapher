@@ -1048,7 +1048,7 @@ pub fn check_series(
     // short-term σ, so slow change cannot hide itself by inflating the
     // scale, allowing for their correlation once their largest step is
     // out (#647).
-    let lr = confidence::long_run_sd(y, sst, Slow::Step);
+    let lr = confidence::long_run_sd(y, sst, Slow::ChosenStep);
     out.long_run_sd = Some(lr);
     let mut walk = None;
     if lr > 0.0 {

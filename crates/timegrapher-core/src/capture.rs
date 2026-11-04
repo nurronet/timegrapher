@@ -434,10 +434,7 @@ pub fn choices(devices: &[InputDevice]) -> Vec<InputChoice> {
             });
         }
     }
-    let direct: Vec<&&InputDevice> = alsa
-        .iter()
-        .filter(|d| d.id[5..].starts_with("hw:"))
-        .collect();
+    let direct = direct_devices(&alsa);
     for d in &direct {
         let twins = direct.iter().filter(|o| o.name == d.name).count();
         let dev = d.id.rsplit("DEV=").next().filter(|_| twins > 1);
@@ -457,6 +454,46 @@ pub fn choices(devices: &[InputDevice]) -> Vec<InputChoice> {
     out
 }
 
+/// Each card's direct `hw:` inputs, one per device. ALSA can list the same
+/// device twice, once by the card's name (`hw:CARD=PCH,DEV=0`) and once by
+/// its number (`hw:CARD=0,DEV=0`). This keeps the named one, which stays
+/// the same when cards are numbered differently after a restart.
+fn direct_devices<'a>(alsa: &[&'a InputDevice]) -> Vec<&'a InputDevice> {
+    // (card, device) of a `hw:CARD=..,DEV=..` id.
+    let parts = |id: &str| -> Option<(String, String)> {
+        let rest = id.strip_prefix("alsa:hw:")?;
+        let mut card = None;
+        let mut dev = None;
+        for kv in rest.split(',') {
+            match kv.split_once('=') {
+                Some(("CARD", v)) => card = Some(v.to_string()),
+                Some(("DEV", v)) => dev = Some(v.to_string()),
+                _ => {}
+            }
+        }
+        Some((card?, dev?))
+    };
+    let numbered =
+        |id: &str| parts(id).is_some_and(|(card, _)| card.chars().all(|c| c.is_ascii_digit()));
+    let mut out: Vec<&InputDevice> = Vec::new();
+    for d in alsa
+        .iter()
+        .copied()
+        .filter(|d| d.id[5..].starts_with("hw:"))
+    {
+        let dev = parts(&d.id).map(|p| p.1);
+        let twin = out
+            .iter()
+            .position(|o| o.name == d.name && dev.is_some() && parts(&o.id).map(|p| p.1) == dev);
+        match twin {
+            Some(i) if numbered(&out[i].id) && !numbered(&d.id) => out[i] = d,
+            Some(_) => {}
+            None => out.push(d),
+        }
+    }
+    out
+}
+
 /// A plainer account of an error from opening or reading an input.
 pub fn explain_error(e: &str) -> String {
     let l = e.to_lowercase();
@@ -469,6 +506,13 @@ pub fn explain_error(e: &str) -> String {
             "This input is busy or missing. If the desktop sound server is running it \
              is probably holding it: choose the system default instead, or close what \
              is using it. Otherwise check the microphone is plugged in. ({e})"
+        )
+    } else if l.contains("underrun") || l.contains("overrun") {
+        format!("The computer fell behind reading this input, and sound was lost. ({e})")
+    } else if l.contains("alsa") || l.contains("htstamp") {
+        format!(
+            "The sound card refused this input. Choose the system default, then pick \
+             the jack in the desktop's sound settings. ({e})"
         )
     } else {
         e.to_string()
@@ -667,7 +711,7 @@ mod device {
         let format = supported.sample_format();
         let config: cpal::StreamConfig = supported.config();
         let (tx, rx) = sync_channel(QUEUE_BLOCKS);
-        let (dev, cfg) = (dev.clone(), config.clone());
+        let (dev, cfg) = (dev.clone(), config);
         let stream = Held::start(move || {
             match format {
                 SampleFormat::I16 => build::<i16>(&dev, &cfg, tx),
@@ -845,7 +889,7 @@ mod device {
             played: played.clone(),
         };
         let format = supported.sample_format();
-        let cfg = config.clone();
+        let cfg = config;
         let stream = Held::start(move || {
             match format {
                 SampleFormat::F32 => build_output::<f32>(&dev, &cfg, feed),
@@ -896,12 +940,12 @@ mod device {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mut feed: Feed,
-    ) -> Result<cpal::Stream, cpal::BuildStreamError>
+    ) -> Result<cpal::Stream, cpal::Error>
     where
         T: SizedSample + FromSample<f32>,
     {
         device.build_output_stream(
-            config,
+            *config,
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 let ch = feed.channels;
                 for frame in data.chunks_mut(ch) {
@@ -922,7 +966,7 @@ mod device {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         tx: SyncSender<Event>,
-    ) -> Result<cpal::Stream, cpal::BuildStreamError>
+    ) -> Result<cpal::Stream, cpal::Error>
     where
         T: SizedSample,
         f32: FromSample<T>,
@@ -931,7 +975,7 @@ mod device {
         let err_tx = tx.clone();
         let mut queue = LiveQueue::new(tx);
         device.build_input_stream(
-            config,
+            *config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
                 let samples: Vec<f32> = data
                     .chunks(ch)
@@ -1141,6 +1185,19 @@ mod tests {
                 "HDA Intel PCH, ALC897 Analog",
                 false,
             ),
+            // The same devices again, by the cards' numbers.
+            dev("alsa:hw:CARD=1,DEV=0", usb, false),
+            dev("alsa:plughw:CARD=1,DEV=0", usb, false),
+            dev(
+                "alsa:hw:CARD=0,DEV=0",
+                "HDA Intel PCH, ALC897 Analog",
+                false,
+            ),
+            dev(
+                "alsa:hw:CARD=0,DEV=2",
+                "HDA Intel PCH, ALC897 Analog",
+                false,
+            ),
         ];
         let c = choices(&list);
         let labels: Vec<&str> = c.iter().map(|c| c.label.as_str()).collect();
@@ -1156,6 +1213,45 @@ mod tests {
         assert_eq!(c[0].id, "alsa:default");
         assert!(c[0].is_default);
         assert_eq!(c[1].id, "alsa:hw:CARD=Device,DEV=0");
+        assert_eq!(c[3].id, "alsa:hw:CARD=PCH,DEV=2");
+    }
+
+    /// A device ALSA lists only by the card's number keeps that id, and a
+    /// numbered twin listed first gives way to the named one.
+    #[test]
+    fn menu_lists_each_direct_device_once() {
+        let analog = "HDA Intel PCH, ALC1220 Analog";
+        let alt = "HDA Intel PCH, ALC1220 Alt Analog";
+        let list = vec![
+            dev("alsa:hw:CARD=0,DEV=0", analog, false),
+            dev("alsa:hw:CARD=PCH,DEV=0", analog, false),
+            dev("alsa:hw:CARD=PCH,DEV=2", alt, false),
+            dev("alsa:hw:CARD=0,DEV=2", alt, false),
+            dev("alsa:hw:CARD=2,DEV=0", "Card 2", false),
+        ];
+        let c = choices(&list);
+        let ids: Vec<&str> = c.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "alsa:hw:CARD=PCH,DEV=0",
+                "alsa:hw:CARD=PCH,DEV=2",
+                "alsa:hw:CARD=2,DEV=0"
+            ]
+        );
+        assert_eq!(c[1].label, "HDA Intel PCH, ALC1220 Alt Analog (direct)");
+    }
+
+    #[test]
+    fn sound_card_errors_read_plainly() {
+        let e = "get_htstamp `0.0` was earlier than get_trigger_htstamp `37477.441341653`";
+        assert!(explain_error(e).starts_with("The sound card refused this input."));
+        assert!(explain_error(e).ends_with(&format!("({e})")));
+        let alsa = "ALSA function 'snd_pcm_open' failed with error 'Invalid argument (22)'";
+        assert!(explain_error(alsa).contains("Choose the system default"));
+        assert!(explain_error("A buffer underrun or overrun occurred.")
+            .starts_with("The computer fell behind reading this input"));
+        assert_eq!(explain_error("something else"), "something else");
     }
 
     #[test]

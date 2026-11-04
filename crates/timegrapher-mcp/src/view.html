@@ -234,16 +234,20 @@ function chartWidth() {
   return Math.max(300, (document.getElementById("root").clientWidth || 640) - 24);
 }
 
+// 1, 2 or 5 times a power of ten, at least `x` (above 0): core
+// chart_scale::round_step held to the same fixture (round_steps.test.cjs).
+function roundStep(x) {
+  const p = Math.pow(10, Math.floor(Math.log10(x)));
+  return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= x * (1 - 1e-9)) || 10 * p;
+}
+
 // Grid values at least `minPx` apart, on steps of 1, 2 and 5 (or the ladder's).
 function gridFor(lo, hi, px, minPx, ladder) {
   if (!(hi > lo)) return { step: 1, ticks: [] };
   const want = (hi - lo) / Math.max(1, px / minPx);
   let step;
   if (ladder) step = ladder.find((s) => s >= want) || ladder[ladder.length - 1];
-  else {
-    const p = Math.pow(10, Math.floor(Math.log10(want)));
-    step = [1, 2, 5, 10].map((m) => m * p).find((s) => s >= want * (1 - 1e-9));
-  }
+  else step = roundStep(want);
   const ticks = [];
   for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
   return { step, ticks };
@@ -589,7 +593,7 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   const rateNote = [esc(rate.basis)];
   if (Number.isFinite(doc.rate_p05)) rateNote.push(`Card-clock 90% of windows ${signed(doc.rate_p05, BASE_DIGITS.rate_range)} to ${signed(doc.rate_p95, BASE_DIGITS.rate_range)}`);
   const html = head + readingTiles({
-    rate: rate.value, ratePm: pm.rate, digits: pm.digits, rateNote: rateNote.join("<br>"),
+    rate: rate.value, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: rateNote.join("<br>"),
     amplitude: doc.amplitude_deg, amplitudePm: pm.amplitude, even: doc.amplitude_even_deg, odd: doc.amplitude_odd_deg,
     unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms,
     beats: doc.beats_found, jitter: Number.isFinite(doc.jitter_us) ? doc.jitter_us : o.jitter_us,
@@ -601,17 +605,18 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // headline beat error is the unlock's, with the drop's beside it, as on the
 // app's card. Both show the size only: which side is Tick can change
 // between runs of the same take, so a sign would mean nothing.
+// The ± is the unlock's, so the drop's figure keeps core's base decimals.
 function readingTiles(f) {
   const d = { ...BASE_DIGITS, ...(f.digits || {}) };
   const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
   const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), d.beat_error)} ms` : ""}` : "from the drop";
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : "from the drop";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
     ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
     ${tile("Rate", "--rate", signed(f.rate, d.rate), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
     ${tile("Amplitude", "--amplitude", num(f.amplitude, d.amplitude), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
-    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), "milliseconds", beNote)}
+    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), typeof f.beatErrorPm === "string" ? `± ${esc(f.beatErrorPm)} milliseconds` : "milliseconds", beNote)}
     ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, d.jitter)} µs` : "")}
   </div>`;
 }
@@ -640,7 +645,7 @@ function takeTiles(readings, pms) {
     const head = `<p class="sub">${esc(label)}${span ? ` · ${esc(span)}` : ""} · as the take reads it</p>`;
     if (m.watch_heard === false) return head + `<div class="card notice"><b>${esc(NO_BEAT_TITLE)}</b></div>`;
     return head + readingTiles({
-      rate: m.rate_s_per_day, ratePm: pm.rate, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
+      rate: m.rate_s_per_day, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
       amplitude: m.amplitude_deg, amplitudePm: pm.amplitude, even: m.amplitude_even_deg, odd: m.amplitude_odd_deg,
       unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, beats: m.beats, jitter: m.jitter_us,
     });

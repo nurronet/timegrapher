@@ -1303,7 +1303,7 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
     assert!(a
         .sound_history
         .iter()
-        .all(|(_, p)| p[0].is_some() && p[1].is_some()));
+        .all(|(_, k)| k.sides[0].is_some() && k.sides[1].is_some()));
     // Masks changed on it are saved into its session file, which still
     // says it has no sound.
     a.masked = vec![(30.0, 32.0), (50.0, 52.0)];

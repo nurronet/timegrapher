@@ -191,7 +191,9 @@ pub const TOOLS: &[ToolSpec] = &[
             hour at the top, with the crown at 3 o'clock: crown up is 3H, crown down 9H, \
             crown left 6H and crown right 12H. A Power Reserve take's folder (the app's \
             Power Reserve Test) also gives its run in `power_reserve`: how long the watch \
-            ran, how the run ended, the stops on the way and its readings hour by hour.",
+            ran, how the run ended, the stops on the way and its readings hour by hour. \
+            A long take in one position gives its run there too, with \
+            `source` \"long_take\": it was not a test, so the wind at its start is not known.",
         command: &["session"],
         params: &[
             p(

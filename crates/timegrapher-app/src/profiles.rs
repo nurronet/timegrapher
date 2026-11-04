@@ -367,6 +367,7 @@ pub fn draw(
     profiles: &[Option<TickProfile>; 2],
     opt: Options,
     drop_beat_error_ms: Option<f64>,
+    note: Option<&str>,
 ) {
     let shift = offsets(opt, drop_beat_error_ms);
     let pal = theme::pal(ui);
@@ -455,7 +456,7 @@ pub fn draw(
             med = paint_trace(pl, p, dx, top, scale, c);
         });
         if let Some(f) = &facts[k] {
-            facts_hover(&resp, &facts_here, f);
+            facts_hover(&resp, &facts_here, f, note);
         }
         let (foot, _) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), bottom_lane),
@@ -718,10 +719,17 @@ fn paint_trace(
     m
 }
 
-/// A box that keeps fewer rows: the hover has all five.
-fn facts_hover(resp: &egui_plot::PlotResponse<()>, facts_here: &FactBox, f: &[String; 5]) {
+/// A box that keeps fewer rows: the hover has all five. With a `note` on
+/// what the profiles are (a moment's sound kept coarsely), the hover leads
+/// with it, however many rows the box keeps.
+fn facts_hover(
+    resp: &egui_plot::PlotResponse<()>,
+    facts_here: &FactBox,
+    f: &[String; 5],
+    note: Option<&str>,
+) {
     let (shown, r) = facts_here.layout(&resp.transform);
-    if shown.len() < FACT_NAMES.len() {
+    if shown.len() < FACT_NAMES.len() || note.is_some() {
         // Where no row is drawn, the corner a two-row box would take.
         let r = if shown.is_empty() {
             facts_here.corners(&resp.transform, 2).0
@@ -729,10 +737,10 @@ fn facts_hover(resp: &egui_plot::PlotResponse<()>, facts_here: &FactBox, f: &[St
             r
         };
         if resp.response.hover_pos().is_some_and(|at| r.contains(at)) {
-            let all: Vec<String> = FACT_NAMES
-                .iter()
-                .zip(f)
-                .map(|(n, v)| format!("{n}: {v}"))
+            let all: Vec<String> = note
+                .map(str::to_string)
+                .into_iter()
+                .chain(FACT_NAMES.iter().zip(f).map(|(n, v)| format!("{n}: {v}")))
                 .collect();
             resp.response.clone().on_hover_text(all.join("\n"));
         }
@@ -896,12 +904,7 @@ fn time_axis(ui: &egui::Ui, t: &egui_plot::PlotTransform, foot: egui::Rect) {
         return;
     }
     let want = (hi - lo) / frame.width() as f64 * 80.0;
-    let p = 10f64.powf(want.log10().floor());
-    let step = [1.0, 2.0, 5.0, 10.0]
-        .into_iter()
-        .map(|m| m * p)
-        .find(|&s| s >= want * (1.0 - 1e-9))
-        .unwrap_or(10.0 * p);
+    let step = timegrapher_core::chart_scale::round_step(want);
     let painter = ui.painter_at(foot.expand2(egui::vec2(40.0, 0.0)));
     let mut k = (lo / step).ceil();
     while k * step <= hi {

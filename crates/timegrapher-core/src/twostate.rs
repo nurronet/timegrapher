@@ -33,6 +33,7 @@
 //!
 //! What the levels mean for the watch is not decided here.
 
+use crate::dsp::{median, median_of};
 use serde::Serialize;
 
 /// One reading of the series: a 2 s amplitude window or a 10 s rate
@@ -161,21 +162,6 @@ pub struct TwoState {
     /// The beat error from the unlock jumps between the states while the
     /// one from the drop does not.
     pub unlock_jump: bool,
-}
-
-fn median(v: &mut [f64]) -> f64 {
-    v.sort_by(|a, b| a.total_cmp(b));
-    let n = v.len();
-    if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
-    }
-}
-
-fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| median(&mut w))
 }
 
 struct Block {

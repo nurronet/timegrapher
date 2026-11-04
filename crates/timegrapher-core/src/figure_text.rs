@@ -86,6 +86,29 @@ pub fn pm_text(se: f64, digits: usize) -> Option<String> {
     Some(text)
 }
 
+/// A figure as text to the decimals its ± calls for ([`figure_digits`],
+/// #510 K3: decimals follow the ±), from the figure's `base` decimals
+/// with no ± ([`base_digits`]). `signed` writes a rate's or clock's sign,
+/// none on a zero ([`signed_text`]); else a zero takes no minus
+/// ([`fixed_text`]). `se` is the figure's standard error, if it has one.
+pub fn figure(v: f64, se: Option<f64>, base: usize, signed: bool) -> String {
+    let d = figure_digits(se, base);
+    if signed {
+        signed_text(v, d)
+    } else {
+        fixed_text(v, d)
+    }
+}
+
+/// A figure and, where it has one, its ± after it, each to the same
+/// decimals ([`figure`], [`pm_text`]): "+1.23 ± 0.04".
+pub fn figure_with_pm(v: f64, se: Option<f64>, base: usize, signed: bool) -> String {
+    let pm = se
+        .and_then(|e| pm_text(e, base))
+        .map_or_else(String::new, |t| format!(" ± {t}"));
+    format!("{}{pm}", figure(v, se, base, signed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +165,37 @@ mod tests {
             assert_eq!(pm_d, d, "{se} at base {base}: ± {pm}");
         }
         assert_eq!(signed_text(5.0, figure_digits(Some(0.007), 1)), "+5.000");
+    }
+
+    /// A figure carries its ±'s decimals, from its base where there is no
+    /// ±; a signed zero takes no sign, an unsigned one no minus.
+    #[test]
+    fn a_figure_is_written_to_its_plus_minus_decimals() {
+        use base_digits as base;
+        assert_eq!(figure(1.234, None, base::RATE, true), "+1.2");
+        assert_eq!(figure(1.234, Some(0.3), base::RATE, true), "+1.2");
+        assert_eq!(figure(1.234, Some(0.04), base::RATE, true), "+1.23");
+        assert_eq!(figure(-0.04, Some(0.3), base::RATE, true), "0.0");
+        assert_eq!(
+            figure_with_pm(1.234, Some(0.04), base::RATE, true),
+            "+1.23 ± 0.04"
+        );
+        assert_eq!(figure(285.37, Some(1.4), base::AMPLITUDE, false), "285");
+        assert_eq!(figure(285.37, Some(0.4), base::AMPLITUDE, false), "285.4");
+        assert_eq!(
+            figure_with_pm(285.37, Some(0.4), base::AMPLITUDE, false),
+            "285.4 ± 0.4"
+        );
+        assert_eq!(figure(0.1234, None, base::BEAT_ERROR, false), "0.12");
+        assert_eq!(
+            figure(0.1234, Some(0.004), base::BEAT_ERROR, false),
+            "0.123"
+        );
+        assert_eq!(
+            figure_with_pm(0.1234, Some(0.0001), base::BEAT_ERROR, false),
+            "0.123 ± <0.001"
+        );
+        assert_eq!(figure(-0.2, None, base::AMPLITUDE, false), "0");
+        assert_eq!(figure_with_pm(3.0, None, base::RATE, true), "+3.0");
     }
 }

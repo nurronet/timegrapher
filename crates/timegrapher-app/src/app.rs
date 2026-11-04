@@ -10,6 +10,7 @@ use crate::guided;
 use crate::help;
 use crate::isochronism;
 use crate::photos;
+use crate::pick::{Pick, Picker};
 use crate::profiles;
 use crate::report::{self, ReportDialog};
 use crate::reserve;
@@ -51,6 +52,7 @@ mod menus;
 mod pane_export;
 mod pane_room;
 mod paper_strip;
+mod picks;
 mod positions_test;
 mod power_reserve_pane;
 mod readouts;
@@ -2020,6 +2022,8 @@ pub struct TimegrapherApp {
     /// Why the listening thread didn't start, if it didn't: then sound is
     /// only taken while the window draws.
     pub(crate) pump_fault: Option<String>,
+    /// The file dialog asked for, shown once the frame lets the app go.
+    picker: Option<crate::pick::Picker>,
     /// The check at start is still to be made (on the first frame, which
     /// has the context it repaints).
     check_pending: bool,
@@ -2197,8 +2201,9 @@ pub struct TimegrapherApp {
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
     /// `None` follows the newest beat; otherwise the time at the newest
-    /// edge of the strip. Only the strip (and the chart marker for it)
-    /// follows this: the readings and the other panes show the newest.
+    /// edge of the strip. The strip, the chart marker for it and the sound
+    /// panes (the Tick Tock Profile and the Scope) follow this; the
+    /// readings show the newest.
     strip_end: Option<f64>,
     panes: Tree<Pane>,
 
@@ -2261,9 +2266,7 @@ pub struct TimegrapherApp {
     /// seconds of this session, and one worked out from the file for a
     /// moment that history doesn't cover.
     sound_opts: profiles::Options,
-    /// The moment the profile pane shows, for its toolbar's right end.
-    sound_note: Option<String>,
-    sound_history: Vec<(f64, Profiles)>,
+    sound_history: Vec<(f64, scope_panes::Kept)>,
     /// The profiles worked out from the recording at a moment, at the
     /// settings revision they were read with.
     sound_at: Option<(f64, u64, Profiles)>,
@@ -2560,6 +2563,7 @@ impl TimegrapherApp {
             awake_fault: None,
             input_fault: None,
             pump_fault: None,
+            picker: None,
             check_pending: false,
             average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
             watch: String::new(),
@@ -2688,7 +2692,6 @@ impl TimegrapherApp {
             export: None,
             export_dir: None,
             sound_opts: profiles::Options::default(),
-            sound_note: None,
             sound_history: Vec::new(),
             sound_at: None,
             analysis_save: None,
@@ -3036,38 +3039,6 @@ impl TimegrapherApp {
         }
     }
 
-    fn open_file_dialog(&mut self) -> Option<PathBuf> {
-        let mut d = rfd::FileDialog::new()
-            .set_title("Open a Recording")
-            .add_filter("Recordings", &["wav", "WAV", "flac", "FLAC"])
-            .add_filter("All files", &["*"]);
-        if let Some(dir) = Path::new(self.file_path.trim()).parent() {
-            if dir.is_dir() {
-                d = d.set_directory(dir);
-            }
-        }
-        let p = d.pick_file()?;
-        self.file_path = p.display().to_string();
-        Some(p)
-    }
-
-    /// Pick a folder of segments, which is analysed as one recording.
-    fn open_folder_dialog(&mut self) -> Option<PathBuf> {
-        let mut d = rfd::FileDialog::new().set_title("Open a Saved Take or a Folder of Segments");
-        let here = Path::new(self.file_path.trim());
-        let start = if here.is_dir() {
-            Some(here)
-        } else {
-            here.parent()
-        };
-        if let Some(dir) = start.filter(|d| d.is_dir()) {
-            d = d.set_directory(dir);
-        }
-        let p = d.pick_folder()?;
-        self.file_path = p.display().to_string();
-        Some(p)
-    }
-
     /// The inputs the device menu offers.
     fn input_choices(&self) -> Vec<capture::InputChoice> {
         if self.all_inputs {
@@ -3144,48 +3115,6 @@ impl TimegrapherApp {
         if let Some(f) = self.guided_choices.get(i) {
             self.guided_earlier = Some(f.clone());
             self.guided_earlier_file = false;
-        }
-    }
-
-    /// Load the full-wind test's saved results from a file the user picks,
-    /// for the next test to be set against.
-    fn load_earlier(&mut self) {
-        if let Some(full) = self.load_full_wind() {
-            self.guided_earlier = Some(full);
-            self.guided_earlier_file = true;
-        }
-    }
-
-    /// Ask for the full-wind test's saved results and read them; None if
-    /// the dialog was cancelled or the file can't be read (which says so).
-    fn load_full_wind(&mut self) -> Option<guided::FullWind> {
-        let mut d = rfd::FileDialog::new()
-            .set_title("Load the Full-Wind Positions Test's Results")
-            .add_filter("Positions Test Results", &["json"]);
-        let start = self
-            .session
-            .saved_to()
-            .and_then(|p| p.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| PathBuf::from(&self.save_dir));
-        if start.is_dir() {
-            d = d.set_directory(&start);
-        }
-        let path = d.pick_file()?;
-        self.read_full_wind(&path)
-    }
-
-    /// Read the full-wind test's results saved at `path`; None if they
-    /// can't be read, which says so.
-    fn read_full_wind(&mut self, path: &Path) -> Option<guided::FullWind> {
-        let read = std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|t| guided::FullWind::from_json(&t));
-        match read {
-            Ok(f) => Some(f),
-            Err(e) => {
-                self.error(format!("Couldn't load {}: {e}", path.display()));
-                None
-            }
         }
     }
 
@@ -3290,16 +3219,7 @@ impl TimegrapherApp {
             Pane::Strip => theme::pane_toolbar(ui, title, help::STRIP, |ui| {
                 self.strip_settings(ui);
             }),
-            Pane::Sound => {
-                let note = self.sound_note.clone();
-                theme::pane_toolbar_noted(ui, title, help::PROFILE, note.as_deref(), |ui| {
-                    self.profile_settings(ui);
-                })
-            }
-            Pane::Scope => theme::pane_toolbar(ui, title, help::SCOPE, |ui| {
-                scope::settings(ui, &mut self.scope_view);
-                self.export_button(ui, pane);
-            }),
+            Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
                 let mut info = self.steady_info;
                 let mut pin = |ui: &mut egui::Ui| {
@@ -3567,10 +3487,9 @@ impl TimegrapherApp {
             self.undrag(pane);
         }
         set_pane_visible(&mut self.panes.tiles, pane, true);
-        // A test's pane opens at its content's height, no less than a
-        // pane's least: the Paper Strip keeps the rest until dragged.
+        // A test's pane opens at its content's height, or its run's.
         if pane == Pane::PowerReserve && !was {
-            fit_row(&mut self.panes.tiles, pane, MIN_PANE_H);
+            self.fit_reserve_row();
         }
         let Some(id) = self.panes.tiles.find_pane(&pane) else {
             return;
@@ -4653,6 +4572,7 @@ impl eframe::App for TimegrapherApp {
         if let Some(m) = self.report.ui(ctx) {
             self.info_msg(m);
         }
+        self.report_save_asked();
         // The cursor shared by the strip and the charts follows the pointer;
         // repaint once more when it leaves so the line goes too.
         let next = self.cursor_next.take();

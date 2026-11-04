@@ -280,11 +280,21 @@ fn running_line(ui: &mut egui::Ui, t: &Test, pauses: Option<&(String, String)>) 
 /// and table. `pauses`: as for [`running_line`].
 fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String, String)>) {
     let pal = theme::pal(ui);
-    let run = power_reserve::run_text(t.results.as_ref().map_or(t.run_so_far_s(), |r| r.run_s));
+    // As core words the run: never a power reserve for a long take.
+    let ran = t.results.as_ref().map_or_else(
+        || format!("Ran {}", power_reserve::run_text(t.run_so_far_s())),
+        Results::ran,
+    );
     let ending = t
         .ending
         .map(|e| format!(" · {}, in {}", e.text(), t.position.label()))
         .unwrap_or_default();
+    // Read from a long take, not a test: said where it came from.
+    let source = t
+        .results
+        .as_ref()
+        .and_then(|r| r.source.text())
+        .map_or_else(String::new, |w| format!(" · {w}"));
     let kept = if t.saving {
         " · Saving the take…".to_string()
     } else if t.saved.is_some() {
@@ -315,7 +325,7 @@ fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String,
     ui.add(
         egui::Label::new(
             RichText::new(format!(
-                "Ran {run}{ending}{kept}.{}",
+                "{ran}{ending}{source}{kept}.{}",
                 pauses.map_or("", |p| p.0.as_str())
             ))
             .color(pal.text),
@@ -607,9 +617,8 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
     }
 }
 
-/// Save the run as a CSV file, in a folder the user picks from `dir`:
-/// what the app said.
-pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
+/// The dialog for saving the run as a CSV file, starting in `dir`.
+pub fn csv_dialog(dir: &std::path::Path) -> rfd::FileDialog {
     let stamp: String = timegrapher_core::recorder::utc(std::time::SystemTime::now())
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == 'T')
@@ -622,14 +631,7 @@ pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
     if dir.is_dir() {
         d = d.set_directory(dir);
     }
-    let path = d.save_file()?;
-    Some(match std::fs::write(&path, text) {
-        Ok(()) => format!("Saved the Power Reserve Test to {}", path.display()),
-        Err(e) => format!(
-            "Couldn't save the Power Reserve Test to {}: {e}",
-            path.display()
-        ),
-    })
+    d
 }
 
 /// The run as text with `sep` between columns, for Copy and a CSV file:
@@ -651,10 +653,15 @@ pub fn results_text(r: &Results, watch: &str, sep: char) -> String {
             + "\n"
     };
     out += &line(&["Watch".into(), watch.into()]);
-    out += &line(&["Started (UTC)".into(), r.started_utc.clone()]);
+    if !r.started_utc.is_empty() {
+        out += &line(&["Started (UTC)".into(), r.started_utc.clone()]);
+    }
     out += &line(&["Position".into(), r.position.clone()]);
-    out += &line(&["Power reserve".into(), power_reserve::run_text(r.run_s)]);
+    out += &line(&[r.run_label().into(), r.run_words()]);
     out += &line(&["Ended".into(), r.ending.text()]);
+    if let Some(w) = r.source.text() {
+        out += &line(&["Read from".into(), w.into()]);
+    }
     out += "\n";
     out += &line(&[
         "Hour".into(),

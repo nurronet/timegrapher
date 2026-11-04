@@ -14,7 +14,7 @@ use timegrapher_core::session::{
     self, Finding, Manifest, Position, Reading, RecordingEntry, SessionReport,
 };
 use timegrapher_core::stream::StreamConfig;
-use timegrapher_core::{analysis_take, audio, take, twostate};
+use timegrapher_core::{analysis_take, audio, power_reserve, take, twostate};
 
 pub use timegrapher_core::take::MANIFEST;
 
@@ -533,7 +533,7 @@ fn read_take_of(
     for e in &m.recordings {
         position_of(e)?;
         match read_one_or_left_out(e, &ctx)? {
-            Ok(r) => readings.push(r),
+            Ok((r, _)) => readings.push(r),
             Err(l) => left_out.push(l),
         }
     }
@@ -592,12 +592,13 @@ impl LeftOut {
 
 /// [`read_one`], or the entry left out when it has nothing to read in its
 /// recording ([`take::NoReading`]), so the rest are still read.
-fn read_one_or_left_out(e: &RecordingEntry, c: &Ctx) -> Result<Result<Reading, LeftOut>, String> {
+/// With the reading, a long take's run ([`long_run_of`]).
+fn read_one_or_left_out(e: &RecordingEntry, c: &Ctx) -> Result<Result<ReadRun, LeftOut>, String> {
     if take::reads_nothing(e) {
         return Ok(Err(LeftOut::new(e, &take::NoReading::Nothing)));
     }
     match read_one_inner(e, c, false) {
-        Ok((reading, _)) => Ok(Ok(reading)),
+        Ok((reading, _, run)) => Ok(Ok((reading, run))),
         Err(take::EntryError::NoReading(why)) => Ok(Err(LeftOut::new(e, &why))),
         Err(e) => Err(e.into()),
     }
@@ -608,7 +609,7 @@ pub(crate) fn read_one_with_context(
     e: &RecordingEntry,
     c: &Ctx,
 ) -> Result<(Reading, crate::regress_provenance::ReadContext), String> {
-    let (reading, context) = read_one_inner(e, c, true)?;
+    let (reading, context, _) = read_one_inner(e, c, true)?;
     let context = context.ok_or_else(|| "missing baseline provenance context".to_string())?;
     Ok((reading, context))
 }
@@ -685,7 +686,14 @@ fn read_one_inner(
     e: &RecordingEntry,
     c: &Ctx,
     capture: bool,
-) -> Result<(Reading, Option<crate::regress_provenance::ReadContext>), take::EntryError> {
+) -> Result<
+    (
+        Reading,
+        Option<crate::regress_provenance::ReadContext>,
+        Option<power_reserve::Results>,
+    ),
+    take::EntryError,
+> {
     let position = position_of(e)?;
     let (cfg, cal) = stream_config(c)?;
     if c.quiet {
@@ -712,6 +720,7 @@ fn read_one_inner(
     }
     let cycles = cycles_of(c, &read);
     let shape = shape_of(e, c, &read)?;
+    let run = long_run_of(c, &read);
     let take::EntryRead {
         files,
         log,
@@ -770,7 +779,32 @@ fn read_one_inner(
             reference: e.reference.clone(),
         },
         context,
+        run,
     ))
+}
+
+/// A reading, and the run of its entry when that is a long take's.
+type ReadRun = (Reading, Option<power_reserve::Results>);
+
+/// The run of an entry that is a long take in the session's one position,
+/// read as a Power Reserve Test's run (core
+/// [`power_reserve::from_long_take`]), as the app reads it.
+fn long_run_of(c: &Ctx, read: &take::EntryRead) -> Option<power_reserve::Results> {
+    let positions: Vec<&str> =
+        c.m.recordings
+            .iter()
+            .filter_map(|e| position_of(e).ok())
+            .map(Position::common)
+            .collect();
+    power_reserve::from_long_take(
+        &read.log,
+        read.clock.as_ref(),
+        &read.breaks,
+        &read.masked,
+        &positions,
+        "",
+        read.kept.is_none(),
+    )
 }
 
 /// Everything the report and `summary.json` show.
@@ -842,7 +876,7 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         quiet: false,
         card_clock: false,
     };
-    let (readings, left_out) = read_all(&m, &ctx)?;
+    let (readings, left_out, long_run) = read_all(&m, &ctx)?;
     if readings.is_empty() {
         return Err(format!(
             "{}: no recording listed with anything to read",
@@ -886,19 +920,25 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         readings,
         left_out,
         report,
-        power_reserve: power_reserve_of(&base)?,
+        // A test's kept run, else a long take's read as one.
+        power_reserve: power_reserve_of(&base)?.or(long_run),
     };
     write_out(&s, o, &base)
 }
 
 /// Every entry of the session file read: an entry with nothing to read is
 /// left out, with a note, and the report lists it.
-fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<(Vec<Reading>, Vec<LeftOut>), String> {
+/// With them, the first long take's run ([`long_run_of`]).
+fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
     let mut readings = Vec::new();
     let mut left_out = Vec::new();
+    let mut long_run = None;
     for e in &m.recordings {
         match read_one_or_left_out(e, ctx)? {
-            Ok(r) => readings.push(r),
+            Ok((r, run)) => {
+                readings.push(r);
+                long_run = long_run.or(run);
+            }
             Err(l) => {
                 if ctx.tty {
                     eprintln!();
@@ -908,8 +948,11 @@ fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<(Vec<Reading>, Vec<LeftOut>),
             }
         }
     }
-    Ok((readings, left_out))
+    Ok((readings, left_out, long_run))
 }
+
+/// The readings, the entries left out, and a long take's run.
+type ReadAll = (Vec<Reading>, Vec<LeftOut>, Option<power_reserve::Results>);
 
 /// The summary, readings and report written to the report folder, and the
 /// summary printed (or its JSON with `--json`).
@@ -1070,13 +1113,7 @@ fn print_watch(s: &Session) {
         s.lift_text()
     );
     if let Some(p) = &s.power_reserve {
-        use timegrapher_core::power_reserve::run_text;
-        println!(
-            "Power reserve {} in {}. {}.",
-            run_text(p.run_s),
-            p.position,
-            p.ending.text()
-        );
+        println!("{}", p.sentence(&p.position));
     }
 }
 

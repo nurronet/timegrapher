@@ -97,16 +97,6 @@ impl Histogram {
     }
 }
 
-/// 1, 2 or 5 times a power of ten, at least `x`.
-fn round_up(x: f64) -> f64 {
-    let p = 10f64.powf(x.log10().floor());
-    [1.0, 2.0, 5.0, 10.0]
-        .into_iter()
-        .map(|m| m * p)
-        .find(|&s| s >= x * (1.0 - 1e-9))
-        .unwrap_or(10.0 * p)
-}
-
 /// A histogram of `values`, ignoring any that aren't finite; `None` with
 /// fewer than three. `resolution` is the finest bin width worth drawing
 /// (such as 0.5° for amplitude); the bins are capped at 200.
@@ -144,9 +134,9 @@ pub fn histogram_with(values: &[f64], opt: &Options) -> Option<Histogram> {
         }
     }
     let fd = 2.0 * iqr / (n as f64).cbrt() * opt.width_factor.clamp(0.05, 20.0);
-    let mut width = round_up(fd.max(opt.resolution).max(1e-12));
+    let mut width = crate::chart_scale::round_step(fd.max(opt.resolution).max(1e-12));
     while (hi - lo) / width > 200.0 {
-        width = round_up(width * 1.01);
+        width = crate::chart_scale::round_step(width * 1.01);
     }
     let start = (lo / width).floor() * width;
     let bins = (((hi - start) / width).floor() as usize + 1).max(1);

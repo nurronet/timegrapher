@@ -14,28 +14,40 @@ pub fn values(m: &Value, rate: Option<f64>, drop_ms: Option<f64>) -> [Option<f64
 }
 
 /// One reading's figures, each with its own standard error. Units follow
-/// the math and design guides: s/d, degrees as °, and ms. Missing figures
-/// are omitted; an entirely empty reading gives no line.
+/// the math and design guides: s/d, degrees as °, and ms. Each figure is
+/// written to its ±'s decimals, never fewer than its base
+/// ([`crate::figure_text::figure_digits`], #510 K3). Missing figures are
+/// omitted; an entirely empty reading gives no line.
 pub fn figures(m: &Value, [rate, amplitude, beat_error]: [Option<f64>; 3]) -> Option<String> {
+    use crate::figure_text::{base_digits as base, figure_digits, pm_text, signed_text};
+    let se = |key: &str| m["confidence"][key]["se"].as_f64();
     let pm = |key: &str, digits| {
-        m["confidence"][key]["se"]
-            .as_f64()
-            .and_then(|se| crate::library::pm_text(se, digits))
+        se(key)
+            .and_then(|se| pm_text(se, digits))
             .map_or_else(String::new, |s| format!(" ± {s}"))
     };
     let mut parts = Vec::new();
     if let Some(r) = rate {
+        let d = figure_digits(se("rate"), base::RATE);
         parts.push(format!(
             "rate {}{} s/d",
-            crate::library::signed_text(r, 1),
-            pm("rate", 1)
+            signed_text(r, d),
+            pm("rate", base::RATE)
         ));
     }
     if let Some(a) = amplitude {
-        parts.push(format!("amplitude {a:.0}{}°", pm("amplitude", 0)));
+        let d = figure_digits(se("amplitude"), base::AMPLITUDE);
+        parts.push(format!(
+            "amplitude {a:.d$}{}°",
+            pm("amplitude", base::AMPLITUDE)
+        ));
     }
     if let Some(b) = beat_error {
-        parts.push(format!("beat error {b:.2}{} ms", pm("beat_error", 2)));
+        let d = figure_digits(se("beat_error"), base::BEAT_ERROR);
+        parts.push(format!(
+            "beat error {b:.d$}{} ms",
+            pm("beat_error", base::BEAT_ERROR)
+        ));
     }
     (!parts.is_empty()).then(|| parts.join(", "))
 }
