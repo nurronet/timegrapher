@@ -405,6 +405,19 @@ amplitude covers only a few degrees and the curve is mostly noise; a
 run-down of many hours is what it is for. The cyclic co-movement inside
 half an hour is the rate-to-amplitude line above, not this curve.
 
+The isochronism walk (#741) keeps the time the curve leaves out: one
+point per 5 min, the median rate and median amplitude of the 10 s
+readings in it that have both, in time order, so a run-down shows how
+the watch walks through rate and amplitude as it lets down. A 5 min
+stretch with under half its readings is left out, never filled. Each
+surface merges the points to its own width
+(`walk::merged`, the readings-weighted mean of each group's medians and
+times), by default to at most 250 points a take. Bins of an hour or more
+smear steps and pull the extremes in. It has no fit and no ±, and a
+take in several positions mixes them along the way. A short take's
+wheel cycle, which moves the rate and the amplitude together every few
+minutes, shows in the rate-to-amplitude line, not here.
+
 The wind-down comparison is the commercial 0 h / 24 h test for one
 position. It compares the median rate, amplitude and beat error of the
 first half hour of the take with the half hour that starts 24 h after
@@ -445,6 +458,7 @@ headlines state facts. Everything else is as in version 1.
 | `config` | the detection settings used |
 | `series[]` | one entry each for `rate` (s/d), `amplitude` (deg) and `beat_error` (ms, from the unlock), in that order |
 | `isochronism` | the rate by amplitude: `step_s`, `bin_deg`, `bins[]` (`amplitude_deg`, `readings`, `rate_s_per_day`, `rate_q25`, `rate_q75`, `from_wind_h`, `to_wind_h`), `amplitude_from_deg`, `amplitude_to_deg`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (null when withheld), `rate_change_s_per_day` (the slope over the bins' amplitudes; null when withheld), `reliability`, `curve_centre_deg`, `curve` (`[c0, c1, c2]` in A − centre), `curve_explained`, `turn_deg`, `headline`; null with fewer than three bins |
+| `walk` | the rate against the amplitude by time: `bin_s` (300), `points[]` (`t_s`, the stretch's middle from the take's start; `wind_h`; `rate_s_per_day`; `amplitude_deg`; `readings` with both), in time order; null with fewer than two points |
 | `wind_down` | `start` and `end` (`from_wind_h`, `to_wind_h`, `readings`, `rate_s_per_day`, `amplitude_deg`, `beat_error_ms`), `hours_apart`, `at_24h`, `rate_change_s_per_day`, `amplitude_change_deg`, `beat_error_change_ms`, `headline`; null under two hours |
 | `distributions` | `overall[]`, `stretch_s` (0 when the take is not split) and `stretches[]` (`start_s`, `end_s`, `distributions[]`); each distribution has `series` (`rate`, `amplitude`, `beat_error`), `unit`, `values` (`readings` or `2 s`), `step_s`, `n`, `median`, `p10`, `p90`, `bin_width`, `edges` (one more than `counts`; bin i is from `edges[i]` up to `edges[i+1]`), `counts`, `below` and `above` (off the scale, counted in `n`), `peaks` (bin centres of separate peaks), `normal_line` (`centre`, `spread`: the straight line on probability paper; null with no spread), `quantiles` (`[share, value]` at 0.1%, 1, 5, 10, 25, 50, 75, 90, 95, 99 and 99.9% where the count resolves them), `points` (with `--views`, on the whole take's distributions only: the probability plot the app draws, `[value, z]` lowest first: each value against the normal score of its rank, every value up to 400 and evenly by rank beyond, the lowest and highest always kept), `summary` (the app's line). A series with fewer than three values has no entry. |
 | `rate_amplitude` | the rate against the amplitude: `step_s`, `readings` (pairs), `r`, `effective_readings`, `p_value`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (within half an hour, corrected for the amplitude's noise as the isochronism's is; null below a `reliability` of 0.5), `reliability`, `take_r` and `take_s_per_day_per_deg` (whole take, no lag, drift included), `headline` (all of these as numbers, whatever their size) |

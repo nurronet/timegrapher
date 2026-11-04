@@ -64,6 +64,7 @@ pub mod twostate;
 pub mod update;
 pub mod usbagc;
 pub mod usbclock;
+pub mod walk;
 pub mod wheel_lines;
 
 pub use analysis::{analyze, Analysis, AnalysisConfig, Summary};

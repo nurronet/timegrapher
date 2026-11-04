@@ -540,8 +540,8 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
     ("Amplitude (°)", "The hour's median amplitude"),
     (
         "Beat Error (ms)",
-        "The hour's beat error from the unlock, or from the drop in an hour where the unlock \
-         isn't found, ms (its size)",
+        "The hour's beat error as a size, from the unlock, or from the drop in an hour where \
+         the unlock isn't found",
     ),
     (
         "Read (%)",
@@ -653,6 +653,17 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             }
         });
     pin_titles(ui, &titles, grid.response.rect, rows.len() + 1, row_h);
+    // The dimming's key, under the table, only when an hour is dimmed
+    // (Hugh's ruling on Walter's walk of #1079).
+    if rows
+        .iter()
+        .any(|r| r.iter().any(|c| c.1.is_some_and(|s| s.1)))
+    {
+        ui.label(
+            RichText::new("Grey beat errors: from the drop, or source not recorded.")
+                .color(pal.text_secondary),
+        );
+    }
 }
 
 /// The table's titles kept in view: once they scroll above the pane's
@@ -683,7 +694,13 @@ fn pin_titles(
     let pal = theme::pal(ui);
     let painter = ui.painter();
     painter.rect_filled(
-        egui::Rect::from_x_y_ranges(table.x_range(), top..=band_bottom - GRID_GAP),
+        // As wide and as deep as egui's row stripes, which reach 2 pt past
+        // the table at each side and half the gap above and below a row,
+        // so no hidden row's stripe edges show round it.
+        egui::Rect::from_x_y_ranges(
+            table.x_range().expand(2.0),
+            top..=band_bottom - GRID_GAP / 2.0,
+        ),
         0.0,
         pal.card,
     );
@@ -927,8 +944,9 @@ pub fn results_text(r: &Results, watch: &str, sep: char) -> String {
             num(h.rate_s_per_day, base_digits::RATE),
             num(h.amplitude_deg, base_digits::AMPLITUDE),
             num(h.beat_error_ms.map(f64::abs), base_digits::BEAT_ERROR),
+            // Empty when none is recorded, as for a figure not measured.
             h.beat_error_source
-                .map_or_else(|| "not recorded".to_string(), |s| s.to_string()),
+                .map_or_else(String::new, |s| s.to_string()),
             fixed_text(h.read_s, 0),
         ]);
     }
@@ -1020,9 +1038,9 @@ mod tests {
         );
         assert!(
             // Beat error as its size, as every text gives it, and where it
-            // came from: none recorded for this hour.
-            text.ends_with("0,100,4.2,281,0.40,not recorded,90\n")
-                || text.ends_with("0,100,4.3,281,0.40,not recorded,90\n"),
+            // came from: empty, as none is recorded for this hour.
+            text.ends_with("0,100,4.2,281,0.40,,90\n")
+                || text.ends_with("0,100,4.3,281,0.40,,90\n"),
             "{text}"
         );
         // Whole seconds, as the run's own words count them: 99.8 s is
@@ -1114,6 +1132,9 @@ mod tests {
         assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
         // The rate written as the app writes a rate: zero takes no sign.
         assert_eq!(colour("0.0").len(), 3, "{cells:?}");
+        // The dimming's key under the table.
+        let key = "Grey beat errors: from the drop, or source not recorded.";
+        assert_eq!(colour(key), vec![Some(ink.1)], "{cells:?}");
     }
 
     /// After a run, its two charts take the pane's height and nothing is
