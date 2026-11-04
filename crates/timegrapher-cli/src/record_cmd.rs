@@ -81,6 +81,8 @@ struct Check {
     /// The stretch read, seconds from the start of the take.
     from_s: f64,
     to_s: f64,
+    /// Whether a regular beat is heard over the stretch read (over the
+    /// whole take when nothing is read).
     watch_heard: bool,
     /// The median timing scatter of the beats over the stretch read (over
     /// the whole take when it gives none), and that as a share of the
@@ -854,12 +856,14 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         // `session` gives it; over the whole take when that stretch gives
         // none (nothing read once settled, or too short for a window).
         let scatter_us = m.and_then(|m| m.jitter_us).or(whole.jitter_us);
+        // Whether a regular beat is heard, from the same stretch.
+        let watch_heard = m.map_or(whole.watch_heard, |m| m.watch_heard);
         let m = m.filter(|_| heard);
         Check {
             bph_set: set.bph,
             from_s,
             to_s,
-            watch_heard: whole.watch_heard,
+            watch_heard,
             timing_scatter_ms: scatter_us.map(|j| j / 1000.0),
             timing_scatter_fraction: beats::timing_scatter_fraction(scatter_us, bph),
             bph,
