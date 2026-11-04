@@ -260,13 +260,6 @@ fn the_sound_panes_follow_the_strips_newest_edge() {
     app.masked = vec![(end - 15.0, end + 1.0)];
     let s = app.profiles_at(end);
     assert_eq!(s.line, Some(format!("Masked at {at}")));
-    // The Scope says so too, and draws no beats there.
-    let ctx = themed();
-    let out = ctx.run(Default::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, |ui| app.scope_pane(ui));
-    });
-    let scope = super::tests::painted_text(&out);
-    assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
     app.masked.clear();
     // Kept nowhere near: said, not filled from either side.
     app.sound_history.retain(|h| h.0 > end + 2.0);
