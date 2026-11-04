@@ -208,7 +208,7 @@ impl TimegrapherApp {
                     StripView::MIN_SPAN_S..=StripView::MAX_SPAN_S,
                     &DURATION,
                     &SPANS,
-                    span_label,
+                    fields::duration,
                     "",
                     92.0,
                 );
@@ -560,7 +560,15 @@ impl TimegrapherApp {
             // Zoomed out no further than the take: past it is only blank
             // paper.
             let take = was.max(self.latest_s());
-            self.strip.set_span((was * input.span_factor).min(take));
+            // Small zooms add up, while the strip shows the round length
+            // nearest where they are heading.
+            let from = self
+                .strip_zoom_s
+                .filter(|&w| round_span(w) == was)
+                .unwrap_or(was);
+            let wish = (from * input.span_factor).clamp(StripView::MIN_SPAN_S, take);
+            self.strip_zoom_s = Some(wish);
+            self.strip.set_span(round_span(wish).min(take));
             // Looking back, the time under the pointer stays under it;
             // live, the newest beat stays at the edge, so a zoom never
             // moves the moment the cards and the Profile show.
@@ -599,6 +607,18 @@ impl TimegrapherApp {
             self.centre();
         }
     }
+}
+
+/// The round strip length nearest `s`: whole seconds below 10 s, then
+/// 5 s steps to 2 min, whole minutes to 2 h, then quarter hours, so the
+/// Length field never reads such as 3:01 after a zoom.
+fn round_span(s: f64) -> f64 {
+    const STEPS: [(f64, f64); 4] = [(10.0, 1.0), (120.0, 5.0), (7200.0, 60.0), (f64::MAX, 900.0)];
+    let k = STEPS
+        .iter()
+        .find(|(below, _)| s < *below)
+        .map_or(1.0, |&(_, k)| k);
+    (s / k).round() * k
 }
 
 /// The position track along the strip: (from s, to s, label, code).
