@@ -564,9 +564,8 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
     }
 }
 
-/// Save the run as a CSV file, in a folder the user picks from `dir`:
-/// what the app said.
-pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
+/// The dialog for saving the run as a CSV file, starting in `dir`.
+pub fn csv_dialog(dir: &std::path::Path) -> rfd::FileDialog {
     let stamp: String = timegrapher_core::recorder::utc(std::time::SystemTime::now())
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == 'T')
@@ -579,14 +578,7 @@ pub fn save_csv(text: &str, dir: &std::path::Path) -> Option<String> {
     if dir.is_dir() {
         d = d.set_directory(dir);
     }
-    let path = d.save_file()?;
-    Some(match std::fs::write(&path, text) {
-        Ok(()) => format!("Saved the Power Reserve Test to {}", path.display()),
-        Err(e) => format!(
-            "Couldn't save the Power Reserve Test to {}: {e}",
-            path.display()
-        ),
-    })
+    d
 }
 
 /// The run as text with `sep` between columns, for Copy and a CSV file:

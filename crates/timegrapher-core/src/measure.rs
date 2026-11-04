@@ -243,6 +243,12 @@ pub enum Caveat {
     BeatErrorAsSize,
     /// The unlock was not found; the selected beat error comes from the drop.
     BeatErrorFromDrop,
+    /// A figure was read from fewer than the required share of its kept windows.
+    ReadingWindows {
+        reading: confidence::Figure,
+        windows_used: usize,
+        windows_in_span: usize,
+    },
     /// Stretches of the take were masked out of the readings by hand;
     /// `seconds` is their total within the stretch.
     Masked { seconds: f64 },
@@ -264,6 +270,11 @@ impl Caveat {
     pub fn short(&self, lift_deg: f64, beats: usize) -> Option<String> {
         Some(match self {
             Caveat::NoWatch { .. } => return None,
+            Caveat::ReadingWindows {
+                reading,
+                windows_used,
+                windows_in_span,
+            } => format!("{reading} read from {windows_used} of {windows_in_span} windows"),
             Caveat::BeatErrorFromDrop => "beat error from the drop".to_string(),
             Caveat::SetRateDisagrees { heard } => format!("{heard} bph heard"),
             Caveat::ShortSpan { span_s } => format!("{span_s:.0} s of beats"),
@@ -306,6 +317,8 @@ impl Caveat {
     pub fn long(&self, lift_deg: Option<f64>) -> Option<String> {
         Some(match self {
             Caveat::NoWatch { .. } => return None,
+            Caveat::ReadingWindows { reading, windows_used, windows_in_span } =>
+                format!("The {reading} was read from {windows_used} of {windows_in_span} windows in the kept time."),
             Caveat::BeatErrorFromDrop => {
                 "The unlock was not found; the beat error is measured from the drop.".to_string()
             }
@@ -445,6 +458,7 @@ impl Caveat {
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
             Caveat::BeatErrorFromDrop => 16,
+            Caveat::ReadingWindows { .. } => 17,
         }
     }
 }

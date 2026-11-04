@@ -141,10 +141,9 @@ impl TimegrapherApp {
             nothing,
         ) {
             if let Some(r) = &done {
-                let dir = self.guided_dir();
-                if let Some(m) = reserve::save_csv(&reserve::results_text(r, &watch, ','), &dir) {
-                    self.info_msg(m);
-                }
+                let d = reserve::csv_dialog(&self.guided_dir());
+                let text = reserve::results_text(r, &watch, ',');
+                self.save_text_as(d, "the Power Reserve Test", text);
             }
         }
         if theme::tool_word_button(

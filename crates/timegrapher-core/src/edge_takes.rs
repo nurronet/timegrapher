@@ -103,7 +103,12 @@ fn first_takes() -> Vec<EdgeTake> {
             id: "edge_silence_mid",
             summary: "60 s of silence between two stretches of 45 s of the watch, which runs \
                       on unheard",
-            caveats: &[&["beats_missing"]],
+            caveats: &[&[
+                "beats_missing",
+                "reading_windows",
+                "reading_windows",
+                "reading_windows",
+            ]],
             truth: Some(MADE),
             known: None,
         },
@@ -144,7 +149,12 @@ fn card_and_quiet_takes() -> Vec<EdgeTake> {
             id: "edge_silence_long",
             summary: "300 s of silence, over several of the stream's chunks, between two \
                       stretches of 60 s of the watch, which runs on unheard",
-            caveats: &[&["beats_missing"]],
+            caveats: &[&[
+                "beats_missing",
+                "reading_windows",
+                "reading_windows",
+                "reading_windows",
+            ]],
             truth: Some(MADE),
             known: None,
         },
@@ -152,7 +162,7 @@ fn card_and_quiet_takes() -> Vec<EdgeTake> {
             id: "edge_quiet_step_12db",
             summary: "240 s of the watch, heard 12 dB more quietly from 100 s on over the \
                       same stand noise",
-            caveats: &[&[]],
+            caveats: &[&["reading_windows", "reading_windows"]],
             truth: Some(MADE),
             known: None,
         },
@@ -160,7 +170,7 @@ fn card_and_quiet_takes() -> Vec<EdgeTake> {
             id: "edge_quiet_step",
             summary: "240 s of the watch, heard 16 dB more quietly from 100 s on over the \
                       same stand noise, as when it is turned or the mic is touched",
-            caveats: &[&[]],
+            caveats: &[&["reading_windows", "reading_windows"]],
             truth: Some(MADE),
             known: None,
         },
@@ -168,7 +178,12 @@ fn card_and_quiet_takes() -> Vec<EdgeTake> {
             id: "edge_digital_silence",
             summary: "300 s of digital silence (every sample zero), with no break listed, \
                       between two stretches of 60 s of the watch, which runs on unheard",
-            caveats: &[&["beats_missing"]],
+            caveats: &[&[
+                "beats_missing",
+                "reading_windows",
+                "reading_windows",
+                "reading_windows",
+            ]],
             truth: Some(MADE),
             known: None,
         },
@@ -177,7 +192,12 @@ fn card_and_quiet_takes() -> Vec<EdgeTake> {
             summary: "240 s of the watch, heard 20 dB more quietly from 100 s on over the \
                       same stand noise: beats lost in the noise are left out, and the rate \
                       is the watch's",
-            caveats: &[&["beats_missing"]],
+            caveats: &[&[
+                "beats_missing",
+                "reading_windows",
+                "reading_windows",
+                "reading_windows",
+            ]],
             truth: Some(MADE),
             known: None,
         },
@@ -231,7 +251,12 @@ fn session_takes() -> Vec<EdgeTake> {
             id: "edge_watch_stops",
             summary: "120 s of the watch, then 120 s of the stand's noise: the watch ran \
                       down, as at the end of a power reserve run",
-            caveats: &[&["beats_missing"]],
+            caveats: &[&[
+                "beats_missing",
+                "reading_windows",
+                "reading_windows",
+                "reading_windows",
+            ]],
             truth: Some(MADE),
             known: None,
         },
@@ -305,7 +330,7 @@ fn clock_and_lift_takes() -> Vec<EdgeTake> {
             id: "edge_no_unlock",
             summary: "120 s of a watch whose unlock makes no sound: rate and the drop are \
                       heard, amplitude and the unlock's beat error are not",
-            caveats: &[&["beat_error_from_drop"]],
+            caveats: &[&["beat_error_from_drop", "reading_windows"]],
             truth: Some(Truth {
                 amplitude: None,
                 beat_error: None,

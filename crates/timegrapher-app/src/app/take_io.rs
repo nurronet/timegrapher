@@ -753,18 +753,13 @@ impl TimegrapherApp {
         }
         let mut d = rfd::FileDialog::new()
             .set_title("Choose Where to Save (the Take Gets Its Own Folder Inside)");
-        let start = self
-            .session
-            .saved_to()
-            .and_then(|p| p.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| PathBuf::from(&self.save_dir));
+        let start = self.save_start();
         if start.is_dir() {
             d = d.set_directory(&start);
         }
-        let Some(parent) = d.pick_folder() else {
-            return;
-        };
-        self.save_into(&parent);
+        self.pick(Picker::one(d, Pick::Folder, |a, parent| {
+            a.save_into(&parent)
+        }));
     }
 
     /// Save the session's sound so far into a take in `parent`. The copy
@@ -925,18 +920,15 @@ impl TimegrapherApp {
         }
         let mut d = rfd::FileDialog::new()
             .set_title("Choose Where to Keep the Analysis (the Take Gets Its Own Folder Inside)");
-        let start = self
-            .session
-            .saved_to()
-            .and_then(|p| p.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| PathBuf::from(&self.save_dir));
+        let start = self.save_start();
         if start.is_dir() {
             d = d.set_directory(&start);
         }
-        let Some(parent) = d.pick_folder() else {
-            return;
-        };
-        self.start_analysis_save(&parent);
+        self.pick(Picker::one(d, Pick::Folder, |a, parent| {
+            if a.can_save_analysis() {
+                a.start_analysis_save(&parent);
+            }
+        }));
     }
 
     /// Read the session's sound again for its analysis, in the background,

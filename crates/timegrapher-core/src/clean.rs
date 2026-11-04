@@ -376,8 +376,7 @@ impl<'a> Cuts<'a> {
         let Some(first) = beats.get(beats.partition_point(|x| x.time < from)) else {
             return out;
         };
-        let mut s = first.time;
-        while s + len <= to + 1e-9 {
+        for (s, _) in nominal_windows(first.time, to, len, step) {
             if self.whole(beats, s, s + len, part) {
                 let lo = beats.partition_point(|x| x.time < s);
                 let hi = beats.partition_point(|x| x.time < s + len);
@@ -389,7 +388,6 @@ impl<'a> Cuts<'a> {
                     });
                 }
             }
-            s += step;
         }
         out
     }
@@ -435,6 +433,32 @@ pub fn covered(beats: &[Beat], start: f64, end: f64, part: f64) -> bool {
         let a = start + j as f64 * len;
         let i = beats.partition_point(|b| b.time < a);
         beats.get(i).is_some_and(|b| b.time < a + len)
+    })
+}
+
+/// The nominal grid shared by window fits and their coverage denominator.
+/// A missing fit does not remove its nominal window from this grid.
+pub fn nominal_windows(
+    from: f64,
+    to: f64,
+    len: f64,
+    step: f64,
+) -> impl Iterator<Item = (f64, f64)> {
+    let mut start = from;
+    std::iter::from_fn(move || {
+        if !start.is_finite()
+            || !to.is_finite()
+            || len <= 0.0
+            || step <= 0.0
+            || !len.is_finite()
+            || !step.is_finite()
+            || start + len > to + 1e-9
+        {
+            return None;
+        }
+        let span = (start, start + len);
+        start += step;
+        Some(span)
     })
 }
 

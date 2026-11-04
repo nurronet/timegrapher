@@ -45,21 +45,19 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
 }
 
 /// The size a diverging colour map shows in full colour, either side of
-/// zero: the 95th percentile of the values' sizes, so a few wild cells
+/// zero: the 95th percentile of the values' sizes by core's one
+/// percentile rule ([`crate::dsp::percentile`], #512), so a few wild cells
 /// don't wash out the rest; larger ones show in full colour too. 1 with
 /// no finite value, and never below 1e-9.
 pub fn colour_limit(values: &[f64]) -> f64 {
-    let mut v: Vec<f64> = values
-        .iter()
-        .map(|x| x.abs())
-        .filter(|x| x.is_finite())
-        .collect();
-    v.sort_by(f64::total_cmp);
-    v.get((v.len() as f64 * 0.95) as usize)
-        .copied()
+    let sizes: Vec<f64> = values.iter().map(|x| x.abs()).collect();
+    crate::dsp::percentile(&sizes, COLOUR_FULL_AT)
         .unwrap_or(1.0)
         .max(1e-9)
 }
+
+/// The share of a colour map's cells shown short of full colour.
+const COLOUR_FULL_AT: f64 = 0.95;
 
 /// Decimals for an axis label from its grid step: none from a step of
 /// 1, one from 0.1, two from 0.01, three below that (#815). The app's
@@ -83,6 +81,54 @@ pub fn axis_number(v: f64, step: f64) -> String {
     crate::library::fixed_text(v, axis_decimals(step))
 }
 
+/// 1, 2 or 5 times a power of ten, at least `x` (above 0): the step
+/// every grid and axis rounds to, so there is one rule for round numbers.
+pub fn round_step(x: f64) -> f64 {
+    let p = 10f64.powf(x.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|m| m * p)
+        .find(|&s| s >= x * (1.0 - 1e-9))
+        .unwrap_or(10.0 * p)
+}
+
+/// How many steps a scale's span is cut into, about: the step is the
+/// [`round_step`] at least a fifth of it.
+const SCALE_STEPS: f64 = 5.0;
+
+/// A scale with round ends: `lo` to `hi` snapped out to the nearest
+/// [`round_step`] about a fifth of their span, and that step, as
+/// `(lo, hi, step)`. −91.9 to −21.9 reads −100 to −20 in steps of 20.
+pub fn round_ends(lo: f64, hi: f64) -> (f64, f64, f64) {
+    let step = round_step(((hi - lo) / SCALE_STEPS).max(1e-12));
+    let lo = (lo / step + 1e-9).floor() * step;
+    let hi = (hi / step - 1e-9).ceil() * step;
+    // A single value still gets a step of room.
+    let hi = if hi > lo { hi } else { lo + step };
+    (lo + 0.0, hi + 0.0, step)
+}
+
+/// A scale that holds still: `shown` (from [`round_ends`]) while it holds
+/// every value from `values.0` to `values.1` and the room `wanted` for
+/// them fills at least half of it, so the scale doesn't jump as the
+/// readings move within it; else new round ends around `wanted`. The ends
+/// move out when a value leaves the scale, and in only when the room
+/// wanted fills less than half of it. `wanted` holds the values with any
+/// room around them (a least span, padding): only the values themselves
+/// decide whether the scale still holds them, so room that slides with
+/// them doesn't move the scale.
+pub fn steady_ends(
+    shown: Option<(f64, f64, f64)>,
+    values: (f64, f64),
+    wanted: (f64, f64),
+) -> (f64, f64, f64) {
+    let ((lo, hi), (w0, w1)) = (values, wanted);
+    match shown {
+        Some((a, b, step)) if lo >= a && hi <= b && (w1 - w0) * 2.0 >= b - a => (a, b, step),
+        _ => round_ends(w0.min(lo), w1.max(hi)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +148,65 @@ mod tests {
                 "{v} {step}"
             );
         }
+    }
+
+    #[test]
+    fn a_round_step_is_one_two_or_five_times_a_power_of_ten() {
+        for (x, step) in [
+            (0.3, 0.5),
+            (1.0, 1.0),
+            (1.01, 2.0),
+            (14.0, 20.0),
+            (0.05, 0.05),
+            (7.0, 10.0),
+        ] {
+            assert!((round_step(x) - step).abs() < 1e-12, "{x}");
+        }
+    }
+
+    #[test]
+    fn a_scales_ends_snap_out_to_a_round_step() {
+        // The spec's examples (Line Strength on Plots, the Paper Strip).
+        assert_eq!(round_ends(-91.9, -21.9), (-100.0, -20.0, 20.0));
+        assert_eq!(round_ends(222.0, 268.0), (220.0, 270.0, 10.0));
+        let (lo, hi, step) = round_ends(-0.548, -0.302);
+        assert!(
+            (lo + 0.55).abs() < 1e-12 && (hi + 0.30).abs() < 1e-12 && (step - 0.05).abs() < 1e-12
+        );
+        // Ends already round stay.
+        assert_eq!(round_ends(-100.0, -20.0), (-100.0, -20.0, 20.0));
+        // One value: a step of room.
+        assert!(round_ends(3.0, 3.0).1 > 3.0);
+    }
+
+    #[test]
+    fn a_steady_scale_moves_only_when_it_must() {
+        let shown = Some((-100.0, -20.0, 20.0));
+        let at = |lo: f64, hi: f64| steady_ends(shown, (lo, hi), (lo, hi));
+        // Readings move inside it: it holds.
+        assert_eq!(at(-90.0, -30.0), (-100.0, -20.0, 20.0));
+        // One leaves it: out.
+        assert_eq!(at(-90.0, -15.0).1, 0.0);
+        // They fill less than half of it: in.
+        assert_eq!(at(-60.0, -40.0), round_ends(-60.0, -40.0));
+        // Nothing shown yet: round ends.
+        assert_eq!(
+            steady_ends(None, (-91.9, -21.9), (-91.9, -21.9)),
+            (-100.0, -20.0, 20.0)
+        );
+        // Room kept around steady readings slides with them past an end:
+        // the readings are still inside, so the scale holds.
+        let steady = Some((2.0, 8.0, 1.0));
+        assert_eq!(
+            steady_ends(steady, (4.9, 5.2), (2.05, 8.05)),
+            (2.0, 8.0, 1.0)
+        );
+        assert_eq!(steady_ends(steady, (4.9, 5.2), (1.9, 7.9)), (2.0, 8.0, 1.0));
+        // A reading leaves it: new ends around the room wanted.
+        assert_eq!(
+            steady_ends(steady, (4.9, 8.2), (1.9, 8.2)),
+            round_ends(1.9, 8.2)
+        );
     }
 
     #[test]
@@ -136,7 +241,13 @@ mod tests {
         let v: Vec<f64> = (1..=100)
             .map(|i| if i % 2 == 0 { i as f64 } else { -(i as f64) })
             .collect();
-        assert_eq!(colour_limit(&v), 96.0);
+        // Sizes 1 to 100: 95.05, between the 95th and 96th, as core's
+        // percentile reads it (nearest rank read 96).
+        assert!(
+            (colour_limit(&v) - 95.05).abs() < 1e-9,
+            "{}",
+            colour_limit(&v)
+        );
         assert_eq!(colour_limit(&[f64::NAN]), 1.0);
         assert_eq!(colour_limit(&[0.0, 0.0]), 1e-9);
     }
