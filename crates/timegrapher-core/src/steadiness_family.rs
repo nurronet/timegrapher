@@ -174,8 +174,18 @@ pub(super) fn mark_named(s: &mut SeriesCheck, cfg: &Config) {
         t.significant = significant;
         t.named = drifting;
         t.note = (!drifting).then(|| {
-            let p =
-                (!significant).then(|| format!("not significant, p {}", super::p_text(t.p_value)));
+            // A bar of 0 is Holm's correction dropping a trend that
+            // passed its own test.
+            let p = (!significant).then(|| match cfg.trend_alpha {
+                0.0 => format!(
+                    "not significant after Holm's correction (p {} alone)",
+                    super::p_text(t.p_value)
+                ),
+                a => format!(
+                    "not significant: p {}, over the {a} a trend needs",
+                    super::p_text(t.p_value)
+                ),
+            });
             p.or_else(|| bar(t.explained.max(t.curve_explained), "trend"))
                 .unwrap_or_else(other)
         });
@@ -275,11 +285,17 @@ mod tests {
         let off = run(slide, &dropped);
         let t = off.trend.as_ref().unwrap();
         assert!(!t.significant && !t.named, "{}", off.headline);
-        assert!(t
-            .note
-            .as_deref()
-            .unwrap()
-            .starts_with("not significant, p "));
+        let note = t.note.as_deref().unwrap();
+        assert!(
+            note.starts_with("not significant after Holm's correction (p "),
+            "{note}"
+        );
+        // Short of its own bar, the note gives the bar.
+        let white: Vec<f64> = (0..720).map(|_| 280.0 + 2.0 * z.normal()).collect();
+        let w = run(white, &Config::default());
+        let note = w.trend.unwrap().note.unwrap();
+        assert!(note.starts_with("not significant: p "), "{note}");
+        assert!(note.ends_with(", over the 0.01 a trend needs"), "{note}");
         assert_eq!(on.trend.as_ref().unwrap().note, None);
         let step: Vec<f64> = (0..720)
             .map(|i| if i < 360 { 270.0 } else { 280.0 } + 2.0 * z.normal())
