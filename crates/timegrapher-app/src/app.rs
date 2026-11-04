@@ -2242,8 +2242,8 @@ pub struct TimegrapherApp {
     free_job: std::cell::RefCell<Option<FreeJob>>,
     /// The whole take being read in the background for the window.
     whole_job: std::cell::RefCell<Option<take_reads::Job<WholeKey, Option<WholeTake>>>>,
-    /// The charts' run of readings being read in the background.
-    trend_job: Option<take_reads::Job<TrendKey, Vec<TrendPoint>>>,
+    /// The charts' run and a long take's run being read in the background.
+    bg: take_reads::Background,
     level: Level,
     level_at: Instant,
     /// When the input last clipped.
@@ -2680,7 +2680,7 @@ impl TimegrapherApp {
             free_table: Default::default(),
             free_job: Default::default(),
             whole_job: Default::default(),
-            trend_job: None,
+            bg: Default::default(),
             level: Level::default(),
             level_at: Instant::now(),
             clipped_at: None,
@@ -4167,7 +4167,7 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
-        crate::pump::timed("charts' readings", || self.refresh_trend_shown(ctx));
+        crate::pump::timed("charts' readings", || self.take_reads_shown(ctx));
         // A test set up against another watch than the one picked now.
         self.find_full_wind();
         if let Some(wait) = self.full_wind_recheck(guided::unix_now()) {
