@@ -211,7 +211,7 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
     app.overlays = [true, false, false];
     app.strip.horizontal = false;
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
-    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
         let input = egui::RawInput {
             screen_rect: Some(screen),
             events,
