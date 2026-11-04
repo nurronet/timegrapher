@@ -2266,7 +2266,7 @@ pub struct TimegrapherApp {
     /// seconds of this session, and one worked out from the file for a
     /// moment that history doesn't cover.
     sound_opts: profiles::Options,
-    sound_history: Vec<(f64, Profiles)>,
+    sound_history: Vec<(f64, scope_panes::Kept)>,
     /// The profiles worked out from the recording at a moment, at the
     /// settings revision they were read with.
     sound_at: Option<(f64, u64, Profiles)>,

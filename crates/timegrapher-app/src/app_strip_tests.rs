@@ -218,7 +218,14 @@ fn the_sound_panes_follow_the_strips_newest_edge() {
             beats: t as usize,
             ..heard.clone()
         };
-        (t, [Some(p), None])
+        let span_s = 10.0;
+        (
+            t,
+            scope_panes::Kept {
+                span_s,
+                sides: [Some(p), None],
+            },
+        )
     };
     app.sound_history = (5..=20).map(|k| kept(2.0 * k as f64)).collect();
     let latest = app.latest_s();

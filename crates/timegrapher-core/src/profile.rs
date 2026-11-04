@@ -331,8 +331,9 @@ pub enum SoundAt<'a, T> {
     /// [`SOUND_FULL_S`], kept once a minute, so `at` can be up to a minute
     /// before `end`.
     Kept { at: f64, coarse: bool, sound: &'a T },
-    /// The window ending at `end`, or the sound kept for it, lies in a
-    /// masked stretch: culled, never filled from either side.
+    /// The window ending at `end` lies wholly in a masked stretch, or the
+    /// window the sound kept for it was made over reaches into one:
+    /// culled, never filled from either side.
     Masked,
     /// The beats heard reach to either side of the window, and none fall
     /// in it.
@@ -342,23 +343,27 @@ pub enum SoundAt<'a, T> {
 }
 
 /// The sound `history` kept for the window of `window_s` seconds ending at
-/// `end`, each kept sound being the window ending at its own time, or why
-/// there is none: the window or the sound for it masked (`masked`, cleaned
-/// as [`crate::session::masked_spans`] cleans them), or no beats in it
-/// while `beats` (times rising) reach to either side of it.
+/// `end`, or why there is none: the window masked, or the sound for it
+/// made over a window (the `kept_s` seconds before its own time, as it was
+/// kept) that reaches into a mask (`masked`, cleaned as
+/// [`crate::session::masked_spans`] cleans them); or no beats in the
+/// window while `beats` (times rising) reach to either side of it.
 pub fn sound_at<'a, T>(
     history: &'a [(f64, T)],
-    end: f64,
-    window_s: f64,
+    (end, window_s): (f64, f64),
     masked: &[(f64, f64)],
     beats: &[Beat],
+    kept_s: impl Fn(&T) -> f64,
 ) -> SoundAt<'a, T> {
     let from = end - window_s.max(0.0);
     if window_s > 0.0 && crate::session::masked_within(masked, from, end) >= window_s - 1e-9 {
         return SoundAt::Masked;
     }
     if let Some(((at, sound), coarse)) = kept_nearest(history, end) {
-        if crate::session::in_mask(masked, *at) {
+        let made_from = at - kept_s(sound).max(0.0);
+        if crate::session::in_mask(masked, *at)
+            || crate::session::masked_within(masked, made_from, *at) > 0.0
+        {
             return SoundAt::Masked;
         }
         return SoundAt::Kept {
@@ -515,28 +520,37 @@ mod tests {
             coarse,
             sound: &h.iter().find(|e| e.0 == at).unwrap().1,
         };
-        assert_eq!(sound_at(&h, 5999.0, 10.0, &[], &beats), kept(5998.0, false));
+        // Each sound kept over the 10 s before its time.
+        fn at<'a>(
+            h: &'a [(f64, u32)],
+            end: f64,
+            masked: &[(f64, f64)],
+            beats: &[Beat],
+        ) -> SoundAt<'a, u32> {
+            sound_at(h, (end, 10.0), masked, beats, |_| 10.0)
+        }
+        assert_eq!(at(&h, 5999.0, &[], &beats), kept(5998.0, false));
         // Before the last hour the sound is kept once a minute.
-        assert_eq!(sound_at(&h, 1290.0, 10.0, &[], &beats), kept(1260.0, true));
-        // A window wholly masked, or the sound kept for it in a mask.
+        assert_eq!(at(&h, 1290.0, &[], &beats), kept(1260.0, true));
+        // A window wholly masked, the sound kept for it in a mask, or made
+        // over a window that reaches into one (6 s of 5094 to 5104 here).
         let masked = [(5000.0, 5100.0)];
-        assert_eq!(sound_at(&h, 5050.0, 10.0, &masked, &beats), SoundAt::Masked);
-        assert_eq!(sound_at(&h, 5101.0, 10.0, &masked, &beats), SoundAt::Masked);
-        assert_eq!(
-            sound_at(&h, 5104.0, 10.0, &masked, &beats),
-            kept(5104.0, false)
-        );
+        assert_eq!(at(&h, 5050.0, &masked, &beats), SoundAt::Masked);
+        assert_eq!(at(&h, 5101.0, &masked, &beats), SoundAt::Masked);
+        assert_eq!(at(&h, 5104.0, &masked, &beats), SoundAt::Masked);
+        // A mask that today's window reaches into but the 10 s the sound
+        // was kept over doesn't: clear.
+        let partly = sound_at(&h, (5112.0, 20.0), &masked, &beats, |_| 10.0);
+        assert_eq!(partly, kept(5112.0, false));
+        // Kept over a shorter window then (Average Over 2 s): what it was
+        // made over decides, not today's window.
+        let short = sound_at(&h, (5104.0, 10.0), &masked, &beats, |_| 2.0);
+        assert_eq!(short, kept(5104.0, false));
         // Nothing kept: no beats in the window where the beats reach, else not kept.
         let gappy: Vec<(f64, u32)> = h.iter().filter(|e| e.0 < 2000.0).copied().collect();
-        assert_eq!(
-            sound_at(&gappy, 2080.0, 10.0, &[], &beats),
-            SoundAt::NoBeats
-        );
-        assert_eq!(
-            sound_at(&gappy, 2200.0, 10.0, &[], &beats),
-            SoundAt::NotKept
-        );
-        assert_eq!(sound_at(&h, 9000.0, 10.0, &[], &beats), SoundAt::NotKept);
-        assert_eq!(sound_at(&h, -5.0, 10.0, &[], &[]), SoundAt::NotKept);
+        assert_eq!(at(&gappy, 2080.0, &[], &beats), SoundAt::NoBeats);
+        assert_eq!(at(&gappy, 2200.0, &[], &beats), SoundAt::NotKept);
+        assert_eq!(at(&h, 9000.0, &[], &beats), SoundAt::NotKept);
+        assert_eq!(at(&h, -5.0, &[], &[]), SoundAt::NotKept);
     }
 }

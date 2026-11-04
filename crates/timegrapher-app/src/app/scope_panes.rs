@@ -7,6 +7,14 @@ use super::*;
 pub(super) use timegrapher_core::profile::kept_sound;
 pub(super) use timegrapher_core::profile::{sound_at, thin_sound, SoundAt};
 
+/// The Tick Tock profiles kept for a moment, and the seconds of beats
+/// before it they were made over.
+#[derive(Debug, Clone)]
+pub(super) struct Kept {
+    pub(super) span_s: f64,
+    pub(super) sides: Profiles,
+}
+
 /// What a sound pane shows for a moment: the profiles, with a line for
 /// their hover; or one line in their place.
 pub(super) struct ShownSound {
@@ -171,13 +179,10 @@ impl TimegrapherApp {
             return shown(p, None);
         }
         let beats = self.live.as_ref().map_or(&[][..], |l| l.beats());
-        match sound_at(
-            &self.sound_history,
-            end,
-            self.average_s,
-            &self.masked,
-            beats,
-        ) {
+        let window = (end, self.average_s);
+        match sound_at(&self.sound_history, window, &self.masked, beats, |k| {
+            k.span_s
+        }) {
             SoundAt::Kept { at, coarse, sound } => {
                 let mut hover = Vec::new();
                 if self.no_sound {
@@ -189,7 +194,13 @@ impl TimegrapherApp {
                 if coarse {
                     hover.push("Shapes from then are kept once a minute".to_string());
                 }
-                let p = sound.clone();
+                if !self.no_sound && (sound.span_s - self.average_s).abs() > 1e-6 {
+                    hover.push(format!(
+                        "Made over the {} s Average Over set then",
+                        sound.span_s
+                    ));
+                }
+                let p = sound.sides.clone();
                 shown(p, (!hover.is_empty()).then(|| hover.join("\n")))
             }
             SoundAt::Masked => line(format!("Masked at {at}")),
@@ -287,7 +298,12 @@ impl TimegrapherApp {
                 None if known.is_empty() => {
                     return no_sound_line(ui, &format!("No sound kept from {}", length_text(end)));
                 }
-                None => (None, None),
+                // Some beats drawn from what is held, the rest not kept:
+                // said over the Scope.
+                None => (
+                    None,
+                    Some(format!("No sound kept from {}", length_text(end))),
+                ),
             }
         };
         let rows: Vec<scope::Row> = specs
