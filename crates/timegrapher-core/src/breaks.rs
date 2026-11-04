@@ -72,11 +72,6 @@ pub fn backlog_s(step: f64, gap: f64) -> Option<f64> {
 /// between the break and the jump for a beat to fall there.
 pub const BACKLOG_MIN_S: f64 = 0.001;
 
-/// How far after a backlog's end, in audio seconds, a listed break with
-/// no gap can be its cut: live, the cut falls at the first whole block at
-/// or past the end, and blocks are far shorter than this.
-pub const CUT_MATCH_S: f64 = 0.5;
-
 /// What a live input's blocks become once [`GapWatch`] has seen them: the
 /// blocks, in order, with a break before the first block after a gap.
 #[derive(Debug)]
@@ -479,14 +474,13 @@ pub fn on_clock(listed: Vec<Break>, clock: Option<&mut crate::clock::ClockFit>) 
             .filter(|cb| !listed.iter().any(|b| (b.audio_s - cb.audio_s).abs() < 1e-9))
             .copied(),
     );
-    // The end of each backlog the log shows, unless a listed break with no
-    // gap is already its cut.
+    // The end of each backlog the log shows, unless a listed break is
+    // already there. Only the same second: a break any later would leave
+    // the jump inside the piece, and a spare cut costs nothing.
     out.extend(c.backlog_cuts().into_iter().filter(|cut| {
-        !listed.iter().any(|b| {
-            b.gap_s.abs() < MIN_GAP_S
-                && b.audio_s > cut.audio_s - BACKLOG_MIN_S
-                && b.audio_s < cut.audio_s + CUT_MATCH_S
-        })
+        !listed
+            .iter()
+            .any(|b| (b.audio_s - cut.audio_s).abs() < BACKLOG_MIN_S)
     }));
     out.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
     out
