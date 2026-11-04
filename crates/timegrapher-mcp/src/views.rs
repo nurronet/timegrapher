@@ -82,9 +82,13 @@ const PROBABILITY_MARKS: [(f64, &str); 11] = [
     (99.9, "99.9%"),
 ];
 
+/// A colour at an opacity, as CSS.
+fn rgba(c: Rgb, a: f32) -> String {
+    format!("rgba({}, {}, {}, {a})", c.r, c.g, c.b)
+}
+
 /// One theme as the page's CSS variables.
 fn variables(p: &Palette) -> String {
-    let rgba = |c: Rgb, a: f64| format!("rgba({}, {}, {}, {a})", c.r, c.g, c.b);
     [
         ("window", p.window.css()),
         ("card", p.card.css()),
@@ -98,13 +102,11 @@ fn variables(p: &Palette) -> String {
         ("rate", p.trace_rate.css()),
         ("amplitude", p.trace_amplitude.css()),
         ("beat-error", p.trace_beat_error.css()),
-        ("unlock", p.unlock.css()),
-        ("drop", p.drop.css()),
-        ("peak", p.peak.css()),
-        ("sound", p.sound.css()),
-        ("wheel", p.wheel.css()),
-        // The grid is the text colour, faint, as in the app.
-        ("grid", rgba(p.text, 0.12)),
+        // Line Strength on Plots, as in the app: the grid and the axes are
+        // the text colour at their own opacities, call-outs one grey.
+        ("grid", rgba(p.text, p.grid_opacity)),
+        ("axis", rgba(p.text, p.axis_opacity)),
+        ("callout", p.callout.css()),
     ]
     .iter()
     .map(|(name, value)| format!("  --{name}: {value};\n"))
@@ -761,13 +763,17 @@ mod tests {
         for c in [LIGHT.trace_rate, DARK.trace_rate, LIGHT.tick, DARK.tock] {
             assert!(page.contains(&c.css()), "{}", c.css());
         }
-        // The wheels' own colour, in both themes.
-        for c in [LIGHT.wheel, DARK.wheel] {
-            assert!(
-                page.contains(&format!("--wheel: {};", c.css())),
-                "{}",
-                c.css()
-            );
+        // The call-out grey, in both themes.
+        for c in [LIGHT.callout, DARK.callout] {
+            let line = format!("--callout: {};", c.css());
+            assert!(page.contains(&line), "{line}");
+        }
+        // The grid and the axes at the palette's own opacities.
+        for p in [&LIGHT, &DARK] {
+            for (name, a) in [("grid", p.grid_opacity), ("axis", p.axis_opacity)] {
+                let line = format!("--{name}: {};", rgba(p.text, a));
+                assert!(page.contains(&line), "{line}");
+            }
         }
     }
 

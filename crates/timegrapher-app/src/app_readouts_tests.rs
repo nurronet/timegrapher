@@ -763,7 +763,8 @@ fn draws_the_empty_and_error_states() {
 /// sounds, about 45 MB, where every 2 s was 144,000, about 1 GB.
 #[test]
 fn a_long_runs_sound_is_kept_thinned_before_its_last_hour() {
-    use scope_panes::{kept_sound, thin_sound, SOUND_FULL_S, SOUND_OLD_EVERY_S};
+    use scope_panes::{kept_sound, thin_sound};
+    use timegrapher_core::profile::{SOUND_FULL_S, SOUND_OLD_EVERY_S};
     let sides: Profiles = [None, None];
     let mut h: Vec<(f64, Profiles)> = Vec::new();
     let mut t = 0.0;

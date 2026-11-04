@@ -276,6 +276,46 @@ fn windows(env: &[f32], fs: f64, times: &[f64]) -> Vec<usize> {
         .collect()
 }
 
+/// How long the tick and tock sound is kept every
+/// [`crate::analysis_take::PROFILE_EVERY_S`], back from the latest kept;
+/// before that, one a minute ([`SOUND_OLD_EVERY_S`]), so a run of days
+/// keeps tens of megabytes, not a gigabyte (#483).
+pub const SOUND_FULL_S: f64 = 3600.0;
+/// How often the sound is kept before the last [`SOUND_FULL_S`].
+pub const SOUND_OLD_EVERY_S: f64 = 60.0;
+
+/// Thin `history` (times rising) to one sound a [`SOUND_OLD_EVERY_S`]
+/// before the last [`SOUND_FULL_S`], keeping the first. Thinning a whole
+/// history once keeps what thinning it after each sound would.
+pub fn thin_sound<T>(history: &mut Vec<(f64, T)>) {
+    let Some(&(last, _)) = history.last() else {
+        return;
+    };
+    let old = last - SOUND_FULL_S;
+    let mut kept: Option<f64> = None;
+    history.retain(|(t, _)| {
+        let keep = *t >= old || kept.is_none_or(|k| t - k >= SOUND_OLD_EVERY_S - 1e-6);
+        if keep {
+            kept = Some(*t);
+        }
+        keep
+    });
+}
+
+/// The sound `history` kept nearest before `end`, if it is the one shown
+/// for that moment: within a step of it, as often as it is kept there.
+pub fn kept_sound<T>(history: &[(f64, T)], end: f64) -> Option<&(f64, T)> {
+    let i = history.partition_point(|h| h.0 <= end + 1e-9);
+    let h = &history[i.checked_sub(1)?];
+    let full_from = history.last().map_or(0.0, |l| l.0 - SOUND_FULL_S);
+    let step = if h.0 >= full_from {
+        crate::analysis_take::PROFILE_EVERY_S
+    } else {
+        SOUND_OLD_EVERY_S
+    };
+    (end - h.0 <= step + 0.5).then_some(h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,5 +412,21 @@ mod tests {
             assert!(p.p10.iter().zip(&p.p90).all(|(a, b)| a <= b));
             assert!(p.sound3_ms.is_some());
         }
+    }
+
+    #[test]
+    fn a_whole_history_thinned_once_keeps_what_thinning_as_it_grew_keeps() {
+        // 80 h of sound every 2 s, as an analysis-only take keeps it.
+        let all: Vec<(f64, ())> = (0..=144_000).map(|k| (2.0 * k as f64, ())).collect();
+        let mut grown = Vec::new();
+        for &e in &all {
+            grown.push(e);
+            thin_sound(&mut grown);
+        }
+        let mut once = all.clone();
+        thin_sound(&mut once);
+        assert!(once.len() < 7_000, "{}", once.len());
+        let times = |h: &[(f64, ())]| h.iter().map(|e| e.0).collect::<Vec<_>>();
+        assert_eq!(times(&once), times(&grown));
     }
 }
