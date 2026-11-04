@@ -19,8 +19,9 @@ pub fn data_range(values: &[f64]) -> Option<(f64, f64)> {
 /// The 1st to 99th percentile of the values, padded a little, leaving out
 /// lone wild values (a knock, a dropped beat) so that two of them don't
 /// flatten the rest: those beyond three interquartile ranges of the middle
-/// half, unless they are more than 3% of the values (then they are part of
-/// what the watch does, as in the steadiness test). The steadiness views'
+/// half, unless there are more than two of them and more than 3% of the
+/// values (then they are part of what the watch does, as in the steadiness
+/// test). The steadiness views'
 /// scale. `None` with fewer than two finite values.
 pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
     let mut v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
@@ -37,7 +38,9 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
         .copied()
         .filter(|&x| x >= q1 - fence && x <= q3 + fence)
         .collect();
-    if kept.len() >= 2 && (v.len() - kept.len()) as f64 <= 0.03 * v.len() as f64 {
+    // One or two are always lone; more than that, 3% decides.
+    let lone = (0.03 * v.len() as f64).max(2.0);
+    if kept.len() >= 2 && (v.len() - kept.len()) as f64 <= lone {
         v = kept;
     }
     let (lo, hi) = (q(&v, 0.01), q(&v, 0.99));
@@ -180,6 +183,19 @@ mod tests {
         let pad = (9.76 - 0.03) * 0.12;
         assert!((lo - (0.03 - pad)).abs() < 1e-9, "{lo}");
         assert!((hi - (9.76 + pad)).abs() < 1e-9, "{hi}");
+    }
+
+    #[test]
+    fn two_wild_values_are_lone_even_past_three_percent_of_a_short_series() {
+        // 55 values, one wild at each end: 3.6%, yet still lone, so the
+        // scale is the one without them.
+        let calm: Vec<f64> = (0..53).map(|i| 0.4 + (i % 7) as f64 * 0.005).collect();
+        let mut wild = calm.clone();
+        wild.extend([-3.0, 1.4]);
+        assert_eq!(spread(&wild), spread(&calm));
+        // A third wild value past 3% is part of what the watch does.
+        wild.push(-2.9);
+        assert!(spread(&wild).unwrap().0 < spread(&calm).unwrap().0);
     }
 
     #[test]
