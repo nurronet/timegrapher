@@ -24,7 +24,9 @@ vm.runInContext(html.match(/^function chosenBeatError\([^\n]*\{[\s\S]*?^\}/m)[0]
 test('current documents use core source even with both raw values present', () => {
   assert.equal(context.chosenBeatError(0.2, 0.8, 'drop').value, 0.8);
   assert.equal(context.chosenBeatError(0.2, 0.8, 'unlock').value, 0.2);
-  assert.equal(context.chosenBeatError(0.2, 0.8, null).value, null);
+  assert.equal(context.chosenBeatError(0.2, 0.8, null).value, 0.2);
+  assert.equal(context.chosenBeatError(0.2, 0.8, null).source, null);
+  assert.equal(context.chosenBeatError(null, 0.8, null).value, 0.8);
   assert.equal(context.chosenBeatError(null, null, undefined).source, null);
 });
 

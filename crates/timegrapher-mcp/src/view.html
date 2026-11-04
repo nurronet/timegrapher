@@ -606,7 +606,8 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // documents; an explicit null stays unknown and is never labelled as a source.
 function chosenBeatError(unlock, drop, source) {
   if (source === undefined) source = Number.isFinite(unlock) ? "unlock" : Number.isFinite(drop) ? "drop" : null;
-  const value = source === "unlock" ? unlock : source === "drop" ? drop : null;
+  const value = source === "unlock" ? unlock : source === "drop" ? drop :
+    source === null ? (Number.isFinite(unlock) ? unlock : drop) : null;
   return Number.isFinite(value) ? { value, source } : { value: null, source: null };
 }
 
