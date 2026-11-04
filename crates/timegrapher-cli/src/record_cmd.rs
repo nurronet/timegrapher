@@ -1118,7 +1118,9 @@ mod tests {
             |_| 270.0,
             |_| 0.0,
         );
-        feed.live.push(&sound.samples);
+        for chunk in sound.samples.chunks(4800) {
+            feed.live.push(chunk);
+        }
         feed.trend = (0..MAX_TREND)
             .map(|i| {
                 let (value, source) = if i % 2 == 0 {
