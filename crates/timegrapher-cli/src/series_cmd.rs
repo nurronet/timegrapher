@@ -5,7 +5,7 @@
 use crate::clock_cmd::AppliedClock;
 use std::path::{Path, PathBuf};
 use timegrapher_core::clock::ClockFit;
-use timegrapher_core::library::signed_text;
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::LongConfig;
 use timegrapher_core::periodicity::Wheel;
@@ -252,14 +252,14 @@ fn print_text(r: &Report, calibrated: bool) {
         println!("{}", c.headline);
         for b in &c.bins {
             println!(
-                "  {:>5.0}°  {:+7.1} s/d  (quartiles {:+.1} to {:+.1}, {} readings, {:.1}–{:.1} h)",
-                b.amplitude_deg,
-                b.rate_s_per_day,
-                b.rate_q25,
-                b.rate_q75,
+                "  {:>5}°  {:>7} s/d  (quartiles {} to {}, {} readings, {}–{} h)",
+                fixed_text(b.amplitude_deg, base_digits::AMPLITUDE),
+                signed_text(b.rate_s_per_day, base_digits::RATE),
+                signed_text(b.rate_q25, base_digits::RATE),
+                signed_text(b.rate_q75, base_digits::RATE),
                 b.readings,
-                b.from_wind_h,
-                b.to_wind_h
+                fixed_text(b.from_wind_h, 1),
+                fixed_text(b.to_wind_h, 1)
             );
         }
     }
@@ -308,18 +308,18 @@ fn closing_line(r: &Report) -> Option<&'static str> {
 }
 
 fn opt(v: Option<f64>, d: usize) -> String {
-    v.map_or("-".into(), |x| format!("{x:.d$}"))
+    v.map_or("-".into(), |x| fixed_text(x, d))
 }
 
 /// Series' text line under the rate-against-amplitude headline, every
 /// signed figure as core gives it (#734).
 fn rate_amplitude_line(x: &timegrapher_core::amplitude_slope::CrossCorrelation) -> String {
     format!(
-        "  {:<14} r {} over {} pairs (worth about {:.0} independent); {}; p {}",
+        "  {:<14} r {} over {} pairs (worth about {} independent); {}; p {}",
         "rate vs amp.",
         signed_text(x.r, 2),
         x.readings,
-        x.effective_readings,
+        fixed_text(x.effective_readings, 0),
         match (x.s_per_day_per_deg, x.s_per_day_per_deg_se) {
             (Some(b), Some(se)) => timegrapher_core::amplitude_slope::slope_pm_text(b, se, 3),
             _ => "no slope".into(),
@@ -332,15 +332,17 @@ fn rate_amplitude_line(x: &timegrapher_core::amplitude_slope::CrossCorrelation) 
 /// core gives a signed figure (#734).
 fn independence_line(a: &timegrapher_core::steadiness::Autocorrelation) -> String {
     format!(
-        "  {:<14} lag-1 r {}, largest of {} lags {} (band ±{:.2}); Ljung–Box p {}{}",
+        "  {:<14} lag-1 r {}, largest of {} lags {} (band ±{}); Ljung–Box p {}{}",
         "independence",
         a.r.get(1).map_or("NaN".into(), |&r| signed_text(r, 2)),
         a.ljung_box_lags,
         signed_text(a.max_short_lag_r, 2),
-        a.band,
+        fixed_text(a.band, 2),
         p_text(a.p_value),
-        a.memory_s
-            .map_or(String::new(), |m| format!("; memory {m:.0} s"))
+        a.memory_s.map_or(String::new(), |m| format!(
+            "; memory {} s",
+            fixed_text(m, 0)
+        ))
     )
 }
 
@@ -350,12 +352,12 @@ fn print_series(s: &SeriesCheck, cfg: &Config) {
     println!();
     println!("{}", s.headline);
     println!(
-        "  {:<14} {} readings of {:.0} s ({} left out as more than {:.0} σ from their 5-minute level); median {}, sd {}, reading to reading {} {}",
+        "  {:<14} {} readings of {} s ({} left out as more than {} σ from their 5-minute level); median {}, sd {}, reading to reading {} {}",
         name,
         s.readings,
-        s.step_s,
+        fixed_text(s.step_s, 0),
         s.outliers,
-        outlier_sigma,
+        fixed_text(outlier_sigma, 0),
         opt(s.median, 2),
         opt(s.sd, 2),
         opt(s.short_term_sd, 2),
@@ -367,11 +369,11 @@ fn print_series(s: &SeriesCheck, cfg: &Config) {
     print_steadiness(s, cfg);
     if let Some(t) = &s.trend {
         println!(
-            "  {:<14} {:+.3} {}/h ({:.0}% explained){}",
+            "  {:<14} {} {}/h ({}% explained){}",
             "trend",
-            t.per_hour,
+            signed_text(t.per_hour, 3),
             s.unit,
-            percent(t.explained, t.explained < cfg.min_explained),
+            fixed_text(percent(t.explained, t.explained < cfg.min_explained), 0),
             note(&t.note)
         );
     }
@@ -397,10 +399,10 @@ fn note(n: &Option<String>) -> String {
 fn print_steadiness(s: &SeriesCheck, cfg: &Config) {
     if let Some(a) = &s.allan {
         println!(
-            "  {:<14} slope {} (−0.5 independent); up to {:.1}× the independent line; steadiest averaging {} s ({} {})",
+            "  {:<14} slope {} (−0.5 independent); up to {}× the independent line; steadiest averaging {} s ({} {})",
             "Allan",
             opt(a.slope_short, 2),
-            a.max_excess,
+            fixed_text(a.max_excess, 1),
             opt(a.best_tau_s, 0),
             opt(a.best_deviation, 2),
             s.unit
@@ -408,12 +410,12 @@ fn print_steadiness(s: &SeriesCheck, cfg: &Config) {
     }
     if let Some(c) = &s.cusum {
         println!(
-            "  {:<14} max {:.2} (p {} with no change of level){}",
+            "  {:<14} max {} (p {} with no change of level){}",
             "CUSUM",
-            c.max,
+            fixed_text(c.max, 2),
             p_text(c.p_value),
             if c.shift {
-                format!("; level changes near {:.0} s", c.at_s)
+                format!("; level changes near {} s", fixed_text(c.at_s, 0))
             } else {
                 String::new()
             }
@@ -422,19 +424,19 @@ fn print_steadiness(s: &SeriesCheck, cfg: &Config) {
     if let Some(c) = s.changes.as_ref().filter(|c| c.segments.len() > 1) {
         let small = c.explained < cfg.min_explained;
         println!(
-            "  {:<14} {} stretches of one level, {:.0}% explained{}:",
+            "  {:<14} {} stretches of one level, {}% explained{}:",
             "levels",
             c.segments.len(),
-            percent(c.explained, small),
+            fixed_text(percent(c.explained, small), 0),
             note(&c.note)
         );
         for g in &c.segments {
             println!(
-                "  {:<14}   {:>9} to {:>9}  {:>8.2} {}",
+                "  {:<14}   {:>9} to {:>9}  {:>8} {}",
                 "",
                 crate::long::duration(g.start_s),
                 crate::long::duration(g.end_s),
-                g.mean,
+                fixed_text(g.mean, 2),
                 s.unit
             );
         }
@@ -445,20 +447,23 @@ fn print_steadiness(s: &SeriesCheck, cfg: &Config) {
 fn print_cycles(s: &SeriesCheck) {
     if let Some(c) = &s.cycle {
         println!(
-            "  {:<14} {:.1} s{}{}, {} {} p-p, explains {:.0}% (found by {})",
+            "  {:<14} {} s{}{}, {} {} p-p, explains {}% (found by {})",
             "cycle",
-            c.period_s,
+            fixed_text(c.period_s, 1),
             c.wheel
                 .as_ref()
                 .map_or(String::new(), |w| format!(" ({w})")),
             match (c.inner_period_s, c.inner_explained, c.turns) {
-                (Some(p), Some(e), Some(n)) =>
-                    format!(" = {n} × {p:.2} s (which alone explains {:.0}%)", e * 100.0),
+                (Some(p), Some(e), Some(n)) => format!(
+                    " = {n} × {} s (which alone explains {}%)",
+                    fixed_text(p, 2),
+                    fixed_text(e * 100.0, 0)
+                ),
                 _ => String::new(),
             },
             size_number(c.peak_to_peak),
             s.unit,
-            c.explained * 100.0,
+            fixed_text(c.explained * 100.0, 0),
             match c.source {
                 CycleSource::TwoState => "the two-state finder",
                 CycleSource::Autocorrelation => "the autocorrelation",
@@ -468,15 +473,15 @@ fn print_cycles(s: &SeriesCheck) {
     }
     if let Some(p) = &s.period {
         println!(
-            "  {:<14} {:.1} s{}, {} {} p-p, explains {:.0}%, false alarm {}",
+            "  {:<14} {} s{}, {} {} p-p, explains {}%, false alarm {}",
             "period search",
-            p.period_s,
+            fixed_text(p.period_s, 1),
             p.wheel
                 .as_ref()
                 .map_or(String::new(), |w| format!(" ({w})")),
             size_number(p.size),
             p.size_unit,
-            p.explained * 100.0,
+            fixed_text(p.explained * 100.0, 0),
             p_text(10f64.powf(-p.significance))
         );
     }
