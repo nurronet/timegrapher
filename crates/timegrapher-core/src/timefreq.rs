@@ -127,7 +127,8 @@ impl Scale {
 
 /// How many decimals a size is written with, by its magnitude: none from
 /// 10, one from 1, two from 0.1, else three ("37", "3.1", "0.12",
-/// "0.012"). One rule for every surface: the app's map and FFT scales, the
+/// "0.012"). Below 0.001, two significant figures keep a nonzero size visible.
+/// One rule for every surface: the app's map and FFT scales, the
 /// CLI's swings, and the MCP view's copy in JavaScript, which
 /// `tests/fixtures/size_numbers.json` holds to the same answers.
 pub fn size_decimals(v: f64) -> usize {
@@ -137,6 +138,8 @@ pub fn size_decimals(v: f64) -> usize {
         1
     } else if v >= 0.1 {
         2
+    } else if v.is_finite() && v != 0.0 && v.abs() < 0.001 {
+        (1.0 - v.abs().log10().floor()) as usize
     } else {
         3
     }
@@ -1059,6 +1062,36 @@ mod tests {
         for c in cases {
             let v = c["v"].as_f64().unwrap();
             assert_eq!(size_number(v), c["text"].as_str().unwrap(), "{v}");
+        }
+    }
+
+    #[test]
+    fn tiny_sizes_keep_two_significant_figures() {
+        for (value, text) in [
+            (0.00042, "0.00042"),
+            (0.00000423, "0.0000042"),
+            (0.0000000427, "0.000000043"),
+            (0.0001, "0.00010"),
+            (0.000987, "0.00099"),
+            (-0.00042, "-0.00042"),
+        ] {
+            assert_eq!(size_number(value), text, "{value}");
+        }
+        for value in [f64::MIN_POSITIVE, f64::from_bits(1)] {
+            assert!(size_number(value).parse::<f64>().unwrap() > 0.0);
+        }
+    }
+
+    #[test]
+    fn size_text_keeps_existing_boundaries() {
+        for (value, text) in [
+            (10.0, "10"),
+            (1.0, "1.0"),
+            (0.1, "0.10"),
+            (0.001, "0.001"),
+            (0.0, "0.000"),
+        ] {
+            assert_eq!(size_number(value), text, "{value}");
         }
     }
 

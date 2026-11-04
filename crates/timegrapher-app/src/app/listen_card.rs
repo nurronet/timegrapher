@@ -52,7 +52,7 @@ impl TimegrapherApp {
 
     /// The position the Position card shows: the one set while it can be
     /// set, else the take's at the moment the readings show.
-    fn shown_position(&self) -> Position {
+    pub(super) fn shown_position(&self) -> Position {
         if self.position_editable() || self.running() {
             return self.position;
         }
@@ -325,7 +325,6 @@ impl TimegrapherApp {
     /// a compact card, the length goes in Listen's hover and Average Over
     /// loses its label to its hover.
     pub(super) fn listen_buttons(&mut self, ui: &mut egui::Ui, compact: bool) {
-        let pal = theme::pal(ui);
         let area = ui.max_rect();
         let length = length_text(self.live.as_ref().map_or(0.0, |l| l.duration_s()));
         let state = self.state_words();
@@ -343,16 +342,50 @@ impl TimegrapherApp {
         buttons.spacing_mut().item_spacing.x = 8.0;
         let ui_b = &mut buttons;
         let length_hint = format!("\n\n{length} · {state}");
+        self.listen_go(ui_b, compact.then_some(length_hint.as_str()));
+        // A watch's take saves itself at Stop, and a test's at its end.
+        let testing = self.ready_test().is_some() || self.test_listening();
+        if (!self.session.mic() || self.quick_listen) && !testing {
+            self.save_menu(ui_b, LISTEN_BUTTON);
+        }
+        if !compact {
+            listen_length(ui_b, top, &length, state);
+        }
+        self.listen_average(ui, foot, compact);
+    }
+
+    /// Whether the take on show is listening, stopped or opened.
+    pub(super) fn state_words(&self) -> &'static str {
+        match self.session.state() {
+            session::State::Idle if self.ready_test().is_some() => "Ready, not started",
+            session::State::Idle => "Not Started",
+            session::State::Listening => "Listening",
+            session::State::Paused { .. } => "Stopped",
+            // Only tests play a recording through as if live.
+            session::State::Replaying => "Listening",
+            session::State::ReplayStopped => "Stopped",
+            session::State::Analysing => "Opening",
+            session::State::Analysed => "Opened",
+        }
+    }
+
+    /// Listen's one button: Start Test for a test ready to start, Stop
+    /// Test… during one, Stop while listening, else Listen, a take of the
+    /// watch picked or a Quick Listen. The Listen card and the readings
+    /// strip both draw it; `length_hint` adds the take's length to its
+    /// hover where it isn't shown beside it.
+    pub(super) fn listen_go(&mut self, ui_b: &mut egui::Ui, length_hint: Option<&str>) {
+        let pal = theme::pal(ui_b);
         let word = |ui: &mut egui::Ui, b: egui::Button<'_>| {
             ui.add(b.min_size(Vec2::new(0.0, LISTEN_BUTTON)))
         };
         let was_listen = self.listen_tap.take();
         if let Some(kind) = self.ready_test() {
-            self.listen_start_test(ui_b, kind, compact.then_some(length_hint.as_str()));
+            self.listen_start_test(ui_b, kind, length_hint);
         } else if self.test_listening() {
             let mut hint = "End the test now, keeping what it measured: asks first".to_string();
-            if compact {
-                hint += &length_hint;
+            if let Some(h) = length_hint {
+                hint += h;
             }
             if word(ui_b, theme::secondary(ui_b, "Stop Test…"))
                 .on_hover_text(hint)
@@ -362,8 +395,8 @@ impl TimegrapherApp {
             }
         } else if self.running() && self.session.mic() {
             let mut hint = STOP_HINT.to_string();
-            if compact {
-                hint += &length_hint;
+            if let Some(h) = length_hint {
+                hint += h;
             }
             if theme::icon_button(ui_b, Icon::Stop, LISTEN_BUTTON, 8, pal.accent, true, false)
                 .on_hover_text(hint)
@@ -382,8 +415,8 @@ impl TimegrapherApp {
                 ),
                 None => QUICK_LISTEN_HINT.to_string(),
             };
-            if compact {
-                hint += &length_hint;
+            if let Some(h) = length_hint {
+                hint += h;
             }
             let (now, pressed) = ui_b.input(|i| (i.time, i.pointer.any_pressed()));
             let tap = listen_tap(was_listen, now, pressed);
@@ -411,15 +444,6 @@ impl TimegrapherApp {
                 }
             }
         }
-        // A watch's take saves itself at Stop, and a test's at its end.
-        let testing = self.ready_test().is_some() || self.test_listening();
-        if (!self.session.mic() || self.quick_listen) && !testing {
-            self.save_menu(ui_b, LISTEN_BUTTON);
-        }
-        if !compact {
-            listen_length(ui_b, top, &length, state);
-        }
-        self.listen_average(ui, foot, compact);
     }
 
     /// The Listen card's Start Test, for the test of `kind` ready to
@@ -872,7 +896,7 @@ impl TimegrapherApp {
     /// The beat rate in the Calibre card's row, in words that say whether
     /// it was found or set (`bph_set`, by the calibre); `heard` is the rate
     /// heard.
-    fn bph_shown(&self, bph_set: bool, heard: Option<u32>) -> String {
+    pub(super) fn bph_shown(&self, bph_set: bool, heard: Option<u32>) -> String {
         if bph_set {
             self.bph
                 .or_else(|| self.cal.bph(&self.calibre))

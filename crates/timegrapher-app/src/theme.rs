@@ -2100,6 +2100,8 @@ pub enum Icon {
     Drum,
     Traces,
     Stopwatch,
+    /// A push pin: keep the readings' cards open.
+    Pin,
     Gears,
     Roll,
     ProbLine,

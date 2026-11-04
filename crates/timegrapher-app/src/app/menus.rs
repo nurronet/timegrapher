@@ -20,6 +20,7 @@ pub(super) enum MenuCommand {
     Settings,
     View(View),
     Readings,
+    CompactReadings,
     Pane(Pane),
     ResetPanes,
     NewWatch,
@@ -116,9 +117,10 @@ impl TimegrapherApp {
             MenuCommand::NewSession => self.live.is_some(),
             MenuCommand::RemoveMasks => !self.masked.is_empty(),
             // The panes are the Bench's: dimmed in Watches.
-            MenuCommand::Readings | MenuCommand::Pane(_) | MenuCommand::ResetPanes => {
-                self.view == View::Bench
-            }
+            MenuCommand::Readings
+            | MenuCommand::CompactReadings
+            | MenuCommand::Pane(_)
+            | MenuCommand::ResetPanes => self.view == View::Bench,
             MenuCommand::CheckForUpdates => !self.updates.checking(),
             _ => true,
         }
@@ -129,6 +131,7 @@ impl TimegrapherApp {
         match c {
             MenuCommand::View(v) => self.view == v,
             MenuCommand::Readings => self.show_readings,
+            MenuCommand::CompactReadings => !self.readings_pinned,
             MenuCommand::Pane(p) => pane_visible(&self.panes.tiles, p),
             _ => false,
         }
@@ -173,6 +176,7 @@ impl TimegrapherApp {
             MenuCommand::Settings => self.open_settings(self.settings_last),
             MenuCommand::View(v) => self.view = v,
             MenuCommand::Readings => self.show_readings = !self.show_readings,
+            MenuCommand::CompactReadings => self.readings_pinned = !self.readings_pinned,
             MenuCommand::Pane(p) => {
                 let on = pane_visible(&self.panes.tiles, p);
                 self.show_pane(p, !on);
@@ -357,6 +361,14 @@ impl TimegrapherApp {
             MenuCommand::Readings,
             "Readings",
             "The rate, amplitude and beat error cards",
+        );
+        item(
+            self,
+            ui,
+            MenuCommand::CompactReadings,
+            "Compact Readings",
+            "The readings as a strip across the top, their cards opening over the panes on a \
+             click; off, the cards are pinned open in the layout",
         );
         // In the icon bar's order: its panes, Analysis, then Tests.
         for pane in Pane::CORE {
