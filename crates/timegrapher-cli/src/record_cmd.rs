@@ -121,15 +121,15 @@ struct Report {
 
 /// The session settings: what the folder's session file says, filled in
 /// from the options and the calibre table.
-struct Settings {
-    watch: Option<String>,
-    calibre: Option<String>,
-    bph: Option<u32>,
-    lift: f64,
-    lift_known: bool,
+pub(crate) struct Settings {
+    pub(crate) watch: Option<String>,
+    pub(crate) calibre: Option<String>,
+    pub(crate) bph: Option<u32>,
+    pub(crate) lift: f64,
+    pub(crate) lift_known: bool,
     /// Seconds `session` skips at the start of each take: the session
     /// file's, none when it gives none ([`take::measured`]'s default).
-    settle_s: Option<f64>,
+    pub(crate) settle_s: Option<f64>,
 }
 
 impl Options {
@@ -263,7 +263,7 @@ fn run_in(o: &Options, library_watch: Option<String>) -> Result<(), String> {
     let dir = rec
         .finish(None)
         .map_err(|e| format!("{}: {e}", take.display()))?;
-    write_take_manifest(&dir, pos, &set)?;
+    write_take_manifest(&dir, pos, &set, Some("clock.csv"))?;
     let reserve = if o.power_reserve {
         let ending = ending.unwrap_or(power_reserve::Ending::ByHand);
         let r = reserve_results(&dir, &started, pos, set.bph, ending)?;
@@ -915,12 +915,20 @@ fn header(set: &Settings) -> String {
 }
 
 /// The app's session file inside the take, so the app opens the take with
-/// its watch, position and settings, as a take the app saved.
-fn write_take_manifest(dir: &Path, pos: Position, set: &Settings) -> Result<(), String> {
+/// its watch, position and settings, as a take the app saved, and
+/// `series`, `long` and `session` read it at its own beat rate and lift.
+/// `clock` is the take's clock log, if it has one.
+pub(crate) fn write_take_manifest(
+    dir: &Path,
+    pos: Position,
+    set: &Settings,
+    clock: Option<&str>,
+) -> Result<(), String> {
     let text = format!(
-        "{}\n[[recording]]\nfile = \".\"\nposition = {}\nclock = \"clock.csv\"\n",
+        "{}\n[[recording]]\nfile = \".\"\nposition = {}\n{}",
         header(set),
-        q(pos.common())
+        q(pos.common()),
+        clock.map_or(String::new(), |c| format!("clock = {}\n", q(c)))
     );
     let p = dir.join(MANIFEST);
     fs::write(&p, text).map_err(|e| format!("{}: {e}", p.display()))
