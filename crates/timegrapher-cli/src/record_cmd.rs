@@ -570,11 +570,10 @@ fn reserve_results(
     Ok(r)
 }
 
-/// Seconds of beats on the live strip, and the strip's half width, ms: the
-/// app's defaults.
-const STRIP_S: f64 = 30.0;
+/// Seconds of beats on the live strip: the app's default.
+const STRIP_S: f64 = timegrapher_core::live::DEFAULT_STRIP_S;
 /// Averaging time of the live readings, seconds: the app's default.
-const AVERAGE_S: f64 = 10.0;
+const AVERAGE_S: f64 = timegrapher_core::live::DEFAULT_AVERAGE_S;
 /// Most points kept in the live trend; older ones are thinned.
 const MAX_TREND: usize = 300;
 

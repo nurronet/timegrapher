@@ -1124,6 +1124,9 @@ fn heard_over(snr: Option<f32>, min: f32) -> bool {
 pub const AVERAGES: [f64; 6] = [2.0, 4.0, 10.0, 20.0, 30.0, 60.0];
 /// The averaging time the app starts at, seconds.
 pub const DEFAULT_AVERAGE_S: f64 = 10.0;
+/// The seconds of beats the live strip shows at first: the app's strip,
+/// and the strip `record --live` keeps.
+pub const DEFAULT_STRIP_S: f64 = 30.0;
 
 /// Most readings a trend over a whole take is read at: the app's charts
 /// over time, and the MCP view's.
