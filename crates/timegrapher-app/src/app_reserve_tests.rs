@@ -341,7 +341,7 @@ fn a_long_take_shows_its_run_in_the_power_reserve_pane() {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1000.0, 700.0));
-    let mut pass = |app: &mut TimegrapherApp| {
+    let pass = |app: &mut TimegrapherApp| {
         for _ in 0..3 {
             let input = egui::RawInput {
                 screen_rect: Some(screen),
