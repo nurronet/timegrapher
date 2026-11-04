@@ -3,6 +3,9 @@
 use crate::filter::{highpass4, Biquad};
 use realfft::RealFftPlanner;
 
+/// The high-pass corner the envelope uses unless told otherwise, Hz.
+pub const DEFAULT_HIGHPASS_HZ: f64 = 1500.0;
+
 /// How the raw signal is turned into a tick envelope.
 #[derive(Debug, Clone)]
 pub struct EnvelopeConfig {
@@ -21,7 +24,7 @@ pub struct EnvelopeConfig {
 impl Default for EnvelopeConfig {
     fn default() -> Self {
         EnvelopeConfig {
-            highpass_hz: 1500.0,
+            highpass_hz: DEFAULT_HIGHPASS_HZ,
             notch_hz: Vec::new(),
             smooth_s: 0.0002,
             burst_gate: Some(2.0),

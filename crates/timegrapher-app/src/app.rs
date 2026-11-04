@@ -2804,9 +2804,8 @@ impl TimegrapherApp {
     }
 
     /// The reading at `t` in the session, as the newest is read: none
-    /// while the watch settles. The tests read the session at a moment
-    /// with it.
-    #[cfg(test)]
+    /// while the watch settles. The reading cards show it at the strip's
+    /// newest edge when the strip is moved off the newest beats.
     fn reading_at_time(&self, t: f64) -> Option<LiveReading> {
         let live = self.live.as_ref()?;
         if self.session.settling_left(t).is_some() {

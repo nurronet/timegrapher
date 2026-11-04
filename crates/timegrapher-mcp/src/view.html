@@ -76,6 +76,8 @@ th { color: var(--text2); font-weight: 500; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--card); }
 .series-name { font-size: 12.5px; font-weight: 600; margin: 12px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .series-name .summary { font-weight: 400; color: var(--text2); }
+/* A series' caveat qualifies its finding, so it is no louder than it. */
+.series-caveat { font-size: 12.5px; color: var(--text2); margin: 0 0 2px; }
 .info { border-left: 2px solid var(--separator); padding: 0 0 2px 10px; margin: 6px 0 4px; }
 .info .series-name { white-space: normal; margin-top: 8px; }
 .headline { color: var(--text); font-size: 12.5px; margin: 0 0 2px; }
@@ -809,7 +811,7 @@ let steadyView = null;
 // scale, and the FFT's rate as the beat timing in ms.
 // steady::TIME_BANDS: the Cycle view's dots, coloured by when they came.
 const TIME_BANDS = 12;
-let periodsLog = false, fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
+let fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
 
 // steady::secs: "45 s", "12 min", "2.5 h".
 function secs(t) {
@@ -846,6 +848,13 @@ function logTicks(lo, hi, fmt) {
 // (period_ticks::MARK_ROOM_PX), put in by the server.
 const PERIOD_TICKS = /*PERIOD_TICKS*/null;
 const MARK_ROOM_PX = /*MARK_ROOM_PX*/null;
+// What each reference line says on hover, by its label: core
+// steady_views::reference_hover, put in by the server.
+const REFERENCE_HOVER = /*REFERENCE_HOVER*/null;
+// The Periods plot's words, core steady_views's SCORE_AXIS_NAME and
+// SCORE_AXIS_HOVER, THRESHOLD_NAME and threshold_hover, put in by the
+// server.
+const SCORE_WORDS = /*SCORE_WORDS*/null;
 // A period axis in log10 seconds, as the app's steady::period_grid marks it:
 // core's period_ticks, the finest level with no more marks than one per
 // MARK_ROOM_PX, and at least the level 0 ones. [[log10 s, label]].
@@ -861,10 +870,23 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
   return g.ticks.map((v) => [v, fmt(v, g.step)]);
 }
 
+// core steady_views::score_ticks: whole scores from 1 up, on a round step
+// of at least 1, at least `minPx` apart, written as axisLabel writes them;
+// held to core by score_ticks.test.cjs.
+function scoreTicks(lo, hi, px, minPx) {
+  if (!(hi > lo)) return [];
+  const step = roundStep(Math.max(1, (hi - lo) / Math.max(1, px / minPx)));
+  const out = [];
+  for (let k = Math.ceil(Math.max(lo, 1) / step - 1e-9); k * step <= hi + 1e-9; k++) out.push([k * step, axisLabel(k * step, step)]);
+  return out;
+}
+
 // A plot as the steadiness views draw theirs: an x and a y scale with their
 // own tick labels, and lines, dots, rules and notes, all inside the plot.
-//   x, y: [lo, hi]; xTicks(lo, hi, plotW), yTicks(lo, hi, plotH): [[v, label]]
-//   hlines: [{y, color, dash}]; vlines: [{x, color, opacity, width, dash, name, rank, ink, hover}]
+//   x, y: [lo, hi]; xTicks(lo, hi, plotW), yTicks(lo, hi, plotH): [[v, label]];
+//   yName: the y axis' name, above its top tick; yHover: the y axis' hover
+//   hlines: [{y, color, dash, name, hover}], a named one named right of the plot;
+//   vlines: [{x, color, opacity, width, dash, name, rank, ink, hover}]
 //   named, by marks.rs's rules: in a lane of two rows above the plot, which
 //   `names` keeps room for, or inside along its top on a short plot
 //   lines: [{pts, color, width, dash}]; dots: [{pts, color, r}]
@@ -879,7 +901,11 @@ function xyChart(o) {
   // never jumps as they come and go; a short one names them inside.
   const short = o.names && (o.height || 150) - 4 - B < MARKS.SHORT_PLOT;
   const room = o.names && !short ? MARKS.LANE + MARKS.LANE_GAP : 0;
-  const H = (o.height || 150) + room, T = 4 + room;
+  // A y axis' name sits above its top tick, left of the plot: in the lane's
+  // room when there is one (the lane's names stay over the plot), else in a
+  // row of its own.
+  const nameRow = o.yName && !room ? 14 : 0;
+  const H = (o.height || 150) + room + nameRow, T = 4 + room + nameRow;
   const plotH = H - T - B;
   const [x0, x1] = o.x, y0 = o.y[0];
   // steady: the plot keeps a note's room above the trace's highest point,
@@ -889,16 +915,23 @@ function xyChart(o) {
   const y1 = noted && o.noteRoom ? roomAbove(y0, highest, o.y[1], plotH) : o.y[1];
   const yt = o.yTicks(y0, y1, plotH);
   const L = Math.max(54, Math.ceil(10 + CHAR_W * Math.max(3, ...yt.map(([, t]) => t.length))));
-  const plotW = W - L - R;
+  // A named line across the plot is named in a lane right of it.
+  const across = (o.hlines || []).filter((h) => h.name).map((h) => ({ ...h, ink: h.color, rank: "faint" }));
+  const side = across.length ? sideWidth(across) : 0;
+  const plotW = W - L - (side || R);
   const xt = o.xTicks(x0, x1, plotW);
   const sx = (x) => L + (x - x0) / (x1 - x0) * plotW;
   const sy = (y) => T + (y1 - y) / (y1 - y0) * plotH;
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
+  let ylabels = "";
   for (const [v, t] of yt) {
     inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
-    if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
+    if (t) ylabels += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
+  // The axis' name, lined up with its tick labels above the top one.
+  if (o.yName) ylabels += `<text x="${L - 5}" y="${T - 4}" text-anchor="end">${esc(o.yName)}</text>`;
+  g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
   for (const [v, t] of xt) {
     inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
@@ -908,6 +941,10 @@ function xyChart(o) {
   const dash = (d) => d ? ` stroke-dasharray="${DASH[d]}"${DASH[d].startsWith("0 ") ? ` stroke-linecap="round"` : ""}` : "";
   for (const h of o.hlines || []) {
     inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="1"${dash(h.dash)}/>`;
+  }
+  for (const h of across) {
+    const lane = laneRight([{ ...h, y: sy(h.y) }], L + plotW, T, T + plotH);
+    g += h.hover ? `<g><title>${esc(h.hover)}</title>${lane}</g>` : lane;
   }
   for (const v of o.vlines || []) {
     inside += `<line x1="${sx(v.x)}" x2="${sx(v.x)}" y1="${T}" y2="${T + plotH}" stroke="var(${v.color})"${v.opacity ? ` stroke-opacity="${v.opacity}"` : ""} stroke-width="${v.width || 1}"${dash(v.dash)}/>`;
@@ -1255,7 +1292,7 @@ function wheelLines(doc, span) {
   const wheels = (doc.input && doc.input.settings && doc.input.settings.named_wheels) || [];
   const inside = (l) => l.x > span[0] && l.x < span[1];
   if (!wheels.length) {
-    return referenceLines(doc).map((r) => ({ x: Math.log10(r.period_s), turn: "reference", name: r.label, short: r.label, hover: r.label })).filter(inside);
+    return referenceLines(doc).map((r) => ({ x: Math.log10(r.period_s), turn: "reference", name: r.label, short: r.label, hover: (REFERENCE_HOVER || {})[r.label] || r.label })).filter(inside);
   }
   const out = [];
   for (const w of wheels) {
@@ -1338,13 +1375,11 @@ function steadyPlot(s, view, doc) {
       const raw = p.period_s.map((t, i) => [t > 0 ? Math.log10(t) : NaN, p.score[i]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
       const span = doc.period_span || [Math.min(...raw.map((q) => q[0])), Math.max(...raw.map((q) => q[0]))];
       if (!(span[1] > span[0])) return steadyNote("The period search needs a longer session.");
-      // On a log scale the scores are drawn as log10, down to a thousandth
-      // of the tallest (a score of 0 sits on that floor).
+      // A score is −log10 of a chance under the search's noise model, so
+      // it is drawn as it is, in whole scores (core steady_views::score_ticks).
       const tallest = Math.max(p.threshold, ...raw.map((q) => q[1]));
-      const floor = tallest * 1e-3;
-      const yOf = (v) => (periodsLog ? Math.log10(Math.max(v, floor)) : v);
-      const pts = raw.map(([x, y]) => [x, yOf(y)]);
-      const y = periodsLog ? [Math.log10(floor), Math.log10(tallest) + 0.45] : [0, tallest * 1.15];
+      const pts = raw;
+      const y = [0, tallest * 1.15];
       const marks = [], notes = [];
       if (s.period && s.period.period_s > 0) {
         const x = Math.log10(s.period.period_s);
@@ -1360,8 +1395,9 @@ function steadyPlot(s, view, doc) {
       return xyChart({
         title: "Periods", x: span, y,
         xTicks: periodTicks,
-        yTicks: periodsLog ? (a, b) => logTicks(a, b, sig) : (a, b, h) => linTicks(a, b, h, 24, (y) => y.toFixed(0)),
-        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--callout", width: CALL_OUT_W, dash: "loose" }],
+        yTicks: (a, b, h) => scoreTicks(a, b, h, 24), yName: SCORE_WORDS && SCORE_WORDS.axis_name, yHover: SCORE_WORDS && SCORE_WORDS.axis_hover,
+        vlines: wheelMarks(doc, span), names: showWheels,
+        hlines: [{ y: p.threshold, color: "--callout", width: CALL_OUT_W, dash: "loose", name: SCORE_WORDS && SCORE_WORDS.threshold_name, hover: SCORE_WORDS && SCORE_WORDS.threshold_hover }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes, noteRoom: true,
       });
     }
@@ -1560,29 +1596,27 @@ function steadinessCard(doc) {
     : "";
   // A series' own caveats, in the server's (core's) words, under its title.
   const caveats = (s) => s.limits && s.limits.length
-    ? `<ul class="findings limits">${s.limits.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+    ? s.limits.map((t) => `<p class="series-caveat">${esc(t)}</p>`).join("") : "";
   const plots = drawn ? series.map((s) => `${titleLine(s)}${caveats(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
   return `<div class="card"><h2>Steadiness</h2><p class="hint">How the rate, amplitude and beat error each move over the session: what was detected in each (a cycle, two levels, level changes, a trend, or none), with the statistics behind it</p>
     ${drawn ? `<div class="seg" role="group" aria-label="View">${offered.map(([key, label]) => `<button data-steady="${key}" aria-pressed="${key === steadyView}">${esc(label)}</button>`).join("")}</div>
     <div class="seg" role="group" aria-label="Switches">${steadySwitch()}<button data-switch="info" aria-pressed="${showInfo}" title="${esc(INFO_HINT)}">Info</button></div>` : ""}${info}${plots}</div>`;
 }
 
-// The current view's switches, as in the app's toolbar: Log Scale for
-// Periods, Timing for the FFT, Log Scale for the maps, and Wheel Periods on
-// all four.
+// The current view's switches, as in the app's toolbar: Timing for the
+// FFT, Log Scale for the maps, and Wheel Periods on those and on Periods.
 function steadySwitch() {
   // Each with the app's hover hint.
-  const sw = steadyView === "periods"
-    ? ["log", "Log Scale", periodsLog, "Draw the scores on a log scale, so a small peak beside a tall one still shows"]
-    : steadyView === "spectrum"
-      ? ["timing", "Timing", fftTiming, "Draw rate as the beat timing's spectrum, in ms, at every period, rather than the swing it makes in 10 s rate readings, in s/d"]
-      : steadyView === "stft" || steadyView === "wavelet"
-        ? ["mapslog", "Log Scale", mapsLog, "Colour the sizes on a log scale, over a range of 300 to 1, so weak lines beside strong ones still show"]
-        : null;
-  if (!sw) return "";
+  // Periods has no scale switch: its score is already the log of a chance.
+  const sw = steadyView === "spectrum"
+    ? ["timing", "Timing", fftTiming, "Draw rate as the beat timing's spectrum, in ms, at every period, rather than the swing it makes in 10 s rate readings, in s/d"]
+    : steadyView === "stft" || steadyView === "wavelet"
+      ? ["mapslog", "Log Scale", mapsLog, "Colour the sizes on a log scale, over a range of 300 to 1, so weak lines beside strong ones still show"]
+      : null;
+  if (!sw && steadyView !== "periods") return "";
   const wheels = ["wheels", "Wheel Periods", showWheels, WHEELS_HINT];
   // Each a switch of its own, side by side.
-  return [sw, wheels].map((b) => `<button data-switch="${b[0]}" aria-pressed="${b[2]}" title="${esc(b[3])}">${b[1]}</button>`).join("");
+  return [sw, wheels].filter(Boolean).map((b) => `<button data-switch="${b[0]}" aria-pressed="${b[2]}" title="${esc(b[3])}">${b[1]}</button>`).join("");
 }
 
 // The app's Info button hint.
@@ -1597,8 +1631,7 @@ function wireSteadiness(root) {
   }
   for (const b of root.querySelectorAll("button[data-switch]")) {
     b.addEventListener("click", () => {
-      if (b.dataset.switch === "log") periodsLog = !periodsLog;
-      else if (b.dataset.switch === "mapslog") mapsLog = !mapsLog;
+      if (b.dataset.switch === "mapslog") mapsLog = !mapsLog;
       else if (b.dataset.switch === "wheels") showWheels = !showWheels;
       else if (b.dataset.switch === "info") showInfo = !showInfo;
       else fftTiming = !fftTiming;

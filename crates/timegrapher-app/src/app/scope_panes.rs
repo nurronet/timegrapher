@@ -21,6 +21,10 @@ pub(super) struct ShownSound {
     pub(super) profiles: Profiles,
     pub(super) line: Option<String>,
     pub(super) hover: Option<String>,
+    /// The moment shown is masked out, by core's rule for the sound kept
+    /// there ([`timegrapher_core::profile::sound_at`]): the Scope draws no
+    /// beats there either.
+    pub(super) masked: bool,
 }
 
 /// One line in place of a sound pane's plot, as a pane too short for its
@@ -118,25 +122,30 @@ impl TimegrapherApp {
         }
         let i = self.trend.partition_point(|p| p.t <= end + 1e-9);
         let drop_be = i.checked_sub(1).and_then(|i| self.trend[i].beat_error_ms);
+        // Moved back, the moment first: the strip says it, and the hover
+        // says where it was set.
+        let note = match (self.moment_hover(), shown.hover) {
+            (Some(m), Some(h)) => Some(format!("{m}\n{h}")),
+            (m, h) => m.or(h),
+        };
         profiles::draw(
             ui,
             &shown.profiles,
             self.sound_opts,
             drop_be,
-            shown.hover.as_deref(),
+            note.as_deref(),
         );
     }
 
-    /// The Tick Tock Profile's or the Scope's toolbar, with the moment
-    /// they show at its right end.
+    /// The Tick Tock Profile's or the Scope's toolbar. The moment they
+    /// show is said once, on the strip that sets it (#1068).
     pub(super) fn sound_tools(&mut self, ui: &mut egui::Ui, pane: Pane) {
-        let at = self.sound_moment();
         let help = if pane == Pane::Sound {
             help::PROFILE
         } else {
             help::SCOPE
         };
-        theme::pane_toolbar_at(ui, pane.title(), help, at.as_deref(), |ui| {
+        theme::pane_toolbar(ui, pane.title(), help, |ui| {
             if pane == Pane::Sound {
                 self.profile_settings(ui);
             } else {
@@ -147,11 +156,17 @@ impl TimegrapherApp {
     }
 
     /// When the strip has been moved off the newest beats, the time at its
-    /// newest edge, which the sound panes show, for their toolbars.
+    /// newest edge, which the sound panes show.
     pub(super) fn sound_moment(&self) -> Option<String> {
         self.strip_end
             .is_some()
             .then(|| format!("at {}", length_text(self.strip_end_s())))
+    }
+
+    /// For a pane's hover when the strip is moved back: the moment, and
+    /// that the strip set it.
+    pub(super) fn moment_hover(&self) -> Option<String> {
+        Some(format!("{}, set by the Paper Strip.", self.sound_moment()?))
     }
 
     /// The Tick Tock profiles for the window ending at `end`, the strip's
@@ -165,11 +180,13 @@ impl TimegrapherApp {
             profiles,
             line: None,
             hover,
+            masked: false,
         };
         let line = |l: String| ShownSound {
             profiles: [None, None],
             line: Some(l),
             hover: None,
+            masked: false,
         };
         if self.running() && self.strip_end.is_none() {
             let p = self
@@ -203,7 +220,10 @@ impl TimegrapherApp {
                 let p = sound.sides.clone();
                 shown(p, (!hover.is_empty()).then(|| hover.join("\n")))
             }
-            SoundAt::Masked => line(format!("Masked at {at}")),
+            SoundAt::Masked => ShownSound {
+                masked: true,
+                ..line(format!("Masked at {at}"))
+            },
             SoundAt::NoBeats => line(format!("No beats at {at}")),
             SoundAt::NotKept => {
                 self.poll_sound_job();
@@ -233,21 +253,21 @@ impl TimegrapherApp {
         let pal = theme::pal(ui);
         let view = self.scope_view;
         let end = self.strip_end_s();
-        let profiles = self.profiles_at(end).profiles;
-        let Some(live) = &self.live else {
-            ui.label(
-                RichText::new("Listen to a watch or open a recording to see its sound here.")
-                    .color(pal.text_tertiary),
-            );
+        let shown = self.profiles_at(end);
+        // Masked out where the profile says so, by the same rule.
+        if let (true, Some(line)) = (shown.masked, &shown.line) {
+            return no_sound_line(ui, line);
+        }
+        let profiles = shown.profiles;
+        let Some(live) = self.live.as_ref().filter(|_| !self.no_sound) else {
+            let words = if self.live.is_none() {
+                "Listen to a watch or open a recording to see its sound here."
+            } else {
+                "This take's sound was removed, so there is no waveform to show."
+            };
+            ui.label(RichText::new(words).color(pal.text_tertiary));
             return;
         };
-        if self.no_sound {
-            ui.label(
-                RichText::new("This take's sound was removed, so there is no waveform to show.")
-                    .color(pal.text_tertiary),
-            );
-            return;
-        }
         // One Beat follows the watch's beat rate, 28,800 bph until known.
         let beat_s = 3600.0 / f64::from(live.bph().unwrap_or(28_800).max(1));
         let split = view.zoom.split();
@@ -306,6 +326,7 @@ impl TimegrapherApp {
                 ),
             }
         };
+        let moment = self.moment_hover();
         let rows: Vec<scope::Row> = specs
             .iter()
             .zip(&picks)
@@ -319,8 +340,9 @@ impl TimegrapherApp {
                         })
                     })
                     .collect();
+                let side = profiles[usize::from(!even)].as_ref();
                 let marks = if view.zoom.marks() {
-                    scope_marks(profiles[usize::from(!even)].as_ref(), pal)
+                    scope_marks(side, pal, moment.as_deref())
                 } else {
                     Vec::new()
                 };
@@ -536,8 +558,12 @@ fn scope_known(
 }
 
 /// The Unlock and Drop marks from the Tick Tock Profile nearest the moment
-/// shown.
-fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope::Mark> {
+/// shown; their hovers start with `moment` when the strip is moved back.
+fn scope_marks(
+    profile: Option<&TickProfile>,
+    pal: &theme::Palette,
+    moment: Option<&str>,
+) -> Vec<scope::Mark> {
     let mut marks = Vec::new();
     let Some(p) = profile else {
         return marks;
@@ -547,6 +573,7 @@ fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope
             ms,
             color: pal.unlock,
             name: "Unlock",
+            moment: moment.map(str::to_string),
         });
     }
     if let Some(ms) = p.drop_ms {
@@ -554,6 +581,7 @@ fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope
             ms,
             color: pal.drop,
             name: "Drop",
+            moment: moment.map(str::to_string),
         });
     }
     marks

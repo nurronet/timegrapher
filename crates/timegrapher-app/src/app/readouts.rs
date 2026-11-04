@@ -21,6 +21,9 @@ struct CardCtx<'a> {
     /// The cards' figures each second over the last minute, for their
     /// sparklines.
     spark: Vec<TrendPoint>,
+    /// "at hh:mm:ss, set by the Paper Strip", for the figures' hovers,
+    /// when the strip is moved back: the strip's own label says it.
+    moment: Option<String>,
 }
 
 /// The cards' widths at `total`: Current Position, Listen, Calibre and
@@ -232,12 +235,22 @@ fn card_title(
     });
 }
 
+/// A figure's hover, with the moment it is read at first when the strip
+/// is moved back.
+fn with_moment(moment: Option<&str>, hover: &str) -> String {
+    match moment {
+        Some(m) if hover.is_empty() => m.to_string(),
+        Some(m) => format!("{m}\n\n{hover}"),
+        None => hover.to_string(),
+    }
+}
+
 /// The whole take's reading, for a figure's hover.
 fn whole_text(whole_breaks: &str, figure: String, spread: Option<String>, span: f64) -> String {
     let spread = spread.map_or_else(String::new, |s| format!(", {s}"));
     format!(
-        "\n\nWhole take {figure}{spread} over {}. The big figure is the last stretch \
-         of Average Over; this is the take in this position, settling left out, read \
+        "\n\nWhole take {figure}{spread} over {}. The big figure is the stretch of \
+         Average Over ending at the strip's newest edge; this is the take in this position, settling left out, read \
          as the command line reads it.{whole_breaks}",
         length_text(span)
     )
@@ -251,7 +264,7 @@ impl TimegrapherApp {
     /// Returns what the cards asked for, and where their controls go.
     pub(super) fn readouts(&self, ui: &mut egui::Ui) -> Readouts {
         let pal = theme::pal(ui);
-        let r = self.reading();
+        let r = self.card_reading();
         let gap = theme::GAP;
         let total = ui.available_width();
         let widths = six_widths(total, gap);
@@ -324,6 +337,7 @@ impl TimegrapherApp {
             unheard,
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
+            moment: self.moment_hover(),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -426,9 +440,19 @@ impl TimegrapherApp {
             r.and_then(rate_figure).as_deref(),
             &unit,
             status.as_ref(),
-            behind.trim_start(),
+            &with_moment(c.moment.as_deref(), behind.trim_start()),
             compact,
         );
+    }
+
+    /// The reading the cards show: the newest, or where the strip is
+    /// moved off the newest beats, the one ending at its newest edge, as
+    /// the sound panes show that moment.
+    pub(super) fn card_reading(&self) -> Option<LiveReading> {
+        match self.strip_end {
+            Some(_) => self.reading_at_time(self.strip_end_s()),
+            None => self.reading(),
+        }
     }
 
     /// The figures the reading cards showed each whole second over the
@@ -563,7 +587,7 @@ impl TimegrapherApp {
             r.and_then(amplitude_figure).as_deref(),
             &unit,
             unheard.as_ref(),
-            behind.trim_start(),
+            &with_moment(c.moment.as_deref(), behind.trim_start()),
             compact,
         );
     }
@@ -623,7 +647,7 @@ impl TimegrapherApp {
             r.and_then(beat_error_figure).as_deref(),
             &unit,
             unheard.as_ref(),
-            &from,
+            &with_moment(c.moment.as_deref(), &from),
             compact,
         );
     }

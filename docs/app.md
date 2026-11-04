@@ -418,7 +418,12 @@ for: the readings use what there is and say so in the rate's hover
 been moved or have drifted meanwhile. Average Over is one setting for the
 whole app: the panes that average (the Paper Strip's Rate Line, guides
 and overlays, the Tick Tock Profile, Charts and Distributions) all
-average over it, and have no time of their own. The big amplitude is the average of the two
+average over it, and have no time of their own. The cards follow the
+Paper Strip: with the strip moved back off the newest beats, Rate,
+Amplitude and Beat Error and their sparklines are read over Average Over
+ending at the strip's newest edge. The strip's own label says when
+("at 0:40"), and each figure's hover says it was set by the Paper Strip;
+the status bar stays live. The big amplitude is the average of the two
 swings, in whole degrees, with a ± figure: the standard error of the
 median of its 2 s windows, estimated from successive window differences
 and widened for the windows' lag-one correlation.
@@ -706,10 +711,19 @@ the run time in true time (through the input's clock as measured
 while listening, else its stored correction), then, scrolling in the rest
 of the pane, the rate and amplitude against hours since the first beat, and a table
 of each hour (the last as long as is left): its rate, median amplitude
-and beat error from the unlock, each measured as `timegrapher session`
+and beat error from the unlock (from the drop in an hour where the unlock
+isn't found), each measured as `timegrapher session`
 measures a stretch (core `session::measure_masked`), and how much of it
-its whole 10 s readings cover (core `clean`). **Save as CSV…** and
-**Copy** give the watch, the run and the table. The take
+its whole 10 s readings cover (core `clean`). The table starts at the
+charts' plot edge, their value labels alone in the margin to its left, is
+no wider than the plots (scrolling sideways when it would be), and gives
+the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
+Read (%), the figures right-aligned and written by core `figure_text`.
+Scrolled down, the titles stay at the pane's top. A beat error from the
+drop, or with no source recorded, is drawn dimmed, and every beat error's
+hover names its source (core `session::beat_error_source_label`).
+**Save as CSV…** and **Copy** give the watch, the run and the table, with
+a "Beat error from" column (unlock, drop or not recorded). The take
 is kept in the picked watch's history, named by its local start time and
 "Power Reserve", with
 `power-reserve.json` beside the standard files; with Analysis Only it is
@@ -904,8 +918,10 @@ background, one row, under the trace (Unlock starts right of its line
 where the facts box has the corner, and a name that would crowd the one
 before, usually Peak beside Drop, is left to its line's hover); the
 sounds keep their dots, and hovering one names it. Stacked, the one
-time axis is under Tock. The moment shown ("At
-10:00") is at the right end of the toolbar. The noise floor is a flat
+time axis is under Tock. With the strip moved back, the moment shown
+is said on the strip; the facts box's hover starts with it ("at 10:00,
+set by the Paper Strip."), as the Scope's Unlock and Drop marks' hovers
+do. The noise floor is a flat
 dashed line. The Tick tock
 profile card switches the edges and the sounds on and off, switches
 **dB Scale** (lit: decibels below the loudest point; off: linear)

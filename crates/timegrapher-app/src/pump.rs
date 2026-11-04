@@ -175,6 +175,8 @@ impl eframe::App for Shell {
     }
 
     fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        #[cfg(target_os = "macos")]
+        crate::app::mac_menu::before_close();
         self.finish();
         self.app().on_exit(gl);
     }

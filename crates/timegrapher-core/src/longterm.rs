@@ -318,19 +318,26 @@ fn spectrum(g: &Grid, detrend_w: Option<f64>) -> Spectrum {
         Some(_) => (0.5, LEVEL_MIN, 1),
         None => (0.25, SHORT_MIN, 3 * pad),
     };
-    let level_at = |a: usize, b: usize| level(&flat, a, b, &|k| k >= floor);
+    // Under a running median, a knot above the detrend's corner (f·w = 1)
+    // levels only from bins above it: windows reaching below the corner,
+    // where noise_pass is held at 1 while the detrend still takes power,
+    // set the level too low and named false cycles at f·w 0.8 to 1.7
+    // (#1030).
+    let corner = detrend_w.map(|w| (1.0 / (w * df)) as usize);
+    let level_at = |j: usize, a: usize, b: usize| {
+        let a = corner.filter(|&c| j > c).map_or(a, |c| a.max(c + 1));
+        level(&flat, a, b, &|k| k >= floor)
+    };
     let mut knots: Vec<(usize, f64)> = Vec::new();
     let mut j = 1usize;
     while j < m {
         let half = ((j as f64 * share) as usize).max(least);
-        knots.push((
-            j,
-            level_at(j.saturating_sub(half).max(1), (j + half + 1).min(m)),
-        ));
+        let (a, b) = (j.saturating_sub(half).max(1), (j + half + 1).min(m));
+        knots.push((j, level_at(j, a, b)));
         j = (j + 1).max((j as f64 * 1.05) as usize).max(j + 8);
     }
     if knots.last().map(|k| k.0) != Some(m - 1) && m > 1 {
-        knots.push((m - 1, level_at(m.saturating_sub(least).max(1), m)));
+        knots.push((m - 1, level_at(m - 1, m.saturating_sub(least).max(1), m)));
     }
     let mut white = vec![0.0; m];
     let mut k = 0;
@@ -944,6 +951,17 @@ impl Search {
     }
 }
 
+/// One series' search crossed its threshold about 1 time in this many on
+/// seeded white and AR(1) noise, the noise its model fits: 3 to 3.5% in the
+/// #916 grid (400 seeds a cell), about 3× its design rate. Said in
+/// [`period_may_be_noise`]'s words and the Periods threshold's hover.
+pub const MEASURED_CROSSING_IN: u32 = 33;
+/// …and up to 1 time in this many on 30 min takes with a slow wander under
+/// white noise, lag one 0.5 to 0.8 (9 to 10%, the same grid), the case
+/// [`period_may_be_noise`] names. Since #1030 these cells read 8 to 9.2%
+/// and white and AR(1) noise 2.5 to 3.2% at 30 min; both words still hold.
+pub const SHORT_CORRELATED_CROSSING_IN: u32 = 10;
+
 /// Stretches shorter than this get [`period_may_be_noise`].
 pub const NOISE_CAVEAT_SPAN_S: f64 = 7200.0;
 /// Lag-one ρ from which [`period_may_be_noise`] is given.
@@ -1501,10 +1519,13 @@ mod tests {
 
     /// A sinusoid in white noise of the same size, at two periods inside
     /// the band the search reads, near the running median's window where
-    /// the fix matters (#723), is found on most takes.
+    /// the fix matters (#723), is found on most takes. The 300 s cycle in
+    /// 30 min had a bar of 75 of 100; leveling only from above the corner
+    /// (#1030) finds 49, and on 4 Nov the bar was lowered to 49 by the
+    /// owner's decision, to stop the search naming cycles in noise there.
     #[test]
     fn a_cycle_near_the_detrend_window_is_still_found() {
-        for (i, &(span, period, at_least)) in [(1800.0, 300.0, 75), (7200.0, 1400.0, 95)]
+        for (i, &(span, period, at_least)) in [(1800.0, 300.0, 49), (7200.0, 1400.0, 95)]
             .iter()
             .enumerate()
         {

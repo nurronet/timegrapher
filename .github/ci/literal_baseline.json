@@ -263,7 +263,7 @@
      "bounds": 0,
      "comparisons": 0,
      "constants": 0,
-     "defaults": 25
+     "defaults": 18
     },
     "crates/timegrapher-cli/src/output.rs": {
      "bounds": 0,
@@ -318,7 +318,7 @@
     "bounds": 10,
     "comparisons": 18,
     "constants": 17,
-    "defaults": 26
+    "defaults": 19
    }
   },
   "timegrapher-mcp": {
