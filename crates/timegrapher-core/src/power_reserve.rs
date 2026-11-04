@@ -30,6 +30,10 @@ pub const PAUSE_S: f64 = 30.0;
 pub const RUN_BEATS: usize = 8;
 /// The beat rate a test reads its beats at before one is heard, bph.
 pub const UNHEARD_BPH: u32 = 18_000;
+/// The least run, seconds of true time from the first beat heard to the
+/// last, for a take that isn't a Power Reserve Test to have its run read
+/// as one ([`from_long_take`]).
+pub const LONG_TAKE_S: f64 = 6.0 * 3600.0;
 
 /// How a run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +45,9 @@ pub enum Ending {
     ByHand,
     /// The test reached [`LIMIT_S`].
     Limit,
+    /// A take that wasn't a Power Reserve Test ended while the watch
+    /// still ran ([`from_long_take`]).
+    TakeEnded,
 }
 
 impl Ending {
@@ -56,6 +63,35 @@ impl Ending {
                 "Reached the {} limit while the watch still ran",
                 limit_text()
             ),
+            Ending::TakeEnded => "The take ended while the watch still ran".to_string(),
+        }
+    }
+}
+
+/// Where a run's results came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// A Power Reserve Test, kept in its take's [`FILE`].
+    #[default]
+    Test,
+    /// Read from a long take that wasn't one ([`from_long_take`]); never
+    /// kept in a file.
+    LongTake,
+}
+
+impl Source {
+    /// Whether the results are a Power Reserve Test's.
+    pub fn is_test(&self) -> bool {
+        *self == Source::Test
+    }
+
+    /// What the results are read from, as words say it, the same on
+    /// every surface: none for a test, whose pane and file say so.
+    pub fn text(self) -> Option<&'static str> {
+        match self {
+            Source::Test => None,
+            Source::LongTake => Some("Read from a long take, not a Power Reserve Test"),
         }
     }
 }
@@ -201,6 +237,9 @@ pub struct Results {
     /// The run hour by hour; empty until the take's bins are read.
     #[serde(default)]
     pub hours: Vec<Hour>,
+    /// What the results are read from; left out for a test.
+    #[serde(default, skip_serializing_if = "Source::is_test")]
+    pub source: Source,
 }
 
 impl Results {
@@ -228,6 +267,7 @@ impl Results {
             run_s: to_true(b) - to_true(a),
             pauses: heard.pauses.clone(),
             hours: Vec::new(),
+            source: Source::Test,
         })
     }
 
@@ -328,6 +368,106 @@ pub fn hours_from(
     out
 }
 
+/// The run of a take that wasn't a Power Reserve Test, read as one: its
+/// beats heard ([`heard`], at the take's beat rate), the run from the
+/// first to the last on `clock`, ended [`Ending::Stopped`] when the take
+/// goes on [`STOP_AFTER_S`] past the last beat, else
+/// [`Ending::TakeEnded`], and hour by hour ([`hours`], on the take's
+/// `clock`, `breaks` and `masked` stretches). `positions` are the ones the
+/// take lists. `None` for a take in more than one position (its hours would
+/// mix them), with no beat heard, or whose run is shorter than
+/// [`LONG_TAKE_S`]. The take's start is not known to be at full wind, so
+/// the results say where they came from ([`Source::LongTake`]).
+pub fn from_long_take(
+    log: &crate::stream::BeatLog,
+    clock: Option<&crate::clock::ClockFit>,
+    breaks: &[crate::breaks::Break],
+    masked: &[(f64, f64)],
+    positions: &[&str],
+    started_utc: &str,
+    sound_kept: bool,
+) -> Option<Results> {
+    let position = match positions.split_first() {
+        None => "",
+        Some((p, rest)) if rest.iter().all(|q| q == p) => p,
+        Some(_) => return None,
+    };
+    let heard = heard(&log.beats, beat_s(Some(log.bph)));
+    let ending = if heard.stopped(log.duration_s) {
+        Ending::Stopped
+    } else {
+        Ending::TakeEnded
+    };
+    let mut r = Results::of(&heard, ending, started_utc, position, sound_kept, |s| {
+        clock.map_or(s, |c| c.map(s))
+    })?;
+    if r.run_s < LONG_TAKE_S {
+        return None;
+    }
+    r.source = Source::LongTake;
+    r.hours = hours(log, clock, breaks, masked, r.first_beat_s, r.last_beat_s);
+    Some(r)
+}
+
+/// A run time in words ([`run_text`] of `run_s`), "at least" for a long
+/// take that ended before the watch stopped: "41 h 12 min", "at least
+/// 65 h 03 min".
+pub fn run_words(run_s: f64, ending: Ending, source: Source) -> String {
+    let run = run_text(run_s);
+    if source == Source::LongTake && ending == Ending::TakeEnded {
+        format!("at least {run}")
+    } else {
+        run
+    }
+}
+
+/// A run in sentences, with `position` as the surface names it, the same
+/// on every surface: "Power reserve 41 h 12 min in DU. The watch
+/// stopped." for a test. A long take, not known to start fully wound, has
+/// its run named a run from the take's start, never a power reserve, and
+/// says where it came from.
+pub fn sentence(run_s: f64, ending: Ending, source: Source, position: &str) -> String {
+    let run = run_words(run_s, ending, source);
+    match source.text() {
+        None => format!("Power reserve {run} in {position}. {}.", ending.text()),
+        Some(from) => format!(
+            "Ran {run} in {position} from the take's start. {}. {from}.",
+            ending.text()
+        ),
+    }
+}
+
+impl Results {
+    /// [`run_words`] of this run.
+    pub fn run_words(&self) -> String {
+        run_words(self.run_s, self.ending, self.source)
+    }
+
+    /// What the run time is, as a table's row names it: "Power reserve"
+    /// for a test; for a long take, not known to start fully wound, "Ran
+    /// from the take's start".
+    pub fn run_label(&self) -> &'static str {
+        match self.source {
+            Source::Test => "Power reserve",
+            Source::LongTake => "Ran from the take's start",
+        }
+    }
+
+    /// The run as a line begins: "Ran 41 h 12 min" for a test, "Ran at
+    /// least 65 h 03 min from the take's start" for a long take.
+    pub fn ran(&self) -> String {
+        match self.source {
+            Source::Test => format!("Ran {}", self.run_words()),
+            Source::LongTake => format!("Ran {} from the take's start", self.run_words()),
+        }
+    }
+
+    /// [`sentence`] of this run.
+    pub fn sentence(&self, position: &str) -> String {
+        sentence(self.run_s, self.ending, self.source, position)
+    }
+}
+
 /// A run in brief, as a take's listing gives it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Summary {
@@ -412,6 +552,146 @@ mod tests {
                 quality,
             })
             .collect()
+    }
+
+    /// A take of `run_s` of beats at 18,000 bph from 5 s in, then
+    /// `after_s` of silence.
+    fn take_of(run_s: f64, after_s: f64) -> crate::stream::BeatLog {
+        crate::stream::BeatLog {
+            sample_rate: 48_000,
+            duration_s: 5.0 + run_s + after_s,
+            bph: 18_000,
+            lift_deg: 52.0,
+            beats: beats(5.0, 5.0 + run_s, 0.2, 1.0),
+            amplitude_windows: vec![],
+            clipped_beats: vec![],
+            clipped_samples: 0,
+            jumps: vec![],
+            sided: vec![],
+            by_count: vec![],
+            snippets: vec![],
+        }
+    }
+
+    /// A take of six hours or more in one position is read as a run, the
+    /// stop found as a test finds it, and says where it came from.
+    #[test]
+    fn a_long_take_in_one_position_is_read_as_a_run() {
+        let run = LONG_TAKE_S + 1800.0;
+        let still = take_of(run, 60.0);
+        let r = from_long_take(
+            &still,
+            None,
+            &[],
+            &[],
+            &["DU"],
+            "2026-11-01T00:00:00Z",
+            true,
+        )
+        .expect("a long take");
+        assert_eq!(r.source, Source::LongTake);
+        assert_eq!(r.ending, Ending::TakeEnded);
+        assert_eq!(r.position, "DU");
+        assert!((r.run_s - (run - 0.2)).abs() < 1e-6, "{}", r.run_s);
+        assert_eq!(r.hours.len(), 7, "six whole hours and the half left");
+        assert!(r.hours[..6].iter().all(Hour::whole));
+        let stopped = take_of(run, STOP_AFTER_S + 1.0);
+        let r = from_long_take(&stopped, None, &[], &[], &["DU", "DU"], "", false).unwrap();
+        assert_eq!(r.ending, Ending::Stopped);
+        assert!(!r.sound_kept);
+        // No position listed: the run is still read, its position unnamed.
+        assert_eq!(
+            from_long_take(&stopped, None, &[], &[], &[], "", true).map(|r| r.position),
+            Some(String::new())
+        );
+    }
+
+    /// A take shorter than [`LONG_TAKE_S`], or in more than one position,
+    /// or with no beat heard, has no run.
+    #[test]
+    fn a_short_or_moving_take_has_no_run() {
+        let short = take_of(LONG_TAKE_S - 60.0, 0.0);
+        assert_eq!(
+            from_long_take(&short, None, &[], &[], &["DU"], "", true),
+            None
+        );
+        let long = take_of(LONG_TAKE_S + 60.0, 0.0);
+        assert!(from_long_take(&long, None, &[], &[], &["DU"], "", true).is_some());
+        assert_eq!(
+            from_long_take(&long, None, &[], &[], &["DU", "CU"], "", true),
+            None
+        );
+        let mut silent = take_of(LONG_TAKE_S + 60.0, 0.0);
+        silent.beats.clear();
+        assert_eq!(
+            from_long_take(&silent, None, &[], &[], &["DU"], "", true),
+            None
+        );
+    }
+
+    /// A test's file is as it was, with no `source`; a long take's run
+    /// says it was read from one, and reads back.
+    #[test]
+    fn only_a_long_take_names_its_source() {
+        let long = take_of(LONG_TAKE_S + 60.0, 0.0);
+        let mut r = from_long_take(&long, None, &[], &[], &["DU"], "", true).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&r.to_json()).unwrap();
+        assert_eq!(v["source"], "long_take");
+        assert_eq!(v["ending"], "take_ended");
+        let back = Results::from_json(&r.to_json()).unwrap();
+        assert_eq!(
+            (back.source, back.ending),
+            (Source::LongTake, Ending::TakeEnded)
+        );
+        r.source = Source::Test;
+        let v: serde_json::Value = serde_json::from_str(&r.to_json()).unwrap();
+        assert!(v.get("source").is_none());
+        assert_eq!(Source::Test.text(), None);
+        assert_eq!(
+            Source::LongTake.text(),
+            Some("Read from a long take, not a Power Reserve Test")
+        );
+        assert_eq!(
+            Ending::TakeEnded.text(),
+            "The take ended while the watch still ran"
+        );
+    }
+
+    /// A long take's run is named a run from the take's start, "at least"
+    /// where the take ended first, and never a power reserve; a test's
+    /// reads as it did.
+    #[test]
+    fn only_a_test_names_its_run_a_power_reserve() {
+        let long = take_of(LONG_TAKE_S + 60.0, 0.0);
+        let mut r = from_long_take(&long, None, &[], &[], &["DU"], "", true).unwrap();
+        r.run_s = 65.0 * 3600.0 + 180.0;
+        assert_eq!(r.run_words(), "at least 65 h 03 min");
+        assert_eq!(r.ran(), "Ran at least 65 h 03 min from the take's start");
+        assert_eq!(r.run_label(), "Ran from the take's start");
+        assert_eq!(
+            r.sentence("DU"),
+            "Ran at least 65 h 03 min in DU from the take's start. The take ended while \
+             the watch still ran. Read from a long take, not a Power Reserve Test."
+        );
+        r.ending = Ending::Stopped;
+        assert_eq!(
+            r.sentence("DU"),
+            "Ran 65 h 03 min in DU from the take's start. The watch stopped. Read from a \
+             long take, not a Power Reserve Test."
+        );
+        r.source = Source::Test;
+        assert_eq!(r.ran(), "Ran 65 h 03 min");
+        assert_eq!(r.run_label(), "Power reserve");
+        assert_eq!(
+            r.sentence("DU"),
+            "Power reserve 65 h 03 min in DU. The watch stopped."
+        );
+        for surface in [r.sentence("DU"), r.ran()] {
+            assert!(!surface.contains("at least"));
+        }
+        r.source = Source::LongTake;
+        assert!(!r.sentence("DU").contains("Power reserve"));
+        assert!(!r.ran().contains("Power reserve"));
     }
 
     #[test]
