@@ -15,6 +15,7 @@ use crate::strength::{self, Zero};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 use timegrapher_core::beats::Beat;
 use timegrapher_core::breaks::Break;
+use timegrapher_core::chart_scale::{axis_number, round_step, steady_ends};
 use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::length_text;
 pub use timegrapher_core::timing::Anchor;
@@ -121,15 +122,35 @@ impl Default for StripInput {
     }
 }
 
-/// A step of 1, 2 or 5 times a power of ten, about `target` long.
-fn nice_step(target: f64) -> f64 {
-    let p = 10f64.powf(target.log10().floor());
-    for m in [1.0, 2.0, 5.0, 10.0] {
-        if m * p >= target {
-            return m * p;
-        }
-    }
-    10.0 * p
+/// An overlay's scale: its round ends and step, `(lo, hi, step)`.
+type Scale = (f64, f64, f64);
+
+/// How tall an overlay's axis row above an upright strip is, points.
+const SCALE_ROW: f32 = 21.0;
+
+/// An overlay axis's tick, points.
+const TICK: f32 = 4.0;
+
+/// An overlay's scale for values from `lo` to `hi`: round ends that hold
+/// still while the readings move inside them ([`steady_ends`]), kept from
+/// one frame to the next under the overlay's `name`.
+fn held_scale(ui: &egui::Ui, name: &str, lo: f64, hi: f64) -> Scale {
+    let id = ui.id().with(("strip scale", name));
+    let s = steady_ends(ui.data(|d| d.get_temp::<Scale>(id)), lo, hi);
+    ui.data_mut(|d| d.insert_temp(id, s));
+    s
+}
+
+/// Where `v` on scale `s` lies in ms across a strip `half` ms either side:
+/// the scale's ends at the strip's edges.
+fn scale_ms((lo, hi, _): Scale, v: f64, half: f64) -> f64 {
+    -half + (v - lo) / (hi - lo) * 2.0 * half
+}
+
+/// The round values a scale ticks at, end to end.
+fn ticks((lo, hi, step): Scale) -> impl Iterator<Item = f64> {
+    let n = ((hi - lo) / step).round() as i64;
+    (0..=n).map(move |k| lo + k as f64 * step)
 }
 
 /// Places points on the strip from (lead in ms, time in s).
@@ -215,7 +236,6 @@ impl RateLine {
 pub struct Overlay {
     pub name: &'static str,
     pub unit: &'static str,
-    pub decimals: usize,
     pub color: Color32,
     /// The smallest range the scale spans, so a steady reading isn't
     /// blown up into noise.
@@ -965,10 +985,13 @@ pub fn draw_strip(
     let vis = ui.visuals().clone();
     painter.rect_filled(resp.rect, 2.0, vis.extreme_bg_color);
     let oldest = end_s - view.span_s;
-    let overlays: Vec<(&Overlay, (f64, f64))> = extras
+    let overlays: Vec<(&Overlay, Scale)> = extras
         .overlays
         .iter()
-        .filter_map(|o| o.range(oldest, end_s).map(|r| (o, r)))
+        .filter_map(|o| {
+            o.range(oldest, end_s)
+                .map(|(lo, hi)| (o, held_scale(ui, o.name, lo, hi)))
+        })
         .collect();
     let row_h = 15.0;
     let (r, lane) = strip_rects(resp.rect, view, extras.gutter, overlays.len(), row_h);
@@ -1030,7 +1053,7 @@ fn strip_rects(
         )
     } else {
         Rect::from_min_max(
-            outer.min + Vec2::new(36.0, row_h * (1.0 + overlays as f32) + 4.0),
+            outer.min + Vec2::new(36.0, row_h + SCALE_ROW * overlays as f32 + 4.0),
             outer.max - Vec2::new(8.0 + lane_h, row_h + 2.0),
         )
     };
@@ -1375,7 +1398,7 @@ impl Frame<'_> {
         let (half, horizontal) = (g.half, g.horizontal);
         let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
-        let step = nice_step(half / 4.0);
+        let step = round_step(half / 4.0);
         // On a strip too short for its labels to stand apart, only "Early"
         // and "Late" are named.
         let step_px =
@@ -1663,39 +1686,93 @@ impl Frame<'_> {
         }
     }
 
-    /// Each overlay's scale: named in its colour, its ends in its colour,
-    /// in a column of its own right of the strip under its name, or a row
-    /// of its own above it.
-    fn paint_scales(&self, overlays: &[(&Overlay, (f64, f64))]) {
-        let (painter, r, font) = (&self.painter, self.g.r, &self.font);
-        for (i, (o, (lo, hi))) in overlays.iter().enumerate() {
-            let f = |v: f64| format!("{v:.*}{}", o.decimals, o.unit);
-            // Words in the text colour where the reading's own is too faint for
-            // small text (beat error's amber in light mode).
-            let ink = self.pal.ink(o.color);
-            let text = |at: Pos2, align: Align2, words: String, ink: Color32| {
-                painter.text(at, align, words, font.clone(), ink);
-            };
+    /// Each overlay's axis: a 1 pt line in the reading's colour with a
+    /// tick and a number at each round step, its name and unit, all in its
+    /// colour; in a column of its own right of the strip, or a row of its
+    /// own above it. They have no grid lines: the strip's grid is the
+    /// beats'.
+    fn paint_scales(&self, overlays: &[(&Overlay, Scale)]) {
+        for (i, (o, s)) in overlays.iter().enumerate() {
             if self.g.horizontal {
-                let x = r.right() + 6.0 + 58.0 * i as f32;
-                text(
-                    Pos2::new(x, self.lane.top() + 1.0),
-                    Align2::LEFT_TOP,
-                    o.name.to_string(),
-                    ink,
-                );
-                text(Pos2::new(x, r.top()), Align2::LEFT_TOP, f(*hi), ink);
-                text(Pos2::new(x, r.bottom()), Align2::LEFT_BOTTOM, f(*lo), ink);
+                self.scale_down(i, o, *s);
             } else {
-                let y = self.outer.top() + 3.0 + self.row_h * (1 + i) as f32;
-                text(Pos2::new(r.left(), y), Align2::LEFT_TOP, f(*lo), ink);
-                text(
-                    Pos2::new(r.center().x, y),
-                    Align2::CENTER_TOP,
-                    format!("{} Scale", o.name),
-                    ink.gamma_multiply(0.8),
-                );
-                text(Pos2::new(r.right(), y), Align2::RIGHT_TOP, f(*hi), ink);
+                self.scale_across(i, o, *s);
+            }
+        }
+    }
+
+    /// Where `v` on an overlay's scale `s` falls along the strip's ms
+    /// axis, in points: the scale spans the strip, as its line does.
+    fn scale_at(&self, s: Scale, v: f64) -> f32 {
+        let p = self.g.pos(scale_ms(s, v, self.g.half), self.g.end);
+        if self.g.horizontal {
+            p.y
+        } else {
+            p.x
+        }
+    }
+
+    /// An overlay's axis in column `i` right of the strip, under its name,
+    /// its unit under it.
+    fn scale_down(&self, i: usize, o: &Overlay, s: Scale) {
+        let (painter, r, font) = (&self.painter, self.g.r, &self.font);
+        let x = r.right() + 8.0 + 58.0 * i as f32;
+        let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
+        let text = |at: Pos2, align: Align2, words: String| {
+            painter.text(at, align, words, font.clone(), ink);
+        };
+        text(
+            Pos2::new(x, self.lane.top() + 1.0),
+            Align2::LEFT_TOP,
+            o.name.into(),
+        );
+        painter.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], line);
+        let mut last = f32::INFINITY;
+        for v in ticks(s) {
+            let y = self.scale_at(s, v);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(x + TICK, y)], line);
+            // Numbers too close to stand apart: every other one.
+            if (last - y).abs() > font.size + 1.0 {
+                let at = Pos2::new(x + TICK + 2.0, y);
+                text(at, Align2::LEFT_CENTER, axis_number(v, s.2));
+                last = y;
+            }
+        }
+        text(
+            Pos2::new(x, r.bottom() + 2.0),
+            Align2::LEFT_TOP,
+            o.unit.trim().into(),
+        );
+    }
+
+    /// An overlay's axis in row `i` above the strip: its name and unit at
+    /// the left, the numbers over their ticks, the line under them.
+    fn scale_across(&self, i: usize, o: &Overlay, s: Scale) {
+        let (painter, r, font) = (&self.painter, self.g.r, &self.font);
+        let top = self.outer.top() + 3.0 + self.row_h + SCALE_ROW * i as f32;
+        let y = top + SCALE_ROW - 2.0;
+        let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
+        let name = format!("{} ({})", o.name, o.unit.trim());
+        let named = painter.text(
+            Pos2::new(r.left(), top),
+            Align2::LEFT_TOP,
+            name,
+            font.clone(),
+            ink,
+        );
+        painter.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], line);
+        let mut taken = named;
+        for v in ticks(s) {
+            let x = self.scale_at(s, v);
+            painter.line_segment([Pos2::new(x, y), Pos2::new(x, y - TICK)], line);
+            let words = axis_number(v, s.2);
+            let galley = painter.layout_no_wrap(words, font.clone(), ink);
+            let at =
+                Rect::from_center_size(Pos2::new(x, top + galley.size().y / 2.0), galley.size());
+            // Clear of the name and the number before it, inside the strip.
+            if at.left() > taken.right() + 4.0 && at.right() <= r.right() {
+                painter.galley(at.min, galley, ink);
+                taken = at;
             }
         }
     }
@@ -1740,11 +1817,11 @@ impl Frame<'_> {
     }
 
     /// The overlays, each scaled across the strip's width.
-    fn paint_overlay_lines(&self, overlays: &[(&Overlay, (f64, f64))]) {
+    fn paint_overlay_lines(&self, overlays: &[(&Overlay, Scale)]) {
         let (g, half) = (&self.g, self.g.half);
         let painter = self.painter.with_clip_rect(g.r);
-        for (o, (lo, hi)) in overlays {
-            let across = |v: f64| -half + (v - lo) / (hi - lo) * 2.0 * half;
+        for (o, s) in overlays {
+            let across = |v: f64| scale_ms(*s, v, half);
             for (a, b) in joined(&o.points, self.oldest - 2.0, g.end) {
                 painter.line_segment(
                     [g.pos(across(a[1]), a[0]), g.pos(across(b[1]), b[0])],
@@ -2557,12 +2634,22 @@ mod tests {
     }
 
     #[test]
+    fn an_overlay_axis_ticks_at_round_steps_end_to_end() {
+        let s = (-100.0, -20.0, 20.0);
+        let t: Vec<f64> = ticks(s).collect();
+        assert_eq!(t, vec![-100.0, -80.0, -60.0, -40.0, -20.0]);
+        // The scale's ends at the strip's edges, as its line is drawn.
+        assert_eq!(scale_ms(s, -100.0, 5.0), -5.0);
+        assert_eq!(scale_ms(s, -20.0, 5.0), 5.0);
+    }
+
+    #[test]
     fn wrapping() {
         assert_eq!(wrap(0.0, 5.0), 0.0);
         assert!((wrap(6.0, 5.0) + 4.0).abs() < 1e-12);
         assert!((wrap(-6.0, 5.0) - 4.0).abs() < 1e-12);
-        assert_eq!(nice_step(3.0), 5.0);
-        assert_eq!(nice_step(0.12), 0.2);
+        assert_eq!(round_step(3.0), 5.0);
+        assert_eq!(round_step(0.12), 0.2);
         assert_eq!(length_text(3725.0), "1:02:05");
         assert_eq!(fmt_time_fine(83.456), "1:23.46");
         assert_eq!(fmt_time_fine(59.996), "1:00.00");

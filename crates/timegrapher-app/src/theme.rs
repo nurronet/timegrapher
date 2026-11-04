@@ -83,7 +83,22 @@ const fn c(x: core_palette::Rgb) -> Color32 {
     Color32::from_rgb(x.r, x.g, x.b)
 }
 
+/// How much darker [`Palette::axis_ink`] writes a faint colour.
+const DARKER: f32 = 0.7;
+
 impl Palette {
+    /// The colour to write an overlay axis's words in, for a reading drawn
+    /// in `c`: `c` itself, or where it is too faint for small text (as
+    /// [`Palette::ink`] judges) a darker shade of it, never the text grey,
+    /// so the axis still plainly belongs to its trace.
+    pub fn axis_ink(&self, c: Color32) -> Color32 {
+        if self.ink(c) == c {
+            return c;
+        }
+        let dark = |v: u8| (f32::from(v) * DARKER).round() as u8;
+        Color32::from_rgb(dark(c.r()), dark(c.g()), dark(c.b()))
+    }
+
     /// The colour to write words in for something drawn in `c`: `c`
     /// itself, except where it is too faint for small text (beat error's
     /// amber and the position's teal in light mode), which take the text
@@ -1054,12 +1069,7 @@ pub fn even_grid(
     // The plot's base step is the value of its 8-point minimum spacing.
     let want = (input.base_step_size / 8.0 * min_px).max(1e-12);
     let step = if ladder.is_empty() {
-        let p = 10f64.powf(want.log10().floor());
-        [1.0, 2.0, 5.0, 10.0]
-            .into_iter()
-            .map(|m| m * p)
-            .find(|&s| s >= want * (1.0 - 1e-9))
-            .unwrap_or(10.0 * p)
+        timegrapher_core::chart_scale::round_step(want)
     } else {
         ladder
             .iter()
