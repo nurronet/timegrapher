@@ -26,14 +26,9 @@ const MR: f64 = 16.0;
 const MT: f64 = 14.0;
 const MB: f64 = 44.0;
 
+/// The grid step for `span`: core's round step for about five steps.
 fn nice_step(span: f64) -> f64 {
-    let raw = span.max(1e-9) / 5.0;
-    let mag = 10f64.powf(raw.log10().floor());
-    [1.0, 2.0, 2.5, 5.0, 10.0]
-        .iter()
-        .map(|m| m * mag)
-        .find(|&s| s >= raw)
-        .unwrap_or(10.0 * mag)
+    timegrapher_core::chart_scale::round_step(span.max(1e-9) / 5.0)
 }
 
 struct Series<'a> {
