@@ -174,7 +174,7 @@ impl TimegrapherApp {
             ui,
             "Width",
             "Milliseconds either side of the centre line: type it, or pick one with ⏷. \
-             Shift or Ctrl and the mouse wheel on the strip change it too.",
+             Alt (Option on a Mac) and the mouse wheel on the strip change it too.",
             |ui| {
                 let mut w = self.strip.half_width_ms;
                 let (_, changed) = fields::combo(
@@ -186,7 +186,8 @@ impl TimegrapherApp {
                     &WIDTHS,
                     width_label,
                     "",
-                    104.0,
+                    // Holds the widest width whole, such as ±888.8 ms.
+                    112.0,
                 );
                 if changed {
                     self.strip.set_half_width(w);
@@ -197,7 +198,7 @@ impl TimegrapherApp {
             ui,
             "Length",
             "Time shown along the strip, such as 30 s, 5 min or 2 h: type it, or pick one \
-             with ⏷. The mouse wheel on the strip changes it too.",
+             with ⏷. Cmd (Mac) or Ctrl and the mouse wheel on the strip change it too.",
             |ui| {
                 let mut s = self.strip.span_s;
                 let (_, changed) = fields::combo(
@@ -556,9 +557,14 @@ impl TimegrapherApp {
         }
         if input.span_factor != 1.0 {
             let was = self.strip.span_s;
-            self.strip.set_span(was * input.span_factor);
-            // The time under the pointer stays under it.
-            if let Some(t) = input.zoom_at {
+            // Zoomed out no further than the take: past it is only blank
+            // paper.
+            let take = was.max(self.latest_s());
+            self.strip.set_span((was * input.span_factor).min(take));
+            // Looking back, the time under the pointer stays under it;
+            // live, the newest beat stays at the edge, so a zoom never
+            // moves the moment the cards and the Profile show.
+            if let (Some(t), Some(_)) = (input.zoom_at, self.strip_end) {
                 let latest = self.latest_s();
                 let to = t + (end - t) * self.strip.span_s / was;
                 self.strip_end = if to >= latest {

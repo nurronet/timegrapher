@@ -328,29 +328,49 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         delta: Vec2::new(0.0, dy),
         modifiers,
     };
-    // Scrolled back: earlier times, over the same length.
-    let panned = look(&mut app, vec![wheel(60.0, egui::Modifiers::NONE)]);
-    let (b, p) = (time_labels(&before), time_labels(&panned));
-    assert!(p[0] < b[0], "{b:?} {p:?}");
     let span = |l: &[f64]| l[l.len() - 1] - l[0];
-    assert!((span(&p) - span(&b)).abs() <= 10.0, "{b:?} {p:?}");
-    // With Shift too, the same.
-    let shifted = look(&mut app, vec![wheel(-60.0, egui::Modifiers::SHIFT)]);
-    assert!(time_labels(&shifted)[0] > p[0], "{p:?} {shifted:?}");
+    // The whole session has nowhere to pan to.
+    let whole = look(&mut app, vec![wheel(60.0, egui::Modifiers::NONE)]);
+    assert_eq!(time_labels(&whole), time_labels(&before));
+    // A zoom (Cmd or Ctrl and the wheel, or a pinch): a shorter time.
+    let zoomed = look(&mut app, vec![egui::Event::Zoom(2.0)]);
+    let (b, z) = (time_labels(&before), time_labels(&zoomed));
+    assert!(span(&z) < span(&b) * 0.75, "{b:?} {z:?}");
+    // Scrolled forward: later times, over the same length.
+    let panned = look(&mut app, vec![wheel(-60.0, egui::Modifiers::NONE)]);
+    let p = time_labels(&panned);
+    assert!(p[0] > z[0], "{z:?} {p:?}");
+    assert!((span(&p) - span(&z)).abs() <= 10.0, "{z:?} {p:?}");
+    // With Shift too, the same, back.
+    let shifted = look(&mut app, vec![wheel(60.0, egui::Modifiers::SHIFT)]);
+    assert!(time_labels(&shifted)[0] < p[0], "{p:?} {shifted:?}");
     // Alt and the wheel (the strip's width) does nothing here.
     let alt = egui::Modifiers {
         alt: true,
         ..Default::default()
     };
-    let still = look(&mut app, vec![wheel(60.0, alt)]);
+    let still = look(&mut app, vec![wheel(-60.0, alt)]);
     assert_eq!(time_labels(&still), time_labels(&shifted));
-    // A zoom (Cmd or Ctrl and the wheel, or a pinch): a shorter time.
-    let zoomed = look(&mut app, vec![egui::Event::Zoom(2.0)]);
-    let z = time_labels(&zoomed);
-    assert!(span(&z) < span(&p) * 0.75, "{p:?} {z:?}");
+    // Panned far past either end, the chart stops at the take's first or
+    // last reading, its length kept.
+    for dy in [-6000.0, 6000.0] {
+        let end = time_labels(&look(&mut app, vec![wheel(dy, egui::Modifiers::NONE)]));
+        assert!(end[0] >= 0.0 && end[end.len() - 1] <= 120.0, "{end:?}");
+        assert!((span(&end) - span(&z)).abs() <= 10.0, "{z:?} {end:?}");
+        assert!(zoomed_off(&look(&mut app, Vec::new())), "{end:?}");
+    }
+    // Zoomed out past the take, it shows the whole session again.
+    let out = look(&mut app, vec![egui::Event::Zoom(0.1)]);
+    assert_eq!(time_labels(&out), b);
+    assert!(!zoomed_off(&out));
 }
 
-/// The Charts' time axis labels, in seconds.
+/// A chart moved off the whole session offers the way back to it.
+fn zoomed_off(text: &str) -> bool {
+    text.lines()
+        .any(|l| l == "Show Whole Session" || l == "Follow Live")
+}
+
 fn time_labels(text: &str) -> Vec<f64> {
     text.lines()
         .skip_while(|l| *l != "Charts")

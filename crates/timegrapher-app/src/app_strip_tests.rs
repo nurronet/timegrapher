@@ -178,16 +178,33 @@ fn dragging_the_strip_looks_back_and_returns() {
     assert!((app.anchor.unwrap().time - before - 0.001).abs() < 1e-12);
     assert!(!app.follow, "sliding by hand ends auto-centring");
 
+    // Zoomed out within the 40 s take.
+    app.strip.set_span(15.0);
     let zoom = StripInput {
         span_factor: 2.0,
         width_factor: 0.5,
         ..Default::default()
     };
     app.apply_strip_input(zoom, app.strip_end_s());
-    assert_eq!(app.strip.span_s, 60.0);
+    assert_eq!(app.strip.span_s, 30.0);
     assert_eq!(app.strip.half_width_ms, 5.0);
 
-    // Zoomed about a time, that time stays where it was on the strip.
+    // Live, a zoom keeps the newest beat at the edge: the moment the
+    // cards and the Profile show stays put.
+    let end = app.strip_end_s();
+    let zoom = StripInput {
+        span_factor: 0.5,
+        zoom_at: Some(end - 15.0),
+        ..Default::default()
+    };
+    app.apply_strip_input(zoom, end);
+    assert_eq!(app.strip.span_s, 15.0);
+    assert_eq!(app.strip_end, None, "a zoom while live stays live");
+
+    // Looking back, a zoom about a time keeps that time where it was on
+    // the strip.
+    app.strip.set_span(30.0);
+    app.apply_strip_input(back, app.strip_end_s());
     let end = app.strip_end_s();
     let at = end - 15.0;
     let zoom = StripInput {
@@ -196,9 +213,27 @@ fn dragging_the_strip_looks_back_and_returns() {
         ..Default::default()
     };
     app.apply_strip_input(zoom, end);
-    assert_eq!(app.strip.span_s, 30.0);
+    assert_eq!(app.strip.span_s, 15.0);
     let now = app.strip_end.expect("looking back");
-    assert!(((now - at) / 30.0 - 15.0 / 60.0).abs() < 1e-9, "{now}");
+    assert!(((now - at) / 15.0 - 15.0 / 30.0).abs() < 1e-9, "{now}");
+}
+
+/// Zooming the strip's time out stops at the take's length: past it is
+/// only blank paper. A length already longer, typed in, is kept.
+#[test]
+fn zooming_out_stops_at_the_take() {
+    let mut app = synthetic(40.0, 0.0);
+    let latest = app.latest_s();
+    app.strip.set_span(10.0);
+    let out = StripInput {
+        span_factor: 10.0,
+        ..Default::default()
+    };
+    app.apply_strip_input(out, app.strip_end_s());
+    assert_eq!(app.strip.span_s, latest);
+    app.strip.set_span(100.0);
+    app.apply_strip_input(out, app.strip_end_s());
+    assert_eq!(app.strip.span_s, 100.0);
 }
 
 /// The Tick Tock Profile and the Scope follow the strip's newest edge:
