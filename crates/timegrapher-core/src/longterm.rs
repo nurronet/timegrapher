@@ -1555,7 +1555,8 @@ mod tests {
 
     /// A cycle the search names in 30 min of that noise alone carries the
     /// caveat (#916); the same noise over 8 h, with a cycle there that it
-    /// names, does not: the caveat is for stretches under 2 h.
+    /// names, does not: the caveat is for stretches under 2 h. Nor does a
+    /// cycle named in 30 min of white noise, read at a low ρ.
     #[test]
     fn a_cycle_named_in_short_correlated_noise_may_be_noise() {
         let g = Grid {
@@ -1587,6 +1588,21 @@ mod tests {
             &LongConfig::default(),
         );
         assert!(!r.components.is_empty() && r.search.rho >= NOISE_CAVEAT_RHO);
+        assert_eq!(period_may_be_noise(&r), None);
+        // A cycle named in 30 min of white noise, whose ρ is low: none.
+        let mut z = Rng::new(7);
+        let y = (0..900)
+            .map(|i| z.normal() + 0.5 * (tau * i as f64 * 2.0 / 300.0).sin())
+            .collect();
+        let r = analyse(
+            &Grid {
+                t0: 0.0,
+                step: 2.0,
+                y,
+            },
+            &LongConfig::default(),
+        );
+        assert!(!r.components.is_empty() && r.search.rho < NOISE_CAVEAT_RHO);
         assert_eq!(period_may_be_noise(&r), None);
     }
 }

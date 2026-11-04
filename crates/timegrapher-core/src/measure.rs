@@ -266,9 +266,9 @@ pub enum Caveat {
     /// ([`crate::session::watch_lead_s`], #844).
     LeadLeftOut { seconds: f64 },
     /// The amplitude's or beat error's period search named a cycle on a
-    /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose
-    /// readings are correlated at `rho` (lag one, the ρ the search whitens
-    /// by) of [`crate::longterm::NOISE_CAVEAT_RHO`] or more, over `span_s`:
+    /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose 2 s
+    /// windows are correlated at `rho` (lag one, the ρ the search whitens
+    /// by, not the 10 s readings' lag-1 r) of [`crate::longterm::NOISE_CAVEAT_RHO`] or more, over `span_s`:
     /// there the search names a cycle in noise alone about 1 time in 10
     /// (#916).
     PeriodMayBeNoise { rho: f64, span_s: f64 },
@@ -428,9 +428,9 @@ impl Caveat {
                  and are left out of the readings."
             ),
             Caveat::PeriodMayBeNoise { rho, span_s } => format!(
-                "On a take this short with readings this correlated (ρ {rho:.2} over {:.0} \
-                 min), the period search names a cycle in noise alone about 1 time in 10, \
-                 not 1 in 33: this cycle may be noise.",
+                "On a take this short with its 2 s windows this correlated (ρ {rho:.2} from \
+                 one to the next, over {:.0} min), the period search names a cycle in noise \
+                 alone about 1 time in 10, not 1 in 33: this cycle may be noise.",
                 span_s / 60.0
             ),
         })
