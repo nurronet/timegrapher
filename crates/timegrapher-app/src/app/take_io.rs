@@ -38,7 +38,7 @@ impl TimegrapherApp {
     /// Seconds of beats the tick and tock sound covers: the averaging time,
     /// so it describes the same beats as the readings, up to the engine's
     /// limit.
-    fn sound_span(&self) -> f64 {
+    pub(super) fn sound_span(&self) -> f64 {
         profile_span(self.average_s)
     }
 

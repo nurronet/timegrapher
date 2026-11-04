@@ -194,7 +194,7 @@ impl TimegrapherApp {
                 if coarse {
                     hover.push("Shapes from then are kept once a minute".to_string());
                 }
-                if !self.no_sound && (sound.span_s - self.average_s).abs() > 1e-6 {
+                if !self.no_sound && sound.span_s != self.sound_span() {
                     hover.push(format!(
                         "Made over the {} s Average Over set then",
                         sound.span_s
