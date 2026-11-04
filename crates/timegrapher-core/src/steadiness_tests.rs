@@ -1266,6 +1266,39 @@ fn the_cusum_names_a_change_only_where_the_headline_does() {
     assert!(past_band > 0);
 }
 
+/// A cut series is a slide when its line, trend test passed, explains at
+/// least as much as the stretches, and a level change when it explains
+/// less (#721): either side of the tie, at 1.05 and 0.95 times.
+#[test]
+fn a_cut_series_is_a_slide_only_when_its_line_explains_at_least_as_much() {
+    let cfg = Config::default();
+    let mut z = Noise(721);
+    let mut s = check_series(
+        SeriesKind::Rate,
+        correlated(&mut z, 720, 0.0, 3.0, Gaps::None),
+        None,
+        None,
+        None,
+        &[],
+        &cfg,
+    );
+    assert!(s.two_state.is_none() && s.cycle.is_none());
+    let ch = s.changes.as_mut().unwrap();
+    assert!(ch.segments.len() > 1 && ch.p_value < cfg.level_alpha);
+    ch.explained = 0.5;
+    let t = s.trend.as_mut().unwrap();
+    t.p_value = 0.0;
+    for (ratio, want) in [
+        (1.05, Lead::Drifting),
+        (1.0, Lead::Drifting),
+        (0.95, Lead::ShiftingMean),
+    ] {
+        let t = s.trend.as_mut().unwrap();
+        (t.explained, t.curve_explained) = (0.5 * ratio, 0.0);
+        assert_eq!(lead(&s, &cfg), want, "line at {ratio} of the stretches");
+    }
+}
+
 /// A step the change finder cuts but that explains under a fifth of the
 /// readings' variance is not named, by the headline or the CUSUM (as on
 /// an ETA 2824's beat error, #717); nor is a slide the finder cuts into
