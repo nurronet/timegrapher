@@ -361,3 +361,67 @@ fn an_overlay_axis_column_says_its_short_name_over_its_unit() {
     let hovered = super::tests::painted_text(&pass(&mut app, Vec::new()));
     assert!(hovered.contains("Amplitude (°)"), "{hovered}");
 }
+
+/// Lying across with all three readings on, the overlay axes' columns
+/// run left to right in the toolbar's order, each clear of the one before
+/// (its name, unit and numbers), and the last ends inside the pane.
+#[test]
+fn overlay_axis_columns_lie_side_by_side() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, true, true];
+    app.strip.horizontal = true;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        }));
+    }
+    let out = out.unwrap();
+    let texts: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                egui::Rect::from_min_size(t.pos, t.galley.size()),
+            )),
+            _ => None,
+        })
+        .collect();
+    let at = |words: &str| {
+        texts
+            .iter()
+            .find(|(t, _)| t == words)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{words}: {texts:?}"))
+    };
+    let names: Vec<egui::Rect> = ["Rate", "Amp.", "B.E. U"].map(at).to_vec();
+    // Every text in a column starts at its name's left and ends before
+    // the next column's.
+    for (k, pair) in names.windows(2).enumerate() {
+        let (this, next) = (pair[0], pair[1]);
+        let widest = texts
+            .iter()
+            .filter(|(_, r)| r.left() >= this.left() - 0.5 && r.left() < next.left() - 0.5)
+            .filter(|(_, r)| r.left() - this.left() < 10.0)
+            .map(|(_, r)| r.right())
+            .fold(this.right(), f32::max);
+        assert!(
+            widest < next.left(),
+            "column {k} runs into the next: {texts:?}"
+        );
+    }
+    let last = names[2];
+    let widest = texts
+        .iter()
+        .filter(|(_, r)| r.left() >= last.left() - 0.5)
+        .map(|(_, r)| r.right())
+        .fold(last.right(), f32::max);
+    assert!(widest <= screen.right(), "the last column leaves the pane");
+}
