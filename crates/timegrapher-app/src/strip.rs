@@ -971,8 +971,9 @@ fn paint_masked(
 }
 
 /// Draw the strip for the beats up to `end_s` and report what the mouse
-/// did to it: the wheel zooms the length, Ctrl and the wheel (or a pinch)
-/// zooms the width, dragging along the time axis looks back, dragging
+/// did to it: the wheel or dragging along the time axis looks back, Cmd
+/// or Ctrl and the wheel (or a pinch) zooms the length, Alt and the wheel
+/// zooms the width, dragging
 /// across slides the trace, and a double click returns to the newest
 /// beats.
 #[allow(clippy::too_many_arguments)]
@@ -1213,8 +1214,10 @@ impl Frame<'_> {
 
     /// A drag moves the strip; with the Mask tool or the Position Brush
     /// on, or a change being moved, the left button does that and the
-    /// right one still moves it. The wheel and a pinch zoom it, and a
-    /// double click resets it.
+    /// right one still moves it. The wheel or a swipe pans time, as a
+    /// drag does; Cmd (Mac) or Ctrl with the wheel, or a pinch, zooms time
+    /// about the pointer; Alt with the wheel zooms the width. A double
+    /// click resets it.
     fn pan_and_zoom(
         &self,
         ui: &egui::Ui,
@@ -1224,35 +1227,38 @@ impl Frame<'_> {
     ) {
         let (r, view, g) = (self.g.r, self.view, &self.g);
         let tool = self.extras.masking || self.extras.brush.is_some() || moving_change;
-        let d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
+        let mut d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
             Vec2::ZERO
         } else {
             resp.drag_delta()
         };
+        if resp.hovered() {
+            let (scroll, zoom, alt) =
+                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
+            let wheel = scroll.x + scroll.y;
+            if wheel != 0.0 && alt {
+                // Alt and the wheel zoom the width.
+                input.width_factor = (-wheel as f64 * 0.003).exp();
+            } else if view.horizontal {
+                // Either way the wheel or a swipe goes, along time.
+                d.x += wheel;
+            } else {
+                d.y += wheel;
+            }
+            if zoom != 1.0 {
+                input.span_factor = 1.0 / zoom as f64;
+                input.zoom_at = resp
+                    .hover_pos()
+                    .filter(|p| r.contains(*p))
+                    .map(|p| g.time_at(p));
+            }
+        }
         if view.horizontal {
             input.time_shift_s = -(d.x / r.width().max(1.0)) as f64 * view.span_s;
             input.lead_shift_ms = -(d.y / (r.height() / 2.0).max(1.0)) as f64 * view.half_width_ms;
         } else {
             input.time_shift_s = (d.y / r.height().max(1.0)) as f64 * view.span_s;
             input.lead_shift_ms = (d.x / (r.width() / 2.0).max(1.0)) as f64 * view.half_width_ms;
-        }
-        if resp.hovered() {
-            let (scroll, zoom, shift) =
-                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
-            let wheel = scroll.x + scroll.y;
-            if wheel != 0.0 && shift {
-                // Shift and the wheel zoom the width, as a pinch does.
-                input.width_factor = (-wheel as f64 * 0.003).exp();
-            } else if wheel != 0.0 {
-                input.span_factor = (-wheel as f64 * 0.003).exp();
-                input.zoom_at = resp
-                    .hover_pos()
-                    .filter(|p| r.contains(*p))
-                    .map(|p| g.time_at(p));
-            }
-            if zoom != 1.0 {
-                input.width_factor = 1.0 / zoom as f64;
-            }
         }
         input.reset = resp.double_clicked();
     }
@@ -2472,18 +2478,18 @@ mod tests {
         assert_eq!(settled_from(0.0, 50.0, &[(50.0, 70.0, SETTLING)]), 0.0);
     }
 
-    /// The wheel zooms about the time under the pointer.
-    #[test]
-    fn the_wheel_zooms_about_the_pointer() {
+    /// The strip's input after a wheel turn with `modifiers` over it.
+    fn wheel_frames(delta: Vec2, modifiers: egui::Modifiers) -> Vec<StripInput> {
         let ctx = egui::Context::default();
         let p = egui::Event::PointerMoved(Pos2::new(300.0, 200.0));
         let wheel = egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
-            delta: Vec2::new(0.0, -50.0),
-            modifiers: Default::default(),
+            delta,
+            modifiers,
         };
-        let got = masking_frames(
+        masking_frames_with(
             &ctx,
+            modifiers,
             &[
                 vec![p.clone()],
                 vec![p.clone()],
@@ -2491,44 +2497,76 @@ mod tests {
                 vec![],
                 vec![],
             ],
-        );
-        let zoom = got.iter().find(|i| i.span_factor != 1.0).expect("zoomed");
-        let at = zoom.zoom_at.expect("about the pointer");
-        let under = got.iter().find_map(|i| i.hover_t).expect("hovered");
-        assert!((at - under).abs() < 1e-9 && at < 90.0, "{at} {under}");
+        )
     }
 
-    /// Shift and the wheel zoom the width, not the length.
+    /// The wheel, or a swipe either way, pans time and zooms nothing;
+    /// with Shift too (Play Head rule 10).
     #[test]
-    fn shift_and_the_wheel_zoom_the_width() {
-        let ctx = egui::Context::default();
-        let p = egui::Event::PointerMoved(Pos2::new(300.0, 200.0));
+    fn the_wheel_pans_time() {
         let shift = egui::Modifiers {
             shift: true,
             ..Default::default()
         };
-        let wheel = egui::Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Point,
-            delta: Vec2::new(0.0, 50.0),
-            modifiers: shift,
-        };
-        let got = masking_frames_with(
-            &ctx,
-            shift,
-            &[
-                vec![p.clone()],
-                vec![p.clone()],
-                vec![p, wheel],
-                vec![],
-                vec![],
-            ],
+        for (delta, m) in [
+            (Vec2::new(0.0, 50.0), Default::default()),
+            (Vec2::new(50.0, 0.0), Default::default()),
+            (Vec2::new(0.0, 50.0), shift),
+        ] {
+            let got = wheel_frames(delta, m);
+            let back: f64 = got.iter().map(|i| i.time_shift_s).sum();
+            assert!(back < 0.0, "{delta:?} {m:?}: {got:?}");
+            assert!(
+                got.iter()
+                    .all(|i| i.span_factor == 1.0 && i.width_factor == 1.0),
+                "{got:?}"
+            );
+        }
+        // The other way, towards the newest beats.
+        let got = wheel_frames(Vec2::new(0.0, -50.0), Default::default());
+        assert!(
+            got.iter().map(|i| i.time_shift_s).sum::<f64>() > 0.0,
+            "{got:?}"
         );
+    }
+
+    /// Cmd (Mac) or Ctrl with the wheel zooms time about the time under
+    /// the pointer, and pans nothing.
+    #[test]
+    fn the_command_wheel_zooms_time_about_the_pointer() {
+        let command = egui::Modifiers {
+            ctrl: !cfg!(target_os = "macos"),
+            mac_cmd: cfg!(target_os = "macos"),
+            command: true,
+            ..Default::default()
+        };
+        let got = wheel_frames(Vec2::new(0.0, 50.0), command);
+        let zoom = got.iter().find(|i| i.span_factor != 1.0).expect("zoomed");
+        assert!(zoom.span_factor < 1.0, "{zoom:?}");
+        let at = zoom.zoom_at.expect("about the pointer");
+        let under = got.iter().find_map(|i| i.hover_t).expect("hovered");
+        assert!((at - under).abs() < 1e-9 && at < 90.0, "{at} {under}");
+        assert!(got.iter().all(|i| i.time_shift_s == 0.0), "{got:?}");
+    }
+
+    /// Alt and the wheel zoom the width, not the length.
+    #[test]
+    fn alt_and_the_wheel_zoom_the_width() {
+        let alt = egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let got = wheel_frames(Vec2::new(0.0, 50.0), alt);
         let zoom = got
             .iter()
             .find(|i| i.width_factor != 1.0)
             .expect("the width zoomed");
         assert!(zoom.width_factor < 1.0, "{zoom:?}");
-        assert!(got.iter().all(|i| i.span_factor == 1.0), "{got:?}");
+        assert!(
+            got.iter()
+                .all(|i| i.span_factor == 1.0 && i.time_shift_s == 0.0),
+            "{got:?}"
+        );
     }
 
     fn beat(index: i64, time: f64) -> Beat {

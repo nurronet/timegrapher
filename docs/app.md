@@ -1007,8 +1007,9 @@ on), shows the whole session so far along the strip, up to its latest
 beat (its last 80 hours when it is longer):
 
 - While it is on, the length keeps growing with the take as beats arrive.
-- Zooming the strip's time (the wheel, or a length typed or picked) or
-  looking back through it (dragging, or a click on a chart) turns it off.
+- Zooming the strip's time (Cmd or Ctrl and the wheel, a pinch, or a
+  length typed or picked) or looking back through it (the wheel,
+  dragging, or a click on a chart) turns it off.
   Changing the width leaves it on.
 - Opening a take turns it on and sets the width to the narrowest of the
   listed widths that holds all its beats without wrapping (leaving out
@@ -1016,10 +1017,12 @@ beat (its last 80 hours when it is longer):
   once. Listen then brings back the width, length and Fit the strip had
   before, unless they were changed by hand meanwhile.
 
-On the strip, the mouse wheel changes the length about the time under the
-pointer, which stays where it is, Shift or Ctrl and the wheel (or a
-pinch) changes the width, dragging along the time axis looks back through
-the session (live or not), dragging across slides the trace, and a double
+On the strip, the mouse wheel or a trackpad swipe either way (with Shift
+too) looks back through the session (live or not), as dragging along the
+time axis does, and back at the newest beat it is live again. Cmd on the
+Mac, or Ctrl elsewhere, and the wheel (or a pinch) changes the length about
+the time under the pointer, which stays where it is; Alt and the wheel
+changes the width. Dragging across slides the trace, and a double
 click returns to the newest beats and centres them. **Auto-Centre** (a
 pushpin on a dashed line, lit while on) keeps
 the newest beats on the centre line all the time, so the older ones slide
@@ -1165,7 +1168,8 @@ strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
 anywhere over a chart, a vertical line marks that moment and a box lists
 every line's value there. Their time axes move together:
-the mouse wheel zooms time around the pointer, dragging pans it, and the
+the mouse wheel, a swipe or dragging pans time, Cmd or Ctrl and the wheel
+(or a pinch) zooms it around the pointer, and the
 vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
 Once a chart has been panned or zoomed a **Follow Live** button
