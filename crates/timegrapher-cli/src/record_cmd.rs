@@ -40,6 +40,7 @@ use timegrapher_core::calibre_store::{self, UserCalibres};
 use timegrapher_core::calibres;
 use timegrapher_core::capture::Block;
 use timegrapher_core::library::{self, Library};
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
 use timegrapher_core::power_reserve;
 use timegrapher_core::recorder::{self, Recorder, SessionInfo};
@@ -775,7 +776,7 @@ fn live(
                     eprintln!("  {}", power_reserve::run_text(s));
                     next_note += 600.0;
                 } else {
-                    eprintln!("  {s:.0} of {:.0} s", o.seconds);
+                    eprintln!("  {} of {} s", fixed_text(s, 0), fixed_text(o.seconds, 0));
                     next_note += 10.0;
                 }
             }
@@ -1000,8 +1001,8 @@ fn facts(c: &Check) -> Vec<String> {
     }
     if c.clipping.beats > 0 {
         f.push(format!(
-            "{:.1}% of beats clipped",
-            100.0 * c.clipping.beat_fraction
+            "{}% of beats clipped",
+            fixed_text(100.0 * c.clipping.beat_fraction, 1)
         ));
     }
     f
@@ -1015,31 +1016,39 @@ fn print_report(r: &Report) {
         .map_or("time since full wind not given".to_string(), |w| {
             format!("{w} h after full wind")
         });
-    println!("Position     {} for {:.0} s, {wind}", r.position, r.seconds);
+    println!(
+        "Position     {} for {} s, {wind}",
+        r.position,
+        fixed_text(r.seconds, 0)
+    );
     for f in facts(c) {
         println!("             {f}");
     }
     if c.watch_heard {
         let f = |v: Option<f64>, d: usize, u: &str| {
-            v.map_or("-".to_string(), |x| format!("{x:+.d$} {u}"))
+            v.map_or("-".to_string(), |x| format!("{} {u}", signed_text(x, d)))
         };
         println!(
-            "Quick look   {:.0} to {:.0} s: {} beats of {} expected at {} bph; rate {}, amplitude {}, beat error {}",
-            c.from_s,
-            c.to_s,
+            "Quick look   {} to {} s: {} beats of {} expected at {} bph; rate {}, amplitude {}, beat error {}",
+            fixed_text(c.from_s, 0),
+            fixed_text(c.to_s, 0),
             c.beats_found,
             c.beats_expected,
             c.bph,
             f(c.rate_s_per_day, 1, "s/d"),
-            c.amplitude_deg.map_or("-".into(), |a| format!("{a:.0}°")),
+            c.amplitude_deg.map_or("-".into(), |a| {
+                format!("{}°", fixed_text(a, base_digits::AMPLITUDE))
+            }),
             c.beat_error_ms
-                .map_or("-".into(), |b| format!("{:.2} ms", b.abs())),
+                .map_or("-".into(), |b| {
+                    format!("{} ms", fixed_text(b.abs(), base_digits::BEAT_ERROR))
+                }),
         );
         if c.rate_s_per_day.is_none() {
             println!(
-                "             {:.0} s measured after the {:.0} s settle: no readings from so short a stretch.",
-                (c.to_s - c.from_s).max(0.0),
-                c.from_s
+                "             {} s measured after the {} s settle: no readings from so short a stretch.",
+                fixed_text((c.to_s - c.from_s).max(0.0), 0),
+                fixed_text(c.from_s, 0)
             );
         }
     }
@@ -1068,10 +1077,10 @@ fn say_recording(o: &Options, pos: Position, label: &str, dir: &Path) {
         );
     } else {
         eprintln!(
-            "recording {} ({}) for {:.0} s from '{}' into {}; keep the watch still until it says done",
+            "recording {} ({}) for {} s from '{}' into {}; keep the watch still until it says done",
             pos.common(),
             pos.description(),
-            o.seconds,
+            fixed_text(o.seconds, 0),
             label,
             dir.display()
         );
@@ -1088,7 +1097,8 @@ fn say_break(lost: &breaks::Live) {
         ),
         breaks::Live::Break(gap) => {
             eprintln!(
-                "  the sound stopped for {gap:.1} s (the computer slept?); left out as a break"
+                "  the sound stopped for {} s (the computer slept?); left out as a break",
+                fixed_text(gap, 1)
             );
         }
         breaks::Live::Glitch => {
