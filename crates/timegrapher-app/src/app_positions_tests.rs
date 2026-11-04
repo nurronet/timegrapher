@@ -550,6 +550,7 @@ fn a_ready_test_finds_the_picked_watchs_full_wind() {
             rate_s_per_day: Some(4.0),
             amplitude_deg: Some(290.0),
             beat_error_ms: Some(0.3),
+            beat_error_source: Some(timegrapher_core::session::BeatErrorSource::Unlock),
         }],
     };
     std::fs::write(take.join(guided::RESULTS_FILE), full.to_json()).unwrap();
@@ -637,6 +638,7 @@ fn a_ready_tests_full_wind_search_sees_the_time_and_the_takes() {
             rate_s_per_day: Some(4.0),
             amplitude_deg: Some(290.0),
             beat_error_ms: Some(0.3),
+            beat_error_source: Some(timegrapher_core::session::BeatErrorSource::Unlock),
         }],
     };
     std::fs::write(take.join(guided::RESULTS_FILE), full.to_json()).unwrap();

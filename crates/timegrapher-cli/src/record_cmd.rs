@@ -590,8 +590,8 @@ struct Feed {
     live: LiveAnalyzer,
     /// The strip's anchor, set once from the first beats as the app does.
     anchor: Option<Anchor>,
-    /// Time, rate, amplitude and beat error from the unlock, once a second.
-    trend: Vec<[Option<f64>; 4]>,
+    /// Time, rate, amplitude, chosen beat error and its source, once a second.
+    trend: Vec<([Option<f64>; 4], Option<session::BeatErrorSource>)>,
     next_s: f64,
 }
 
@@ -637,12 +637,15 @@ impl Feed {
             }
         }
         if r.beats_used > 0 {
-            self.trend.push([
-                Some(t),
-                r.rate_s_per_day,
-                r.amplitude_deg,
-                session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
-            ]);
+            self.trend.push((
+                [
+                    Some(t),
+                    r.rate_s_per_day,
+                    r.amplitude_deg,
+                    session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
+                ],
+                r.beat_error_source,
+            ));
             if self.trend.len() > MAX_TREND {
                 // Every other point of the older half goes.
                 let half = self.trend.len() / 2;
@@ -663,7 +666,7 @@ impl Feed {
                 .collect(),
             _ => Vec::new(),
         };
-        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p[i]).collect() };
+        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p.0[i]).collect() };
         let doc = json!({
             "schema": "timegrapher.live/1",
             "position": self.position,
@@ -674,7 +677,8 @@ impl Feed {
             "beats_heard": beats.len(),
             "reading": r,
             "strip": { "span_s": STRIP_S, "period_s": period, "beats": strip },
-            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3) },
+            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3),
+                "beat_error_source": self.trend.iter().map(|p| p.1).collect::<Vec<_>>() },
         });
         let tmp = self.path.with_extension("tmp");
         if fs::write(&tmp, doc.to_string()).is_ok() {
@@ -1089,6 +1093,73 @@ fn say_break(lost: &breaks::Live) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
+        use session::BeatErrorSource::{Drop, Unlock};
+        use timegrapher_core::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-live-sources-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("live.json");
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: None,
+        };
+        let mut feed = Feed::new(&path, Position::CH, 20.0, 48000, &set);
+        let sound = generate(
+            &SynthConfig {
+                duration_s: 20.0,
+                ..Default::default()
+            },
+            |_| 270.0,
+            |_| 0.0,
+        );
+        for chunk in sound.samples.chunks(4800) {
+            feed.live.push(chunk);
+        }
+        feed.trend = (0..MAX_TREND)
+            .map(|i| {
+                let (value, source) = if i % 2 == 0 {
+                    (0.2, Unlock)
+                } else {
+                    (0.8, Drop)
+                };
+                (
+                    [Some(i as f64 / 100.0), None, None, Some(value)],
+                    Some(source),
+                )
+            })
+            .collect();
+        feed.finish();
+        let doc: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let trend = &doc["trend"];
+        let times = trend["t_s"].as_array().unwrap();
+        let sources = trend["beat_error_source"].as_array().unwrap();
+        let values = trend["beat_error"].as_array().unwrap();
+        assert!(times.len() < MAX_TREND);
+        assert_eq!(times.len(), sources.len());
+        assert_eq!(times.len(), values.len());
+        for i in 0..times.len() - 1 {
+            let original = (times[i].as_f64().unwrap() * 100.0).round() as usize;
+            let (value, source) = if original.is_multiple_of(2) {
+                (0.2, "unlock")
+            } else {
+                (0.8, "drop")
+            };
+            assert_eq!(sources[i], source);
+            assert_eq!(values[i], value);
+        }
+        assert!(doc["reading"]["beat_error_source"].is_string());
+        assert_eq!(
+            sources.last().unwrap(),
+            &doc["reading"]["beat_error_source"]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
 
     /// The take in `dir` checked as `record` checks the take it saved:
     /// listed in its own session file, here with no clock log.

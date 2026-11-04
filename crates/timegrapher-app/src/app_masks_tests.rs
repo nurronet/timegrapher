@@ -477,6 +477,7 @@ fn results_loaded_from_a_file_stay_while_the_test_waits() {
             rate_s_per_day: Some(4.0),
             amplitude_deg: None,
             beat_error_ms: None,
+            beat_error_source: None,
         }],
     };
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
@@ -548,6 +549,7 @@ fn full_wind_results_load_and_the_next_test_is_set_against_them() {
                 rate_s_per_day: Some(4.0),
                 amplitude_deg: Some(290.0),
                 beat_error_ms: Some(0.3),
+                beat_error_source: Some(timegrapher_core::session::BeatErrorSource::Unlock),
             })
             .collect(),
     };
