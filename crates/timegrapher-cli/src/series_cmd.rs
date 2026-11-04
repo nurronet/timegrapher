@@ -200,34 +200,55 @@ fn strip_points(doc: &mut serde_json::Value, keep_overall: bool) {
     }
 }
 
-/// The isochronism walk in one line: its points at the default width and
-/// where it starts and ends; every 5 min point is in the JSON's `walk`.
+/// The isochronism walk in one line: what it is, its points at the
+/// default width, where it starts and ends, and how far the rate and the
+/// amplitude range between; every 5 min point is in the JSON's `walk`.
 fn walk_line(w: &timegrapher_core::walk::IsochronismWalk) -> String {
-    use timegrapher_core::walk::{default_merge, merged};
+    use timegrapher_core::figure_text::{base_digits, fixed_text, signed_text};
+    use timegrapher_core::walk::{default_merge, merged, WalkPoint};
     let m = merged(w, default_merge(w));
-    let at = |p: &timegrapher_core::walk::WalkPoint| {
+    let (Some(a), Some(b)) = (m.points.first(), m.points.last()) else {
+        return String::new();
+    };
+    let deg = |x: f64| format!("{}°", fixed_text(x, base_digits::AMPLITUDE));
+    let sd = |x: f64| format!("{} s/d", signed_text(x, base_digits::RATE));
+    let at = |p: &WalkPoint| {
         format!(
-            "{:.0}° at {:+.1} s/d ({:.1} h)",
-            p.amplitude_deg, p.rate_s_per_day, p.wind_h
+            "{} and {} at {}",
+            deg(p.amplitude_deg),
+            sd(p.rate_s_per_day),
+            crate::long::duration(p.t_s)
         )
     };
-    let finer = (m.points.len() < w.points.len()).then(|| {
+    let span = |f: fn(&WalkPoint) -> f64| {
+        let v = m.points.iter().map(f);
+        (
+            v.clone().fold(f64::INFINITY, f64::min),
+            v.fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let (r0, r1) = span(|p| p.rate_s_per_day);
+    let (a0, a1) = span(|p| p.amplitude_deg);
+    let finer = if m.points.len() < w.points.len() {
         format!(
             "; one per {} in the JSON's walk",
             crate::long::duration(w.bin_s)
         )
-    });
-    match (m.points.first(), m.points.last()) {
-        (Some(a), Some(b)) => format!(
-            "Walk         {} points, one per {}, from {} to {}{}",
-            m.points.len(),
-            crate::long::duration(m.bin_s),
-            at(a),
-            at(b),
-            finer.unwrap_or_default()
-        ),
-        _ => String::new(),
-    }
+    } else {
+        String::new()
+    };
+    format!(
+        "Walk         The rate against the amplitude in time order, one point per {} ({} points{finer}). \
+         It starts at {} and ends at {}; between, the rate runs {} to {} and the amplitude {} to {}.",
+        crate::long::duration(m.bin_s),
+        m.points.len(),
+        at(a),
+        at(b),
+        sd(r0),
+        sd(r1),
+        deg(a0),
+        deg(a1)
+    )
 }
 
 fn print_text(r: &Report, calibrated: bool) {
@@ -503,6 +524,59 @@ fn add_scales(maps: &mut serde_json::Value, tf: &[timegrapher_core::timefreq::Ti
 )]
 mod tests {
     use super::*;
+
+    fn walk_of(points: &[(f64, f64, f64)]) -> timegrapher_core::walk::IsochronismWalk {
+        timegrapher_core::walk::IsochronismWalk {
+            bin_s: 300.0,
+            points: points
+                .iter()
+                .map(|&(t_s, rate, amp)| timegrapher_core::walk::WalkPoint {
+                    t_s,
+                    wind_h: t_s / 3600.0,
+                    rate_s_per_day: rate,
+                    amplitude_deg: amp,
+                    readings: 30,
+                })
+                .collect(),
+        }
+    }
+
+    /// The walk line says what the walk is, gives each end's time from the
+    /// start, the range between, and the 5 min points' width only when
+    /// it merged them (#741).
+    #[test]
+    fn the_walk_line_says_what_it_is_its_ends_and_its_range() {
+        let w = walk_of(&[
+            (150.0, 43.2, 240.0),
+            (450.0, 17.0, 235.0),
+            (750.0, 50.8, 243.0),
+            (1050.0, 30.0, 238.0),
+            (1350.0, 35.0, 239.0),
+            (1645.0, 40.8, 240.0),
+        ]);
+        assert_eq!(
+            walk_line(&w),
+            "Walk         The rate against the amplitude in time order, one point per 5:00 (6 points). \
+             It starts at 240° and +43.2 s/d at 2:30 and ends at 240° and +40.8 s/d at 27:25; \
+             between, the rate runs +17.0 s/d to +50.8 s/d and the amplitude 235° to 243°."
+        );
+        let long: Vec<(f64, f64, f64)> = (0..300)
+            .map(|i| {
+                (
+                    150.0 + 300.0 * i as f64,
+                    0.2 * i as f64,
+                    300.0 - 0.2 * i as f64,
+                )
+            })
+            .collect();
+        assert_eq!(
+            walk_line(&walk_of(&long)),
+            "Walk         The rate against the amplitude in time order, one point per 10:00 (150 points; \
+             one per 5:00 in the JSON's walk). It starts at 300° and +0.1 s/d at 5:00 and ends at 240° \
+             and +59.7 s/d at 24:55:00; between, the rate runs +0.1 s/d to +59.7 s/d and the amplitude \
+             240° to 300°."
+        );
+    }
     use crate::clock_cmd::resolve as resolve_clock;
     use std::fs;
     use timegrapher_core::audio;
