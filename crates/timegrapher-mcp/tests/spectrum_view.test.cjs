@@ -15,7 +15,7 @@ const context = vm.createContext({
   xyChart: (chart) => { context.last = JSON.parse(JSON.stringify(chart)); return "<svg data-test='FFT'></svg>"; },
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
-  ["esc", "spectrumOf", "steadyNote", "steadyPlot"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
+  ["esc", "spectrumOf", "steadyNote", "steadyPlot", "mapNumber"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
 function render(support, timing = true) {
   context.fftTiming = timing;
   const sp = { series: "rate", unit: "ms", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2],
@@ -69,4 +69,24 @@ test("the Periods label sits on its line's top, not a thinned slice's low point"
   assert.equal(mark(98).x, Math.log10(98));
   // Nothing drawn within 3.5%: the nearest drawn point, 90 s.
   assert.equal(mark(50).y, 1);
+});
+
+test("tiny FFT peaks keep their size in timing and rate units", () => {
+  for (const timing of [true, false]) {
+    context.fftTiming = timing;
+    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [0.0001, 0.00042],
+      reading_swing: { period_s: [128, 64], swing_s_per_day: [0.0001, 0.00042] } };
+    context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
+    assert.ok(context.last.beside[0].text.endsWith(
+      timing ? ": 0.00042 ms" : ": 0.00042 s/d peak to peak"), context.last.beside[0].text);
+  }
+});
+
+test("FFT labels at the existing size boundaries stay unchanged", () => {
+  context.fftTiming = true;
+  for (const [peak, text] of [[10, "10"], [1, "1.0"], [0.1, "0.10"], [0.001, "0.001"]]) {
+    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [peak / 2, peak] };
+    context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
+    assert.ok(context.last.beside[0].text.endsWith(": " + text + " ms"), context.last.beside[0].text);
+  }
 });
