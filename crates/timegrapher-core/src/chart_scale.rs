@@ -28,7 +28,8 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
         return None;
     }
     v.sort_by(f64::total_cmp);
-    let q = |v: &[f64], f: f64| v[((v.len() - 1) as f64 * f).round() as usize];
+    // Core's one quantile rule (#512), not a nearest rank of its own.
+    let q = crate::dsp::quantile;
     let (q1, q3) = (q(&v, 0.25), q(&v, 0.75));
     let fence = 3.0 * (q3 - q1);
     let kept: Vec<f64> = v
@@ -169,6 +170,16 @@ mod tests {
             let (x, step) = (c["x"].as_f64().unwrap(), c["step"].as_f64().unwrap());
             assert!((round_step(x) - step).abs() < step * 1e-9, "{x}");
         }
+    }
+
+    #[test]
+    fn a_spread_reads_its_quartiles_and_ends_by_cores_one_quantile() {
+        // Interpolated (type 7), as dsp::quantile reads them: the 99th
+        // percentile of 0, 1, 2, 10 is 9.76, not the nearest rank's 10.
+        let (lo, hi) = spread(&[10.0, 0.0, 2.0, 1.0]).unwrap();
+        let pad = (9.76 - 0.03) * 0.12;
+        assert!((lo - (0.03 - pad)).abs() < 1e-9, "{lo}");
+        assert!((hi - (9.76 + pad)).abs() < 1e-9, "{hi}");
     }
 
     #[test]
