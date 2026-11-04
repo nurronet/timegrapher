@@ -24,6 +24,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use timegrapher_core::figure_text::{figure, figure_with_pm};
 use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::stream::StreamConfig;
 use timegrapher_core::synth::{self, SynthConfig};
@@ -1550,11 +1551,13 @@ fn print_summary(
         opt(s.rate_p95, 1)
     );
     println!(
-        "Amplitude    {}{} deg (Tick {}, Tock {}; lift angle {} deg)",
-        opt(s.amplitude_deg, 0),
-        s.amplitude_se_deg
-            .and_then(|e| timegrapher_core::library::pm_text(e, 0))
-            .map_or(String::new(), |t| format!(" ± {t}")),
+        "Amplitude    {} deg (Tick {}, Tock {}; lift angle {} deg)",
+        s.amplitude_deg.map_or("-".into(), |a| figure_with_pm(
+            a,
+            s.amplitude_se_deg,
+            base_digits::AMPLITUDE,
+            false
+        )),
         opt(s.amplitude_even_deg, 0),
         opt(s.amplitude_odd_deg, 0),
         s.lift_deg
@@ -1564,41 +1567,41 @@ fn print_summary(
 }
 
 /// The rate, corrected for the card's clock where it can be, and the beat
-/// error, each with its ±.
+/// error, each with its ± and to the decimals the ± calls for (core's
+/// `figure_with_pm`: decimals follow the ±, #510 K3). The rate on the
+/// card's clock and the beat error from the drop take the same decimals
+/// as the figure beside them.
 fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, String)>) {
-    let se = |r: Option<&timegrapher_core::confidence::Reading>, unit: &str, d: usize| {
-        r.and_then(|r| r.se)
-            .and_then(|e| timegrapher_core::library::pm_text(e, d))
-            .map_or(String::new(), |t| format!(" ± {t}{unit}"))
-    };
     let c = s.confidence.as_ref();
     if let Some(f) = &s.overall {
-        let pm = se(c.map(|c| &c.rate), "", 1);
+        let rate_se = c.and_then(|c| c.rate.se);
         match clock {
             Some((ppm, from)) => println!(
-                "Rate         {}{pm} s/d, corrected for the sound card's clock ({} ppm {}, {from}); {} s/d on the card's clock",
-                signed_text(
+                "Rate         {} s/d, corrected for the sound card's clock ({} ppm {}, {from}); {} s/d on the card's clock",
+                figure_with_pm(
                     timegrapher_core::clockstore::correct_rate(f.rate_s_per_day, *ppm),
-                    base_digits::RATE
+                    rate_se,
+                    base_digits::RATE,
+                    true
                 ),
                 fixed_text(ppm.abs(), base_digits::CLOCK),
                 if *ppm >= 0.0 { "slow" } else { "fast" },
-                signed_text(f.rate_s_per_day, base_digits::RATE)
+                figure(f.rate_s_per_day, rate_se, base_digits::RATE, true)
             ),
             None => println!(
-                "Rate         {}{pm} s/d",
-                signed_text(f.rate_s_per_day, base_digits::RATE)
+                "Rate         {} s/d",
+                figure_with_pm(f.rate_s_per_day, rate_se, base_digits::RATE, true)
             ),
         }
         // The ± is the unlock figure's.
         let be_se = c
             .and_then(|c| c.beat_error.se)
-            .and_then(|e| timegrapher_core::library::pm_text(e, 2));
+            .filter(|e| e.is_finite() && *e > 0.0);
         match (s.beat_error_unlock_ms, be_se) {
-            (Some(u), Some(e)) => println!(
-                "Beat error   {} ± {e} ms (from the unlock; {} ms from the drop)",
-                fixed_text(u.abs(), base_digits::BEAT_ERROR),
-                fixed_text(f.beat_error_ms.abs(), base_digits::BEAT_ERROR)
+            (Some(u), Some(_)) => println!(
+                "Beat error   {} ms (from the unlock; {} ms from the drop)",
+                figure_with_pm(u.abs(), be_se, base_digits::BEAT_ERROR, false),
+                figure(f.beat_error_ms.abs(), be_se, base_digits::BEAT_ERROR, false)
             ),
             _ => println!(
                 "Beat error   {}",
