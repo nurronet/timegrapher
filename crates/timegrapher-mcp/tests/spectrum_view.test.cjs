@@ -13,7 +13,10 @@ function definition(name, optional = false) {
 // The Periods plot's words, as the server puts them in from core steady_views.rs.
 const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
 const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
-const SCORE_WORDS = { axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"), threshold_hover: coreStr("THRESHOLD_HOVER") };
+// The threshold's hover is core's threshold_hover at the default 1 in 100;
+// views.rs's test checks the page carries it.
+const SCORE_WORDS = { axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"),
+  threshold_hover: viewsRs.match(/pub fn threshold_hover[\s\S]*?format!\("([^"]*)"\)/)[1].replace("{chance}", "1 in 100") };
 const context = vm.createContext({
   SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 in 10 (${lo}..${hi})`]],
   fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], wheelTitle: String,

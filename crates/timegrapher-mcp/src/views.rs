@@ -78,7 +78,7 @@ fn score_words() -> String {
     json!({
         "axis_hover": v::SCORE_AXIS_HOVER,
         "threshold_name": v::THRESHOLD_NAME,
-        "threshold_hover": v::THRESHOLD_HOVER,
+        "threshold_hover": v::threshold_hover(timegrapher_core::longterm::LongConfig::default().false_alarm),
     })
     .to_string()
 }
@@ -930,7 +930,9 @@ mod tests {
         let hover = timegrapher_core::steady_views::reference_hover("1 min");
         assert!(page.contains(&format!("\"1 min\":\"{hover}\"")));
         assert!(!page.contains("/*SCORE_WORDS*/"));
-        assert!(page.contains(timegrapher_core::steady_views::THRESHOLD_HOVER));
+        let false_alarm = timegrapher_core::longterm::LongConfig::default().false_alarm;
+        let hover = timegrapher_core::steady_views::threshold_hover(false_alarm);
+        assert!(page.contains(&hover));
         assert!(!page.contains("/*MARK_ROOM_PX*/"));
         let room = timegrapher_core::period_ticks::MARK_ROOM_PX;
         assert!(page.contains(&format!("const MARK_ROOM_PX = {room};")));

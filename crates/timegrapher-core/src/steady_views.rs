@@ -337,8 +337,12 @@ pub const SCORE_AXIS_HOVER: &str = "Chance that noise alone makes a peak this ta
 /// ([`Search::threshold`]), beside the plot.
 pub const THRESHOLD_NAME: &str = "Threshold";
 /// That line's hover: with the trials correction in it, noise alone puts a
-/// peak above it somewhere in the whole search 1 time in 100.
-pub const THRESHOLD_HOVER: &str = "Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about 1 in 100 times.";
+/// peak above it somewhere in the whole search with the search's chance of
+/// a false alarm ([`LongConfig::false_alarm`], 1 in 100 by default).
+pub fn threshold_hover(false_alarm: f64) -> String {
+    let chance = chance_label(-false_alarm.log10());
+    format!("Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about {chance} times.")
+}
 
 /// A whole score as the chance it stands for: 1 in 10 to the score, with
 /// thousands separators up to a million ("1 in 1,000") and as a power of
@@ -543,6 +547,11 @@ mod tests {
         assert_eq!(super::chance_label(3.0), "1 in 1,000");
         assert_eq!(super::chance_label(6.0), "1 in 1,000,000");
         assert_eq!(super::chance_label(12.0), "1 in 10¹²");
+        assert_eq!(
+            super::threshold_hover(super::LongConfig::default().false_alarm),
+            "Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about 1 in 100 times."
+        );
+        assert!(super::threshold_hover(0.001).contains("about 1 in 1,000 times"));
     }
 
     #[test]
