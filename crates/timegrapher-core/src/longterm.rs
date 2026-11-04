@@ -272,6 +272,8 @@ struct Spectrum {
     /// Zero-padding factor: `pad` bins per independent frequency.
     pad: usize,
     white: Vec<f64>,
+    /// The lag-one ρ of the AR(1) noise it was whitened by.
+    rho: f64,
 }
 
 fn spectrum(g: &Grid, detrend_w: Option<f64>) -> Spectrum {
@@ -349,7 +351,12 @@ fn spectrum(g: &Grid, detrend_w: Option<f64>) -> Spectrum {
         };
         *w = flat[j] / level.max(1e-300);
     }
-    Spectrum { df, pad, white }
+    Spectrum {
+        df,
+        pad,
+        white,
+        rho,
+    }
 }
 
 /// The period search: false-alarm score of every trial period.
@@ -363,6 +370,9 @@ pub struct Search {
     pub harmonics: Vec<u8>,
     /// Score a period needs to be reported (includes the trials correction).
     pub threshold: f64,
+    /// The lag-one ρ the spectrum was whitened by.
+    #[serde(skip)]
+    pub rho: f64,
     /// Spectrum index of the first trial period.
     #[serde(skip)]
     first_j: usize,
@@ -414,6 +424,7 @@ fn search(
         score: Vec::new(),
         harmonics: Vec::new(),
         threshold: 0.0,
+        rho: sp.rho,
         first_j: jmin,
     };
     for j in jmin..=jmax.min(sp.white.len() - 1) {
@@ -927,9 +938,33 @@ impl Search {
             score: Vec::new(),
             harmonics: Vec::new(),
             threshold: 0.0,
+            rho: 0.0,
             first_j: 0,
         }
     }
+}
+
+/// Stretches shorter than this get [`period_may_be_noise`].
+pub const NOISE_CAVEAT_SPAN_S: f64 = 7200.0;
+/// Lag-one ρ from which [`period_may_be_noise`] is given.
+pub const NOISE_CAVEAT_RHO: f64 = 0.7;
+
+/// The caveat on a cycle the search named in `r`, an amplitude or beat
+/// error series, when the stretch is shorter than 2 h and the ρ the search
+/// whitened by is 0.7 or more. There a slow wander under white
+/// measurement noise is not the AR(1) the search divides out. On seeded
+/// 30 min nulls of 2 s windows (400 seeds a cell), a wander of φ 0.98 per
+/// window under white noise named a cycle in 9 to 10% of takes (lag one
+/// 0.5 to 0.8; 9.2% at sd 1.5° wander and 1.06° white), φ 0.95 in 7 to 8%,
+/// against 3 to 3.5% on white and AR(1) noise; at 2 h and longer, 5% or
+/// under; the whole pane named something in 9 to 13% at ρ 0.7 to 0.9
+/// (#916). The rate's searches were within bounds, so its series takes
+/// none. No figure, score or threshold changes.
+pub fn period_may_be_noise(r: &SeriesReport) -> Option<crate::measure::Caveat> {
+    let span_s = r.grid.span();
+    let rho = r.search.rho;
+    (!r.components.is_empty() && span_s < NOISE_CAVEAT_SPAN_S && rho >= NOISE_CAVEAT_RHO)
+        .then_some(crate::measure::Caveat::PeriodMayBeNoise { rho, span_s })
 }
 
 /// The rate (s/d) at a bin of timing offsets (seconds) `dt` apart: minus
@@ -1501,5 +1536,73 @@ mod tests {
                 "{period} s in {span} s: {found} of 100 (floor {at_least})"
             );
         }
+    }
+
+    /// A slow wander (φ 0.98 a 2 s window) under white measurement noise,
+    /// lag one 0.8, the amplitude windows #916 found the search misreads.
+    fn wander_under_white(n: usize, seed: u64) -> Vec<f64> {
+        let (phi, s) = (0.98f64, 0.8 / 0.98);
+        let mut z = Rng::new(seed);
+        let innov = (s * (1.0 - phi * phi)).sqrt();
+        let mut x = s.sqrt() * z.normal();
+        (0..n)
+            .map(|_| {
+                x = phi * x + innov * z.normal();
+                x + (1.0 - s).sqrt() * z.normal()
+            })
+            .collect()
+    }
+
+    /// A cycle the search names in 30 min of that noise alone carries the
+    /// caveat (#916); the same noise over 8 h, with a cycle there that it
+    /// names, does not: the caveat is for stretches under 2 h. Nor does a
+    /// cycle named in 30 min of white noise, read at a low ρ.
+    #[test]
+    fn a_cycle_named_in_short_correlated_noise_may_be_noise() {
+        let g = Grid {
+            t0: 0.0,
+            step: 2.0,
+            y: wander_under_white(900, 7),
+        };
+        let r = analyse(&g, &LongConfig::default());
+        assert!(!r.components.is_empty(), "seed 7 names a cycle in noise");
+        match period_may_be_noise(&r) {
+            Some(crate::measure::Caveat::PeriodMayBeNoise { rho, span_s }) => {
+                assert!(rho >= NOISE_CAVEAT_RHO && rho == r.search.rho, "{rho}");
+                assert_eq!(span_s, g.span());
+            }
+            other => panic!("{other:?}"),
+        }
+        let tau = std::f64::consts::TAU;
+        let y = wander_under_white(14_400, 7)
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| v + 0.5 * (tau * i as f64 * 2.0 / 300.0).sin())
+            .collect();
+        let r = analyse(
+            &Grid {
+                t0: 0.0,
+                step: 2.0,
+                y,
+            },
+            &LongConfig::default(),
+        );
+        assert!(!r.components.is_empty() && r.search.rho >= NOISE_CAVEAT_RHO);
+        assert_eq!(period_may_be_noise(&r), None);
+        // A cycle named in 30 min of white noise, whose ρ is low: none.
+        let mut z = Rng::new(7);
+        let y = (0..900)
+            .map(|i| z.normal() + 0.5 * (tau * i as f64 * 2.0 / 300.0).sin())
+            .collect();
+        let r = analyse(
+            &Grid {
+                t0: 0.0,
+                step: 2.0,
+                y,
+            },
+            &LongConfig::default(),
+        );
+        assert!(!r.components.is_empty() && r.search.rho < NOISE_CAVEAT_RHO);
+        assert_eq!(period_may_be_noise(&r), None);
     }
 }

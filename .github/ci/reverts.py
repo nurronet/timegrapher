@@ -13,7 +13,8 @@ replaced that version would be lost.
 A deliberate revert passes when the PR body names it with a line such as
 `Reverts #838`. The files are still listed, so the reviewer sees them.
 GitHub does not re-run CI when only the body is edited: re-run the job after
-adding the line.
+adding the line. CI reads the body live from the API for this, because a
+re-run reuses the original event and its old body.
 
 Needs main's full history (checkout fetch-depth 0). If git fails, this exits
 with an error and the job fails.

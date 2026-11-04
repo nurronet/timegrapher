@@ -77,7 +77,7 @@ fn parse_args() -> Result<Args, String> {
         headless: false,
         devices: false,
         bph: None,
-        lift: 52.0,
+        lift: timegrapher_core::take::DEFAULT_LIFT_DEG,
         average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
         every_s: 10.0,
     };

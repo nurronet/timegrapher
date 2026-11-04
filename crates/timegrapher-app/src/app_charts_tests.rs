@@ -183,3 +183,87 @@ fn a_distributions_axis_labels_stay_apart() {
         }
     }
 }
+
+/// A chart's scale fits its lines on its own, so neither Ctrl and the
+/// wheel (a zoom) nor a drag up or down moves it: they would only be put
+/// back, and the chart jittered.
+#[test]
+fn a_charts_scale_neither_zooms_nor_pans() {
+    let mut app = synthetic(60.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let mut out = pass(&mut app, Vec::new());
+    for _ in 0..3 {
+        out = pass(&mut app, Vec::new());
+    }
+    // The pointer in the Rate chart, right of a scale label.
+    let label = out
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "20.00 s/d" => Some(t.pos),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    let at = label + Vec2::new(300.0, 0.0);
+    // The scale's labels in the frames after `events`: the same in each,
+    // so nothing jitters.
+    let settle = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let mut text = painted_text(&pass(app, events));
+        let mut each = Vec::new();
+        for _ in 0..3 {
+            each.push(text);
+            text = painted_text(&pass(app, vec![egui::Event::PointerMoved(at)]));
+        }
+        each.push(text.clone());
+        let labels = |t: &str| -> Vec<String> {
+            t.lines()
+                .filter(|l| l.ends_with(" s/d"))
+                .map(String::from)
+                .collect()
+        };
+        assert!(
+            each.iter().all(|t| labels(t) == labels(&text)),
+            "the scale moved and came back"
+        );
+        let scale: Vec<String> = text
+            .lines()
+            .filter(|l| l.ends_with(" s/d"))
+            .map(String::from)
+            .collect();
+        assert!(scale.len() > 2, "{text}");
+        scale
+    };
+    let before = settle(&mut app, vec![egui::Event::PointerMoved(at)]);
+    let zoomed = settle(&mut app, vec![egui::Event::Zoom(2.0)]);
+    assert_eq!(zoomed, before, "Ctrl and the wheel left the scale");
+    let press = |pressed, pos| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let below = at + Vec2::new(0.0, 80.0);
+    pass(&mut app, vec![press(true, at)]);
+    for k in 1..=8 {
+        let p = at + Vec2::new(0.0, 10.0 * k as f32);
+        pass(&mut app, vec![egui::Event::PointerMoved(p)]);
+    }
+    pass(&mut app, vec![press(false, below)]);
+    let dragged = settle(&mut app, Vec::new());
+    assert_eq!(dragged, before, "a drag up or down left the scale");
+}
