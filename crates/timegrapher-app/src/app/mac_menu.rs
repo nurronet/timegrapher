@@ -34,6 +34,48 @@ pub(crate) fn want() {
             setAllowsAutomaticWindowTabbing: false
         ];
     }
+    // The app puts nothing on a Touch Bar. Left on, AppKit's Touch Bar
+    // finder watches the window's views and, once the window has gone
+    // at quit, stops watching one it no longer holds and aborts (#1071).
+    let key = objc2_foundation::NSString::from_str("NSFunctionBarAPIEnabled");
+    // SAFETY: NSUserDefaults' shared defaults, and setBool:forKey: with
+    // a BOOL and an NSString, on the main thread before NSApplication
+    // starts.
+    unsafe {
+        let defaults: *mut objc2::runtime::AnyObject =
+            objc2::msg_send![objc2::class!(NSUserDefaults), standardUserDefaults];
+        if !defaults.is_null() {
+            let _: () = objc2::msg_send![defaults, setBool: false, forKey: &*key];
+        }
+    }
+}
+
+/// Before the window goes at quit: each window's first responder is
+/// the window itself, so nothing AppKit watches in its views (the Touch
+/// Bar's finder) is left watching a view about to go (#1071).
+pub(crate) fn before_close() {
+    if !WANTED.load(Ordering::Relaxed) {
+        return;
+    }
+    // SAFETY: NSApplication's shared instance and its key and main
+    // windows, each nil or a live NSWindow, and makeFirstResponder: with
+    // nil, which makes the window its own first responder; on the main
+    // thread, where eframe calls `on_exit`.
+    unsafe {
+        let app: *mut objc2::runtime::AnyObject =
+            objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            return;
+        }
+        let key: *mut objc2::runtime::AnyObject = objc2::msg_send![app, keyWindow];
+        let main: *mut objc2::runtime::AnyObject = objc2::msg_send![app, mainWindow];
+        for w in [key, main] {
+            if !w.is_null() {
+                let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
+                let _: bool = objc2::msg_send![w, makeFirstResponder: none];
+            }
+        }
+    }
 }
 
 /// An item that runs a command: plain, or ticked when on.
