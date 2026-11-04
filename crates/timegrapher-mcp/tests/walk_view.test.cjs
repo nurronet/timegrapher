@@ -24,7 +24,7 @@ function definition(name) {
 }
 const constant = (name) => html.match(new RegExp(`^const ${name} = .*$`, "m"))[0];
 const context = vm.createContext({ VIRIDIS, WALK_WORDS, document: { getElementById: () => ({ clientWidth: 624 }) } });
-vm.runInContext(["CHAR_W", "DASH", "MARKS"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
+vm.runInContext(["CHAR_W", "DASH", "MARKS", "NAME_CLEAR"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
   ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "roundStep", "gridFor", "axisLabel", "viridisRgb", "viridisStops",
     "roundAxis", "xyChart", "walkCard"].map(definition).join("\n"), context);
 
@@ -71,6 +71,18 @@ test("the axes carry the strip's short names, the unit under the name", () => {
   // Round ends: both ends of the amplitude a tick, round the 211° to 301° read.
   const ticks = [...out.matchAll(/<text x="[\d.]+" y="[\d.]+" text-anchor="(?:start|middle|end)">(\d+)<\/text>/g)].map((m) => +m[1]);
   assert.ok(ticks.includes(200) && ticks.includes(320), ticks.join());
+});
+
+test("the y axis' name stands clear of a top tick at the plot's top", () => {
+  const out = context.walkCard(walk);
+  const y = (re) => +out.match(re)[1];
+  const unit = y(/<text x="[\d.]+" y="([-\d.]+)" text-anchor="end">\(s\/d\)<\/text>/);
+  const name = y(/<text x="[\d.]+" y="([-\d.]+)" text-anchor="end">Rate<\/text>/);
+  const ticks = [...out.matchAll(/<text x="[\d.]+" y="([-\d.]+)" text-anchor="end">-?[\d.]+<\/text>/g)].map((m) => +m[1]);
+  const top = Math.min(...ticks);
+  assert.ok(top - unit >= 12, `unit at ${unit}, top tick at ${top}`);
+  assert.equal(unit - name, 14);
+  assert.ok(name - 10 >= 0, "the name inside the chart");
 });
 
 test("the key runs from the take's start to the last point, in core's words", () => {

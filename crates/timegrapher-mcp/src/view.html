@@ -895,6 +895,9 @@ function scoreTicks(lo, hi, px, minPx) {
 //   range kept tall enough for it (noteRoom); corner: {text, top}, a line
 //   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined; a dot set's rgb
 //   overrides its color
+// How far a y axis' name sits above its top tick label's baseline, past
+// the label's own height.
+const NAME_CLEAR = 8;
 function xyChart(o) {
   const W = chartWidth(), B = 20, R = 6;
   // With its lines named, a plot keeps the lane's room above it, so it
@@ -905,7 +908,8 @@ function xyChart(o) {
   // room when there is one (the lane's names stay over the plot), else in a
   // row of its own.
   const yNames = o.yName ? String(o.yName).split("\n") : [];
-  const nameRow = yNames.length && !room ? 14 * yNames.length : 0;
+  // The names sit clear of a top tick at the plot's very top (Walter, #1083).
+  const nameRow = yNames.length && !room ? 14 * yNames.length + NAME_CLEAR : 0;
   const H = (o.height || 150) + room + nameRow, T = 4 + room + nameRow;
   const plotH = H - T - B;
   const [x0, x1] = o.x, y0 = o.y[0];
@@ -931,7 +935,8 @@ function xyChart(o) {
     if (t) ylabels += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   // The axis' name, lined up with its tick labels above the top one.
-  yNames.forEach((t, i) => { ylabels += `<text x="${L - 5}" y="${T - 4 - 14 * (yNames.length - 1 - i)}" text-anchor="end">${esc(t)}</text>`; });
+  const nameBase = Math.min(T - 4, ...yt.filter(([, t]) => t).map(([v]) => sy(v) - 4 - NAME_CLEAR));
+  yNames.forEach((t, i) => { ylabels += `<text x="${L - 5}" y="${nameBase - 14 * (yNames.length - 1 - i)}" text-anchor="end">${esc(t)}</text>`; });
   g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
   // The x axis' name in the corner under the y labels, clear of the first x label.
   if (o.xName) g += `<text x="${L - 10}" y="${H - 5}" text-anchor="end">${esc(o.xName)}</text>`;
