@@ -280,11 +280,21 @@ fn running_line(ui: &mut egui::Ui, t: &Test, pauses: Option<&(String, String)>) 
 /// and table. `pauses`: as for [`running_line`].
 fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String, String)>) {
     let pal = theme::pal(ui);
-    let run = power_reserve::run_text(t.results.as_ref().map_or(t.run_so_far_s(), |r| r.run_s));
+    // As core words the run: never a power reserve for a long take.
+    let ran = t.results.as_ref().map_or_else(
+        || format!("Ran {}", power_reserve::run_text(t.run_so_far_s())),
+        Results::ran,
+    );
     let ending = t
         .ending
         .map(|e| format!(" · {}, in {}", e.text(), t.position.label()))
         .unwrap_or_default();
+    // Read from a long take, not a test: said where it came from.
+    let source = t
+        .results
+        .as_ref()
+        .and_then(|r| r.source.text())
+        .map_or_else(String::new, |w| format!(" · {w}"));
     let kept = if t.saving {
         " · Saving the take…".to_string()
     } else if t.saved.is_some() {
@@ -315,7 +325,7 @@ fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String,
     ui.add(
         egui::Label::new(
             RichText::new(format!(
-                "Ran {run}{ending}{kept}.{}",
+                "{ran}{ending}{source}{kept}.{}",
                 pauses.map_or("", |p| p.0.as_str())
             ))
             .color(pal.text),
@@ -590,10 +600,15 @@ pub fn results_text(r: &Results, watch: &str, sep: char) -> String {
             + "\n"
     };
     out += &line(&["Watch".into(), watch.into()]);
-    out += &line(&["Started (UTC)".into(), r.started_utc.clone()]);
+    if !r.started_utc.is_empty() {
+        out += &line(&["Started (UTC)".into(), r.started_utc.clone()]);
+    }
     out += &line(&["Position".into(), r.position.clone()]);
-    out += &line(&["Power reserve".into(), power_reserve::run_text(r.run_s)]);
+    out += &line(&[r.run_label().into(), r.run_words()]);
     out += &line(&["Ended".into(), r.ending.text()]);
+    if let Some(w) = r.source.text() {
+        out += &line(&["Read from".into(), w.into()]);
+    }
     out += "\n";
     out += &line(&[
         "Hour".into(),
