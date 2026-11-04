@@ -86,6 +86,13 @@ pub enum Live {
     /// queue full ([`crate::capture::Event::Lost`]): a break as
     /// [`Live::Break`] is, however short, told apart only to say why.
     Dropped(f64),
+    /// The input glitched here ([`crate::capture::Event::Glitch`]): a
+    /// buffer underrun or overrun, after which it carried on. A moment of
+    /// sound may be missing, of a length not known, so it is a break of no
+    /// time lost: the sound either side is never read across. A loss of
+    /// [`MIN_GAP_S`] or more still shows in the offset after it and is
+    /// found as a [`Live::Break`] (#1046).
+    Glitch,
     /// The end of sound culled after a [`Live::Break`]: a break with no
     /// time lost. The blocks between the two came late, all together,
     /// after the gap (an input waking from a suspend brings the sound it
@@ -101,7 +108,7 @@ impl Live {
     pub fn lost_s(&self) -> f64 {
         match self {
             Live::Break(gap) | Live::Dropped(gap) => *gap,
-            Live::Block(_) | Live::Cut => 0.0,
+            Live::Block(_) | Live::Cut | Live::Glitch => 0.0,
         }
     }
 }
@@ -121,6 +128,10 @@ pub fn lost_text(gap_s: f64) -> String {
         crate::library::length_text(gap_s)
     }
 }
+
+/// What the app and `record` both say at a [`Live::Glitch`].
+pub const GLITCH_TEXT: &str = "The input glitched (a buffer underrun or overrun) and may have \
+     lost a moment of sound. It is left out as a break, and listening carries on.";
 
 /// Audio seconds after a rise in a live input's offset that are held back
 /// before judging it, or the rise itself when it is shorter: longer than
@@ -152,6 +163,9 @@ pub struct GapWatch {
     /// Blocks held back after a rise, with their offsets and the audio
     /// seconds by their end.
     held: Vec<(Block, f64, f64)>,
+    /// A [`Live::Glitch`] given back, with no block since: another before
+    /// the next block is the same moment, not a second break.
+    glitched: bool,
 }
 
 impl GapWatch {
@@ -161,11 +175,13 @@ impl GapWatch {
             frames: 0,
             line: None,
             held: Vec::new(),
+            glitched: false,
         }
     }
 
     /// Take the next block; give back what can be let through now.
     pub fn push(&mut self, b: Block) -> Vec<Live> {
+        self.glitched = false;
         self.frames += b.samples.len() as u64;
         let end_s = self.frames as f64 / self.rate;
         let at =
@@ -188,6 +204,21 @@ impl GapWatch {
             out.push(Live::Dropped(frames as f64 / self.rate));
             // The recorder logs the first block after a break.
             self.line = None;
+        }
+        out
+    }
+
+    /// The input glitched here ([`crate::capture::Event::Glitch`]): what
+    /// was held back is let through, then [`Live::Glitch`], so the sound
+    /// either side is never spliced. Its loss isn't known: the frames
+    /// counted stay as they are, and a step of [`MIN_GAP_S`] or more in the
+    /// offset after it is still found as a gap. Glitches with no block
+    /// between are one.
+    pub fn glitch(&mut self) -> Vec<Live> {
+        let mut out = self.finish();
+        if !self.glitched {
+            self.glitched = true;
+            out.push(Live::Glitch);
         }
         out
     }
@@ -675,6 +706,7 @@ mod tests {
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                     Live::Cut => found.push((blocks, -1.0)),
+                    Live::Glitch => panic!("no glitch, but one"),
                 }
             }
             assert_eq!(blocks, 200);
@@ -850,6 +882,7 @@ mod tests {
                         Live::Break(g) => found.push((out_at.len(), g)),
                         Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                         Live::Cut => panic!("no backlog, but a cut"),
+                        Live::Glitch => panic!("no glitch, but one"),
                     }
                 }
             }
@@ -924,6 +957,7 @@ mod tests {
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => dropped.push((blocks, g)),
                     Live::Cut => panic!("no backlog, but a cut"),
+                    Live::Glitch => panic!("no glitch, but one"),
                 }
             }
             assert_eq!(blocks, 100);

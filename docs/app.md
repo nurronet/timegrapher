@@ -507,7 +507,11 @@ Keep Awake's caption says so in its place. When the sound's own timestamps jump 
 more than 5 seconds (as when the computer sleeps: a laptop's lid closed,
 Sleep chosen from a menu, or Keep Awake off), the app leaves the jump out
 of the take as a break, keeps listening, and a
-message gives the length of the jump. A shorter hole (a dropout in the
+message gives the length of the jump. When the input reports a glitch (a
+buffer underrun or overrun, after which it carries on), the take is not
+stopped: the moment is left out as a break of no time lost, so no reading
+reaches across it, and a message says so; time lost with it that shows in
+the timestamps is still found as above. A shorter hole (a dropout in the
 sound, or a knock that costs part of a beat) shows in the beats. It is a
 jump when the first beat heard after it is more than a quarter of a beat
 off the count, when it follows a stretch too quiet to follow, or when the

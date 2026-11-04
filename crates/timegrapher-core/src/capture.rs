@@ -84,6 +84,11 @@ pub enum Event {
     /// its blocks for a while. The stretch is gone, so whatever reads on
     /// treats it as a break and never splices the sound either side.
     Lost(u64),
+    /// A live input glitched: its sound card or system reported a buffer
+    /// underrun or overrun (cpal's `Xrun`), so a moment of sound may be
+    /// missing here, of a length not known, and the input carries on.
+    /// Whatever reads on treats it as a break, as [`Event::Lost`] (#1046).
+    Glitch,
     /// A replayed file has reached its end.
     End,
     Error(String),
@@ -98,6 +103,10 @@ pub const QUEUE_BLOCKS: usize = 12_000;
 
 /// Why a reading that can't hold a gap stops at [`Event::Lost`].
 pub const LOST_TEXT: &str = "the input dropped sound because nothing took it in time";
+
+/// Why a reading that can't hold a gap stops at [`Event::Glitch`].
+pub const GLITCH_TEXT: &str =
+    "the input glitched (a buffer underrun or overrun) and may have lost sound";
 
 /// The sending side of a live input's queue. A block that doesn't fit is
 /// dropped and counted, and the count goes as [`Event::Lost`] ahead of the
@@ -800,6 +809,7 @@ mod device {
                 Ok(Event::Error(e)) => return Err(format!("recording failed: {e}")),
                 // One stretch of samples can't hold a gap.
                 Ok(Event::Lost(_)) => return Err(LOST_TEXT.into()),
+                Ok(Event::Glitch) => return Err(GLITCH_TEXT.into()),
                 Ok(Event::End) => break,
                 Err(_) => return Err("the input stopped delivering audio".into()),
             }
@@ -989,6 +999,15 @@ mod device {
         )
     }
 
+    /// What an error from a running input becomes: a glitch (cpal's
+    /// `Xrun`, after which the stream carries on) or a stop.
+    fn event_of(e: &cpal::Error) -> Event {
+        match e.kind() {
+            cpal::ErrorKind::Xrun => Event::Glitch,
+            _ => Event::Error(e.to_string()),
+        }
+    }
+
     fn build<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
@@ -1018,13 +1037,33 @@ mod device {
                     at: SystemTime::now(),
                 });
             },
-            move |e| {
+            move |e: cpal::Error| {
                 // Never waits: an error that doesn't fit is dropped, and
-                // the input then reads as sending no sound.
-                let _ = err_tx.try_send(Event::Error(e.to_string()));
+                // the input then reads as sending no sound. A glitch is a
+                // gap, not a stop: the stream carries on after it (#1046).
+                let _ = err_tx.try_send(event_of(&e));
             },
             None,
         )
+    }
+
+    #[cfg(test)]
+    mod event_tests {
+        use super::*;
+
+        /// A buffer underrun or overrun is a glitch the take goes on
+        /// through; any other stream error stops it.
+        #[test]
+        fn a_glitch_carries_on_and_other_errors_stop() {
+            assert!(matches!(
+                event_of(&cpal::ErrorKind::Xrun.into()),
+                Event::Glitch
+            ));
+            match event_of(&cpal::ErrorKind::DeviceNotAvailable.into()) {
+                Event::Error(e) => assert!(!e.is_empty()),
+                other => panic!("{other:?}"),
+            }
+        }
     }
 }
 
@@ -1139,6 +1178,7 @@ mod tests {
                 Event::End => break,
                 Event::Error(e) => panic!("{e}"),
                 Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
+                Event::Glitch => panic!("a file never glitches"),
             }
         }
         let took = start.elapsed().as_secs_f64();
@@ -1175,6 +1215,7 @@ mod tests {
                 Event::End => break,
                 Event::Error(e) => panic!("{e}"),
                 Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
+                Event::Glitch => panic!("a file never glitches"),
             }
         }
         assert_eq!(got.len(), 8000);

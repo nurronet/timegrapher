@@ -706,26 +706,7 @@ fn live(
     let (cap, _, want) = capture::open_for_duration(&dev, &device_info, None, o.seconds)?;
     let mut rec = start(info(cap.label.clone(), cap.sample_rate, cap.bits))?;
     let fs_hz = cap.sample_rate;
-    if o.power_reserve {
-        eprintln!(
-            "recording {} ({}) from '{}' into {} until the watch stops (at most {}); \
-             keep the watch still and the computer awake",
-            pos.common(),
-            pos.description(),
-            cap.label,
-            rec.dir().display(),
-            power_reserve::limit_text()
-        );
-    } else {
-        eprintln!(
-            "recording {} ({}) for {:.0} s from '{}' into {}; keep the watch still until it says done",
-            pos.common(),
-            pos.description(),
-            o.seconds,
-            cap.label,
-            rec.dir().display()
-        );
-    }
+    say_recording(o, pos, &cap.label, rec.dir());
     let mut feed = o
         .live
         .as_ref()
@@ -742,6 +723,7 @@ fn live(
             match cap.rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Event::Audio(b)) => gaps.push(b),
                 Ok(Event::Lost(frames)) => gaps.lost(frames),
+                Ok(Event::Glitch) => gaps.glitch(),
                 Ok(Event::Error(e)) => return Err(format!("recording failed: {e}")),
                 Ok(Event::End) => {
                     ended = true;
@@ -757,9 +739,8 @@ fn live(
             let b = match live {
                 breaks::Live::Block(b) => b,
                 lost => {
-                    // The computer slept, the input stalled, or its queue
-                    // filled, and sound was lost: a break, as after a
-                    // pause, with the time between left out.
+                    // The computer slept, the input stalled or glitched, or
+                    // its queue filled: a break, the time lost left out.
                     let gap = lost.lost_s();
                     rec.sound_lost(gap);
                     if let Some(f) = feed.as_mut() {
@@ -1068,6 +1049,31 @@ fn print_report(r: &Report) {
     println!("Added to     {}", r.session_file);
 }
 
+/// What `record` says as it starts: the position, the input, the folder,
+/// and how long it records.
+fn say_recording(o: &Options, pos: Position, label: &str, dir: &Path) {
+    if o.power_reserve {
+        eprintln!(
+            "recording {} ({}) from '{}' into {} until the watch stops (at most {}); \
+             keep the watch still and the computer awake",
+            pos.common(),
+            pos.description(),
+            label,
+            dir.display(),
+            power_reserve::limit_text()
+        );
+    } else {
+        eprintln!(
+            "recording {} ({}) for {:.0} s from '{}' into {}; keep the watch still until it says done",
+            pos.common(),
+            pos.description(),
+            o.seconds,
+            label,
+            dir.display()
+        );
+    }
+}
+
 /// What `record` says about a break: sound the input dropped (#483), or a
 /// stop in its sound.
 fn say_break(lost: &breaks::Live) {
@@ -1080,6 +1086,9 @@ fn say_break(lost: &breaks::Live) {
             eprintln!(
                 "  the sound stopped for {gap:.1} s (the computer slept?); left out as a break"
             );
+        }
+        breaks::Live::Glitch => {
+            eprintln!("  {}", timegrapher_core::breaks::GLITCH_TEXT);
         }
         // The end of a backlog culled after a break: said with the break.
         breaks::Live::Block(_) | breaks::Live::Cut => {}
