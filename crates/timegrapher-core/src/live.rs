@@ -647,10 +647,6 @@ impl LiveAnalyzer {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn pass_on(&mut self, buf: &[f32]) {
         let fs = self.fs;
         let win = ((self.cfg.window_s * fs).ceil() as usize).min(buf.len());
@@ -664,22 +660,7 @@ impl LiveAnalyzer {
         let a = &self.cfg.analysis.clone();
         let env = envelope(x, fs, &a.envelope);
 
-        let (bph, local) = match (&self.template, self.bph) {
-            (Some(t), Some(bph)) => (bph, beats::detect_with_template(&env, fs, bph, t)),
-            _ => {
-                let bph = a.bph.unwrap_or_else(|| beats::guess_bph(&env, fs));
-                let (b, t) = beats::detect(&env, fs, bph);
-                let heard =
-                    heard_over(snr(&env, fs, &b), self.cfg.min_snr) || clipped_out(x, fs, &b);
-                if heard && b.len() >= 8 {
-                    self.template = Some(t);
-                    self.bph = Some(bph);
-                    self.found_bph = a.bph.is_none();
-                    self.logged_bph = Some(bph);
-                }
-                (bph, b)
-            }
-        };
+        let (bph, local) = self.beats_in(&env, x, a.bph);
         let beat = 3600.0 / bph as f64;
         // Beats near the end of the window may not be complete yet; they
         // settle on a later pass. The start of the window is skipped while
@@ -694,20 +675,7 @@ impl LiveAnalyzer {
         self.snr = s;
         let heard = heard_over(s, self.cfg.min_snr) || clipped_out(x, fs, &local);
         if !heard || self.template.is_none() {
-            self.keep_candidates(&local, off, from, to, beat);
-            self.quiet_passes += 1;
-            // A long silence with a guessed rate: start over on the next
-            // watch, which may beat at another rate.
-            if self.quiet_passes as f64 * self.cfg.update_s >= 5.0
-                && a.bph.is_none()
-                && self.template.is_some()
-            {
-                self.template = None;
-                self.bph = None;
-                self.found_bph = false;
-            }
-            self.settled_to = to;
-            self.next_amp_s = None;
+            self.quiet_pass(&local, off, from, to, beat);
             return;
         }
         // Number this pass's beats on from the last settled beat.
@@ -727,10 +695,71 @@ impl LiveAnalyzer {
         if self.beats.last().is_some() && (resumed || count_off.abs() > 0.25) {
             self.jump_at(anchor_t, false);
         }
+        self.take_beats(x, &env, &numbered[anchor..], off, to, beat);
+        self.find_jumps_and_trim();
+        self.amplitude_pass(&env, &numbered, off, from, to, beat);
+        self.update_profiles(to, beat);
+        self.settled_to = to;
+    }
+
+    /// The beats in this pass's envelope `env` of samples `x`, at the rate
+    /// locked on to, or else at `bph_set` or a guessed rate, locking on to
+    /// it when a watch is heard in enough of them.
+    fn beats_in(&mut self, env: &[f32], x: &[f32], bph_set: Option<u32>) -> (u32, Vec<Beat>) {
+        let fs = self.fs;
+        match (&self.template, self.bph) {
+            (Some(t), Some(bph)) => (bph, beats::detect_with_template(env, fs, bph, t)),
+            _ => {
+                let bph = bph_set.unwrap_or_else(|| beats::guess_bph(env, fs));
+                let (b, t) = beats::detect(env, fs, bph);
+                let heard =
+                    heard_over(snr(env, fs, &b), self.cfg.min_snr) || clipped_out(x, fs, &b);
+                if heard && b.len() >= 8 {
+                    self.template = Some(t);
+                    self.bph = Some(bph);
+                    self.found_bph = bph_set.is_none();
+                    self.logged_bph = Some(bph);
+                }
+                (bph, b)
+            }
+        }
+    }
+
+    /// A pass with no watch heard over `from` to `to`: its peaks kept as
+    /// candidates, and the lock let go after a long silence.
+    fn quiet_pass(&mut self, local: &[Beat], off: f64, from: f64, to: f64, beat: f64) {
+        self.keep_candidates(local, off, from, to, beat);
+        self.quiet_passes += 1;
+        // A long silence with a guessed rate: start over on the next
+        // watch, which may beat at another rate.
+        if self.quiet_passes as f64 * self.cfg.update_s >= 5.0
+            && self.cfg.analysis.bph.is_none()
+            && self.template.is_some()
+        {
+            self.template = None;
+            self.bph = None;
+            self.found_bph = false;
+        }
+        self.settled_to = to;
+        self.next_amp_s = None;
+    }
+
+    /// Settles this pass's numbered beats before `to`, noting those that
+    /// clipped and keeping the good ones' sound for the profiles.
+    fn take_beats(
+        &mut self,
+        x: &[f32],
+        env: &[f32],
+        numbered: &[Beat],
+        off: f64,
+        to: f64,
+        beat: f64,
+    ) {
+        let fs = self.fs;
         // One scan of the window finds whether anything clipped; only then
         // is each new beat looked at on its own.
         let any_clipped = Clipping::measure(x, fs, &[]).samples > 0;
-        for b in &numbered[anchor..] {
+        for b in numbered {
             let t = b.time + off;
             if t >= to {
                 break;
@@ -745,13 +774,18 @@ impl LiveAnalyzer {
                 self.clipped.push(t);
             }
             if b.is_good() {
-                if let Some(w) = profile::snippet(&env, fs, b.time) {
+                if let Some(w) = profile::snippet(env, fs, b.time) {
                     let even = b.index.rem_euclid(2) == 0;
                     self.snippets.push_back((t, even, w.to_vec()));
                     self.sides.beat(t, b.index, b.quality, w);
                 }
             }
         }
+    }
+
+    /// Marks the jumps among the latest good beats, and drops the oldest
+    /// beats past those kept.
+    fn find_jumps_and_trim(&mut self) {
         // A step in the beats' timing within a quarter of a beat of the
         // count (a hole that cost close to a whole number of beats) is a
         // jump too, found as a whole file's reading finds one.
@@ -770,8 +804,20 @@ impl LiveAnalyzer {
             let gone = self.clipped.partition_point(|&t| t < first);
             self.clipped.drain(..gone);
         }
+    }
 
-        // Amplitude on a grid of windows that have settled.
+    /// Amplitude on a grid of windows that have settled by `to`.
+    fn amplitude_pass(
+        &mut self,
+        env: &[f32],
+        numbered: &[Beat],
+        off: f64,
+        from: f64,
+        to: f64,
+        beat: f64,
+    ) {
+        let fs = self.fs;
+        let a = &self.cfg.analysis;
         let w = a.amplitude_window_s;
         let start = self
             .next_amp_s
@@ -783,9 +829,9 @@ impl LiveAnalyzer {
         }
         if stop > start {
             let wins = amplitude::windows_between(
-                &env,
+                env,
                 fs,
-                &numbered,
+                numbered,
                 2.0 * beat,
                 w,
                 start - off,
@@ -806,6 +852,11 @@ impl LiveAnalyzer {
         } else if self.next_amp_s.is_none() {
             self.next_amp_s = Some(start);
         }
+    }
+
+    /// The Tick and Tock profiles from the sound kept up to `to`.
+    fn update_profiles(&mut self, to: f64, beat: f64) {
+        let fs = self.fs;
         // After the windows, so those of this pass follow a swap too.
         self.settle_sides();
         let span = self.profile_span();
@@ -815,6 +866,7 @@ impl LiveAnalyzer {
         // Until the sides are told apart there is no Tick or Tock to show.
         let sided = self.sides.pending().is_none();
         let guides = self.profile_guides_at(to);
+        let a = &self.cfg.analysis;
         self.profiles = [Side::A, Side::B].map(|side| {
             let even = side == Side::A;
             let w: Vec<&[f32]> = self
@@ -826,7 +878,6 @@ impl LiveAnalyzer {
             let guide = guides[usize::from(!even)];
             profile::from_snippets(&w, fs, side, 2.0 * beat, &a.amplitude, guide).filter(|_| sided)
         });
-        self.settled_to = to;
     }
 
     /// Readings over the last `average_s` seconds of settled beats.
@@ -891,13 +942,73 @@ impl LiveAnalyzer {
     }
 
     /// Readings over the `average_s` seconds before `end_s`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     pub fn reading_at(&self, end_s: f64, average_s: f64) -> LiveReading {
         let window_from = end_s - average_s;
         let masked_s = crate::session::masked_within(&self.masked, window_from, end_s);
+        let st = self.stretch_at(window_from, end_s);
+        let (from, lo, hi, span_s) = (st.from, st.lo, st.hi, st.span_s);
+        let holes = &st.holes;
+        let bph = self.bph.or(self.logged_bph);
+        let fit = bph.and_then(|bph| timing::fit(&self.beats[lo..hi], bph));
+        // No window reaches back across the latest cut: the amplitude
+        // windows' grid starts again at each cut, and `stretch_windows`
+        // keeps only windows clear of every hole, so a jump in a recording
+        // read whole falls between two.
+        let wins = crate::session::stretch_windows(holes, &self.amp, from, end_s);
+        // One unbroken run of beats: its beat error's sign does not turn.
+        let figures = crate::session::window_figures(&wins, false);
+        let amplitude_error_deg =
+            crate::confidence::amplitude_windows_se(wins.iter().copied(), |w| w.mean());
+        let Verdict {
+            jitter_us,
+            timing_scatter_fraction,
+            no_watch,
+        } = self.verdict_at(holes, bph, window_from, end_s, st.listened_s);
+        let watch_heard = no_watch.is_none();
+        let heard = |v: Option<f64>| v.filter(|_| watch_heard);
+        // Figures that name a side wait until the sides are told apart.
+        let sided = self.sides_known_at(end_s);
+        let sided = |v: Option<f64>| heard(v).filter(|_| sided);
+        let clipped_fraction = st.clipped_fraction();
+        let assessment = self.assess_at(&st, &wins, bph, no_watch, end_s, average_s);
+        let mut caveats = assessment.caveats;
+        if masked_s > 0.0 {
+            measure::add(&mut caveats, Caveat::Masked { seconds: masked_s });
+        }
+        let whole = holes.whole(&self.beats, window_from, end_s, GAP_S);
+        LiveReading {
+            bph_set: self.cfg.analysis.bph,
+            time_s: end_s,
+            bph,
+            rate_s_per_day: heard(fit.map(|f| f.rate_s_per_day)).map(|v| {
+                self.rate_clock.as_ref().map_or(v, |c| {
+                    crate::clockstore::correct_rate(v, Self::clock_ppm(c, from, end_s))
+                })
+            }),
+            beat_error_ms: sided(fit.map(|f| f.beat_error_ms)),
+            beat_error_unlock_ms: sided(figures.beat_error_unlock_ms),
+            amplitude_deg: heard(figures.amplitude_deg),
+            amplitude_error_deg: heard(amplitude_error_deg),
+            amplitude_even_deg: sided(figures.amplitude_even_deg),
+            amplitude_odd_deg: sided(figures.amplitude_odd_deg),
+            jitter_us,
+            timing_scatter_fraction,
+            beats_used: fit.map_or(0, |f| f.beats_used),
+            span_s,
+            whole,
+            snr: self.snr,
+            clipped_beats: st.clipped_beats,
+            clipped_fraction,
+            watch_heard,
+            rate_error_s_per_day: assessment.confidence.and_then(|c| c.rate.se),
+            beat_error_unlock_error_ms: sided(assessment.confidence.and_then(|c| c.beat_error.se)),
+            caveats,
+        }
+    }
+
+    /// The stretch read at `end_s` over the averaging time from
+    /// `window_from`.
+    fn stretch_at(&self, window_from: f64, end_s: f64) -> Stretch {
         // Breaks and masked stretches cut the readings: they start again
         // at the latest one's end, and inside a masked one there is nothing
         // to read. So does a pause between beats (clean::GAP_S).
@@ -921,17 +1032,27 @@ impl LiveAnalyzer {
             - self
                 .clipped
                 .partition_point(|&t| t < self.beats.get(lo).map_or(end_s, |b| b.time));
-        let bph = self.bph.or(self.logged_bph);
-        let fit = bph.and_then(|bph| timing::fit(&self.beats[lo..hi], bph));
-        // No window reaches back across the latest cut: the amplitude
-        // windows' grid starts again at each cut, and `stretch_windows`
-        // keeps only windows clear of every hole, so a jump in a recording
-        // read whole falls between two.
-        let wins = crate::session::stretch_windows(&holes, &self.amp, from, end_s);
-        // One unbroken run of beats: its beat error's sign does not turn.
-        let figures = crate::session::window_figures(&wins, false);
-        let amplitude_error_deg =
-            crate::confidence::amplitude_windows_se(wins.iter().copied(), |w| w.mean());
+        Stretch {
+            holes,
+            listened_s,
+            from,
+            lo,
+            hi,
+            span_s,
+            clipped_beats,
+        }
+    }
+
+    /// Whether a watch is heard at `end_s`, and the beats' scatter it is
+    /// judged from.
+    fn verdict_at(
+        &self,
+        holes: &Cuts,
+        bph: Option<u32>,
+        window_from: f64,
+        end_s: f64,
+        listened_s: f64,
+    ) -> Verdict {
         // Beats scattered like noise are no regular beat: no readings, as
         // `analyze` gives none. Under 10 s of sound it is not assessed.
         // The scatter is a saved reading's, from the 10 s windows over all
@@ -951,7 +1072,7 @@ impl LiveAnalyzer {
             .max(0.0);
         let scatter = bph.map_or_else(Vec::new, |b| {
             crate::session::scatter_windows(
-                &holes,
+                holes,
                 &self.heard_peaks(scatter_from, end_s),
                 b,
                 scatter_from,
@@ -995,44 +1116,55 @@ impl LiveAnalyzer {
             Some(b) => measure::no_watch_reason(jitter_us, b, judged_s, beat_sound),
             None => measure::regularity_assessed(listened_s).then_some(NoWatchReason::Scatter),
         };
-        let watch_heard = no_watch.is_none();
-        let heard = |v: Option<f64>| v.filter(|_| watch_heard);
-        // Figures that name a side wait until the sides are told apart.
-        let sided = self.sides_known_at(end_s);
-        let sided = |v: Option<f64>| heard(v).filter(|_| sided);
-        let clipped_fraction = (hi > lo).then(|| clipped_beats as f64 / (hi - lo) as f64);
+        Verdict {
+            jitter_us,
+            timing_scatter_fraction,
+            no_watch,
+        }
+    }
+
+    /// The confidence and caveats of the reading over `st`.
+    fn assess_at(
+        &self,
+        st: &Stretch,
+        wins: &[&AmplitudeWindow],
+        bph: Option<u32>,
+        no_watch: Option<NoWatchReason>,
+        end_s: f64,
+        average_s: f64,
+    ) -> measure::Assessment {
         // The rate's ± from 10 s windows over the run so far (the latest
         // unbroken run of beats, back to a break, up to RATE_RUN_S), scaled
         // to the averaging time by `measure`.
         let rate_windows = bph.map_or_else(Vec::new, |b| {
-            let floor = from.min(end_s - RATE_RUN_S);
-            holes.windows(
-                &self.beats[..hi],
+            let floor = st.from.min(end_s - RATE_RUN_S);
+            st.holes.windows(
+                &self.beats[..st.hi],
                 b,
-                floor.max(holes.run_cut(&self.beats, floor, end_s)),
+                floor.max(st.holes.run_cut(&self.beats, floor, end_s)),
                 end_s,
                 10.0,
                 5.0,
                 GAP_S,
             )
         });
-        let assessment = measure::assess(
+        measure::assess(
             &rate_windows,
-            &wins,
+            wins,
             &measure::Context {
-                watch_heard,
+                watch_heard: no_watch.is_none(),
                 no_watch_reason: no_watch.unwrap_or_default(),
                 bph_heard: None,
                 lift_known: self.cfg.analysis.lift_known,
                 clock_known: self.clock_known || self.rate_clock.is_some(),
-                beats: hi - lo,
-                expected: bph.map_or(0.0, |b| b as f64 / 3600.0 * span_s),
-                clipped_fraction: clipped_fraction.unwrap_or(0.0),
+                beats: st.hi - st.lo,
+                expected: bph.map_or(0.0, |b| b as f64 / 3600.0 * st.span_s),
+                clipped_fraction: st.clipped_fraction().unwrap_or(0.0),
                 // The time the beats stand for, each one beat long: a full
                 // 10 s average is 10 s of beats, though its first and last
                 // beats are one beat less apart.
-                span_s: span_s + bph.map_or(0.0, |b| 3600.0 / b as f64),
-                listened_s,
+                span_s: st.span_s + bph.map_or(0.0, |b| 3600.0 / b as f64),
+                listened_s: st.listened_s,
                 breaks: 0,
                 // Tick and Tock here are named across every such jump
                 // before the reading.
@@ -1040,41 +1172,45 @@ impl LiveAnalyzer {
                 beat_error_as_size: false,
                 average_s: Some(average_s),
             },
-        );
-        let mut caveats = assessment.caveats;
-        if masked_s > 0.0 {
-            measure::add(&mut caveats, Caveat::Masked { seconds: masked_s });
-        }
-        let whole = holes.whole(&self.beats, window_from, end_s, GAP_S);
-        LiveReading {
-            bph_set: self.cfg.analysis.bph,
-            time_s: end_s,
-            bph,
-            rate_s_per_day: heard(fit.map(|f| f.rate_s_per_day)).map(|v| {
-                self.rate_clock.as_ref().map_or(v, |c| {
-                    crate::clockstore::correct_rate(v, Self::clock_ppm(c, from, end_s))
-                })
-            }),
-            beat_error_ms: sided(fit.map(|f| f.beat_error_ms)),
-            beat_error_unlock_ms: sided(figures.beat_error_unlock_ms),
-            amplitude_deg: heard(figures.amplitude_deg),
-            amplitude_error_deg: heard(amplitude_error_deg),
-            amplitude_even_deg: sided(figures.amplitude_even_deg),
-            amplitude_odd_deg: sided(figures.amplitude_odd_deg),
-            jitter_us,
-            timing_scatter_fraction,
-            beats_used: fit.map_or(0, |f| f.beats_used),
-            span_s,
-            whole,
-            snr: self.snr,
-            clipped_beats,
-            clipped_fraction,
-            watch_heard,
-            rate_error_s_per_day: assessment.confidence.and_then(|c| c.rate.se),
-            beat_error_unlock_error_ms: sided(assessment.confidence.and_then(|c| c.beat_error.se)),
-            caveats,
-        }
+        )
     }
+}
+
+/// The stretch a live reading reads: the latest unbroken run of settled
+/// beats within the averaging time.
+struct Stretch {
+    /// The breaks and masked stretches in what has been heard.
+    holes: Cuts<'static>,
+    /// The sound heard over the averaging time, since the start or the
+    /// latest break.
+    listened_s: f64,
+    /// Where the run's reading starts.
+    from: f64,
+    /// The run's first settled beat.
+    lo: usize,
+    /// One past the run's last settled beat.
+    hi: usize,
+    /// The time the run's beats span.
+    span_s: f64,
+    /// The run's beats that clipped.
+    clipped_beats: usize,
+}
+
+impl Stretch {
+    /// The fraction of the run's beats that clipped; none with no beats.
+    fn clipped_fraction(&self) -> Option<f64> {
+        (self.hi > self.lo).then(|| self.clipped_beats as f64 / (self.hi - self.lo) as f64)
+    }
+}
+
+/// Whether a watch is heard, and the beats' scatter it is judged from.
+struct Verdict {
+    /// The median timing jitter of the 10 s windows, in µs.
+    jitter_us: Option<f64>,
+    /// That jitter as a fraction of a beat.
+    timing_scatter_fraction: Option<f64>,
+    /// Why no watch is heard; none when one is.
+    no_watch: Option<NoWatchReason>,
 }
 
 /// Whether most of the beats found clipped: a watch far too loud, whose
