@@ -1,6 +1,7 @@
 //! The Charts pane: a chart for each reading shown, sharing the pane's time axis.
 
 use super::*;
+use crate::strength::{self, Grid, Strength};
 
 impl TimegrapherApp {
     /// The Charts pane: a chart for each reading shown, one above the
@@ -13,10 +14,9 @@ impl TimegrapherApp {
 
     fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) {
         let pal = theme::pal(ui);
-        let weak = pal.text_tertiary;
         let average = self.average_s;
         let (series, unit, decimals) = chart_lines(reading, &self.trend, average, pal);
-        let mut plot = chart_plot(reading);
+        let (mut plot, grid) = chart_plot(reading);
         // Scale to hold every point of the lines: the whole take.
         let all: Vec<[f64; 2]> = series.iter().flat_map(|s| s.pts.iter().copied()).collect();
         let y_range = data_range(&all);
@@ -33,7 +33,10 @@ impl TimegrapherApp {
             .chart_average_drawn
             .insert(steady::title(reading), average)
             .is_some_and(|was| was != average);
-        let resp = plot.show(ui, |p| draw_chart(p, series, to_live, y_range, rescale));
+        let resp = plot.show(ui, |p| {
+            grid.draw(p, pal);
+            draw_chart(p, series, to_live, y_range, rescale)
+        });
         let (click, hover, moved) = resp.inner;
         // The moment shown and the pointer's time, painted over the plot
         // rather than added to it: a plot line counts towards the automatic
@@ -84,7 +87,11 @@ impl TimegrapherApp {
         for x in [marker, cursor].into_iter().flatten() {
             let px = resp.transform.position_from_point_x(x);
             if px >= frame.left() && px <= frame.right() {
-                painter.vline(px, frame.y_range(), egui::Stroke::new(1.0_f32, weak));
+                painter.vline(
+                    px,
+                    frame.y_range(),
+                    strength::stroke(Strength::CallOut, pal),
+                );
             }
         }
         let running = self.running();
@@ -231,31 +238,39 @@ fn chart_lines(
 }
 
 /// A reading's chart, linked in time to the others: the wheel zooms time,
-/// a drag pans, and the axes stay put.
-fn chart_plot(reading: SeriesKind) -> Plot<'static> {
-    Plot::new(steady::title(reading))
-        // As short as its share of the pane, rather than spilling out.
-        .min_size(Vec2::new(64.0, 24.0))
-        .link_axis("trend", [true, false])
-        .link_cursor("trend", [true, false])
-        .allow_scroll(false)
-        .allow_zoom([false, true])
-        // The wheel zooms and a drag pans; the axes stay put.
-        .allow_axis_zoom_drag(false)
-        .allow_boxed_zoom(false)
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+/// a drag pans, and the axes stay put. Its grid, with a zero line on the
+/// rate's (0 s/d).
+fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
+    // Short charts still get a label at the top and the bottom: the
+    // labels are painted below, in small text, so they fit closer than
+    // the plot's own.
+    let mut grid = Grid::new(
+        |g| theme::even_grid(g, 80.0, &theme::TIME_STEPS),
+        theme::short_y_grid,
+    );
+    if reading == SeriesKind::Rate {
+        grid = grid.zero_y();
+    }
+    let plot = grid
+        .on(Plot::new(steady::title(reading))
+            // As short as its share of the pane, rather than spilling out.
+            .min_size(Vec2::new(64.0, 24.0))
+            .link_axis("trend", [true, false])
+            .link_cursor("trend", [true, false])
+            .allow_scroll(false)
+            .allow_zoom([false, true])
+            // The wheel zooms and a drag pans; the axes stay put.
+            .allow_axis_zoom_drag(false)
+            .allow_boxed_zoom(false))
         .custom_x_axes(vec![egui_plot::AxisHints::new_x()
             .formatter(|m, r| chart_time_label(m.value, m.step_size, r))])
-        // Short charts still get a label at the top and the bottom:
-        // the labels are painted below, in small text, so they fit
-        // closer than the plot's own.
-        .y_grid_spacer(theme::short_y_grid)
         .y_axis_min_width(GUTTER)
         .y_axis_formatter(|_, _| String::new())
         // The values at the pointer are shown for every line at once
         // (below), instead of only when the pointer is on a line.
         .show_x(false)
-        .show_y(false)
+        .show_y(false);
+    (plot, grid)
 }
 
 /// Draw a chart's lines, broken where there is no reading, and return a

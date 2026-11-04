@@ -241,6 +241,10 @@ pub struct Changes {
     pub segments: Vec<Segment>,
     /// Share of the variance the segment means explain.
     pub explained: f64,
+    /// Whether the headline names the levels (a level change, or the
+    /// steps of a slide); if not, `note` says why.
+    pub named: bool,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -260,6 +264,11 @@ pub struct Trend {
     /// The quadratic's F test against the mean on n(1 − ρ)/(1 + ρ)
     /// readings, ρ as `confidence::long_run_rho` reads it (#651, #659).
     pub p_value: f64,
+    /// Whether that test clears `trend_alpha` and Holm's correction, and
+    /// whether the headline names the trend; if not, `note` says why.
+    pub significant: bool,
+    pub named: bool,
+    pub note: Option<String>,
 }
 
 /// Where a cycle was found.
@@ -1087,6 +1096,9 @@ pub fn check_series(
             && vertex < t_b - 0.1 * (t_b - t_a))
             .then(|| (vertex, curve_at(vertex))),
         p_value: family::trend_p(y, explained(y, &curve)),
+        significant: false,
+        named: false,
+        note: None,
     };
 
     // Change points on block medians.
@@ -1128,12 +1140,15 @@ pub fn check_series(
             long_run_sigma: lr,
             explained: explained(y, &fitted),
             segments: segs,
+            named: false,
+            note: None,
         });
     }
     out.trend = Some(trend);
 
     out.cycle = cycle(&out, &g, fine.as_ref(), wheels, cfg);
     out.lead = lead(&out, cfg);
+    family::mark_named(&mut out, cfg);
     if let Some((ts, ss)) = walk {
         // The corner is marked only at a level change the headline
         // names (#697).
@@ -1769,7 +1784,7 @@ fn refine(d: &Grid, p: f64, rel: f64) -> f64 {
 
 /// The change finder's stretches when they say the level moves: cut, and
 /// explaining at least `min_explained` of the variance.
-fn level_moves<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
+pub(super) fn level_moves<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
     s.changes
         .as_ref()
         .filter(|c| c.segments.len() > 1 && c.explained >= cfg.min_explained)
@@ -1778,7 +1793,7 @@ fn level_moves<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
 /// The one rule that names a level change, read by the headline and the
 /// CUSUM's corner alike (#697): the level moves and the lead is not a
 /// slide, which a slide cut into steps is.
-fn level_change<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
+pub(super) fn level_change<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
     level_moves(s, cfg).filter(|_| s.lead != Lead::Drifting)
 }
 

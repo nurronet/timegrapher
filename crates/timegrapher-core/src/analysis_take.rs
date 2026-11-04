@@ -356,9 +356,10 @@ pub fn measure(
     })
 }
 
-/// The beat shape of `x`, from `from_s` seconds into the recording, as
-/// `timegrapher session` measures it.
-fn measure_shape(x: &[f32], fs: f64, bph: u32, from_s: f64) -> Option<ShapeSummary> {
+/// The beat shape of the sound `x`, from `from_s` seconds into the
+/// recording: the one way `timegrapher session` measures it, from a take's
+/// sound or when a take is kept as its analysis. None for no sound.
+pub fn measure_shape(x: &[f32], fs: f64, bph: u32, from_s: f64) -> Option<ShapeSummary> {
     if x.is_empty() {
         return None;
     }

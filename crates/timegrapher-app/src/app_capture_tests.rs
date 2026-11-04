@@ -180,6 +180,35 @@ fn a_short_stall_is_a_break_by_cores_rule() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// Sound the input dropped because its queue was full (#483) is a break
+/// of just that stretch, however short, and is never spliced: the take
+/// lists it, the time runs on across it, and the message says why.
+#[test]
+fn sound_the_input_dropped_is_a_break() {
+    let (mut app, base, tx, heard) = listened("dropped");
+    let saved = app.session.recorder.as_ref().unwrap().duration_s();
+    // 30 ms dropped, so the next block arrives 30 ms after the last
+    // one's end.
+    tx.send(Event::Lost(1_440)).unwrap();
+    send_after(&tx, 30, 500);
+    while app.poll_for(Duration::from_secs(60)) > 0 {}
+    assert!(app.running());
+    let breaks = app.session.recorder.as_ref().unwrap().breaks();
+    assert_eq!(breaks.len(), 1, "{breaks:?}");
+    assert!((breaks[0].gap_s - 0.03).abs() < 1e-9, "{}", breaks[0].gap_s);
+    assert!(
+        (breaks[0].audio_s - saved).abs() < 1e-9,
+        "{}",
+        breaks[0].audio_s
+    );
+    assert!((app.heard_s() - heard - 10.03).abs() < 1e-6);
+    let (m, error) = app.message.clone().unwrap();
+    assert!(!error);
+    assert!(m.starts_with("30 ms of sound was lost"), "{m}");
+    drop(tx);
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// Sound held by core's gap rule after a jump counts as heard, so the
 /// input isn't taken for silent ("No sound is arriving") while the rule
 /// waits on it (#689).

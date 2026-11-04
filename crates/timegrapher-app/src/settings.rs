@@ -128,10 +128,10 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             device: None,
-            average_s: 10.0,
+            average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
             strip: StripView {
                 half_width_ms: 10.0,
-                span_s: 30.0,
+                span_s: timegrapher_core::live::DEFAULT_STRIP_S,
                 horizontal: true,
             },
             rate_line: true,

@@ -3,6 +3,7 @@
 //! the amplitude and beat error from.
 
 use crate::marks::{self, Rank, LANE, LANE_GAP, ROW_H};
+use crate::strength::{self, Grid, Strength};
 use crate::strip::side_colors;
 use crate::theme;
 use eframe::egui::{self, Color32};
@@ -400,7 +401,11 @@ pub fn draw(
             ..boxes[k].clone()
         };
         let empty = p.is_none();
-        let plot = profile_plot(k, plot_h, h, empty, (y_lo, y_hi), scale);
+        let grid = Grid::new(
+            |g| theme::even_grid(g, 80.0, &[]),
+            |g| theme::even_grid(g, 30.0, &[]),
+        );
+        let plot = profile_plot(&grid, k, plot_h, h, empty, (y_lo, y_hi), scale);
         let mut med = Vec::new();
         // The trace at each time: where an edge's name inside a short plot
         // finds a clear spot.
@@ -421,12 +426,15 @@ pub fn draw(
             .map(|p| short_edge_names(ui, p, top, scale, dx));
         let resp = plot.show(ui, |pl| {
             pl.set_plot_bounds_y(y_lo..=y_hi);
-            // The noise floor, under the facts box, which keeps its rows
-            // over it in either scale.
+            grid.draw(pl, pal);
+            // The noise floor, a call-out under the facts box, which keeps
+            // its rows over it in either scale.
             if let Some(p) = p {
+                let s = strength::stroke(Strength::CallOut, pal);
                 pl.hline(
                     HLine::new("noise floor", scaled(&[p.floor], top, scale)[0])
-                        .color(pal.text_tertiary)
+                        .color(s.color)
+                        .width(s.width)
                         .style(LineStyle::dashed_dense()),
                 );
             }
@@ -581,9 +589,10 @@ fn lanes(ui: &egui::Ui, k: usize, opt: Options, axis: bool) -> (bool, f32, f32) 
     (short, top_lane, bottom_lane)
 }
 
-/// A side's plot, fixed in place: `h` its height for the level labels,
-/// which `empty` leaves off.
+/// A side's plot on `grid`, fixed in place: `h` its height for the level
+/// labels, which `empty` leaves off.
 fn profile_plot(
+    grid: &Grid,
     k: usize,
     plot_h: f32,
     h: f64,
@@ -591,7 +600,8 @@ fn profile_plot(
     (y_lo, y_hi): (f64, f64),
     scale: Scale,
 ) -> Plot<'static> {
-    let plot = Plot::new(("profile", k))
+    let plot = grid
+        .on(Plot::new(("profile", k)))
         .height(plot_h)
         .link_axis("profile", [true, false])
         // No crosshair or value box: the marks and the facts above say
@@ -607,8 +617,6 @@ fn profile_plot(
         .default_y_bounds(y_lo, y_hi)
         // The time axis is drawn under the sounds' names, below.
         .show_axes([false, true])
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
-        .y_grid_spacer(|g| theme::even_grid(g, 30.0, &[]))
         .y_axis_min_width(52.0)
         .y_axis_formatter(move |m, r| {
             // Before there are beats there is no level to mark.
