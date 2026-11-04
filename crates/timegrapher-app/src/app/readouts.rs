@@ -1,6 +1,7 @@
 //! The readouts and the status bar: the figures shown, the clocks behind them, the status line and notices, and what shows when nothing is open.
 
 use super::*;
+use crate::sparkline;
 use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm};
 use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
 
@@ -17,6 +18,9 @@ struct CardCtx<'a> {
     heard: bool,
     unheard: Option<(String, String)>,
     compact: bool,
+    /// The cards' figures each second over the last minute, for their
+    /// sparklines.
+    spark: Vec<TrendPoint>,
 }
 
 /// The cards' widths at `total`: Current Position, Listen, Calibre and
@@ -272,6 +276,7 @@ impl TimegrapherApp {
             heard,
             unheard,
             compact,
+            spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -365,15 +370,68 @@ impl TimegrapherApp {
                 behind + &format!("\n\n{t}")
             };
         }
+        let (fig, spark, place) = sparkline::lay(rows.inner, rows.figure, rows.controls);
+        let colour = theme::pal(ui).trace_rate;
+        sparkline::draw(ui, spark, place, &c.spark, &sparkline::RATE, colour);
         figure_row(
             ui,
-            rows.figure,
+            fig,
             rate.map(|v| figure(v, pm, base::RATE, true)).as_deref(),
             &unit,
             status.as_ref(),
             behind.trim_start(),
             compact,
         );
+    }
+
+    /// The figures the reading cards showed each whole second over the
+    /// last [`sparkline::SPAN_S`] seconds up to `r`'s, the card's figure
+    /// itself last: each the reading at that second over Average Over, as
+    /// the figure is read. The seconds already read are kept in egui's
+    /// memory, so listening reads one more each second; a change to what
+    /// the readings rest on, or to Average Over, reads them all again.
+    pub(super) fn spark_trend(&self, ctx: &egui::Context, r: &LiveReading) -> Vec<TrendPoint> {
+        type Kept = (Revision, u64, Vec<(i64, TrendPoint)>);
+        let Some(live) = self.live.as_ref() else {
+            return Vec::new();
+        };
+        let id = egui::Id::new("reading card sparklines");
+        let key = (self.rev, self.average_s.to_bits());
+        let mut kept: Kept = ctx.data(|d| d.get_temp(id)).unwrap_or_default();
+        if (kept.0, kept.1) != key {
+            kept = (key.0, key.1, Vec::new());
+        }
+        let end = r.time_s;
+        let last = end.floor() as i64;
+        let first = last - sparkline::SPAN_S + 1;
+        kept.2.retain(|(s, _)| (first..=last).contains(s));
+        for s in first.max(1)..=last {
+            if !kept.2.iter().any(|(k, _)| *k == s) {
+                let t = s as f64;
+                kept.2
+                    .push((s, TrendPoint::of(t, &live.reading_at(t, self.average_s))));
+            }
+        }
+        kept.2.sort_by_key(|(s, _)| *s);
+        let mut out: Vec<TrendPoint> = kept
+            .2
+            .iter()
+            .filter(|(s, _)| self.session.replay_reading_allowed(*s as f64) && (*s as f64) < end)
+            .map(|(_, p)| *p)
+            .collect();
+        ctx.data_mut(|d| d.insert_temp(id, kept));
+        // The figure the card shows, as the newest point.
+        out.push(TrendPoint {
+            t: end,
+            rate_s_per_day: r.rate_s_per_day,
+            amplitude_deg: r.amplitude_deg,
+            amplitude_even_deg: r.amplitude_even_deg,
+            amplitude_odd_deg: r.amplitude_odd_deg,
+            beat_error_unlock_ms: r.beat_error_unlock_ms,
+            beat_error_ms: r.beat_error_ms,
+            heard: r.watch_heard,
+        });
+        out
     }
 
     /// The beats behind the Rate figure, and their jitter, for its hover.
@@ -450,9 +508,12 @@ impl TimegrapherApp {
             " Worked out with a lift angle of {}°, on the Calibre card.",
             fields::plain(lift_now)
         );
+        let (fig, spark, place) = sparkline::lay(rows.inner, rows.figure, rows.controls);
+        let colour = theme::pal(ui).trace_amplitude;
+        sparkline::draw(ui, spark, place, &c.spark, &sparkline::AMPLITUDE, colour);
         figure_row(
             ui,
-            rows.figure,
+            fig,
             amp.map(|v| format!("{}°", figure(v, amp_pm, base::AMPLITUDE, false)))
                 .as_deref(),
             &unit,
@@ -508,9 +569,12 @@ impl TimegrapherApp {
                 );
             }
         }
+        let (fig, spark, place) = sparkline::lay(rows.inner, rows.figure, rows.controls);
+        let colour = theme::pal(ui).trace_beat_error;
+        sparkline::draw(ui, spark, place, &c.spark, &sparkline::BEAT_ERROR, colour);
         figure_row(
             ui,
-            rows.figure,
+            fig,
             core_session::beat_error_size(unlock, drop)
                 .map(|v| figure(v, be_pm, base::BEAT_ERROR, false))
                 .as_deref(),
