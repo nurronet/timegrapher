@@ -655,3 +655,65 @@ fn valid_absent_and_unrelated_manifests_keep_actual_open_paths() {
     }
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A take of `seconds` of one watch at 28,800 bph, in a folder of its own
+/// named `name`, with its session file.
+fn one_position_take(name: &str, seconds: f64) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("tg-app-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: seconds,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&dir.join("audio-001.wav"), &audio).unwrap();
+    std::fs::write(
+        dir.join(MANIFEST),
+        "bph = 28800\nlift = 52.0\n\n[[recording]]\nfile = '.'\nposition = 'DU'\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// A take's readings are readied off the window's thread with its
+/// engine (a long take's took a minute there, #726), and are the ones the
+/// window would read itself.
+#[test]
+fn an_opened_takes_readings_are_readied_off_the_window() {
+    let dir = one_position_take("readied", 40.0);
+    let mut app = reopened(&dir);
+    let readied = app.trend.clone();
+    assert!(readied.len() > 10, "{}", readied.len());
+    assert_eq!(app.trend_key, (app.rev, app.average_s.to_bits()));
+    app.rebuild_trend();
+    assert_eq!(app.trend, readied);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A setting changed while a take opens holds once it is in, as it would
+/// if changed just after: the readings are read again on it.
+#[test]
+fn a_setting_changed_while_a_take_opens_holds() {
+    let dir = one_position_take("changed-opening", 40.0);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.start_batch(&dir);
+    let was = app.average_s;
+    let now = if was == 2.0 { 4.0 } else { 2.0 };
+    app.set_average(now);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let live = app.live.as_ref().expect("opened");
+    assert_eq!(live.config().profile_s, now);
+    assert_eq!(app.trend_key, (app.rev, now.to_bits()));
+    let shown = app.trend.clone();
+    app.rebuild_trend();
+    assert_eq!(app.trend, shown);
+    let _ = std::fs::remove_dir_all(&dir);
+}
