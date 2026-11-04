@@ -944,6 +944,16 @@ impl Search {
     }
 }
 
+/// One series' search crossed its threshold about 1 time in this many on
+/// seeded white and AR(1) noise, the noise its model fits: 3 to 3.5% in the
+/// #916 grid (400 seeds a cell), about 3× its design rate. Said in
+/// [`period_may_be_noise`]'s words and the Periods threshold's hover.
+pub const MEASURED_CROSSING_IN: u32 = 33;
+/// …and up to 1 time in this many on 30 min takes with a slow wander under
+/// white noise, lag one 0.5 to 0.8 (9 to 10%, the same grid), the case
+/// [`period_may_be_noise`] names.
+pub const SHORT_CORRELATED_CROSSING_IN: u32 = 10;
+
 /// Stretches shorter than this get [`period_may_be_noise`].
 pub const NOISE_CAVEAT_SPAN_S: f64 = 7200.0;
 /// Lag-one ρ from which [`period_may_be_noise`] is given.

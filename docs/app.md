@@ -418,7 +418,12 @@ for: the readings use what there is and say so in the rate's hover
 been moved or have drifted meanwhile. Average Over is one setting for the
 whole app: the panes that average (the Paper Strip's Rate Line, guides
 and overlays, the Tick Tock Profile, Charts and Distributions) all
-average over it, and have no time of their own. The big amplitude is the average of the two
+average over it, and have no time of their own. The cards follow the
+Paper Strip: with the strip moved back off the newest beats, Rate,
+Amplitude and Beat Error and their sparklines are read over Average Over
+ending at the strip's newest edge. The strip's own label says when
+("at 0:40"), and each figure's hover says it was set by the Paper Strip;
+the status bar stays live. The big amplitude is the average of the two
 swings, in whole degrees, with a ± figure: the standard error of the
 median of its 2 s windows, estimated from successive window differences
 and widened for the windows' lag-one correlation.

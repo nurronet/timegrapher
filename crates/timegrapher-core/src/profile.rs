@@ -343,7 +343,8 @@ pub enum SoundAt<'a, T> {
 }
 
 /// The sound `history` kept for the window of `window_s` seconds ending at
-/// `end`, or why there is none: the window masked, or the sound for it
+/// `end`, or why there is none: `end` itself or the whole window masked,
+/// or the sound for it
 /// made over a window (the `kept_s` seconds before its own time, as it was
 /// kept) that reaches into a mask (`masked`, cleaned as
 /// [`crate::session::masked_spans`] cleans them); or no beats in the
@@ -356,7 +357,11 @@ pub fn sound_at<'a, T>(
     kept_s: impl Fn(&T) -> f64,
 ) -> SoundAt<'a, T> {
     let from = end - window_s.max(0.0);
-    if window_s > 0.0 && crate::session::masked_within(masked, from, end) >= window_s - 1e-9 {
+    // The moment itself masked: masked, however little of the window is,
+    // so the sound panes agree with the strip's hatching.
+    if crate::session::in_mask(masked, end)
+        || (window_s > 0.0 && crate::session::masked_within(masked, from, end) >= window_s - 1e-9)
+    {
         return SoundAt::Masked;
     }
     if let Some(((at, sound), coarse)) = kept_nearest(history, end) {
@@ -538,6 +543,10 @@ mod tests {
         assert_eq!(at(&h, 5050.0, &masked, &beats), SoundAt::Masked);
         assert_eq!(at(&h, 5101.0, &masked, &beats), SoundAt::Masked);
         assert_eq!(at(&h, 5104.0, &masked, &beats), SoundAt::Masked);
+        // The moment itself just inside a mask, its window mostly before
+        // it and a sound kept from before the mask nearest: masked.
+        let early: Vec<(f64, u32)> = h.iter().filter(|e| e.0 < 5000.0).copied().collect();
+        assert_eq!(at(&early, 5000.5, &masked, &beats), SoundAt::Masked);
         // A mask that today's window reaches into but the 10 s the sound
         // was kept over doesn't: clear.
         let partly = sound_at(&h, (5112.0, 20.0), &masked, &beats, |_| 10.0);

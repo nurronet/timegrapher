@@ -303,6 +303,7 @@ No control appears or disappears with the state of the pane. A control that does
 ## 11. Plots
 
 - **Axes** carry units on their labels ("15 s/d", "0.20 ms"), in Small text. Time runs left to right in minutes and seconds.
+- Overlay axes on the Paper Strip may use short names (Rate, Amp., B.E.); the hover gives the full name.
 - **Log-scale period axes step in watchmaker's units,** never in powers of ten: 1 s, 5 s, 10 s, 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h, 2 h, 6 h, 12 h. They thin out to the main marks when room is short. Every log axis uses the one source for these marks (core `period_ticks.rs`), so the app, CLI and MCP charts agree.
 - **A key inside the top-right corner** names each series of dots or lines and how many there are, in the series colour: "● 10 s readings (179)". Marks named in words beside them, like the profile's edges and sounds, need no key.
 - **Say the scale when it isn't shared.** When rows or plots are scaled differently (each Scope row to its own loudest beat), say so in the hint and the docs.
@@ -318,6 +319,18 @@ No control appears or disappears with the state of the pane. A control that does
   - no line runs through another mark's name: each name sits on a box of the pane's colour;
   - names never sit inside the plot. They stand a short gap away from it, so each line or leader visibly runs out to its name, and a name that would touch another moves one row further out;
   - so a line from the top is an edge, and a ring on the curve is a sound.
+
+### Scroll and zoom on plots
+
+One gesture means one thing on every plot that moves in time (the Paper Strip and the Charts, which are linked):
+
+- **Scroll pans.** A mouse wheel, or a two-finger swipe on a trackpad in either direction, moves the plot along time. Panning forward to the newest beat returns to live.
+- **⌘+scroll (Ctrl+scroll on Windows and Linux), or a pinch, zooms time.** This is the zoom modifier in browsers, design tools and audio editors.
+- **⌥+scroll (Alt+scroll) zooms the other axis,** such as the Paper Strip's ms Width.
+- **Shift+scroll pans like plain scroll.** Elsewhere it means a sideways scroll, so it never zooms here.
+- **Drag pans, double-click resets,** and Follow Live (or Show Whole Session once stopped) brings the plot back.
+- **An axis that can't zoom ignores the gesture.** Where an axis is scaled by the app (auto-scale to the data, a fixed range, a plot that always shows the whole take), scroll, the modifiers, pinch and drag do nothing on that axis. They never move it for a moment before the auto-scale pulls it back, so the plot cannot jitter or fight the pointer. If no axis of a plot can move, the plot takes no scroll at all, and the scroll passes to whatever holds the plot.
+- **The pane's "?"** lists the gestures that work on its plots, and only those.
 
 ### Settling on the position track
 
@@ -391,6 +404,7 @@ The same page following the rules:
 - [ ] Colours are the palette's, and a quantity's colour is used only for it.
 - [ ] Dialog buttons are at the bottom right, with the default rightmost.
 - [ ] Every count says what it counts, and every scale that isn't shared is stated.
+- [ ] On a plot, scroll pans and ⌘/Ctrl+scroll zooms (section 11), and an axis the app scales takes no gesture.
 - [ ] Screenshots in the PR, before and after.
 
 ---
