@@ -45,21 +45,19 @@ pub fn spread(values: &[f64]) -> Option<(f64, f64)> {
 }
 
 /// The size a diverging colour map shows in full colour, either side of
-/// zero: the 95th percentile of the values' sizes, so a few wild cells
+/// zero: the 95th percentile of the values' sizes by core's one
+/// percentile rule ([`crate::dsp::percentile`], #512), so a few wild cells
 /// don't wash out the rest; larger ones show in full colour too. 1 with
 /// no finite value, and never below 1e-9.
 pub fn colour_limit(values: &[f64]) -> f64 {
-    let mut v: Vec<f64> = values
-        .iter()
-        .map(|x| x.abs())
-        .filter(|x| x.is_finite())
-        .collect();
-    v.sort_by(f64::total_cmp);
-    v.get((v.len() as f64 * 0.95) as usize)
-        .copied()
+    let sizes: Vec<f64> = values.iter().map(|x| x.abs()).collect();
+    crate::dsp::percentile(&sizes, COLOUR_FULL_AT)
         .unwrap_or(1.0)
         .max(1e-9)
 }
+
+/// The share of a colour map's cells shown short of full colour.
+const COLOUR_FULL_AT: f64 = 0.95;
 
 /// Decimals for an axis label from its grid step: none from a step of
 /// 1, one from 0.1, two from 0.01, three below that (#815). The app's
@@ -243,7 +241,13 @@ mod tests {
         let v: Vec<f64> = (1..=100)
             .map(|i| if i % 2 == 0 { i as f64 } else { -(i as f64) })
             .collect();
-        assert_eq!(colour_limit(&v), 96.0);
+        // Sizes 1 to 100: 95.05, between the 95th and 96th, as core's
+        // percentile reads it (nearest rank read 96).
+        assert!(
+            (colour_limit(&v) - 95.05).abs() < 1e-9,
+            "{}",
+            colour_limit(&v)
+        );
         assert_eq!(colour_limit(&[f64::NAN]), 1.0);
         assert_eq!(colour_limit(&[0.0, 0.0]), 1e-9);
     }

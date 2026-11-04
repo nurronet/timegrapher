@@ -172,20 +172,20 @@ fn pm_of(se: &Value, digits: usize) -> Value {
 /// own, and under `digits` the decimals each figure is written to
 /// (`library::figure_digits`: decimals follow the ±, #510 K3): for
 /// `analyze`, the whole file's rate, amplitude and beat error and each take
-/// reading's, in the take's order; for a live reading, its own. A null ±
+/// reading's, in the take's order; for a live reading, its amplitude's. A null ±
 /// where there is no standard error; `None` for other results.
 pub fn pm_texts(doc: &Value) -> Option<Value> {
     use timegrapher_core::library::{base_digits as base, figure_digits};
     let schema = doc["schema"].as_str().unwrap_or("");
-    let tiles = |rate: &Value, amplitude: &Value| {
+    let tiles = |rate: &Value, amplitude: &Value, beat_error: &Value| {
         json!({
             "rate": pm_of(rate, base::RATE),
             "amplitude": pm_of(amplitude, base::AMPLITUDE),
+            "beat_error": pm_of(beat_error, base::BEAT_ERROR),
             "digits": {
                 "rate": figure_digits(rate.as_f64(), base::RATE),
                 "amplitude": figure_digits(amplitude.as_f64(), base::AMPLITUDE),
-                // No ± yet (#637).
-                "beat_error": base::BEAT_ERROR,
+                "beat_error": figure_digits(beat_error.as_f64(), base::BEAT_ERROR),
             },
         })
     };
@@ -196,20 +196,34 @@ pub fn pm_texts(doc: &Value) -> Option<Value> {
                 rs.iter()
                     .map(|r| {
                         let c = &r["measurement"]["confidence"];
-                        tiles(&c["rate"]["se"], &c["amplitude"]["se"])
+                        tiles(
+                            &c["rate"]["se"],
+                            &c["amplitude"]["se"],
+                            &c["beat_error"]["se"],
+                        )
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let mut pm = tiles(&doc["confidence"]["rate"]["se"], &doc["amplitude_se_deg"]);
+        let c = &doc["confidence"];
+        let mut pm = tiles(
+            &c["rate"]["se"],
+            &doc["amplitude_se_deg"],
+            &c["beat_error"]["se"],
+        );
         pm["readings"] = json!(readings);
         return Some(pm);
     }
     if schema.starts_with("timegrapher.live/") {
-        // A live rate has no ±; its amplitude has.
-        let mut pm = tiles(&Value::Null, &doc["reading"]["amplitude_error_deg"]);
+        // A live rate and beat error have no ±; its amplitude has.
+        let mut pm = tiles(
+            &Value::Null,
+            &doc["reading"]["amplitude_error_deg"],
+            &Value::Null,
+        );
         if let Some(o) = pm.as_object_mut() {
             o.remove("rate");
+            o.remove("beat_error");
         }
         return Some(pm);
     }
@@ -614,20 +628,21 @@ mod tests {
         // The view rounded 0.4° up to "± 1°" (#806); core keeps a figure.
         let doc = json!({
             "schema": "timegrapher.analyze/1", "amplitude_se_deg": 0.4,
-            "confidence": { "rate": { "se": 0.06 } },
+            "confidence": { "rate": { "se": 0.06 }, "beat_error": { "se": 0.004 } },
             "take": { "readings": [
                 { "measurement": { "confidence": { "rate": { "se": 1.24 }, "amplitude": { "se": 2.6 } } } },
                 { "measurement": { "watch_heard": false } },
             ] },
         });
         // Each figure's decimals follow its ± (#510 K3), the base without.
-        let digits = |rate: usize, amplitude: usize| json!({ "rate": rate, "amplitude": amplitude, "beat_error": 2 });
+        let digits = |rate: usize, amplitude: usize, beat_error: usize| json!({ "rate": rate, "amplitude": amplitude, "beat_error": beat_error });
         assert_eq!(
             pm_texts(&doc),
             Some(
-                json!({ "rate": "0.06", "amplitude": "0.4", "digits": digits(2, 1), "readings": [
-                { "rate": "1.2", "amplitude": "3", "digits": digits(1, 0) },
-                { "rate": null, "amplitude": null, "digits": digits(1, 0) },
+                json!({ "rate": "0.06", "amplitude": "0.4", "beat_error": "0.004",
+                "digits": digits(2, 1, 3), "readings": [
+                { "rate": "1.2", "amplitude": "3", "beat_error": null, "digits": digits(1, 0, 2) },
+                { "rate": null, "amplitude": null, "beat_error": null, "digits": digits(1, 0, 2) },
             ] })
             )
         );
@@ -635,7 +650,7 @@ mod tests {
             json!({ "schema": "timegrapher.live/1", "reading": { "amplitude_error_deg": 0.4 } });
         assert_eq!(
             pm_texts(&live),
-            Some(json!({ "amplitude": "0.4", "digits": digits(1, 1) }))
+            Some(json!({ "amplitude": "0.4", "digits": digits(1, 1, 2) }))
         );
         assert_eq!(
             pm_texts(&json!({ "schema": "timegrapher.session/1" })),
