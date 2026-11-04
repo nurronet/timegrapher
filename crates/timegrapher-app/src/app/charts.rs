@@ -237,8 +237,9 @@ fn chart_lines(
     }
 }
 
-/// A reading's chart, linked in time to the others: the wheel zooms time,
-/// a drag pans it, and the scale fits the lines on its own. Its grid, with a zero line on the
+/// A reading's chart, linked in time to the others: the wheel or a drag
+/// pans time, Cmd or Ctrl with the wheel or a pinch zooms it, and the
+/// scale fits the lines on its own. Its grid, with a zero line on the
 /// rate's (0 s/d).
 fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
     // Short charts still get a label at the top and the bottom: the
@@ -258,7 +259,8 @@ fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
             .link_axis("trend", [true, false])
             .link_cursor("trend", [true, false])
             .allow_scroll(false)
-            // The wheel zooms time (below) and a drag pans it. The scale
+            // The wheel pans time and Cmd/Ctrl with it zooms (below), and
+            // a drag pans it. The scale
             // fits the lines on its own, so it neither zooms nor pans: a
             // zoom would only be put back.
             .allow_zoom(false)
@@ -293,10 +295,22 @@ fn draw_chart(
         p.set_plot_bounds_y(lo..=hi);
     }
     if p.response().hovered() {
-        let s = p.ctx().input(|i| i.smooth_scroll_delta);
+        // The wheel or a swipe either way pans time, as a drag does;
+        // Cmd (Mac) or Ctrl with the wheel, or a pinch, zooms it. Alt
+        // and the wheel zooms the strip's width; the charts' scale fits
+        // their lines, so here it does nothing.
+        let (s, zoom, alt) = p
+            .ctx()
+            .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
         let wheel = s.x + s.y;
-        if wheel != 0.0 {
-            p.zoom_bounds_around_hovered(Vec2::new((wheel * 0.003).exp(), 1.0));
+        if wheel != 0.0 && !alt {
+            let b = p.plot_bounds();
+            let px = p.response().rect.width().max(1.0);
+            let dt = -f64::from(wheel / px) * b.width();
+            p.set_plot_bounds_x(b.min()[0] + dt..=b.max()[0] + dt);
+        }
+        if zoom != 1.0 {
+            p.zoom_bounds_around_hovered(Vec2::new(zoom, 1.0));
         }
     }
     for l in series {
@@ -353,11 +367,11 @@ fn chart_hover(
         }
         ui.label(
             RichText::new(if running {
-                "Wheel zooms time, drag pans it, \
+                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
                  click shows that moment on the strip, \
                  double-click follows live again."
             } else {
-                "Wheel zooms time, drag pans it, \
+                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
                  click shows that moment on the strip, \
                  double-click shows the whole session."
             })
