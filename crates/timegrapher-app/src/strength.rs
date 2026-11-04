@@ -37,6 +37,20 @@ pub const DATA_W: f32 = 1.5;
 /// A call-out's width.
 pub const CALL_OUT_W: f32 = 1.2;
 
+/// A fainter call-out's width (a wheel's ×2, a reference period): the
+/// same grey, thinner.
+pub const FAINT_CALL_OUT_W: f32 = 1.0;
+
+/// The length of a dash, points.
+const DASH: f32 = 6.0;
+
+/// The pattern of a reference or fitted call-out (a threshold, a band, a
+/// state level): named marks (and a reference period) are solid, sounds
+/// and wheels dotted.
+pub fn dashed() -> egui_plot::LineStyle {
+    egui_plot::LineStyle::Dashed { length: DASH }
+}
+
 /// The colour of a grid, axis or call-out line. Grid and axis are the
 /// text colour see-through, so they keep their strength over a tint such
 /// as the Paper Strip's wash.
@@ -104,9 +118,20 @@ impl Grid {
     /// Add the grid and axes to a plot, before anything else so they lie
     /// under it.
     pub fn draw(&self, p: &mut PlotUi<'_>, pal: &Palette) {
+        self.add(p, pal, true);
+    }
+
+    /// Add the axes alone, over a plot filled edge to edge (a map), whose
+    /// grid would lie hidden under the fill or draw over its colours.
+    pub fn draw_axes(&self, p: &mut PlotUi<'_>, pal: &Palette) {
+        self.add(p, pal, false);
+    }
+
+    fn add(&self, p: &mut PlotUi<'_>, pal: &Palette, lines: bool) {
         p.add(GridItem {
             base: PlotItemBase::new(String::new()),
             grid: self.clone(),
+            lines,
             grid_c: colour(Strength::Grid, pal),
             axis_c: colour(Strength::Axis, pal),
         });
@@ -133,6 +158,8 @@ fn axes(frame: egui::Rect) -> (f32, f32) {
 struct GridItem {
     base: PlotItemBase,
     grid: Grid,
+    /// The grid lines too, or the axes alone.
+    lines: bool,
     grid_c: Color32,
     axis_c: Color32,
 }
@@ -193,7 +220,11 @@ impl PlotItem for GridItem {
     fn shapes(&self, _ui: &Ui, t: &PlotTransform, shapes: &mut Vec<Shape>) {
         let f = *t.frame();
         let zero = self.grid.zero_y.then(|| t.position_from_point_y(0.0));
-        let (down, across) = layout(f, &self.lines(t, 0), &self.lines(t, 1), zero);
+        let (down, across) = if self.lines {
+            layout(f, &self.lines(t, 0), &self.lines(t, 1), zero)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let grid = Stroke::new(1.0_f32, self.grid_c);
         let axis = Stroke::new(1.0_f32, self.axis_c);
         let seg = |a: Pos2, b: Pos2, s: Stroke| Shape::line_segment([a, b], s);
