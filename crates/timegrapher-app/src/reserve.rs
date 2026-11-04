@@ -16,8 +16,10 @@ use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use timegrapher_core::beats::Beat;
 use timegrapher_core::chart_scale::axis_number;
+use timegrapher_core::figure_text::{base_digits, figure, fixed_text};
 use timegrapher_core::library::length_text;
 use timegrapher_core::power_reserve::{self, Ending, Heard, Results};
+use timegrapher_core::session::{beat_error_source_label, BeatErrorSource};
 
 /// Bytes of sound written an hour at `sample_rate` and `bits`, one
 /// channel, as the recorder keeps it.
@@ -306,22 +308,23 @@ fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String,
     } else {
         String::new()
     };
-    let mut hover = "The run, from the first beat heard to the last, in true time".to_string();
-    if let Some(p) = &t.saved {
-        hover.push_str(&format!(
-            ". Kept as \"{}\"{}. Every pane reads it like any other take",
-            p.file_name()
-                .map_or_else(String::new, |n| n.to_string_lossy().into()),
-            if t.keep_sound {
-                ""
-            } else {
-                ", as its analysis alone once that is written"
-            }
-        ));
-    }
-    if let Some((_, pause_hint)) = pauses {
-        hover.push_str(&format!(". {pause_hint}"));
-    }
+    // Built only while shown: whether the sound is gone yet is read from
+    // the take.
+    let hover = |ui: &mut egui::Ui| {
+        let mut words = "The run, from the first beat heard to the last, in true time".to_string();
+        if let Some(p) = &t.saved {
+            let name = p
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into());
+            let alone =
+                (!t.keep_sound).then(|| timegrapher_core::analysis_take::is_analysis_only(p));
+            words.push_str(&format!(". {}", kept_words(&name, alone)));
+        }
+        if let Some((_, pause_hint)) = pauses {
+            words.push_str(&format!(". {pause_hint}"));
+        }
+        ui.label(words);
+    };
     ui.add(
         egui::Label::new(
             RichText::new(format!(
@@ -332,9 +335,26 @@ fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String,
         )
         .truncate(),
     )
-    .on_hover_text(hover);
+    .on_hover_ui(hover);
     if let Some(r) = t.results.as_ref().filter(|r| !r.hours.is_empty()) {
         hour_area(ui, &r.hours, false);
+    }
+}
+
+/// Where the run's take is kept, named `name`, for the run line's hover:
+/// `alone` is none with its sound kept, else whether its beats and
+/// readings are saved and the sound deleted yet (Hugh's wording, 11-04).
+fn kept_words(name: &str, alone: Option<bool>) -> String {
+    match alone {
+        None => format!("Kept as \"{name}\". Every pane reads it like any other take"),
+        Some(false) => format!(
+            "Kept as \"{name}\". Saving its beats and readings; the sound is deleted when \
+             that finishes"
+        ),
+        Some(true) => format!(
+            "Kept as \"{name}\", with its beats and readings only (the sound was deleted). \
+             Every pane reads it like any other take"
+        ),
     }
 }
 
@@ -467,9 +487,10 @@ pub fn run_h(hours: usize) -> f32 {
     60.0 + 2.0 * 160.0 + 8.0 + (hours as f32 + 1.0) * row_h
 }
 
-/// A value or a dash, its unit in the column's title.
-fn cell(v: Option<f64>, d: usize) -> String {
-    v.map_or_else(|| "–".to_string(), |x| format!("{x:.d$}"))
+/// A value written by core's figure rule `text`, or a dash; its unit is
+/// in the column's title.
+fn cell(v: Option<f64>, text: impl Fn(f64) -> String) -> String {
+    v.map_or_else(|| "–".to_string(), text)
 }
 
 /// The hour column's words: "0–1 h", and the last part hour's length.
@@ -519,7 +540,8 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
     ("Amplitude (°)", "The hour's median amplitude"),
     (
         "Beat Error (ms)",
-        "The hour's beat error from the unlock, ms (its size)",
+        "The hour's beat error from the unlock, or from the drop in an hour where the unlock \
+         isn't found, ms (its size)",
     ),
     (
         "Read (%)",
@@ -527,19 +549,39 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
     ),
 ];
 
+/// A table cell: its text, and for a beat error the words of its source
+/// and whether it is dimmed.
+type Cell = (String, Option<(&'static str, bool)>);
+
 /// The table itself: the hour named at the left, the figures right-aligned
 /// under their titles.
 fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
     let pal = theme::pal(ui);
-    let rows: Vec<[String; 5]> = hours
+    // Each cell: its text, and the words of its source with whether it is
+    // dimmed, for a beat error not from the unlock.
+    let plain = |t: String| (t, None);
+    let rows: Vec<[Cell; 5]> = hours
         .iter()
         .map(|h| {
+            let src = h.beat_error_source;
             [
-                hour_label(h),
-                cell(h.rate_s_per_day, 1),
-                cell(h.amplitude_deg, 0),
-                cell(h.beat_error_ms.map(f64::abs), 1),
-                format!("{:.0}", 100.0 * h.read_s / h.span_s.max(1.0)),
+                plain(hour_label(h)),
+                plain(cell(h.rate_s_per_day, |v| {
+                    figure(v, None, base_digits::RATE, true).replace('-', "−")
+                })),
+                plain(cell(h.amplitude_deg, |v| {
+                    figure(v, None, base_digits::AMPLITUDE, false)
+                })),
+                (
+                    cell(h.beat_error_ms.map(f64::abs), |v| {
+                        figure(v, None, base_digits::BEAT_ERROR, false)
+                    }),
+                    Some((
+                        beat_error_source_label(src),
+                        src != Some(BeatErrorSource::Unlock),
+                    )),
+                ),
+                plain(fixed_text(100.0 * h.read_s / h.span_s.max(1.0), 0)),
             ]
         })
         .collect();
@@ -558,7 +600,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
         .enumerate()
         .map(|(c, (head, _))| {
             rows.iter()
-                .map(|r| wide(&r[c]))
+                .map(|r| wide(&r[c].0))
                 .fold(wide(head) + 1.0, f32::max)
         })
         .collect();
@@ -581,7 +623,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
     let mut titles = Vec::new();
     let grid = egui::Grid::new("reserve hours")
         .striped(true)
-        .spacing([18.0, 3.0])
+        .spacing([18.0, GRID_GAP])
         .show(ui, |ui| {
             for (c, (head, hint)) in HOUR_COLUMNS.into_iter().enumerate() {
                 let r = put(
@@ -594,33 +636,54 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             }
             ui.end_row();
             for row in &rows {
-                for (c, text) in row.iter().enumerate() {
-                    put(ui, c, RichText::new(text));
+                for (c, (text, source)) in row.iter().enumerate() {
+                    // A beat error not from the unlock dimmed, and every
+                    // beat error's source in words.
+                    let colour = if source.is_some_and(|s| s.1) {
+                        pal.text_secondary
+                    } else {
+                        pal.text
+                    };
+                    let r = put(ui, c, RichText::new(text).color(colour));
+                    if let Some((words, _)) = source {
+                        r.on_hover_text(*words);
+                    }
                 }
                 ui.end_row();
             }
         });
-    pin_titles(ui, &titles, grid.response.rect, row_h);
+    pin_titles(ui, &titles, grid.response.rect, rows.len() + 1, row_h);
 }
 
 /// The table's titles kept in view: once they scroll above the pane's
 /// top while rows still show, drawn again there over the rows, so each
-/// figure keeps its unit in sight (Walter's walk of #1055). `titles` are
-/// the titles as drawn, `table` the whole table.
-fn pin_titles(ui: &egui::Ui, titles: &[(&str, egui::Rect)], table: egui::Rect, row_h: f32) {
+/// figure keeps its unit in sight (Walter's walk of #1055). The band under
+/// them reaches down to the first row that shows whole, so no row shows
+/// cut. `titles` are the titles as drawn, `table` the whole table of
+/// `rows` rows, titles included, each `row_h` tall.
+fn pin_titles(
+    ui: &egui::Ui,
+    titles: &[(&str, egui::Rect)],
+    table: egui::Rect,
+    rows: usize,
+    row_h: f32,
+) {
     let top = ui.clip_rect().top();
     let Some(first) = titles.first() else {
         return;
     };
-    let band_h = row_h + 3.0;
-    if first.1.top() >= top || table.bottom() <= top + band_h {
+    // From one row's top to the next's, the gap between included.
+    let pitch = (table.height() + GRID_GAP) / rows.max(1) as f32;
+    let next = ((top + row_h + GRID_GAP - table.top()) / pitch).ceil();
+    let band_bottom = table.top() + next * pitch;
+    if first.1.top() >= top || table.bottom() <= band_bottom {
         return;
     }
     let dy = top - first.1.top();
     let pal = theme::pal(ui);
     let painter = ui.painter();
     painter.rect_filled(
-        egui::Rect::from_x_y_ranges(table.x_range(), top..=top + band_h),
+        egui::Rect::from_x_y_ranges(table.x_range(), top..=band_bottom - GRID_GAP),
         0.0,
         pal.card,
     );
@@ -635,6 +698,9 @@ fn pin_titles(ui: &egui::Ui, titles: &[(&str, egui::Rect)], table: egui::Rect, r
         );
     }
 }
+
+/// The gap between the table's rows, points.
+const GRID_GAP: f32 = 3.0;
 
 /// The steps, in hours, the Power Reserve charts' hours go up in.
 const HOUR_STEPS: [f64; 7] = [1.0, 2.0, 3.0, 6.0, 12.0, 24.0, 48.0];
@@ -849,17 +915,21 @@ pub fn results_text(r: &Results, watch: &str, sep: char) -> String {
         "Rate (s/d)".into(),
         "Amplitude (deg)".into(),
         "Beat error (ms)".into(),
+        "Beat error from".into(),
         "Read (s)".into(),
     ]);
-    let num = |v: Option<f64>, d: usize| v.map_or_else(String::new, |x| format!("{x:.d$}"));
+    // Core's figure rule, plain: no plus, an ASCII minus, never "-0".
+    let num = |v: Option<f64>, d: usize| v.map_or_else(String::new, |x| fixed_text(x, d));
     for h in &r.hours {
         out += &line(&[
             h.hour.to_string(),
-            format!("{:.0}", h.span_s),
-            num(h.rate_s_per_day, 1),
-            num(h.amplitude_deg, 0),
-            num(h.beat_error_ms.map(f64::abs), 2),
-            format!("{:.0}", h.read_s),
+            fixed_text(h.span_s, 0),
+            num(h.rate_s_per_day, base_digits::RATE),
+            num(h.amplitude_deg, base_digits::AMPLITUDE),
+            num(h.beat_error_ms.map(f64::abs), base_digits::BEAT_ERROR),
+            h.beat_error_source
+                .map_or_else(|| "not recorded".to_string(), |s| s.to_string()),
+            fixed_text(h.read_s, 0),
         ]);
     }
     out
@@ -949,13 +1019,101 @@ mod tests {
             "{text}"
         );
         assert!(
-            // Beat error as its size, as every text gives it.
-            text.ends_with("0,100,4.2,281,0.40,90\n") || text.ends_with("0,100,4.3,281,0.40,90\n"),
+            // Beat error as its size, as every text gives it, and where it
+            // came from: none recorded for this hour.
+            text.ends_with("0,100,4.2,281,0.40,not recorded,90\n")
+                || text.ends_with("0,100,4.3,281,0.40,not recorded,90\n"),
             "{text}"
         );
         // Whole seconds, as the run's own words count them: 99.8 s is
         // "1 min 39 s", never a second over.
         assert_eq!(hour_label(&r.hours[0]), "0 h + 1:39");
+    }
+
+    /// The run line's hover says only what is true of the take now: kept
+    /// with its sound, its beats and readings being saved, or kept with
+    /// them alone (Hugh's wording, Walter's walk of #1055).
+    #[test]
+    fn the_run_lines_hover_says_how_the_take_is_kept() {
+        let name = "2026-10-25 23.17 Power Reserve";
+        assert_eq!(
+            kept_words(name, None),
+            "Kept as \"2026-10-25 23.17 Power Reserve\". Every pane reads it like any other take"
+        );
+        assert_eq!(
+            kept_words(name, Some(false)),
+            "Kept as \"2026-10-25 23.17 Power Reserve\". Saving its beats and readings; the \
+             sound is deleted when that finishes"
+        );
+        assert_eq!(
+            kept_words(name, Some(true)),
+            "Kept as \"2026-10-25 23.17 Power Reserve\", with its beats and readings only (the \
+             sound was deleted). Every pane reads it like any other take"
+        );
+    }
+
+    /// A run's hours whose beat error came from the drop: in the table
+    /// that hour's beat error alone is dimmed and its hover says so, and
+    /// its CSV row alone says "drop"; figures are written by core's rule,
+    /// a rate that rounds to zero never "-0.0" (#1056).
+    #[test]
+    fn an_hour_from_the_drop_is_marked_and_says_so() {
+        use timegrapher_core::session::BeatErrorSource;
+        let mut t = finished_run(3);
+        if let Some(r) = t.results.as_mut() {
+            for h in &mut r.hours {
+                h.beat_error_source = Some(BeatErrorSource::Unlock);
+                h.rate_s_per_day = Some(-0.04);
+            }
+            r.hours[1].beat_error_source = Some(BeatErrorSource::Drop);
+            r.hours[1].beat_error_ms = Some(-0.47);
+        }
+        let r = t.results.clone().unwrap();
+        let csv = results_text(&r, "Pepsi", ',');
+        let rows: Vec<&str> = csv
+            .lines()
+            .filter(|l| l.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        assert_eq!(rows.len(), 3, "{csv}");
+        assert!(rows[0].ends_with(",0.0,281,0.40,unlock,3500"), "{csv}");
+        assert!(rows[1].ends_with(",0.0,281,0.47,drop,3500"), "{csv}");
+        assert!(!csv.contains("-0.0"), "{csv}");
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut ink = (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
+        let mut cells = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ink = (theme::pal(ui).text, theme::pal(ui).text_secondary);
+                    pane(ui, Some(&t), None, "Position", "Pepsi", true);
+                });
+            });
+            cells = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(s) => Some((
+                        s.galley.text().to_string(),
+                        s.galley.job.sections.first().map(|f| f.format.color),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+        }
+        let colour =
+            |text: &str| -> Vec<_> { cells.iter().filter(|c| c.0 == text).map(|c| c.1).collect() };
+        assert_eq!(colour("0.47"), vec![Some(ink.1)], "{cells:?}");
+        assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
+        // The rate written as the app writes a rate: zero takes no sign.
+        assert_eq!(colour("0.0").len(), 3, "{cells:?}");
     }
 
     /// After a run, its two charts take the pane's height and nothing is
