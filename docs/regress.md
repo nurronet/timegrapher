@@ -99,7 +99,12 @@ closer to tg always passes, so does crossing tg at the same distance.
 | Rate | 0.3 s/d | the fit against tg's mean |
 | Amplitude | 1.5° | the mean of Tick and Tock against tg's |
 | Beat error from the unlock | 0.03 ms | its size against tg's (tg's is unsigned) |
-| Beats found | 0.05%, at least 3 | the baseline: fewer beats fail |
+| Beats found | 0.05%, at least 3 | the baseline: more or fewer beats past the margin fail |
+
+A reading fails when its beat count changes by more than the margin in either
+direction. Drift within the margins is printed in the text report, with the
+number of changed entries and largest absolute change for each field; this
+summary does not change the exit code.
 
 A reading also fails when it loses a value it had, or cannot be read at
 all (including a new reading without a baseline). A required baseline session
