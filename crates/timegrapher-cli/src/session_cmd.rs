@@ -1418,17 +1418,37 @@ mod tests {
         assert_eq!(notes.len(), 3, "{notes:?}");
     }
 
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
-    fn custom_session_catalogue_preserves_value_context_precedence_and_snapshot() {
-        let mut user: UserCalibres = serde_json::from_value(serde_json::json!({
+    /// The user catalogue the custom-calibre tests read: a custom calibre
+    /// with an alias and a wheel, and a wheel override for a shipped one.
+    fn custom_user() -> UserCalibres {
+        serde_json::from_value(serde_json::json!({
             "schema": calibre_store::SCHEMA,
             "custom":[{"name":"Bench 44","aliases":["Workshop-A"],"bph":21600,"lift_angle_deg":44.0,"escape_teeth":20,"wheels":[{"name":"third wheel","period_s":123.0}]}],
             "wheels":[{"calibre":"Rolex 3235","name":"third wheel","period_s":241.0}],
-        })).unwrap();
+        })).unwrap()
+    }
+
+    /// The analysis settings a session file reads with under these options.
+    fn analysis_of(
+        m: &Manifest,
+        calibre: &SessionCalibre,
+        o: &Options,
+    ) -> timegrapher_core::analysis::AnalysisConfig {
+        let ctx = Ctx {
+            m,
+            calibre,
+            base: Path::new("."),
+            o,
+            tty: false,
+            quiet: true,
+            card_clock: false,
+        };
+        stream_config(&ctx).unwrap().0.analysis
+    }
+
+    #[test]
+    fn custom_session_catalogue_preserves_value_context_precedence() {
+        let user = custom_user();
         for (text, flag_bph, flag_lift, expected) in [
             (
                 "calibre = \"Workshop-A\"",
@@ -1458,25 +1478,14 @@ mod tests {
             let m: Manifest = toml::from_str(text).unwrap();
             let o = options(flag_bph, flag_lift, None);
             let selection = o.calibre_with(&m, &user).unwrap();
-            let ctx = Ctx {
-                m: &m,
-                calibre: &selection,
-                base: Path::new("."),
-                o: &o,
-                tty: false,
-                quiet: true,
-                card_clock: false,
-            };
-            let (cfg, _) = stream_config(&ctx).unwrap();
-            assert_eq!(
-                (
-                    cfg.analysis.bph,
-                    cfg.analysis.amplitude.lift_deg,
-                    cfg.analysis.lift_known
-                ),
-                expected
-            );
+            let a = analysis_of(&m, &selection, &o);
+            assert_eq!((a.bph, a.amplitude.lift_deg, a.lift_known), expected);
         }
+    }
+
+    #[test]
+    fn custom_session_catalogue_is_a_snapshot() {
+        let mut user = custom_user();
         let m: Manifest = toml::from_str("calibre = \"Workshop-A\"").unwrap();
         let o = options(None, None, None);
         let selected = o.calibre_with(&m, &user).unwrap();
@@ -1488,19 +1497,7 @@ mod tests {
             .any(|w| w.name == "third wheel" && w.period_s == 123.0));
         user.custom[0].lift_angle_deg = Some(60.0);
         user.custom[0].wheels[0].period_s = 999.0;
-        let ctx = Ctx {
-            m: &m,
-            calibre: &selected,
-            base: Path::new("."),
-            o: &o,
-            tty: false,
-            quiet: true,
-            card_clock: false,
-        };
-        assert_eq!(
-            stream_config(&ctx).unwrap().0.analysis.amplitude.lift_deg,
-            44.0
-        );
+        assert_eq!(analysis_of(&m, &selected, &o).amplitude.lift_deg, 44.0);
         assert!(selected
             .train
             .wheels(21600)
@@ -1509,6 +1506,12 @@ mod tests {
         assert!(options(None, None, Some("Unknown explicit"))
             .calibre_with(&m, &user)
             .is_err());
+    }
+
+    #[test]
+    fn a_shipped_calibres_wheel_override_is_read_unless_the_catalogue_is_empty() {
+        let user = custom_user();
+        let o = options(None, None, None);
         let shipped: Manifest = toml::from_str("calibre = \"Rolex 3235\"").unwrap();
         let selected = o.calibre_with(&shipped, &user).unwrap();
         assert!(selected
@@ -1788,14 +1791,70 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// Keeps the take at `wav` (session file `toml`, read over `span_s`) as
+    /// its analysis alone in `kept`, with the session file saying so and the
+    /// other files given.
+    fn keep_as_analysis(
+        wav: &Path,
+        toml: &str,
+        span_s: f64,
+        kept: &Path,
+        others: Vec<(String, Vec<u8>)>,
+    ) {
+        let m: Manifest = toml::from_str(toml).unwrap();
+        let mut cfg = StreamConfig::default();
+        cfg.analysis.bph = Some(28800);
+        cfg.analysis.amplitude.lift_deg = 52.0;
+        let shapes = analysis_take::shape_stretches(&m, span_s);
+        let stored = analysis_take::measure(
+            &[wav],
+            &cfg,
+            &shapes,
+            serde_json::json!({"name": "timegrapher", "version": "test", "git_hash": "abc"}),
+            |_| {},
+        )
+        .unwrap();
+        let mut files = vec![(
+            MANIFEST.to_string(),
+            format!("audio = false\n{toml}").into_bytes(),
+        )];
+        files.extend(others);
+        analysis_take::save(kept, &files, &stored).unwrap();
+    }
+
+    /// `session` on `dir` with these options, writing to `dir/out`: its
+    /// summary.json.
+    fn summary_of(dir: &Path, o: Options) -> serde_json::Value {
+        let out = dir.join("out");
+        let o = Options {
+            out: Some(out.clone()),
+            ..o
+        };
+        run(&[dir.to_path_buf()], &o).unwrap();
+        let v =
+            serde_json::from_str(&fs::read_to_string(out.join("summary.json")).unwrap()).unwrap();
+        let _ = fs::remove_dir_all(&out);
+        v
+    }
+
+    /// A clock log for audio heard to `pause`, then after a pause of `gap`,
+    /// with the system clock set 2 s forward between 140 s and 150 s.
+    fn clock_log_with_a_step(pause: f64, gap: f64) -> String {
+        let mut clock = String::from("audio_s,unix_s\n");
+        let mut audio_s: Vec<f64> = (0..=9).map(|i| i as f64 * 10.0).collect();
+        audio_s.push(pause);
+        audio_s.extend((10..=18).map(|i| i as f64 * 10.0));
+        for a in audio_s {
+            let off = if a >= pause { gap } else { 0.0 } + if a >= 150.0 { 2.0 } else { 0.0 };
+            clock.push_str(&format!("{a},{}\n", 1.79e9 + a + off));
+        }
+        clock
+    }
+
     /// A take kept as its analysis alone has the breaks the take with its
     /// sound has: its listed pause, and a step in its clock log that no
     /// listed pause explains.
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
     fn a_kept_take_has_the_breaks_its_sound_has() {
         use timegrapher_core::synth::{generate, SynthConfig};
         let base =
@@ -1833,57 +1892,23 @@ mod tests {
         fs::write(full.join("session.json"), &json).unwrap();
         // The clock log: the pause's gap from 90.03 s on, and the system
         // clock set 2 s forward between 140 s and 150 s with no pause.
-        let mut clock = String::from("audio_s,unix_s\n");
-        let mut audio_s: Vec<f64> = (0..=9).map(|i| i as f64 * 10.0).collect();
-        audio_s.push(pause);
-        audio_s.extend((10..=18).map(|i| i as f64 * 10.0));
-        for a in audio_s {
-            let off = if a >= pause { gap } else { 0.0 } + if a >= 150.0 { 2.0 } else { 0.0 };
-            clock.push_str(&format!("{a},{}\n", 1.79e9 + a + off));
-        }
+        let clock = clock_log_with_a_step(pause, gap);
         fs::write(full.join("clock.csv"), &clock).unwrap();
         let toml = "bph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
                     clock = \"clock.csv\"\n";
         fs::write(full.join(MANIFEST), toml).unwrap();
-        let m: Manifest = toml::from_str(toml).unwrap();
-        let mut cfg = StreamConfig::default();
-        cfg.analysis.bph = Some(28800);
-        cfg.analysis.amplitude.lift_deg = 52.0;
-        let shapes = analysis_take::shape_stretches(&m, 180.0);
-        let stored = analysis_take::measure(
-            &[wav.as_path()],
-            &cfg,
-            &shapes,
-            serde_json::json!({"name": "timegrapher", "version": "test", "git_hash": "abc"}),
-            |_| {},
-        )
-        .unwrap();
         let kept = base.join("kept");
-        analysis_take::save(
-            &kept,
-            &[
-                (
-                    MANIFEST.to_string(),
-                    format!("audio = false\n{toml}").into_bytes(),
-                ),
-                ("session.json".to_string(), json.into_bytes()),
-                ("clock.csv".to_string(), clock.into_bytes()),
-            ],
-            &stored,
-        )
-        .unwrap();
-        let read = |dir: &Path| -> serde_json::Value {
-            let out = dir.join("out");
+        let others = vec![
+            ("session.json".to_string(), json.into_bytes()),
+            ("clock.csv".to_string(), clock.into_bytes()),
+        ];
+        keep_as_analysis(&wav, toml, 180.0, &kept, others);
+        let read = |dir: &Path| {
             let o = Options {
                 settle: Some(10.0),
-                out: Some(out.clone()),
                 ..options(None, None, None)
             };
-            run(&[dir.to_path_buf()], &o).unwrap();
-            let v = serde_json::from_str(&fs::read_to_string(out.join("summary.json")).unwrap())
-                .unwrap();
-            let _ = fs::remove_dir_all(&out);
-            v
+            summary_of(dir, o)
         };
         let caveat = |m: &serde_json::Value, code: &str| -> Option<u64> {
             m["caveats"]
@@ -2029,18 +2054,12 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// A take kept as its analysis alone reads as the take with its sound
-    /// did: the same readings and beat shape for each position, with the
-    /// report saying no sound was kept.
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "over the limit before it was set; split it (architecture guide, section 12)"
-    )]
-    fn a_take_kept_as_its_analysis_reads_as_its_sound() {
+    /// A two-position take in `base/full`, with its sound, and the same take
+    /// kept as its analysis alone in `base/kept`: the two folders and the
+    /// sound file.
+    fn a_take_and_its_kept_analysis(base: &Path) -> (PathBuf, PathBuf, PathBuf) {
         use timegrapher_core::synth::{generate, SynthConfig};
-        let base = std::env::temp_dir().join(format!("tg-session-kept-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let _ = fs::remove_dir_all(base);
         let full = base.join("full");
         fs::create_dir_all(&full).unwrap();
         let audio = generate(
@@ -2060,40 +2079,19 @@ mod tests {
                     end_s = 60.0\nmasked = [[40.0, 43.0]]\n\n[[recording]]\nfile = \".\"\n\
                     position = \"DD\"\nstart_s = 60.0\n";
         fs::write(full.join(MANIFEST), toml).unwrap();
-        let m: Manifest = toml::from_str(toml).unwrap();
-        let mut cfg = StreamConfig::default();
-        cfg.analysis.bph = Some(28800);
-        cfg.analysis.amplitude.lift_deg = 52.0;
-        let shapes = analysis_take::shape_stretches(&m, 120.0);
-        let stored = analysis_take::measure(
-            &[wav.as_path()],
-            &cfg,
-            &shapes,
-            serde_json::json!({"name": "timegrapher", "version": "test", "git_hash": "abc"}),
-            |_| {},
-        )
-        .unwrap();
         let kept = base.join("kept");
-        let kept_toml = format!("audio = false\n{toml}");
-        analysis_take::save(
-            &kept,
-            &[(MANIFEST.to_string(), kept_toml.into_bytes())],
-            &stored,
-        )
-        .unwrap();
-        let read_at = |dir: &Path, lift: Option<f64>| -> serde_json::Value {
-            let out = dir.join("out");
-            let o = Options {
-                out: Some(out.clone()),
-                ..options(None, lift, None)
-            };
-            run(&[dir.to_path_buf()], &o).unwrap();
-            let v = serde_json::from_str(&fs::read_to_string(out.join("summary.json")).unwrap())
-                .unwrap();
-            let _ = fs::remove_dir_all(&out);
-            v
-        };
-        let read = |dir: &Path| read_at(dir, None);
+        keep_as_analysis(&wav, toml, 120.0, &kept, Vec::new());
+        (full, kept, wav)
+    }
+
+    /// A take kept as its analysis alone reads as the take with its sound
+    /// did: the same readings and beat shape for each position, with the
+    /// report saying no sound was kept.
+    #[test]
+    fn a_take_kept_as_its_analysis_reads_as_its_sound() {
+        let base = std::env::temp_dir().join(format!("tg-session-kept-{}", std::process::id()));
+        let (full, kept, _) = a_take_and_its_kept_analysis(&base);
+        let read = |dir: &Path| summary_of(dir, options(None, None, None));
         let (a, b) = (read(&full), read(&kept));
         for i in 0..2 {
             let (ra, rb) = (&a["readings"][i], &b["readings"][i]);
@@ -2133,10 +2131,18 @@ mod tests {
         };
         let html = crate::session_report::html(&s);
         assert!(html.contains("None kept") && html.contains("timegrapher test (abc)"));
+        let _ = fs::remove_dir_all(&base);
+    }
 
-        // Read at another lift, the kept amplitudes are those the sound
-        // gives at it.
-        let (a, b) = (read_at(&full, Some(44.0)), read_at(&kept, Some(44.0)));
+    /// Read at another lift, the kept amplitudes are those the sound gives
+    /// at it.
+    #[test]
+    fn a_take_kept_as_its_analysis_reads_at_another_lift_as_its_sound() {
+        let base =
+            std::env::temp_dir().join(format!("tg-session-kept-lift-{}", std::process::id()));
+        let (full, kept, _) = a_take_and_its_kept_analysis(&base);
+        let read = |dir: &Path| summary_of(dir, options(None, Some(44.0), None));
+        let (a, b) = (read(&full), read(&kept));
         for i in 0..2 {
             let f = |v: &serde_json::Value| {
                 v["readings"][i]["measurement"]["amplitude_deg"]
@@ -2150,9 +2156,16 @@ mod tests {
                 f(&b)
             );
         }
+        let _ = fs::remove_dir_all(&base);
+    }
 
-        // A take is kept with its sound or as its analysis, never both, and
-        // a session file saying no sound needs the analysis to read.
+    /// A take is kept with its sound or as its analysis, never both, and a
+    /// session file saying no sound needs the analysis to read.
+    #[test]
+    fn a_kept_take_has_its_sound_or_its_analysis_not_both_nor_neither() {
+        let base =
+            std::env::temp_dir().join(format!("tg-session-kept-both-{}", std::process::id()));
+        let (_, kept, wav) = a_take_and_its_kept_analysis(&base);
         fs::copy(&wav, kept.join("take_part01-001.wav")).unwrap();
         let o = options(None, None, None);
         let err = run(std::slice::from_ref(&kept), &o).unwrap_err();
