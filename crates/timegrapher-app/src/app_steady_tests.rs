@@ -94,3 +94,47 @@ fn each_steady_panes_series_are_kept() {
         );
     }
 }
+
+/// The FFT pane's Timing changes only how rate is drawn, so it can be
+/// used only while the pane draws rate: with Rate off it is greyed and a
+/// click does nothing.
+#[test]
+fn the_fft_timing_switch_needs_rate_shown() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut app = synthetic(40.0, 0.0);
+    app.reveal_pane(Pane::SteadyFft);
+    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1600.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx));
+        theme::tools_drawn_at(&ctx)
+            .into_iter()
+            .find(|(k, _)| k == "FFT/Timing")
+            .map(|(_, r)| r)
+    };
+    let click = |at: egui::Pos2| {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        vec![egui::Event::PointerMoved(at), button(true), button(false)]
+    };
+    for (series, flips) in [(RATE_ONLY, true), ([false, true, false], false)] {
+        app.steady_series.insert(steady::View::Fft, series);
+        app.fft_timing = false;
+        pass(&mut app, Vec::new());
+        let at = pass(&mut app, Vec::new()).expect("Timing drawn").center();
+        pass(&mut app, click(at));
+        pass(&mut app, Vec::new());
+        assert_eq!(app.fft_timing, flips, "{series:?}");
+    }
+}

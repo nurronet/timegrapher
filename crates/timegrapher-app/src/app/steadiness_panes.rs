@@ -45,9 +45,12 @@ impl TimegrapherApp {
                 "Show the scores in decibels. Off: linear.",
             );
         }
+        // Timing changes only how rate is drawn, so it can be used only
+        // while rate is.
         if view == steady::View::Fft {
             theme::bar_gap(ui);
-            theme::tool_switch(
+            let rate_shown = self.series_shown(view)[0];
+            theme::tool_switch_unless(
                 ui,
                 Icon::Stopwatch,
                 accent,
@@ -55,6 +58,7 @@ impl TimegrapherApp {
                 &mut self.fft_timing,
                 "Draw rate as the beat timing's spectrum, in ms, at every period, rather than \
                  the swing it makes in 10 s rate readings, in s/d",
+                (!rate_shown).then_some("Turn Rate on to draw it as the beat timing's spectrum."),
             );
         }
         if matches!(view, steady::View::Stft | steady::View::Wavelet) {
