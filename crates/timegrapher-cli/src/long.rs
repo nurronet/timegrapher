@@ -8,6 +8,7 @@ use timegrapher_core::calibre_store::{self, UserCalibres};
 #[cfg(test)]
 use timegrapher_core::calibres::{self, Calibre};
 use timegrapher_core::clock::ClockFit;
+use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::longrun::{self, LongReport};
 use timegrapher_core::longterm::{Component, LongConfig};
 use timegrapher_core::periodicity::{common_escape_wheels, standard_wheels, Wheel};
@@ -375,7 +376,7 @@ pub(crate) fn read(
     let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
     let mut progress = Progress::new();
     let mut log = stream::analyze_files(&paths, &cfg, |done| {
-        progress.at(done, total, |d| format!("{:.0}", d / 60.0), "min")
+        progress.at(done, total, |d| fixed_text(d / 60.0, 0), "min")
     })
     .map_err(|e| e.to_string())?;
     progress.end();
@@ -450,7 +451,7 @@ fn read_take(
         |first| take::correction_for(&m, first, clock_args.card_ppm, clock_args.device),
         |done, total| {
             let pct = 100.0 * done / total.max(f64::MIN_POSITIVE);
-            progress.at(pct, Some(100.0), |d| format!("{d:.0}"), "%")
+            progress.at(pct, Some(100.0), |d| fixed_text(d, 0), "%")
         },
     )?;
     progress.end();
@@ -878,8 +879,8 @@ pub fn false_alarm(sig: f64) -> String {
 pub fn wheel_note(c: &Component) -> String {
     // The match rule is longterm's: within the search's resolution or 1%
     // of the wheel's turn, whichever is wider.
-    let rule = format!("±{:.1} s or 1%", c.resolution_s);
-    let pct = |off: f64| format!("{:+.1}%", (off * 10.0).round() / 10.0 + 0.0);
+    let rule = format!("±{} s or 1%", fixed_text(c.resolution_s, 1));
+    let pct = |off: f64| format!("{}%", signed_text(off, 1));
     match (&c.wheel, &c.nearest_wheel) {
         (Some(w), Some((n, off))) if n == w => {
             format!(
@@ -897,24 +898,24 @@ pub fn wheel_note(c: &Component) -> String {
 }
 
 fn opt(v: Option<f64>, digits: usize) -> String {
-    v.map_or("-".into(), |x| format!("{x:.digits$}"))
+    v.map_or("-".into(), |x| fixed_text(x, digits))
 }
 
 fn print_summary(r: &LongReport, clock_note: Option<&str>) {
     println!(
-        "Recording    {} at {} Hz, {} bph, {} beats ({:.1}% clean)",
+        "Recording    {} at {} Hz, {} bph, {} beats ({}% clean)",
         duration(r.duration_s),
         r.sample_rate,
         r.bph,
         r.beats_found,
-        r.clean_fraction * 100.0
+        fixed_text(r.clean_fraction * 100.0, 1)
     );
     match (&r.clock, clock_note) {
         (Some(c), Some(note)) => println!(
-            "Clock        sound card {:.2} ppm {} than true time, so uncorrected rates read {:.2} s/d {}; corrected with the steady error {note}",
-            c.ppm.abs(),
+            "Clock        sound card {} ppm {} than true time, so uncorrected rates read {} s/d {}; corrected with the steady error {note}",
+            fixed_text(c.ppm.abs(), 2),
             if c.ppm >= 0.0 { "slower" } else { "faster" },
-            c.rate_error_s_per_day.abs(),
+            fixed_text(c.rate_error_s_per_day.abs(), 2),
             if c.ppm >= 0.0 { "fast" } else { "slow" },
         ),
         (Some(c), None) if !c.corrects() => println!(
@@ -922,13 +923,13 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
             c.withheld.map(|w| w.note()).unwrap_or_default()
         ),
         (Some(c), None) => println!(
-            "Clock        sound card {:.2} ppm {} than NTP time, so uncorrected rates read {:.2} s/d {}; corrected from {} entries, {:.1} ms rms{}",
-            c.ppm.abs(),
+            "Clock        sound card {} ppm {} than NTP time, so uncorrected rates read {} s/d {}; corrected from {} entries, {} ms rms{}",
+            fixed_text(c.ppm.abs(), 2),
             if c.ppm >= 0.0 { "slower" } else { "faster" },
-            c.rate_error_s_per_day.abs(),
+            fixed_text(c.rate_error_s_per_day.abs(), 2),
             if c.ppm >= 0.0 { "fast" } else { "slow" },
             c.points,
-            c.residual_ms,
+            fixed_text(c.residual_ms, 1),
             if c.tracks_drift { ", drift followed" } else { "" }
         ),
         (None, _) => println!("Clock        not calibrated: rates are read on the sound card's clock, whose error is not measured here (--clock, or a card error stored with `timegrapher clock`, corrects it)"),
@@ -964,11 +965,11 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
     );
     let line = |c: &Component, size: String| {
         println!(
-            "  {:>9.2} s ±{:<6.2} {:<22} explains {:>3.0}%  false alarm {:<7}  {}",
-            c.period_s,
-            c.resolution_s,
+            "  {:>9} s ±{:<6} {:<22} explains {:>3}%  false alarm {:<7}  {}",
+            fixed_text(c.period_s, 2),
+            fixed_text(c.resolution_s, 2),
             size,
-            c.explained * 100.0,
+            fixed_text(c.explained * 100.0, 0),
             false_alarm(c.significance),
             wheel_note(c)
         );
