@@ -2202,6 +2202,9 @@ pub struct TimegrapherApp {
     /// session so far, growing as beats arrive. Any zoom or pan of the
     /// strip's time turns it off.
     strip_fit: bool,
+    /// The length a run of zooms is heading for, unrounded, so small
+    /// zooms add up while the strip shows the round length nearest it.
+    strip_zoom_s: Option<f64>,
     /// Whether Fit was on before an opened take was fitted.
     live_fit: bool,
     trend: Vec<TrendPoint>,
@@ -2653,6 +2656,7 @@ impl TimegrapherApp {
             reread_with: None,
             live_strip: None,
             strip_fit: false,
+            strip_zoom_s: None,
             live_fit: false,
             trend: Vec::new(),
             trend_key: (Revision::default(), 10.0f64.to_bits()),

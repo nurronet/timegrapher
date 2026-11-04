@@ -218,6 +218,37 @@ fn dragging_the_strip_looks_back_and_returns() {
     assert!(((now - at) / 15.0 - 15.0 / 30.0).abs() < 1e-9, "{now}");
 }
 
+/// A zoom leaves the strip at a round length, never such as 3:01, and
+/// the small steps a wheel turn plays out in still add up (#1068 item 3).
+#[test]
+fn a_zoom_leaves_a_round_length() {
+    let mut app = synthetic(600.0, 0.0);
+    app.strip.set_span(120.0);
+    let step = StripInput {
+        span_factor: 1.02,
+        ..Default::default()
+    };
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        app.apply_strip_input(step, app.strip_end_s());
+        let s = app.strip.span_s;
+        assert_eq!(s % 60.0, 0.0, "{s}");
+        seen.push(s);
+    }
+    assert_eq!(seen.last(), Some(&180.0), "{seen:?}");
+    // Below 2 min, a 5 s step; below 10 s, whole seconds.
+    app.strip.set_span(60.0);
+    let zoom_in = |f: f64| StripInput {
+        span_factor: f,
+        ..Default::default()
+    };
+    app.apply_strip_input(zoom_in(0.93), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 55.0);
+    app.strip.set_span(8.0);
+    app.apply_strip_input(zoom_in(0.8), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 6.0);
+}
+
 /// Zooming the strip's time out stops at the take's length: past it is
 /// only blank paper. A length already longer, typed in, is kept.
 #[test]
