@@ -154,5 +154,6 @@ spectra[].welch.amplitude
 spectra[].welch.period_s
 spectra[].welch.segment_s
 spectra[].welch.segments
+walk
 wheel_lines
 wind_down

@@ -200,6 +200,36 @@ fn strip_points(doc: &mut serde_json::Value, keep_overall: bool) {
     }
 }
 
+/// The isochronism walk in one line: its points at the default width and
+/// where it starts and ends; every 5 min point is in the JSON's `walk`.
+fn walk_line(w: &timegrapher_core::walk::IsochronismWalk) -> String {
+    use timegrapher_core::walk::{default_merge, merged};
+    let m = merged(w, default_merge(w));
+    let at = |p: &timegrapher_core::walk::WalkPoint| {
+        format!(
+            "{:.0}° at {:+.1} s/d ({:.1} h)",
+            p.amplitude_deg, p.rate_s_per_day, p.wind_h
+        )
+    };
+    let finer = (m.points.len() < w.points.len()).then(|| {
+        format!(
+            "; one per {} in the JSON's walk",
+            crate::long::duration(w.bin_s)
+        )
+    });
+    match (m.points.first(), m.points.last()) {
+        (Some(a), Some(b)) => format!(
+            "Walk         {} points, one per {}, from {} to {}{}",
+            m.points.len(),
+            crate::long::duration(m.bin_s),
+            at(a),
+            at(b),
+            finer.unwrap_or_default()
+        ),
+        _ => String::new(),
+    }
+}
+
 fn print_text(r: &Report, calibrated: bool) {
     println!(
         "Recording    {} at {} bph{}",
@@ -232,6 +262,10 @@ fn print_text(r: &Report, calibrated: bool) {
                 b.to_wind_h
             );
         }
+    }
+    if let Some(w) = &r.walk {
+        println!();
+        println!("{}", walk_line(w));
     }
     if let Some(w) = &r.wind_down {
         println!();
@@ -561,6 +595,7 @@ mod tests {
             series: vec![],
             rate_amplitude: None,
             isochronism: None,
+            walk: None,
             wind_down: None,
             distributions: timegrapher_core::distribution::Distributions {
                 overall: vec![],
