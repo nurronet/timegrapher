@@ -720,10 +720,13 @@ no wider than the plots (scrolling sideways when it would be), and gives
 the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
 Read (%), the figures right-aligned and written by core `figure_text`.
 Scrolled down, the titles stay at the pane's top. A beat error from the
-drop, or with no source recorded, is drawn dimmed, and every beat error's
-hover names its source (core `session::beat_error_source_label`).
+drop, or with no source recorded, is drawn dimmed, with the key "Grey
+beat errors: from the drop, or source not recorded." under the table, and
+every beat error's hover names its source (core
+`session::beat_error_source_label`).
 **Save as CSV…** and **Copy** give the watch, the run and the table, with
-a "Beat error from" column (unlock, drop or not recorded). The take
+a "Beat error from" column (unlock or drop; empty when not recorded, as
+for a figure not measured). The take
 is kept in the picked watch's history, named by its local start time and
 "Power Reserve", with
 `power-reserve.json` beside the standard files; with Analysis Only it is
