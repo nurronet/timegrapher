@@ -190,7 +190,7 @@
      "defaults": 0
     },
     "crates/timegrapher-app/src/steady.rs": {
-     "bounds": 10,
+     "bounds": 8,
      "comparisons": 9,
      "constants": 2,
      "defaults": 0
@@ -221,7 +221,7 @@
     }
    },
    "total": {
-    "bounds": 107,
+    "bounds": 105,
     "comparisons": 109,
     "constants": 54,
     "defaults": 4

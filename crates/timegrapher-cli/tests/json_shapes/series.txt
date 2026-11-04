@@ -6,6 +6,7 @@ config.acf_alone
 config.alpha
 config.change_block_s
 config.change_min_segment_s
+config.level_alpha
 config.ljung_box_lags
 config.max_lag_s
 config.max_points

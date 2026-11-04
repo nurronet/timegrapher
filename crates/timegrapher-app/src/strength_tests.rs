@@ -3,10 +3,6 @@ use crate::theme;
 use eframe::egui::{pos2, Rect};
 use std::path::Path;
 
-/// The plots not yet drawn through [`Grid`]: Steadiness's views and its
-/// maps, which come next ("Line Strength on Plots", part 2).
-const NOT_YET: [&str; 2] = ["steady.rs", "tfmap.rs"];
-
 /// Every source file of the app but the tests, with its text.
 fn sources() -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -30,7 +26,7 @@ fn no_plot_draws_the_library_grid() {
     // A plot's marks are set only through a Grid, which turns the
     // library's grid off, and every plot is put on one.
     for (name, text) in sources() {
-        if name == "strength.rs" || NOT_YET.contains(&name.as_str()) {
+        if name == "strength.rs" {
             continue;
         }
         for call in [
