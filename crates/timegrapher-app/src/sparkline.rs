@@ -12,7 +12,7 @@
 
 use crate::theme::{self, Palette};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
-use timegrapher_core::figure_text::figure;
+use timegrapher_core::figure_text::{figure, true_minus};
 use timegrapher_core::library::base_digits as base;
 use timegrapher_core::live::TrendReading;
 
@@ -129,7 +129,11 @@ pub fn scale(points: &[Option<[f64; 2]>], least: f64) -> Option<(f64, f64)> {
 
 /// A figure as the card writes it with no ±, with a true minus.
 fn text(v: f64, r: &Reading) -> String {
-    format!("{}{}", figure(v, None, r.digits, r.signed), r.unit).replace('-', "−")
+    true_minus(&format!(
+        "{}{}",
+        figure(v, None, r.digits, r.signed),
+        r.unit
+    ))
 }
 
 /// The sparkline's facts in a line, for its hover: "Last 60 s: −46.9 to
@@ -149,7 +153,7 @@ pub fn facts(points: &[Option<[f64; 2]>], r: &Reading) -> Option<String> {
     );
     Some(format!(
         "Last {SPAN_S} s: {}, now {}",
-        range.replace('-', "−"),
+        true_minus(&range),
         text(now, r)
     ))
 }
@@ -178,7 +182,7 @@ pub fn draw(
         let top = vs.clone().fold(f64::NEG_INFINITY, f64::max);
         let bottom = vs.fold(f64::INFINITY, f64::min);
         let font = egui::FontId::proportional(11.0);
-        let label = |v: f64| figure(v, None, r.digits, r.signed).replace('-', "−");
+        let label = |v: f64| true_minus(&figure(v, None, r.digits, r.signed));
         let top = painter.layout_no_wrap(label(top), font.clone(), pal.text_tertiary);
         let bottom = painter.layout_no_wrap(label(bottom), font, pal.text_tertiary);
         let w = top.size().x.max(bottom.size().x);

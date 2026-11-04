@@ -28,6 +28,14 @@ pub fn fixed_text(x: f64, digits: usize) -> String {
     }
 }
 
+/// Text as a screen shows it: every hyphen-minus set as a true minus
+/// sign (U+2212), `−1.2 s/d` rather than `-1.2 s/d`. The one place that
+/// does it; text meant for a file or a pipe (CSV, JSON, the command
+/// line) keeps the ASCII minus.
+pub fn true_minus(text: &str) -> String {
+    text.replace('-', "\u{2212}")
+}
+
 /// The most decimals a figure or its ± is written to: below 0.001 a ± is
 /// far inside any clock or lift-angle accuracy (#510 K3).
 pub const MAX_DIGITS: usize = 3;
@@ -112,6 +120,15 @@ pub fn figure_with_pm(v: f64, se: Option<f64>, base: usize, signed: bool) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_screens_minus_is_a_true_minus() {
+        assert_eq!(
+            true_minus("-1.2 to -0.4 s/d"),
+            "\u{2212}1.2 to \u{2212}0.4 s/d"
+        );
+        assert_eq!(true_minus("+1.2"), "+1.2");
+    }
 
     /// One rule for the ± on every surface (#806): the case the MCP view
     /// got wrong is 0.4° of amplitude, which reads 0.4, not 0 or 1.

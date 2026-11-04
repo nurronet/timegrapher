@@ -16,7 +16,7 @@ use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use timegrapher_core::beats::Beat;
 use timegrapher_core::chart_scale::axis_number;
-use timegrapher_core::figure_text::{base_digits, figure, fixed_text};
+use timegrapher_core::figure_text::{base_digits, figure, fixed_text, true_minus};
 use timegrapher_core::library::length_text;
 use timegrapher_core::power_reserve::{self, Ending, Heard, Results};
 use timegrapher_core::session::{beat_error_source_label, BeatErrorSource};
@@ -567,7 +567,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             [
                 plain(hour_label(h)),
                 plain(cell(h.rate_s_per_day, |v| {
-                    figure(v, None, base_digits::RATE, true).replace('-', "−")
+                    true_minus(&figure(v, None, base_digits::RATE, true))
                 })),
                 plain(cell(h.amplitude_deg, |v| {
                     figure(v, None, base_digits::AMPLITUDE, false)
