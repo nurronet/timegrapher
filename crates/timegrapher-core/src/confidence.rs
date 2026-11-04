@@ -17,6 +17,52 @@ use serde::Serialize;
 /// `beats_missing` condition.
 pub const MIN_BEAT_FRACTION: f64 = 0.95;
 
+/// Below this share of nominal kept windows, a reading names its limited coverage.
+/// The 60% rule is defined in math-standards.md, section 7.
+pub const MIN_WINDOW_COVERAGE: f64 = 0.6;
+
+/// Windows supporting one figure, and nominal windows within its kept time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Coverage {
+    pub windows_used: usize,
+    pub windows_in_span: usize,
+}
+
+impl Coverage {
+    /// Whether fewer than 60% of the eligible windows produced this figure.
+    pub fn is_thin(self) -> bool {
+        self.windows_in_span > 0
+            && (self.windows_used as f64) < MIN_WINDOW_COVERAGE * self.windows_in_span as f64
+    }
+}
+
+/// The figure named by a per-reading coverage caveat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Figure {
+    Rate,
+    Amplitude,
+    BeatError,
+}
+
+impl std::fmt::Display for Figure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Rate => "rate",
+            Self::Amplitude => "amplitude",
+            Self::BeatError => "beat error",
+        })
+    }
+}
+
+/// Each figure has its own window lengths and missing measurements.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct FigureCoverage {
+    pub rate: Coverage,
+    pub amplitude: Coverage,
+    pub beat_error: Coverage,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Reading {
     /// Standard error, in the reading's own unit.
