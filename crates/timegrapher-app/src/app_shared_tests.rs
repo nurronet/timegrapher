@@ -24,6 +24,9 @@ pub(super) fn synthetic(seconds: f64, rate: f64) -> TimegrapherApp {
         }
     }
     app.poll();
+    // The charts read again on what the take rests on now, as the frame
+    // reads them.
+    app.refresh_trend();
     app
 }
 

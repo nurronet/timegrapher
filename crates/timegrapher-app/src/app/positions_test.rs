@@ -426,10 +426,24 @@ impl TimegrapherApp {
             _ => None,
         };
         let free = if self.guided.is_none() {
-            self.free_table(ui.ctx())
+            self.free_table_shown(ui.ctx())
         } else {
             None
         };
+        // A take on show being read again: that alone, not the words for
+        // a pane with no take.
+        if self.guided.is_none() && free.is_none() && self.free_table_reading() {
+            let pal = theme::pal(ui);
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(12.0).color(pal.text_secondary));
+                ui.label(
+                    RichText::new("Reading the take…")
+                        .small()
+                        .color(pal.text_secondary),
+                );
+            });
+            return;
+        }
         let live = match phase {
             Some(guided::Phase::Measuring(_)) => self.guided_live(ui.ctx()),
             _ => None,
