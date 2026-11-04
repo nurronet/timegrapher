@@ -90,6 +90,39 @@ pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices 
     }
 }
 
+impl StateIndices {
+    /// Words for a position-table mean, including the actual source count and
+    /// why legacy unknown-source readings do not contribute.
+    pub fn beat_error_summary(&self) -> String {
+        let mut text = match self.beat_error_source {
+            Some(source) => {
+                let used = match source {
+                    BeatErrorSource::Unlock => self.beat_error_sources.unlock,
+                    BeatErrorSource::Drop => self.beat_error_sources.drop,
+                };
+                format!(
+                    "{}: mean of {used} of {} positions.",
+                    beat_error_source_label(Some(source)),
+                    self.positions.len()
+                )
+            }
+            None => format!("{}: no mean.", beat_error_source_label(None)),
+        };
+        for caveat in &self.caveats {
+            if matches!(
+                caveat,
+                crate::measure::Caveat::BeatErrorUnknownSource { .. }
+            ) {
+                if let Some(note) = caveat.long(None) {
+                    text.push(' ');
+                    text.push_str(&note);
+                }
+            }
+        }
+        text
+    }
+}
+
 fn source_caveats<'a>(
     selected: &BeatErrorSelection,
     figures: impl Iterator<Item = &'a SourcedFigures>,
@@ -192,5 +225,26 @@ mod tests {
             s.positions[0].caveats.as_slice(),
             [crate::measure::Caveat::BeatErrorUnknownSource { readings: 1 }]
         ));
+    }
+    #[test]
+    fn position_mean_words_count_the_selected_source_and_explain_unknowns() {
+        let known = sourced_indices(
+            0.0,
+            &[
+                row(Position::CH, 0.2, BeatErrorSource::Unlock),
+                row(Position::CB, 0.8, BeatErrorSource::Drop),
+                row(Position::H3, 0.4, BeatErrorSource::Unlock),
+            ],
+        );
+        assert_eq!(
+            known.beat_error_summary(),
+            "Beat Error from the Unlock: mean of 2 of 3 positions."
+        );
+        let unknown = sourced_indices(0.0, &[(Position::CH, None, None, Some(0.4), None)]);
+        assert!(unknown.beat_error_summary().contains("source not recorded"));
+        assert!(unknown.beat_error_summary().contains("no mean"));
+        assert!(unknown
+            .beat_error_summary()
+            .contains("leaves out 1 readings"));
     }
 }

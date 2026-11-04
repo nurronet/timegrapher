@@ -61,3 +61,17 @@ test("a line lifts where a reading has no figure, as the app leaves a cut empty"
   assert.equal((d.match(/M/g) || []).length, 2, d);
   assert.ok(!svg.includes("off the scale"), "a gap is not an outlier");
 });
+
+test("isolated live source readings are visible dots without joining across holes", () => {
+  const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
+  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  vm.runInContext(["DASH", "TIME_STEPS", "charts"].map(constant).join("\n") + "\n" +
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+  for (const points of [[[4, 0.2]], [[4, NaN], [40, 0.5], [44, NaN]], [[4, 0.2], [8, NaN], [12, 0.4]]]) {
+    const svg = real.lineChart({ title: "Beat Error", time: true, unit: " ms",
+      series: [{ name: "From the Drop", color: "--beat-error", points }] });
+    const count = points.filter(([, y]) => Number.isFinite(y)).length;
+    assert.equal((svg.match(/<circle /g) || []).length, count, svg);
+    assert.ok(!svg.match(/<path d="[^"]*L/), "isolated points must not be joined");
+  }
+});

@@ -100,9 +100,11 @@ impl TimegrapherApp {
         if let Some(selected) = source {
             if let Some(source) = selected.beat_error_source {
                 ui.label(
-                    RichText::new(format!("Beat Error: {source}"))
-                        .small()
-                        .color(pal.text_secondary),
+                    RichText::new(timegrapher_core::session::beat_error_source_label(Some(
+                        source,
+                    )))
+                    .small()
+                    .color(pal.text_secondary),
                 );
             }
             for caveat in selected.caveats() {

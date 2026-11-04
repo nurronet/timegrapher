@@ -366,8 +366,11 @@ function lineChart(o) {
   // Main lines last, so they are on top.
   for (const s of o.series.slice().sort((a, b) => (a.main !== false) - (b.main !== false))) {
     let d = "", pen = false;
-    for (const [x, y] of s.points) {
+    for (const [i, [x, y]] of s.points.entries()) {
       if (!Number.isFinite(y)) { pen = false; continue; }
+      if (!pen && !Number.isFinite(s.points[i + 1]?.[1])) {
+        inside += `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="2" fill="var(${s.color})"${s.opacity ? ` opacity="${s.opacity}"` : ""}/>`;
+      }
       d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`;
       pen = true;
     }
@@ -602,12 +605,9 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   return html + recordingCards(doc, extra, limits, o.beat_error_ms);
 }
 
-// Current documents name core's choice. The absent-field fallback reads older
-// documents; an explicit null stays unknown and is never labelled as a source.
+// Current tool documents always carry core’s selected source.
 function chosenBeatError(unlock, drop, source) {
-  if (source === undefined) source = Number.isFinite(unlock) ? "unlock" : Number.isFinite(drop) ? "drop" : null;
-  const value = source === "unlock" ? unlock : source === "drop" ? drop :
-    source === null ? (Number.isFinite(unlock) ? unlock : drop) : null;
+  const value = source === "unlock" ? unlock : source === "drop" ? drop : null;
   return Number.isFinite(value) ? { value, source } : { value: null, source: null };
 }
 

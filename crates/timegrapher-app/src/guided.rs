@@ -895,12 +895,18 @@ fn heading(ui: &mut egui::Ui, text: &str, hint: &str) {
 
 /// A figure at the right of a cell of its own width, so the tables'
 /// columns line up and their stripes end with the last column.
-fn right(ui: &mut egui::Ui, text: String, strong: bool, color: egui::Color32) {
-    right_in(ui, FIGURE_W, text, strong, color);
+fn right(ui: &mut egui::Ui, text: String, strong: bool, color: egui::Color32) -> egui::Response {
+    right_in(ui, FIGURE_W, text, strong, color)
 }
 
 /// [`right`] in a cell `w` wide.
-fn right_in(ui: &mut egui::Ui, w: f32, text: String, strong: bool, color: egui::Color32) {
+fn right_in(
+    ui: &mut egui::Ui,
+    w: f32,
+    text: String,
+    strong: bool,
+    color: egui::Color32,
+) -> egui::Response {
     let size = Vec2::new(w, ui.spacing().interact_size.y);
     ui.allocate_ui_with_layout(
         size,
@@ -908,9 +914,10 @@ fn right_in(ui: &mut egui::Ui, w: f32, text: String, strong: bool, color: egui::
         |ui| {
             ui.set_min_size(size);
             let t = RichText::new(text).color(color);
-            ui.label(if strong { t.strong() } else { t });
+            ui.label(if strong { t.strong() } else { t })
         },
-    );
+    )
+    .inner
 }
 
 /// The position column's heading, at the left, as wide as the longest
@@ -1021,7 +1028,9 @@ fn table_grid(
                         right(ui, signed(*rate, 1), false, pal.text);
                         right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
                         right(ui, plain(*amp, 0), false, pal.text);
-                        right(ui, plain(*be, 2), false, pal.text);
+                        right(ui, plain(*be, 2), false, pal.text).on_hover_text(
+                            t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
+                        );
                     }
                     None => {
                         let label = position_label(
@@ -1061,7 +1070,8 @@ fn table_grid(
                 right(ui, signed(t.mean_rate, 1), true, pal.text);
                 ui.label("");
                 right(ui, plain(t.mean_amplitude, 0), true, pal.text);
-                right(ui, plain(t.mean_beat_error, 2), true, pal.text);
+                right(ui, plain(t.mean_beat_error, 2), true, pal.text)
+                    .on_hover_text(&t.beat_error_summary);
                 ui.end_row();
             }
             if t.rows.len() >= 2 {
@@ -1073,6 +1083,11 @@ fn table_grid(
                 ui.end_row();
             }
         });
+    table_notes(ui, t);
+}
+
+fn table_notes(ui: &mut egui::Ui, t: &Table) {
+    let pal = theme::pal(ui);
     if t.dvh_rate.is_some() || t.dvh_amplitude.is_some() {
         ui.label(
             RichText::new(format!(
@@ -1415,6 +1430,8 @@ pub type Row = (String, Option<f64>, Option<f64>, Option<f64>, Option<f64>);
 /// rate less the mean, amplitude and beat error (a size), then the means.
 pub struct Table {
     pub rows: Vec<Row>,
+    pub beat_error_hovers: Vec<String>,
+    pub beat_error_summary: String,
     pub mean_rate: Option<f64>,
     pub mean_amplitude: Option<f64>,
     pub mean_beat_error: Option<f64>,
@@ -1518,21 +1535,14 @@ pub fn kept_table(full: &FullWind) -> Table {
 /// a position averaged first).
 fn table_of(figures: &[SourcedFigures], mut notes: Vec<String>) -> Table {
     let ix = session::sourced_indices(0.0, figures);
-    notes.extend(figures.iter().filter(|f| f.3.is_some()).map(|f| {
-        format!(
-            "{}: {}",
-            position_label(f.0),
-            session::beat_error_source_label(f.4)
-        )
-    }));
-    if ix.beat_error_mean.is_some() {
-        notes.push(format!(
-            "Average: {}",
-            session::beat_error_source_label(ix.beat_error_source)
-        ));
-    }
-    notes.extend(ix.caveats.iter().filter_map(|c| c.long(None)));
+    let beat_error_summary = ix.beat_error_summary();
+    notes.push(beat_error_summary.clone());
     Table {
+        beat_error_hovers: figures
+            .iter()
+            .map(|f| session::beat_error_source_label(f.4).into())
+            .collect(),
+        beat_error_summary,
         rows: figures
             .iter()
             .map(|&(p, rate, amp, be, _)| {
@@ -2797,6 +2807,8 @@ mod tests {
     #[test]
     fn the_table_is_written_for_a_spreadsheet() {
         let t = Table {
+            beat_error_hovers: Vec::new(),
+            beat_error_summary: String::new(),
             rows: vec![
                 (
                     "Dial Up (DU)".into(),
@@ -2837,5 +2849,22 @@ mod tests {
             .unwrap()
             .starts_with("Crown Up (CU, 3H)\t\t"));
         assert!(!csv.contains('−') && !tsv.contains('"'));
+    }
+    #[test]
+    fn position_sources_live_in_cell_hovers_with_one_summary() {
+        use session::{BeatErrorSource as S, Position as P};
+        let t = table_of(
+            &[
+                (P::CH, Some(1.0), Some(270.0), Some(0.2), Some(S::Unlock)),
+                (P::CB, Some(2.0), Some(280.0), Some(0.8), Some(S::Drop)),
+                (P::H3, Some(3.0), Some(290.0), Some(0.4), Some(S::Unlock)),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(t.notes.len(), 1);
+        assert_eq!(t.beat_error_hovers[0], "Beat Error from the Unlock");
+        assert_eq!(t.beat_error_hovers[1], "Beat Error from the Drop");
+        assert!(t.beat_error_summary.contains("mean of 2 of 3 positions"));
+        assert_eq!(t.notes[0], t.beat_error_summary);
     }
 }

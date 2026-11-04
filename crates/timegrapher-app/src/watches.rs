@@ -932,7 +932,11 @@ pub fn started_words(t: &Take) -> String {
 /// on its saved results); `None` for any other take. Read once per change
 /// of the results file.
 pub fn positions_means(dir: &std::path::Path) -> Option<(usize, [Option<f64>; 3])> {
-    type Means = (usize, [Option<f64>; 3]);
+    positions_summary(dir).map(|m| (m.0, m.1))
+}
+
+fn positions_summary(dir: &std::path::Path) -> Option<(usize, [Option<f64>; 3], String)> {
+    type Means = (usize, [Option<f64>; 3], String);
     type Cache = std::collections::HashMap<PathBuf, (Option<std::time::SystemTime>, Means)>;
     thread_local! {
         static MEANS: std::cell::RefCell<Cache> = Default::default();
@@ -943,7 +947,7 @@ pub fn positions_means(dir: &std::path::Path) -> Option<(usize, [Option<f64>; 3]
         let mut m = m.borrow_mut();
         if let Some((at, means)) = m.get(dir) {
             if *at == modified {
-                return Some(*means);
+                return Some(means.clone());
             }
         }
         let means = std::fs::read_to_string(&file)
@@ -954,10 +958,11 @@ pub fn positions_means(dir: &std::path::Path) -> Option<(usize, [Option<f64>; 3]
                 (
                     t.rows.len(),
                     [t.mean_rate, t.mean_amplitude, t.mean_beat_error],
+                    t.beat_error_summary,
                 )
             })
             .unwrap_or_default();
-        m.insert(dir.to_path_buf(), (modified, means));
+        m.insert(dir.to_path_buf(), (modified, means.clone()));
         Some(means)
     })
 }
@@ -1031,14 +1036,14 @@ pub fn take_cells(
 fn figures_hover(count: Option<usize>, reserve: bool) -> String {
     match count {
         Some(0) => String::new(),
-        Some(1) => "\n\nRate, Amplitude and Beat Error: the one position measured.".into(),
+        Some(1) => "\n\nRate and Amplitude: the one position measured.".into(),
         Some(n) => {
             let of = if n == 6 {
                 "six positions".to_string()
             } else {
                 format!("{n} positions measured")
             };
-            format!("\n\nRate, Amplitude and Beat Error: Mean of the {of}.")
+            format!("\n\nRate and Amplitude: Mean of the {of}.")
         }
         None if reserve => {
             "\n\nRate, Amplitude and Beat Error: hour by hour in the take: open it.".into()
@@ -1456,6 +1461,9 @@ fn take_hover(
     let on_show = cx.on_show == Some(dir);
     let test = count.is_some();
     let mut figures = figures_hover(count, reserve);
+    if let Some((_, _, summary)) = positions_summary(dir) {
+        figures.push_str(&format!("\n\n{summary}"));
+    }
     match cx.readings.of(dir) {
         Some(TakeReading::Reading) => figures
             .push_str("\n\nRate, Amplitude and Beat Error: being read from the take's sound."),
@@ -2605,5 +2613,74 @@ mod tests {
         assert!(!line.contains("+3.5") && !line.contains("281°"), "{line}");
         assert!(local_minute("2026-10-20T21:32:00Z").is_some_and(|m| m.len() == 16));
         assert_eq!(local_minute("not a time"), None);
+    }
+    #[test]
+    fn positions_take_hover_explains_the_actual_beat_error_mean() {
+        use crate::guided::{FullWind, KeptRow, RESULTS_FILE, RESULTS_FORMAT};
+        use timegrapher_core::session::BeatErrorSource as S;
+        for legacy in [true, false] {
+            let dir = std::env::temp_dir()
+                .join(format!("tg-source-hover-{}-{legacy}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let full = FullWind {
+                format: RESULTS_FORMAT.into(),
+                began_utc: String::new(),
+                began_unix: 0.0,
+                watch: String::new(),
+                calibre: String::new(),
+                bph: None,
+                lift_angle_deg: None,
+                settle_s: None,
+                measure_s: None,
+                positions: [("DU", S::Unlock), ("DD", S::Drop), ("CU", S::Unlock)]
+                    .into_iter()
+                    .map(|(p, source)| KeptRow {
+                        position: p.into(),
+                        rate_s_per_day: Some(1.0),
+                        amplitude_deg: Some(270.0),
+                        beat_error_ms: Some(0.4),
+                        beat_error_source: if legacy { None } else { Some(source) },
+                    })
+                    .collect(),
+            };
+            std::fs::write(dir.join(RESULTS_FILE), full.to_json()).unwrap();
+            let readings = TakeReadings::default();
+            let cx = TakesContext {
+                others: &[],
+                writable: true,
+                keeping: None,
+                unsorted: false,
+                picked: None,
+                on_show: None,
+                readings: &readings,
+            };
+            let take = Take {
+                name: "test".into(),
+                bytes: 0,
+                audio: false,
+                incomplete: false,
+                started_utc: None,
+                duration_s: None,
+                positions: vec!["DU".into(), "DD".into(), "CU".into()],
+                at_end: None,
+                power_reserve: None,
+            };
+            let hover = take_hover(&take, &cx, &dir, Some(3), None);
+            assert!(hover.contains("Rate and Amplitude: Mean of the 3 positions measured"));
+            if legacy {
+                assert_eq!(positions_means(&dir).unwrap().1[2], None);
+                assert!(
+                    hover.contains("no mean") && hover.contains("leaves out 3 readings"),
+                    "{hover}"
+                );
+            } else {
+                assert!(
+                    hover.contains("Beat Error from the Unlock: mean of 2 of 3 positions"),
+                    "{hover}"
+                );
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }
