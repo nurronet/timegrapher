@@ -106,7 +106,7 @@ pub const LOST_TEXT: &str = "the input dropped sound because nothing took it in 
 
 /// Why a reading that can't hold a gap stops at [`Event::Glitch`].
 pub const GLITCH_TEXT: &str =
-    "the input glitched (a buffer underrun or overrun) and may have lost sound";
+    "the computer fell behind reading this input for a moment, and some sound may be lost";
 
 /// The sending side of a live input's queue. A block that doesn't fit is
 /// dropped and counted, and the count goes as [`Event::Lost`] ahead of the

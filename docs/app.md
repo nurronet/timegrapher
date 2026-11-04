@@ -507,8 +507,8 @@ Keep Awake's caption says so in its place. When the sound's own timestamps jump 
 more than 5 seconds (as when the computer sleeps: a laptop's lid closed,
 Sleep chosen from a menu, or Keep Awake off), the app leaves the jump out
 of the take as a break, keeps listening, and a
-message gives the length of the jump. When the input reports a glitch (a
-buffer underrun or overrun, after which it carries on), the take is not
+message gives the length of the jump. When the computer falls behind
+reading the input for a moment (a glitch the input carries on after), the take is not
 stopped: the moment is left out as a break of no time lost, so no reading
 reaches across it, and a message says so; time lost with it that shows in
 the timestamps is still found as above. A shorter hole (a dropout in the
