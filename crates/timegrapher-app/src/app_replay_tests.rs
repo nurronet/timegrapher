@@ -484,7 +484,7 @@ fn the_cards_read_at_the_strips_newest_edge() {
     assert_eq!(text.matches(&moment).count(), 1, "{moment}: {text}");
     assert!(text.contains(&format!("{moment}, double-click")), "{text}");
     assert_eq!(
-        app.card_moment(),
+        app.moment_hover(),
         Some(format!("{moment}, set by the Paper Strip."))
     );
     // Back to the newest beats: live again.

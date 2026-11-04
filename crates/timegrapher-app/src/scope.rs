@@ -150,17 +150,24 @@ pub struct Row {
 }
 
 /// An edge the profile found, marked on a row: ms from the reference
-/// point, its line's colour and its name.
+/// point, its line's colour and its name; with the strip moved back, the
+/// moment it is from, for its hover.
 pub struct Mark {
     pub ms: f64,
     pub color: Color32,
     pub name: &'static str,
+    pub moment: Option<String>,
 }
 
 impl Mark {
-    /// What its hover says: "Drop: −0.27 ms", as the Profile words it.
+    /// What its hover says: "Drop: −0.27 ms", as the Profile words it,
+    /// after the moment when the strip is moved back.
     fn hover(&self) -> String {
-        format!("{}: {}", self.name, crate::profiles::ms_text(self.ms))
+        let edge = format!("{}: {}", self.name, crate::profiles::ms_text(self.ms));
+        match &self.moment {
+            Some(m) => format!("{m}\n{edge}"),
+            None => edge,
+        }
     }
 }
 
@@ -514,6 +521,23 @@ pub fn settings(ui: &mut egui::Ui, view: &mut View) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An edge's hover: its name and time, after the moment when the
+    /// strip is moved back, so one tooltip says both (#1068).
+    #[test]
+    fn an_edges_hover_starts_with_the_moment() {
+        let mark = |moment: Option<&str>| Mark {
+            ms: -0.27,
+            color: Color32::RED,
+            name: "Drop",
+            moment: moment.map(str::to_string),
+        };
+        assert_eq!(mark(None).hover(), "Drop: −0.27 ms");
+        assert_eq!(
+            mark(Some("at 0:10, set by the Paper Strip.")).hover(),
+            "at 0:10, set by the Paper Strip.\nDrop: −0.27 ms"
+        );
+    }
 
     fn beat(index: i64, time: f64) -> Beat {
         Beat {
