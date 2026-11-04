@@ -7,11 +7,10 @@
 //! and the next frame froze the window while it caught up. A thread of its
 //! own now does that work every few tenths of a second, whether the window
 //! is drawing or not; the frames share the same app and read the sound
-//! too while they draw. Work a frame does while holding the app (a file
-//! dialog) holds this thread up too, and the sound waits in memory
-//! meanwhile; a save copies the take on a thread of its own, so it
-//! doesn't. It also holds the computer awake while listening, when Keep
-//! Awake is on.
+//! too while they draw. A file dialog waits until the frame has let the
+//! app go ([`crate::pick`]), and a save copies the take on a thread of its
+//! own, so neither holds this thread up. It also holds the computer awake
+//! while listening, when Keep Awake is on.
 
 use crate::app::TimegrapherApp;
 use crate::applog;
@@ -75,7 +74,7 @@ impl Drop for Shell {
 
 /// The app, even if a panic on the other thread left the lock poisoned:
 /// the window should still show what was kept and let it be saved.
-fn lock(app: &Mutex<TimegrapherApp>) -> MutexGuard<'_, TimegrapherApp> {
+pub(crate) fn lock(app: &Mutex<TimegrapherApp>) -> MutexGuard<'_, TimegrapherApp> {
     app.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -120,6 +119,9 @@ fn run(app: &Mutex<TimegrapherApp>, stop: &AtomicBool) {
 impl eframe::App for Shell {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.app().update(ctx, frame);
+        if crate::pick::answer(&self.app, crate::pick::show) {
+            ctx.request_repaint();
+        }
     }
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
