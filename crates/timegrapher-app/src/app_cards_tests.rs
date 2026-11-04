@@ -1183,3 +1183,82 @@ fn a_menu_item_and_its_shortcut_run_one_command() {
     assert_eq!(app.show_readings, !shown);
     assert_eq!(app.menu_checked(MenuCommand::Readings), !shown);
 }
+
+/// Unpinned, the readings are a strip: the position, the watch, the
+/// take's length and the three figures, none of the cards' controls. A
+/// click on it opens the full cards over the panes, which don't move;
+/// Esc closes them. The pin puts the cards back in the layout, and is
+/// kept; View ▸ Readings hides the strip too.
+#[test]
+fn the_readings_strip_opens_its_cards_over_the_panes() {
+    let mut app = synthetic(40.0, 5.0);
+    let ctx = themed();
+    let pointer = |at: egui::Pos2, down: bool| {
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut events = vec![egui::Event::PointerMoved(at)];
+        if down {
+            events.extend([button(true), button(false)]);
+        }
+        events
+    };
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput { events, ..screen() };
+        let out = ctx.run(input, |ctx| app.panels(ctx));
+        let strip_tools = theme::tools_drawn_at(&ctx)
+            .into_iter()
+            .find(|(k, _)| k.starts_with("Paper Strip/"))
+            .map(|(_, r)| r);
+        (super::tests::painted_text(&out), strip_tools)
+    };
+    pass(&mut app, Vec::new());
+    let (pinned, at_pinned) = pass(&mut app, Vec::new());
+    assert!(pinned.contains("Avg 10 s"), "{pinned}");
+    // The pin, at the row's right end, unpins them.
+    let pin = egui::pos2(1280.0 - 33.0, 66.0);
+    pass(&mut app, pointer(pin, true));
+    assert!(app.menu_checked(super::menus::MenuCommand::CompactReadings));
+    pass(&mut app, pointer(pin, false));
+    let (strip, at_closed) = pass(&mut app, Vec::new());
+    for gone in ["Avg 10 s", "Lift"] {
+        assert!(!strip.contains(gone), "{gone} in the strip: {strip}");
+    }
+    for shown in ["Dial Up", "Rate", "s/d", "ms", "52° · Auto 28800"] {
+        assert!(strip.contains(shown), "{shown} not in the strip: {strip}");
+    }
+    let (closed, pinned_at) = (at_closed.unwrap(), at_pinned.unwrap());
+    assert!(
+        closed.top() < pinned_at.top(),
+        "the strip is shorter than the cards"
+    );
+    // A click on the strip's Rate opens the cards over the panes.
+    let rate = egui::pos2(closed.center().x, 70.0);
+    pass(&mut app, pointer(rate, true));
+    let (open, at_open) = pass(&mut app, pointer(rate, false));
+    assert!(open.contains("Avg 10 s"), "{open}");
+    assert_eq!(at_open, Some(closed), "the panes stay where they were");
+    // Esc closes them.
+    let esc = egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    pass(&mut app, vec![esc]);
+    let (shut, _) = pass(&mut app, Vec::new());
+    assert!(!shut.contains("Avg 10 s"), "{shut}");
+    // The pin is kept.
+    let mut back = TimegrapherApp::with_devices(Vec::new(), None);
+    back.apply_settings(app.settings());
+    assert!(!back.readings_pinned);
+    // View ▸ Readings hides the strip.
+    app.show_readings = false;
+    pass(&mut app, Vec::new());
+    let (hidden, _) = pass(&mut app, Vec::new());
+    assert!(!hidden.contains("52° · Auto 28800"), "{hidden}");
+}

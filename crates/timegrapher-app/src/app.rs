@@ -58,6 +58,7 @@ mod paper_strip;
 mod picks;
 mod positions_test;
 mod power_reserve_pane;
+mod readings_strip;
 mod readouts;
 mod scope_panes;
 mod session_marks;
@@ -2166,6 +2167,8 @@ pub struct TimegrapherApp {
     folded: std::collections::BTreeSet<String>,
     /// The rate, amplitude and beat error figures above the panes.
     show_readings: bool,
+    /// Those cards pinned open in the layout, else a strip that opens them.
+    readings_pinned: bool,
     /// Asked to put the charts back on the whole session, following new
     /// beats: set by the button, applied by every chart on the next frame.
     charts_to_live: bool,
@@ -2347,6 +2350,7 @@ impl TimegrapherApp {
             mic_set_up: self.mic_set_up,
             setup_declined: self.setup_declined,
             show_readings: self.show_readings,
+            readings_pinned: self.readings_pinned,
             library: self.library_dir.clone(),
             settings_section: self.settings_last.key().into(),
             agc_on: self.agc_on.clone(),
@@ -2396,6 +2400,7 @@ impl TimegrapherApp {
             mic_set_up,
             setup_declined,
             show_readings,
+            readings_pinned,
             library,
             settings_section,
             agc_on,
@@ -2413,6 +2418,7 @@ impl TimegrapherApp {
         self.check_at_start = check_updates;
         self.keep_awake = keep_awake;
         self.show_readings = show_readings;
+        self.readings_pinned = readings_pinned;
         // One Average Over for every pane; a pane's own time, saved by an
         // older app, is read and left out.
         if AVERAGES.contains(&average_s) {
@@ -2634,6 +2640,7 @@ impl TimegrapherApp {
             strip_end: None,
             panes: default_layout(true),
             show_readings: true,
+            readings_pinned: true,
             charts_to_live: false,
             charts_to_live_now: false,
             chart_average_drawn: Default::default(),
@@ -3120,21 +3127,6 @@ impl TimegrapherApp {
         format!("{name} · {watch} · {}", self.state_words())
     }
 
-    /// Whether the take on show is listening, stopped or opened.
-    fn state_words(&self) -> &'static str {
-        match self.session.state() {
-            session::State::Idle if self.ready_test().is_some() => "Ready, not started",
-            session::State::Idle => "Not Started",
-            session::State::Listening => "Listening",
-            session::State::Paused { .. } => "Stopped",
-            // Only tests play a recording through as if live.
-            session::State::Replaying => "Listening",
-            session::State::ReplayStopped => "Stopped",
-            session::State::Analysing => "Opening",
-            session::State::Analysed => "Opened",
-        }
-    }
-
     /// A button for each pane, its icon pressed while the pane shows.
     /// The icon bar: the pane icons under their groups' names, then the
     /// Settings gear. With `shown` false (the Watches view) the pane icons
@@ -3313,9 +3305,7 @@ impl TimegrapherApp {
         // bar, so the window never moves under the pointer.
         // The readings, and on them what a take needs, unless hidden.
         if self.show_readings {
-            let out = crate::pump::timed("cards", || self.readouts(ui));
-            self.card_controls(ui, &out);
-            ui.add_space(theme::GAP - ui.spacing().item_spacing.y);
+            self.readings(ui);
         }
 
         // A drag can leave a container holding only hidden panes.

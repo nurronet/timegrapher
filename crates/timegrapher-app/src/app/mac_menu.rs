@@ -209,6 +209,7 @@ fn build(ctx: &egui::Context) -> muda::Result<Bar> {
     }
     view.append(&line())?;
     items.check(&view, "Readings", MenuCommand::Readings)?;
+    items.check(&view, "Compact Readings", MenuCommand::CompactReadings)?;
     for p in Pane::CORE {
         items.check(&view, p.title(), MenuCommand::Pane(p))?;
     }
