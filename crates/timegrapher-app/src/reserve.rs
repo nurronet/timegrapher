@@ -365,7 +365,8 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
     }
     area.show(ui, |ui| {
         // The charts take the height left after the hours' table (or a
-        // third of it, for a long table); what doesn't fit scrolls.
+        // third of it, for a long table); in a short pane, all of it, the
+        // table under them. What doesn't fit scrolls.
         let row_h = ui
             .text_style_height(&egui::TextStyle::Body)
             .max(ui.spacing().interact_size.y)
@@ -373,7 +374,12 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
         let gap = ui.spacing().item_spacing.y;
         let room = viewport_h - 8.0 - 3.0 * gap;
         let table_h = ((hours.len() as f32 + 1.0) * row_h + 4.0).min(room / 3.0);
-        let chart_h = ((room - table_h - gap) / 2.0).max(CHART_MIN_H);
+        let with_table = (room - table_h - gap) / 2.0;
+        let chart_h = if with_table >= CHART_MIN_H {
+            with_table
+        } else {
+            ((room - gap) / 2.0).max(CHART_MIN_H)
+        };
         // While it runs the charts gain a point as each hour is whole.
         let whole = if so_far {
             hours.iter().take_while(|h| h.whole()).count()
@@ -502,7 +508,9 @@ const HOUR_STEPS: [f64; 7] = [1.0, 2.0, 3.0, 6.0, 12.0, 24.0, 48.0];
 /// The Power Reserve charts' hour marks: none before the run, in the
 /// margin left of 0 h.
 fn hour_marks(g: egui_plot::GridInput) -> Vec<egui_plot::GridMark> {
-    let mut marks = theme::even_grid(g, 48.0, &HOUR_STEPS);
+    // 80 points apart at least: egui_plot names hours only from 60 apart,
+    // and fades them in up to 80.
+    let mut marks = theme::even_grid(g, 80.0, &HOUR_STEPS);
     marks.retain(|m| m.value >= 0.0);
     marks
 }
@@ -602,10 +610,8 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
                     d = usize::from(unit != "°")
                 )
             })
-            .y_axis_formatter(move |m, _| {
-                let places = if m.step_size < 1.0 { 1 } else { 0 };
-                format!("{:.*}{unit}", places, m.value)
-            })
+            // Never "-0 s/d" on the zero line.
+            .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
             .show(ui, |p| {
                 grid.draw(p, pal);
                 p.line(
