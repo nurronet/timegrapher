@@ -44,12 +44,28 @@ pub fn page() -> &'static str {
         let no_beat = serde_json::to_string(timegrapher_core::measure::NO_WATCH_TITLE)
             .expect("the no-beat heading as JSON");
         HTML.replace("/*PALETTE*/", &css)
+            .replace("/*BASE_DIGITS*/null", &base_digits())
             .replace("/*VIRIDIS*/null", &viridis)
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
             .replace("/*PROBABILITY_MARKS*/null", &marks)
             .replace("/*POSITIONS*/null", &positions)
             .replace("/*NO_BEAT_TITLE*/null", &no_beat)
     })
+}
+
+/// Each figure's decimals with no ± to follow, as core's
+/// `library::base_digits` gives them, for the page's `BASE_DIGITS`.
+fn base_digits() -> String {
+    use timegrapher_core::library::base_digits as b;
+    json!({
+        "rate": b::RATE,
+        "rate_range": b::RATE_RANGE,
+        "amplitude": b::AMPLITUDE,
+        "beat_error": b::BEAT_ERROR,
+        "jitter": b::JITTER,
+        "clock": b::CLOCK,
+    })
+    .to_string()
 }
 
 /// Each position's common code and name, as core gives them, under both its
@@ -82,9 +98,13 @@ const PROBABILITY_MARKS: [(f64, &str); 11] = [
     (99.9, "99.9%"),
 ];
 
+/// A colour at an opacity, as CSS.
+fn rgba(c: Rgb, a: f32) -> String {
+    format!("rgba({}, {}, {}, {a})", c.r, c.g, c.b)
+}
+
 /// One theme as the page's CSS variables.
 fn variables(p: &Palette) -> String {
-    let rgba = |c: Rgb, a: f64| format!("rgba({}, {}, {}, {a})", c.r, c.g, c.b);
     [
         ("window", p.window.css()),
         ("card", p.card.css()),
@@ -98,13 +118,11 @@ fn variables(p: &Palette) -> String {
         ("rate", p.trace_rate.css()),
         ("amplitude", p.trace_amplitude.css()),
         ("beat-error", p.trace_beat_error.css()),
-        ("unlock", p.unlock.css()),
-        ("drop", p.drop.css()),
-        ("peak", p.peak.css()),
-        ("sound", p.sound.css()),
-        ("wheel", p.wheel.css()),
-        // The grid is the text colour, faint, as in the app.
-        ("grid", rgba(p.text, 0.12)),
+        // Line Strength on Plots, as in the app: the grid and the axes are
+        // the text colour at their own opacities, call-outs one grey.
+        ("grid", rgba(p.text, p.grid_opacity)),
+        ("axis", rgba(p.text, p.axis_opacity)),
+        ("callout", p.callout.css()),
     ]
     .iter()
     .map(|(name, value)| format!("  --{name}: {value};\n"))
@@ -151,12 +169,26 @@ fn pm_of(se: &Value, digits: usize) -> Value {
 
 /// The ± beside each tile's figure, as core's `library::pm_text` writes it,
 /// so the view shows the app's and the CLI's text instead of rounding its
-/// own: for `analyze`, the whole file's rate and amplitude and each take
-/// reading's, in the take's order; for a live reading, its amplitude. A
-/// null where there is no standard error; `None` for other results.
+/// own, and under `digits` the decimals each figure is written to
+/// (`library::figure_digits`: decimals follow the ±, #510 K3): for
+/// `analyze`, the whole file's rate, amplitude and beat error and each take
+/// reading's, in the take's order; for a live reading, its own. A null ±
+/// where there is no standard error; `None` for other results.
 pub fn pm_texts(doc: &Value) -> Option<Value> {
+    use timegrapher_core::library::{base_digits as base, figure_digits};
     let schema = doc["schema"].as_str().unwrap_or("");
-    let tiles = |rate: &Value, amplitude: &Value| json!({ "rate": pm_of(rate, 1), "amplitude": pm_of(amplitude, 0) });
+    let tiles = |rate: &Value, amplitude: &Value| {
+        json!({
+            "rate": pm_of(rate, base::RATE),
+            "amplitude": pm_of(amplitude, base::AMPLITUDE),
+            "digits": {
+                "rate": figure_digits(rate.as_f64(), base::RATE),
+                "amplitude": figure_digits(amplitude.as_f64(), base::AMPLITUDE),
+                // No ± yet (#637).
+                "beat_error": base::BEAT_ERROR,
+            },
+        })
+    };
     if schema.starts_with("timegrapher.analyze/") {
         let readings: Vec<Value> = doc["take"]["readings"]
             .as_array()
@@ -174,7 +206,12 @@ pub fn pm_texts(doc: &Value) -> Option<Value> {
         return Some(pm);
     }
     if schema.starts_with("timegrapher.live/") {
-        return Some(json!({ "amplitude": pm_of(&doc["reading"]["amplitude_error_deg"], 0) }));
+        // A live rate has no ±; its amplitude has.
+        let mut pm = tiles(&Value::Null, &doc["reading"]["amplitude_error_deg"]);
+        if let Some(o) = pm.as_object_mut() {
+            o.remove("rate");
+        }
+        return Some(pm);
     }
     None
 }
@@ -548,6 +585,22 @@ mod tests {
     }
 
     #[test]
+    fn the_page_carries_cores_base_decimals() {
+        use timegrapher_core::library::base_digits as b;
+        let page = page();
+        assert!(!page.contains("/*BASE_DIGITS*/"));
+        assert!(page.contains(&format!(
+            "const BASE_DIGITS = {{\"amplitude\":{},\"beat_error\":{},\"clock\":{},\"jitter\":{},\"rate\":{},\"rate_range\":{}}};",
+            b::AMPLITUDE,
+            b::BEAT_ERROR,
+            b::CLOCK,
+            b::JITTER,
+            b::RATE,
+            b::RATE_RANGE
+        )));
+    }
+
+    #[test]
     fn the_page_carries_cores_no_beat_heading() {
         assert!(!page().contains("/*NO_BEAT_TITLE*/"));
         assert!(page().contains(&format!(
@@ -567,16 +620,23 @@ mod tests {
                 { "measurement": { "watch_heard": false } },
             ] },
         });
+        // Each figure's decimals follow its ± (#510 K3), the base without.
+        let digits = |rate: usize, amplitude: usize| json!({ "rate": rate, "amplitude": amplitude, "beat_error": 2 });
         assert_eq!(
             pm_texts(&doc),
-            Some(json!({ "rate": "0.06", "amplitude": "0.4", "readings": [
-                { "rate": "1.2", "amplitude": "3" },
-                { "rate": null, "amplitude": null },
-            ] }))
+            Some(
+                json!({ "rate": "0.06", "amplitude": "0.4", "digits": digits(2, 1), "readings": [
+                { "rate": "1.2", "amplitude": "3", "digits": digits(1, 0) },
+                { "rate": null, "amplitude": null, "digits": digits(1, 0) },
+            ] })
+            )
         );
         let live =
             json!({ "schema": "timegrapher.live/1", "reading": { "amplitude_error_deg": 0.4 } });
-        assert_eq!(pm_texts(&live), Some(json!({ "amplitude": "0.4" })));
+        assert_eq!(
+            pm_texts(&live),
+            Some(json!({ "amplitude": "0.4", "digits": digits(1, 1) }))
+        );
         assert_eq!(
             pm_texts(&json!({ "schema": "timegrapher.session/1" })),
             None
@@ -761,13 +821,17 @@ mod tests {
         for c in [LIGHT.trace_rate, DARK.trace_rate, LIGHT.tick, DARK.tock] {
             assert!(page.contains(&c.css()), "{}", c.css());
         }
-        // The wheels' own colour, in both themes.
-        for c in [LIGHT.wheel, DARK.wheel] {
-            assert!(
-                page.contains(&format!("--wheel: {};", c.css())),
-                "{}",
-                c.css()
-            );
+        // The call-out grey, in both themes.
+        for c in [LIGHT.callout, DARK.callout] {
+            let line = format!("--callout: {};", c.css());
+            assert!(page.contains(&line), "{line}");
+        }
+        // The grid and the axes at the palette's own opacities.
+        for p in [&LIGHT, &DARK] {
+            for (name, a) in [("grid", p.grid_opacity), ("axis", p.axis_opacity)] {
+                let line = format!("--{name}: {};", rgba(p.text, a));
+                assert!(page.contains(&line), "{line}");
+            }
         }
     }
 

@@ -312,8 +312,9 @@ pub fn compute_with(
 
 /// The statistics behind a series' headline, on one line: readings,
 /// median, spread, scatter from one reading to the next, lag-1
-/// correlation and Ljung–Box p, and the trend, period and cycle when
-/// found.
+/// correlation and Ljung–Box p, the trend and the stretches of one level
+/// (each with why the headline leaves it out, if it does), and the
+/// period when found.
 fn stats_line(c: &SeriesCheck) -> String {
     let u = c.unit;
     // A true minus sign, as in the readings.
@@ -342,8 +343,23 @@ fn stats_line(c: &SeriesCheck) -> String {
         }
         parts.push(format!("Ljung–Box p {}", steadiness::p_text(a.p_value)));
     }
+    // A trend or a split of levels the headline leaves out says why, in
+    // core's words (Trend::note, Changes::note), as `series` and the MCP
+    // view say it.
+    let why = |n: &Option<String>| n.as_ref().map_or(String::new(), |n| format!(", {n}"));
     if let Some(t) = &c.trend {
-        parts.push(format!("trend {} {u}/h", signed(t.per_hour)));
+        parts.push(format!(
+            "trend {} {u}/h{}",
+            signed(t.per_hour),
+            why(&t.note)
+        ));
+    }
+    if let Some(ch) = c.changes.as_ref().filter(|ch| ch.segments.len() > 1) {
+        parts.push(format!(
+            "{} stretches of one level{}",
+            ch.segments.len(),
+            why(&ch.note)
+        ));
     }
     if let Some(p) = &c.period {
         parts.push(format!("period {:.0} s", p.period_s));
@@ -1650,8 +1666,8 @@ pub struct Opts {
 
 /// What Wheel Periods does, for its hint.
 pub const WHEELS_HINT: &str = "Mark the period each of the calibre's wheels turns in, in \
-     a grey dotted line named above the plot, and half of it fainter, where a wheel that is off centre \
-     shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
+     a grey dotted line named above the plot, and half of it more loosely dotted, where a \
+     wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
      one hour are marked in grey instead: periods alone, named after no wheel.";
 
 /// The wheels to mark: `None` when the marks are off.

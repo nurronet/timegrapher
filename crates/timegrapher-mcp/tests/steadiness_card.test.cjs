@@ -35,6 +35,19 @@ test("each plot's title line carries the series and core's summary; the full tex
   context.showInfo = false;
 });
 
+test("a trend or a level split the headline leaves out says why, in core's words", () => {
+  const holm = "not significant after Holm's correction (p 0.031 alone)";
+  const stats = context.steadyStats({ ...rate,
+    trend: { per_hour: 0.42, note: holm },
+    changes: { segments: [{}, {}, {}], note: "under the 20% a level change needs" } });
+  assert.ok(stats.includes(`trend +0.42 s/d per hour, ${holm}`), stats);
+  assert.ok(stats.includes("3 stretches of one level, under the 20% a level change needs"), stats);
+  // A trend the headline names has no note; one stretch is no split.
+  const named = context.steadyStats({ ...rate, trend: { per_hour: -1.5, note: null }, changes: { segments: [{}], note: null } });
+  assert.ok(named.endsWith("trend -1.50 s/d per hour"), named);
+  assert.ok(!named.includes("stretches"), named);
+});
+
 test("the Readings view's key says what a dot is and how many are drawn", () => {
   assert.equal(context.dotKey({ step_s: 10, stride: 1 }, 179), "10 s readings (179)");
   assert.equal(context.dotKey({ step_s: 2, stride: 1 }, 912), "2 s windows (912)");
