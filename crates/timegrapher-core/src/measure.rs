@@ -243,6 +243,12 @@ pub enum Caveat {
     BeatErrorAsSize,
     /// The unlock was not found; the selected beat error comes from the drop.
     BeatErrorFromDrop,
+    /// Only readings from the selected event entered the beat-error statistic.
+    BeatErrorSourceReadings {
+        source: crate::session::BeatErrorSource,
+        used: usize,
+        readings: usize,
+    },
     /// A figure was read from fewer than the required share of its kept windows.
     ReadingWindows {
         reading: confidence::Figure,
@@ -275,6 +281,11 @@ impl Caveat {
                 windows_used,
                 windows_in_span,
             } => format!("{reading} read from {windows_used} of {windows_in_span} windows"),
+            Caveat::BeatErrorSourceReadings {
+                source,
+                used,
+                readings,
+            } => format!("beat error from the {source} in {used} of {readings} readings"),
             Caveat::BeatErrorFromDrop => "beat error from the drop".to_string(),
             Caveat::SetRateDisagrees { heard } => format!("{heard} bph heard"),
             Caveat::ShortSpan { span_s } => format!("{span_s:.0} s of beats"),
@@ -319,6 +330,8 @@ impl Caveat {
             Caveat::NoWatch { .. } => return None,
             Caveat::ReadingWindows { reading, windows_used, windows_in_span } =>
                 format!("The {reading} was read from {windows_used} of {windows_in_span} windows in the kept time."),
+            Caveat::BeatErrorSourceReadings { source, used, readings } =>
+                format!("The beat error uses the {source} in {used} of {readings} readings; readings from the other event were left out."),
             Caveat::BeatErrorFromDrop => {
                 "The unlock was not found; the beat error is measured from the drop.".to_string()
             }
@@ -458,6 +471,7 @@ impl Caveat {
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
             Caveat::BeatErrorFromDrop => 16,
+            Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::ReadingWindows { .. } => 17,
         }
     }

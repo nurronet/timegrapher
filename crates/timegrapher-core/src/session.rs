@@ -603,12 +603,25 @@ pub fn lead_s(
         .map(|b| b.time)
 }
 
+#[path = "beat_error_aggregate.rs"]
+mod beat_error_aggregate;
+pub use beat_error_aggregate::{select_beat_errors, BeatErrorSelection, BeatErrorSources};
+
 /// The event used for a reading's selected beat error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BeatErrorSource {
     Unlock,
     Drop,
+}
+
+impl std::fmt::Display for BeatErrorSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Unlock => "unlock",
+            Self::Drop => "drop",
+        })
+    }
 }
 
 impl BeatErrorSource {
