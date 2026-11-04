@@ -28,6 +28,9 @@ pub const MAX_CYCLES: usize = 200;
 /// The views behind one series' headline.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SeriesViews {
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
+    pub beat_error_sources: crate::session::BeatErrorSources,
+    pub caveats: Vec<crate::measure::Caveat>,
     /// "rate", "amplitude" or "beat_error".
     pub series: &'static str,
     pub readings: Readings,
@@ -433,6 +436,9 @@ pub fn views(
                 fold_view(f, from, wheel)
             });
             SeriesViews {
+                beat_error_source: report.series[i].beat_error_source,
+                beat_error_sources: report.series[i].beat_error_sources,
+                caveats: report.series[i].caveats.clone(),
                 series: NAMES[i],
                 readings: Readings {
                     step_s: g.step,

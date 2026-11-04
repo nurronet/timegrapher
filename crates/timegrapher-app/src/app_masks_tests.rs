@@ -5,6 +5,7 @@ use super::tests::{
     opened_recording, painted_text, queued_capture, reopened, screen, synthetic, themed,
 };
 use super::*;
+use std::time::{Duration, Instant};
 use timegrapher_core::synth::{generate, SynthConfig};
 
 #[test]
@@ -650,6 +651,8 @@ fn the_brush_waits_for_a_power_reserve_run() {
 fn readings_resume_a_whole_average_after_a_mask() {
     let mut app = synthetic(60.0, 0.0);
     app.mask(20.0, 30.0);
+    // As the next frame reads them.
+    app.refresh_trend();
     let after: Vec<_> = app
         .trend
         .iter()
@@ -796,4 +799,103 @@ fn masked_stretches_are_saved_with_the_take() {
         .contains("masked"));
     app.session.discard_recording();
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take of `hours` beating at 28,800 bph, with a 2 s amplitude window
+/// every 2 s, as a take kept as its analysis opens.
+fn long_log(hours: f64) -> BeatLog {
+    let duration_s = hours * 3600.0;
+    BeatLog {
+        sample_rate: 48000,
+        duration_s,
+        bph: 28800,
+        lift_deg: 52.0,
+        beats: (0..(duration_s * 8.0) as i64)
+            .map(|index| timegrapher_core::beats::Beat {
+                index,
+                time: index as f64 / 8.0 * (1.0 - 5e-5) + 3e-4 * (index % 2) as f64,
+                quality: 1.0,
+            })
+            .collect(),
+        amplitude_windows: (0..(duration_s / 2.0) as usize)
+            .map(|k| timegrapher_core::amplitude::AmplitudeWindow {
+                start_s: k as f64 * 2.0,
+                end_s: k as f64 * 2.0 + 2.0,
+                even_deg: Some(280.0 - k as f64 * 0.01),
+                odd_deg: Some(278.0 - k as f64 * 0.01),
+                beat_error_ms: Some(0.3),
+                beat_error_unlock_ms: Some(0.3),
+                even_unlock_ms: None,
+                odd_unlock_ms: None,
+                even_drop_ms: None,
+                odd_drop_ms: None,
+            })
+            .collect(),
+        clipped_beats: vec![],
+        clipped_samples: 0,
+        jumps: vec![],
+        sided: Vec::new(),
+        by_count: Vec::new(),
+        snippets: Vec::new(),
+    }
+}
+
+/// A mask on a take on show is read again off the window's thread: the
+/// frame after it reads none of the charts, the whole take or the
+/// Positions table there, the charts keep their run until the new one
+/// comes, and what comes is what reading them here gives (#978).
+#[test]
+fn a_mask_on_a_take_on_show_is_read_in_the_background() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let stretches = vec![(0.0, Position::DialUp)];
+    app.show_log(long_log(0.5), "long".into(), stretches, vec![]);
+    let ctx = themed();
+    let shown = |app: &mut TimegrapherApp| {
+        app.refresh_trend_shown(&ctx);
+        (app.whole_take_shown(&ctx), app.free_table_shown(&ctx))
+    };
+    let settled = |app: &mut TimegrapherApp| {
+        let start = Instant::now();
+        loop {
+            if let (Some(w), Some(t)) = shown(app) {
+                if app.trend_job.is_none() {
+                    return (w, t);
+                }
+            }
+            assert!(start.elapsed() < Duration::from_secs(300), "never read");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let (w, _) = settled(&mut app);
+    let before = app.trend.clone();
+    app.mask(600.0, 700.0);
+    // Polling for sound reads none of them either.
+    app.poll();
+    assert_eq!(
+        app.trend, before,
+        "polling leaves the charts to the background"
+    );
+    // The frame after the mask: the charts and the table are under way,
+    // and the whole take waits for the charts, which say where its watch
+    // was last heard; none is read here.
+    let (whole, table) = shown(&mut app);
+    assert!(whole.is_none() && table.is_none());
+    assert!(app.trend_job.is_some());
+    assert!(app.whole_job.borrow().is_none());
+    assert!(app.free_table_reading());
+    assert_eq!(app.trend, before, "the charts keep their run meanwhile");
+    let (w2, t2) = settled(&mut app);
+    assert_ne!(format!("{:?}", w.m), format!("{:?}", w2.m));
+    // What came is what reading them here and now gives.
+    let trend = app.trend.clone();
+    assert_ne!(trend, before);
+    app.trend_key.0 = Revision::default();
+    app.refresh_trend();
+    assert_eq!(app.trend, trend);
+    *app.whole_take.borrow_mut() = None;
+    *app.free_table.borrow_mut() = None;
+    let now = app.whole_take().unwrap();
+    assert_eq!(format!("{:?}", now.m), format!("{:?}", w2.m));
+    assert_eq!(now.span, w2.span);
+    assert_eq!(app.free_table(&ctx), Some(t2));
 }

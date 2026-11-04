@@ -67,7 +67,8 @@ impl TimegrapherApp {
                 test.reread(&log, clock.as_ref(), &self.masked);
             }
         }
-        self.refresh_trend();
+        // The charts are read again for the next frame, a take on show's
+        // in the background ([`Self::refresh_trend_shown`]).
     }
 
     /// Add the stretch from `a` to `b` to those masked; one under half a

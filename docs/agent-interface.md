@@ -549,3 +549,28 @@ remain as documented separately.
 to its analysis subprocesses, rather than storing them only as historical metadata.
 The checks apply consistently even with `--no-audio` or without a recording.
 MCP `make_report_bundle` applies the same BPH/lift rules before child spawn.
+
+
+### Beat-error aggregate provenance
+
+Source-aware position averages, session state means/spreads, isochronism differences,
+and Steadiness beat-error statistics select one source before calculating: unlock
+when present, otherwise drop. Each carries `beat_error_source`,
+`beat_error_sources: {unlock, drop}`, and factual `caveats`. A
+`beat_error_source_readings` caveat records `source`, `used`, and `readings` when
+observations of the other source were excluded. Drop-only statistics carry
+`beat_error_from_drop`. Minimum counts apply after selection; a difference with
+only one selected endpoint is null.
+
+Counts describe the immediate inputs to that statistic: repeated readings for a
+position, position means for a session state, and endpoints for an isochronism or
+wind-down difference. Steadiness series and wind-down stretches count eligible
+fine-window readings before binning; excluded sources leave holes in the grid.
+Series-level provenance applies to its spread, trend, cycles and other tests.
+
+The temporary source-less `Figures`/`indices` app adapter uses the same estimators
+but cannot recover the source of legacy saved results. Its provenance remains
+null and its source counts zero until #658 part 2b migrates those callers.
+Raw explicitly named unlock/drop fields retain their meaning. A direct
+`Measurement` falling back to the beat-time fit still has no beat-error ±;
+no uncertainty from drop windows is attached to that different estimator.

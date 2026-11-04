@@ -787,11 +787,13 @@ pub fn switch_row(ui: &mut Ui, label: &str, on: &mut bool, hint: &str) -> bool {
     ui.horizontal(|ui| {
         let l = ui.add(egui::Label::new(label).sense(Sense::click()));
         let flip_by_label = l.clicked();
-        l.on_hover_text(hint);
+        // A dimmed switch says why in its hover too.
+        l.on_hover_text(hint).on_disabled_hover_text(hint);
         let r = ui
             .with_layout(Layout::right_to_left(Align::Center), |ui| switch(ui, on))
             .inner
-            .on_hover_text(hint);
+            .on_hover_text(hint)
+            .on_disabled_hover_text(hint);
         if flip_by_label {
             *on = !*on;
         }
@@ -1754,17 +1756,36 @@ pub fn tool_switch(
     on: &mut bool,
     hint: &str,
 ) -> bool {
+    tool_switch_unless(ui, icon, color, label, on, hint, None)
+}
+
+/// A [`tool_switch`] that can't be used now when `disabled` says why:
+/// greyed, with that reason in its hover.
+pub fn tool_switch_unless(
+    ui: &mut Ui,
+    icon: Icon,
+    color: Color32,
+    label: &str,
+    on: &mut bool,
+    hint: &str,
+    disabled: Option<&str>,
+) -> bool {
     note_icon(ui, icon, label);
     bar_item(ui, label, |ui| {
-        if in_toolbar(ui) {
-            let r = icon_toggle(ui, icon, *on, color).on_hover_text(hover(label, hint));
-            if r.clicked() {
-                *on = !*on;
+        ui.add_enabled_ui(disabled.is_none(), |ui| {
+            if in_toolbar(ui) {
+                let r = icon_toggle(ui, icon, *on, color)
+                    .on_hover_text(hover(label, hint))
+                    .on_disabled_hover_text(hover(label, disabled.unwrap_or("")));
+                if r.clicked() {
+                    *on = !*on;
+                }
+                r.clicked()
+            } else {
+                switch_row(ui, label, on, disabled.unwrap_or(hint))
             }
-            r.clicked()
-        } else {
-            switch_row(ui, label, on, hint)
-        }
+        })
+        .inner
     })
     .unwrap_or(false)
 }

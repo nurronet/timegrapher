@@ -504,6 +504,66 @@ pub fn fold(g: &Grid, period: f64, bins: usize) -> Fold {
     }
 }
 
+/// A raster thinned for drawing ([`thin`]): its cells, and the rows and
+/// columns of the raster each one averages, as `[first, end)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Thinned {
+    pub cells: Vec<Vec<f64>>,
+    pub rows: Vec<[usize; 2]>,
+    pub columns: Vec<[usize; 2]>,
+}
+
+/// `[first, end)` of each of at most `max` near-equal, contiguous chunks
+/// of `n`: chunk `i` starts at ⌊i·n/max⌋. One a chunk when `n` ≤ `max`.
+fn chunks(n: usize, max: usize) -> Vec<[usize; 2]> {
+    if n <= max || max == 0 {
+        return (0..n).map(|i| [i, i + 1]).collect();
+    }
+    (0..max).map(|i| [i * n / max, (i + 1) * n / max]).collect()
+}
+
+/// `raster` (rows of cells, NaN where empty) thinned to at most
+/// `max_rows` rows of at most `max_cols` columns, the one rule every
+/// surface thins a fold's cycles by (#512): each cell is the mean of the
+/// finite cells in its chunk of rows and columns, NaN when it has none.
+/// Averaging keeps every cycle in the picture, where picking rows would
+/// drop some and alias a cycle that comes every few. A raster within both
+/// limits comes back as it is; it is never stretched.
+pub fn thin(raster: &[Vec<f64>], max_rows: usize, max_cols: usize) -> Thinned {
+    let width = raster.iter().map(Vec::len).max().unwrap_or(0);
+    let rows = chunks(raster.len(), max_rows);
+    let columns = chunks(width, max_cols);
+    let cells = rows
+        .iter()
+        .map(|&[r0, r1]| {
+            columns
+                .iter()
+                .map(|&[c0, c1]| {
+                    crate::dsp::mean_of(
+                        raster[r0..r1]
+                            .iter()
+                            .flat_map(|r| r.get(c0..c1.min(r.len())).unwrap_or(&[]))
+                            .copied(),
+                    )
+                    .unwrap_or(f64::NAN)
+                })
+                .collect()
+        })
+        .collect();
+    Thinned {
+        cells,
+        rows,
+        columns,
+    }
+}
+
+impl Fold {
+    /// The fold's cycles thinned for drawing ([`thin`]).
+    pub fn thinned(&self, max_rows: usize, max_cols: usize) -> Thinned {
+        thin(&self.raster, max_rows, max_cols)
+    }
+}
+
 /// A folded profile kept to its first `harmonics` Fourier harmonics, which
 /// takes most of the noise out of a profile averaged over few cycles.
 pub fn smooth_shape(profile: &[f64], harmonics: usize) -> Vec<f64> {
@@ -933,6 +993,39 @@ pub fn rate_rows(rows: &[Vec<f64>], period_s: f64) -> Vec<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Thinning averages the finite cells of near-equal chunks, leaves an
+    /// empty chunk empty, and leaves a small raster as it is (#512).
+    #[test]
+    fn a_raster_is_thinned_by_averaging_every_cycle() {
+        let nan = f64::NAN;
+        // 5 cycles of 3 bins thinned to 2 rows of 2 columns: rows 0..2 and
+        // 2..5, columns 0..1 and 1..3.
+        let raster = vec![
+            vec![1.0, 10.0, nan],
+            vec![3.0, 20.0, nan],
+            vec![5.0, nan, nan],
+            vec![7.0, nan, nan],
+            vec![9.0, nan, nan],
+        ];
+        let t = thin(&raster, 2, 2);
+        assert_eq!(t.rows, vec![[0, 2], [2, 5]]);
+        assert_eq!(t.columns, vec![[0, 1], [1, 3]]);
+        assert_eq!(t.cells[0], vec![2.0, 15.0]);
+        assert_eq!(t.cells[1][0], 7.0);
+        assert!(t.cells[1][1].is_nan(), "an empty chunk stays empty");
+        // Within the limits: the raster as it is, never stretched.
+        let same = thin(&raster, 10, 3);
+        assert_eq!(same.rows.len(), 5);
+        assert_eq!(same.cells[1][..2], raster[1][..2]);
+        assert!(same.cells[1][2].is_nan());
+        // A cycle that comes every few rows is in every row's average.
+        let every_fifth: Vec<Vec<f64>> = (0..1000)
+            .map(|r| vec![if r % 5 == 0 { 5.0 } else { 0.0 }])
+            .collect();
+        let t = thin(&every_fifth, 200, 1);
+        assert!(t.cells.iter().all(|c| c[0] == 1.0), "{:?}", &t.cells[..3]);
+    }
 
     /// A take that gains at a steady 8.64 s/d (1e-4 of time) reads 8.64
     /// in every bin of every cycle, its first and last from their one
