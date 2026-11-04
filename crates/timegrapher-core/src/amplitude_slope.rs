@@ -1,6 +1,6 @@
-//! The rate's slope against a noisy amplitude (#651): each reading's
-//! amplitude noise from its own 2 s windows, and a least-squares slope
-//! corrected for it, with its standard error. The isochronism curve and
+//! The rate's slope against a noisy amplitude (#651): the amplitude each
+//! rate reading is paired with and its noise (#951), and a least-squares
+//! slope corrected for it, with its standard error. The isochronism curve and
 //! the rate against the amplitude in [`crate::steadiness`] read their
 //! slopes here.
 
@@ -10,42 +10,88 @@ use crate::longterm::{self, Grid};
 use crate::steadiness::{chi2_tail, drop_outliers, finite_or_nan, p_text, Config};
 use serde::Serialize;
 
-/// The noise in each reading `steadiness` takes as the median of `fine`'s
-/// windows: the variance of that median, from the scatter between
-/// neighbouring windows in it (½·mean of squared differences, so a slow
-/// change across the reading is not counted), over how many it holds,
-/// times [`crate::dsp::median_variance_factor`] of that count (#656). The windows' noise is taken
-/// as independent from one to the next. NaN for a reading of under three
-/// windows.
-pub(crate) fn reading_noise(fine: &Grid, t0: f64, step: f64, n: usize) -> Vec<f64> {
-    let mut sq = vec![0.0; n];
-    let mut diffs = vec![0usize; n];
-    let mut count = vec![0usize; n];
-    let bin = |i: usize| ((fine.time(i) - t0) / step).floor();
+/// The least-squares rate's weight on the stretch of its span from `u0`
+/// to `u1`, each a fraction of the span from 0 to 1. A line fitted
+/// through evenly spaced beat times weights the rate beat by beat as
+/// 6u(1 − u), so its weight on a stretch is the integral
+/// F(u1) − F(u0), with F(u) = 3u² − 2u³ (#951). Five 2 s windows of a
+/// 10 s reading take 0.104, 0.248, 0.296, 0.248 and 0.104.
+pub(crate) fn rate_fit_weight(u0: f64, u1: f64) -> f64 {
+    let f = |u: f64| {
+        let u = u.clamp(0.0, 1.0);
+        u * u * (3.0 - 2.0 * u)
+    };
+    f(u1) - f(u0)
+}
+
+/// The amplitude each rate reading is paired with for the slopes, and its
+/// noise variance (#951).
+///
+/// `medians` are the readings `steadiness` shows: one for each rate
+/// reading, NaN where a reading is left out. The pairing reading is the
+/// mean of the same windows of `fine`, each weighted by
+/// [`rate_fit_weight`] over its span. A short event therefore moves it as
+/// far as it moves the rate, which neither the median nor a plain mean
+/// does.
+///
+/// The window σ is read once over the take as 1.4826·MAD/√2 of the
+/// successive differences between windows within a reading, so an
+/// event's edge inside a reading barely moves it. Each reading's noise is
+/// σ²·Σw², with the weights summing to 1: about 0.232 for five windows.
+/// The windows' noise is taken as independent from one window to the
+/// next. Noise is NaN with fewer than four differences.
+pub(crate) fn pairing_readings(fine: &Grid, medians: &Grid) -> (Grid, Vec<f64>) {
+    let n = medians.y.len();
+    let half = 0.5 * fine.step / medians.step;
+    // Σw·v, Σw and Σw² of each reading.
+    let mut acc = vec![(0.0, 0.0, 0.0); n];
+    let mut diffs = Vec::new();
+    let mut last: Option<(usize, f64)> = None;
     for (i, &v) in fine.y.iter().enumerate() {
-        let b = bin(i);
-        if !(v.is_finite() && b >= 0.0 && (b as usize) < n) {
+        let u = (fine.time(i) - medians.t0) / medians.step;
+        let b = u.floor() as usize;
+        if !(v.is_finite() && u >= 0.0 && b < n && medians.y[b].is_finite()) {
+            last = None;
             continue;
         }
-        let b = b as usize;
-        count[b] += 1;
-        if let Some(&u) = i.checked_sub(1).and_then(|j| fine.y.get(j)) {
-            if u.is_finite() && bin(i - 1) == b as f64 {
-                sq[b] += (v - u).powi(2);
-                diffs[b] += 1;
-            }
+        let f = u - b as f64;
+        let w = rate_fit_weight(f - half, f + half);
+        acc[b].0 += w * v;
+        acc[b].1 += w;
+        acc[b].2 += w * w;
+        if let Some((_, lv)) = last.filter(|l| l.0 == b) {
+            diffs.push(v - lv);
         }
+        last = Some((b, v));
     }
-    (0..n)
-        .map(|b| {
-            if count[b] >= 3 && diffs[b] >= 2 {
-                0.5 * sq[b] / diffs[b] as f64 / count[b] as f64
-                    * crate::dsp::median_variance_factor(count[b])
+    let var = if diffs.len() >= 4 {
+        (crate::dsp::robust_sd(&diffs) / std::f64::consts::SQRT_2).powi(2)
+    } else {
+        f64::NAN
+    };
+    let ok = |a: &(f64, f64, f64)| a.1 > 0.0;
+    let y = acc
+        .iter()
+        .map(|a| if ok(a) { a.0 / a.1 } else { f64::NAN })
+        .collect();
+    let noise = acc
+        .iter()
+        .map(|a| {
+            if ok(a) {
+                var * a.2 / (a.1 * a.1)
             } else {
                 f64::NAN
             }
         })
-        .collect()
+        .collect();
+    (
+        Grid {
+            t0: medians.t0,
+            step: medians.step,
+            y,
+        },
+        noise,
+    )
 }
 
 /// A slope of y on x read from noisy x: the least-squares slope divided
@@ -284,6 +330,84 @@ pub(crate) fn cross_correlation(
 mod tests {
     use super::*;
     use crate::synth::Rng;
+
+    /// The rate's least-squares line weights five 2 s windows of a 10 s
+    /// reading by 6u(1 − u) over each (#951): 0.104, 0.248, 0.296, 0.248
+    /// and 0.104, summing to 1, with Σw²·5 about 1.16.
+    #[test]
+    fn the_rate_fit_weights_five_windows_as_its_kernel() {
+        let w: Vec<f64> = (0..5)
+            .map(|k| rate_fit_weight(k as f64 / 5.0, (k + 1) as f64 / 5.0))
+            .collect();
+        for (got, want) in w.iter().zip([0.104, 0.248, 0.296, 0.248, 0.104]) {
+            assert!((got - want).abs() < 1e-9, "{w:?}");
+        }
+        assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+        let factor = 5.0 * w.iter().map(|x| x * x).sum::<f64>();
+        assert!((factor - 1.16).abs() < 0.005, "{factor}");
+        // Clamped to the span.
+        assert_eq!(rate_fit_weight(-0.5, 0.0), 0.0);
+        assert!((rate_fit_weight(-0.5, 1.5) - 1.0).abs() < 1e-12);
+    }
+
+    /// A drop that fills the first four windows of every 18th reading
+    /// moves the paired amplitude 0.896 of the way, as it moves the rate,
+    /// and its edges inside the readings leave the noise read off the
+    /// windows' scatter (#951).
+    #[test]
+    fn the_paired_amplitude_moves_with_the_rate_over_a_short_drop() {
+        let mut z = Rng::new(951);
+        let n = 720;
+        let fine = Grid {
+            t0: 0.0,
+            step: 2.0,
+            y: (0..5 * n)
+                .map(|i| {
+                    let t = 2.0 * i as f64 + 1.0;
+                    let drop = if t % 180.0 < 8.0 { -15.0 } else { 0.0 };
+                    270.0 + drop + z.normal()
+                })
+                .collect(),
+        };
+        let medians = Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: vec![270.0; n],
+        };
+        let (amp, noise) = pairing_readings(&fine, &medians);
+        let mut moved = Vec::new();
+        for b in (0..n).step_by(18) {
+            moved.push(270.0 - amp.y[b]);
+        }
+        let mean = moved.iter().sum::<f64>() / moved.len() as f64;
+        assert!((mean - 0.896 * 15.0).abs() < 0.2, "{mean}");
+        // Unit window noise, five windows: about 0.232, not pulled up by
+        // the 15° edges in one reading in 18.
+        let m = noise.iter().sum::<f64>() / n as f64;
+        assert!((m - 0.232).abs() < 0.03, "{m}");
+        // A reading the medians leave out is left out here too.
+        let mut gap = medians.clone();
+        gap.y[3] = f64::NAN;
+        let (amp, noise) = pairing_readings(&fine, &gap);
+        assert!(amp.y[3].is_nan() && noise[3].is_nan() && amp.y[4].is_finite());
+    }
+
+    /// On the rub scenario, the slope of the rate against the paired
+    /// amplitude reads the true coupling of 2.0 s/d per degree (#951);
+    /// against the median it read about 1.9.
+    #[test]
+    fn a_rubs_slope_reads_its_true_coupling() {
+        let log = crate::scenarios::beat_log(&crate::scenarios::find("rub").unwrap(), 1);
+        let [rate, medians, _] = crate::steadiness::reading_grids(&log, None, &[], 10.0);
+        let [fine, _] = crate::steadiness::window_grids(&log, None, &[]);
+        let (amp, noise) = pairing_readings(&fine, &medians);
+        let x = cross_correlation(&rate, &amp, &noise, &Config::default()).unwrap();
+        let (s, se) = (
+            x.s_per_day_per_deg.unwrap(),
+            x.s_per_day_per_deg_se.unwrap(),
+        );
+        assert!((s - 2.0).abs() < 0.05 && se < 0.03, "{s} ± {se}");
+    }
 
     /// Of `runs` seeded takes of `n` readings, amplitude (spread 5°) and
     /// the rate's residual each AR(1) at `rho`, the rate −0.5 s/d per
