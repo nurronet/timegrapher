@@ -817,46 +817,12 @@ pub fn length_text(t: f64) -> String {
     }
 }
 
-/// A signed figure as the app shows it, to `digits` decimals: `+1.2`,
-/// `-1.2`, and a figure that rounds to zero takes no sign (`0.0`, never
-/// `-0.0` or `+0.0`). The app sets the minus as a true minus sign.
-pub fn signed_text(x: f64, digits: usize) -> String {
-    let s = format!("{:.digits$}", x.abs());
-    if s.bytes().all(|b| b == b'0' || b == b'.') {
-        s
-    } else if x < 0.0 {
-        format!("-{s}")
-    } else {
-        format!("+{s}")
-    }
-}
-
-/// A figure to `digits` decimals with its sign as it is, but one that
-/// rounds to zero written without a minus (`0.0`, never `-0.0`): the one
-/// rule for that (#815). [`signed_text`] also adds a plus.
-pub fn fixed_text(x: f64, digits: usize) -> String {
-    let text = format!("{x:.digits$}");
-    match text.strip_prefix('-') {
-        Some(rest) if rest.bytes().all(|b| b == b'0' || b == b'.') => rest.to_string(),
-        _ => text,
-    }
-}
-
-/// A standard error as every surface writes it after "±": to at least
-/// `digits` decimals, and more, up to 3, until its first figure that
-/// isn't zero shows (#806). So with `digits` 0 an amplitude's 0.4° reads
-/// `0.4` and 1.4° reads `1`; with 1, a rate's 0.04 s/d reads `0.04`.
-/// `None` when it isn't a positive, finite number.
-pub fn pm_text(se: f64, digits: usize) -> Option<String> {
-    if !(se.is_finite() && se > 0.0) {
-        return None;
-    }
-    let mut d = digits;
-    while d < 3 && se * 10f64.powi(d as i32) < 0.95 {
-        d += 1;
-    }
-    Some(format!("{se:.d$}"))
-}
+// A figure's text (`signed_text`, `fixed_text`, `pm_text`) and its
+// decimals (`figure_digits`, #510 K3) live in `figure_text`; these paths
+// stay for every caller.
+pub use crate::figure_text::{
+    base_digits, figure_digits, fixed_text, pm_text, signed_text, MAX_DIGITS,
+};
 
 /// A size on disk as the app shows it: `7.7 GB`, `58.3 MB`, `912 kB`,
 /// `40 bytes`.
@@ -1888,23 +1854,6 @@ fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// One rule for the ± on every surface (#806): the case the MCP view
-    /// got wrong is 0.4° of amplitude, which reads 0.4, not 0 or 1.
-    #[test]
-    fn a_standard_error_shows_its_first_figure() {
-        assert_eq!(pm_text(0.4, 0).as_deref(), Some("0.4"));
-        assert_eq!(pm_text(0.94, 0).as_deref(), Some("0.9"));
-        assert_eq!(pm_text(0.96, 0).as_deref(), Some("1"));
-        assert_eq!(pm_text(1.4, 0).as_deref(), Some("1"));
-        assert_eq!(pm_text(0.04, 1).as_deref(), Some("0.04"));
-        assert_eq!(pm_text(0.3, 1).as_deref(), Some("0.3"));
-        assert_eq!(pm_text(0.012, 2).as_deref(), Some("0.01"));
-        assert_eq!(pm_text(0.004, 2).as_deref(), Some("0.004"));
-        assert_eq!(pm_text(0.0001, 0).as_deref(), Some("0.000"));
-        assert_eq!(pm_text(0.0, 1), None);
-        assert_eq!(pm_text(f64::NAN, 1), None);
-    }
 
     /// A take's reading is kept until what it reads changes: a report
     /// written into the take's folder keeps it; a changed session file,
