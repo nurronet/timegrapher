@@ -6,7 +6,8 @@ use crate::audio::AudioError;
 use flacenc::component::{BitRepr, Stream};
 use flacenc::error::Verify;
 use flacenc::source::{Context, Fill, FrameBuf};
-use std::io::{Seek, SeekFrom, Write};
+use std::fs::File;
+use std::io::{BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// The shape of the samples a FLAC stream holds.
@@ -113,13 +114,28 @@ pub fn is_wav(p: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
 }
 
+/// The name a sound file is kept under: a WAV's FLAC, any other as it
+/// is. A WAV and the FLAC it was kept as share it.
+pub fn kept_name(p: &Path) -> PathBuf {
+    match is_wav(p) {
+        true => flac_path(p),
+        false => p.to_path_buf(),
+    }
+}
+
 /// Encode the integer WAV `wav` as the FLAC file `flac`, a block at a
 /// time, then check that it decodes to exactly the WAV's samples. The
 /// FLAC is written under a temporary name and takes its own only once it
 /// checks, so a FLAC at `flac` is always a whole, checked one. The WAV is
 /// left as it is. Returns the frames converted.
 pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
-    let mut reader = hound::WavReader::open(wav).map_err(AudioError::Wav)?;
+    encode_wav_file(&File::open(wav).map_err(AudioError::Io)?, flac)
+}
+
+/// [`encode_wav`] from a WAV already open, read from its start: a file
+/// held open is read whole even when its name is deleted meanwhile.
+pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
+    let mut reader = wav_reader(wav)?;
     let spec = reader.spec();
     if spec.sample_format != hound::SampleFormat::Int {
         return Err(AudioError::Unsupported("floating-point WAV".into()));
@@ -131,8 +147,7 @@ pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
     };
     let part = flac.with_extension("flac.part");
     let written = (|| {
-        let mut out =
-            std::io::BufWriter::new(std::fs::File::create(&part).map_err(AudioError::Io)?);
+        let mut out = std::io::BufWriter::new(File::create(&part).map_err(AudioError::Io)?);
         let mut samples = reader.samples::<i32>();
         let frames = encode(format, &mut out, |buf, most| {
             for s in samples.by_ref().take(most) {
@@ -144,7 +159,7 @@ pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
             .map_err(|e| AudioError::Io(e.into_error()))?
             .sync_all()
             .map_err(AudioError::Io)?;
-        if !same_samples(wav, &part)? {
+        if !same_samples_file(wav, &part)? {
             return Err(failed("the FLAC does not decode to the WAV's samples"));
         }
         std::fs::rename(&part, flac).map_err(AudioError::Io)?;
@@ -154,6 +169,13 @@ pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
         std::fs::remove_file(&part).ok();
     }
     written
+}
+
+/// The open WAV `wav`, read from its start.
+fn wav_reader(wav: &File) -> Result<hound::WavReader<BufReader<&File>>, AudioError> {
+    let mut from = wav;
+    from.seek(SeekFrom::Start(0)).map_err(AudioError::Io)?;
+    hound::WavReader::new(BufReader::new(from)).map_err(AudioError::Wav)
 }
 
 /// Keep the WAV `wav` as FLAC: [`encode_wav`] beside it under the same
@@ -170,7 +192,12 @@ pub fn keep_as_flac(wav: &Path) -> Result<PathBuf, AudioError> {
 /// Whether the integer WAV `wav` and the FLAC `flac` hold the same
 /// samples, in the same format, read side by side a sample at a time.
 pub fn same_samples(wav: &Path, flac: &Path) -> Result<bool, AudioError> {
-    let mut w = hound::WavReader::open(wav).map_err(AudioError::Wav)?;
+    same_samples_file(&File::open(wav).map_err(AudioError::Io)?, flac)
+}
+
+/// [`same_samples`] for a WAV already open, read from its start.
+pub fn same_samples_file(wav: &File, flac: &Path) -> Result<bool, AudioError> {
+    let mut w = wav_reader(wav)?;
     let mut f = claxon::FlacReader::open(flac).map_err(AudioError::Flac)?;
     let (ws, fs) = (w.spec(), f.streaminfo());
     if ws.sample_format != hound::SampleFormat::Int
