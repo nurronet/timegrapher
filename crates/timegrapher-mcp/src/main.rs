@@ -282,8 +282,8 @@ fn text_blocks(
 
 /// What the views say in core's words, put in the result's `_meta` beside
 /// the charts: what limits the readings (in the same words as the notes),
-/// a `profile` result's facts, the ± beside each figure, and the sentence
-/// for no regular beat.
+/// a `profile` result's facts, the ± beside each figure, the sentence
+/// for no regular beat, and each series' own caveats.
 fn view_meta(doc: &Value, result: &mut Value) {
     let profile = doc["schema"]
         .as_str()
@@ -300,6 +300,7 @@ fn view_meta(doc: &Value, result: &mut Value) {
         ),
         (views::PM_KEY, views::pm_texts(doc)),
         (caveats::NO_BEAT_KEY, caveats::no_beat(doc).map(Value::from)),
+        (caveats::SERIES_KEY, caveats::series_limits(doc)),
     ];
     for (key, value) in entries {
         if let Some(value) = value {
