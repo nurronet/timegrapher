@@ -514,12 +514,14 @@ fn hour_label(h: &power_reserve::Hour) -> String {
 /// span, none with no chart.
 fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<egui::Rangef>) {
     let Some(x) = plot_x else {
+        dim_key(ui, hours);
         hour_grid(ui, hours);
         return;
     };
     // The plots' span across, from here down.
     let below = egui::Rect::from_x_y_ranges(x, ui.available_rect_before_wrap().y_range());
     ui.scope_builder(egui::UiBuilder::new().max_rect(below), |ui| {
+        dim_key(ui, hours);
         egui::ScrollArea::horizontal()
             .id_salt("reserve hours across")
             // egui shows a scroll area's content a clip margin past its
@@ -528,6 +530,28 @@ fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<e
             .auto_shrink([true, true])
             .show(ui, |ui| hour_grid(ui, hours));
     });
+}
+
+/// What the grey beat errors mean, in their key and the Beat Error title's
+/// hover: one text for both.
+macro_rules! dim_key {
+    () => {
+        "Grey beat errors: from the drop, or source not recorded."
+    };
+}
+
+/// An hour whose beat error is dimmed: not from the unlock.
+fn dimmed(h: &power_reserve::Hour) -> bool {
+    h.beat_error_source != Some(BeatErrorSource::Unlock)
+}
+
+/// The dimming's key, over the table so it is in view with the rows,
+/// only when an hour is dimmed (Hugh's rulings on Walter's walks of #1079
+/// and #1081).
+fn dim_key(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
+    if hours.iter().any(dimmed) {
+        ui.label(RichText::new(dim_key!()).color(theme::pal(ui).text_secondary));
+    }
 }
 
 /// The table's titles, with units, and what each column holds.
@@ -540,8 +564,11 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
     ("Amplitude (°)", "The hour's median amplitude"),
     (
         "Beat Error (ms)",
-        "The hour's beat error as a size, from the unlock, or from the drop in an hour where \
-         the unlock isn't found",
+        concat!(
+            "The hour's beat error as a size, from the unlock, or from the drop in an hour \
+             where the unlock isn't found. ",
+            dim_key!()
+        ),
     ),
     (
         "Read (%)",
@@ -576,12 +603,9 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
                     }),
-                    Some((
-                        beat_error_source_label(src),
-                        src != Some(BeatErrorSource::Unlock),
-                    )),
+                    Some((beat_error_source_label(src), dimmed(h))),
                 ),
-                plain(fixed_text(100.0 * h.read_s / h.span_s.max(1.0), 0)),
+                plain(cell(h.read_share(), |v| fixed_text(100.0 * v, 0))),
             ]
         })
         .collect();
@@ -653,17 +677,6 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             }
         });
     pin_titles(ui, &titles, grid.response.rect, rows.len() + 1, row_h);
-    // The dimming's key, under the table, only when an hour is dimmed
-    // (Hugh's ruling on Walter's walk of #1079).
-    if rows
-        .iter()
-        .any(|r| r.iter().any(|c| c.1.is_some_and(|s| s.1)))
-    {
-        ui.label(
-            RichText::new("Grey beat errors: from the drop, or source not recorded.")
-                .color(pal.text_secondary),
-        );
-    }
 }
 
 /// The table's titles kept in view: once they scroll above the pane's
@@ -1121,6 +1134,7 @@ mod tests {
                     egui::Shape::Text(s) => Some((
                         s.galley.text().to_string(),
                         s.galley.job.sections.first().map(|f| f.format.color),
+                        s.pos.y,
                     )),
                     _ => None,
                 })
@@ -1132,9 +1146,11 @@ mod tests {
         assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
         // The rate written as the app writes a rate: zero takes no sign.
         assert_eq!(colour("0.0").len(), 3, "{cells:?}");
-        // The dimming's key under the table.
+        // The dimming's key over the table, in view with its rows.
         let key = "Grey beat errors: from the drop, or source not recorded.";
         assert_eq!(colour(key), vec![Some(ink.1)], "{cells:?}");
+        let y = |text: &str| cells.iter().find(|c| c.0 == text).map(|c| c.2);
+        assert!(y(key) < y("Hours"), "{cells:?}");
     }
 
     /// After a run, its two charts take the pane's height and nothing is
