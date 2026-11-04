@@ -4,6 +4,7 @@ beat_error_sources.drop
 beat_error_sources.unlock
 bph
 caveats
+caveats[].code
 clock
 config
 config.acf_alone
