@@ -10,6 +10,7 @@ use std::time::SystemTime;
 use timegrapher_core::audio;
 use timegrapher_core::clock::{self, ClockFit};
 use timegrapher_core::clockstore::{self, ClockStore, DeviceClock};
+use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::recorder::utc;
 use timegrapher_core::take;
 
@@ -127,16 +128,19 @@ fn list(json: bool) -> Result<(), String> {
 
 /// One line about a stored correction.
 pub fn describe(d: &DeviceClock) -> String {
-    let sd = d.ppm_sd.map(|s| format!(" ± {s:.2}")).unwrap_or_default();
+    let sd = d
+        .ppm_sd
+        .map(|s| format!(" ± {}", fixed_text(s, 2)))
+        .unwrap_or_default();
     let span = if d.span_s > 0.0 {
-        format!(" over {:.0} min", d.span_s / 60.0)
+        format!(" over {} min", fixed_text(d.span_s / 60.0, 0))
     } else {
         String::new()
     };
     format!(
-        "{}: {:.2}{sd} ppm {} (rates read {:.2} s/d {} on it); {}, {}{span}",
+        "{}: {}{sd} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
         d.device,
-        d.ppm.abs(),
+        fixed_text(d.ppm.abs(), 2),
         if d.ppm >= 0.0 { "slow" } else { "fast" },
         d.rate_error_s_per_day().abs(),
         if d.ppm >= 0.0 { "fast" } else { "slow" },
@@ -198,8 +202,10 @@ fn report(
     }
     println!("Clock        {}", describe(d));
     println!(
-        "             {} entries ({} dropped as late), {:.1} ms rms about the fit",
-        fit.points, fit.rejected, fit.residual_ms
+        "             {} entries ({} dropped as late), {} ms rms about the fit",
+        fit.points,
+        fit.rejected,
+        fixed_text(fit.residual_ms, 1)
     );
     match path {
         Some(p) => println!("Stored       in {}", p.display()),
@@ -211,14 +217,14 @@ fn report(
 /// Why a measurement is not stored: what it measured, and the rule.
 fn refusal(d: &DeviceClock, w: &clock::Withheld) -> String {
     format!(
-        "not stored: {} entries over {:.0} s measure '{}' at {:+.1} ± {:.1} ppm; a stored correction needs {} entries or more and a standard error of at most {:.0} ppm (as a take's own log does to correct its rates)",
+        "not stored: {} entries over {} s measure '{}' at {} ± {} ppm; a stored correction needs {} entries or more and a standard error of at most {} ppm (as a take's own log does to correct its rates)",
         w.points,
-        w.span_s,
+        fixed_text(w.span_s, 0),
         d.device,
-        w.ppm,
-        w.ppm_sd,
+        signed_text(w.ppm, 1),
+        fixed_text(w.ppm_sd, 1),
         clock::MIN_POINTS,
-        clock::MAX_SD_PPM
+        fixed_text(clock::MAX_SD_PPM, 0)
     )
 }
 
@@ -231,8 +237,9 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
     let seconds = minutes * 60.0;
     let (cap, rec, _) = capture::open_for_duration(&dev, &info, None, seconds)?;
     eprintln!(
-        "timing '{}' against the system clock for {minutes:.0} min; the system clock must be kept by NTP. Nothing needs to be on the microphone.",
-        info.name
+        "timing '{}' against the system clock for {} min; the system clock must be kept by NTP. Nothing needs to be on the microphone.",
+        info.name,
+        fixed_text(minutes, 0)
     );
     let mut tr = clock::ClockTracker::new(rec.sample_rate);
     let mut next = 60.0;
@@ -250,10 +257,10 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
             next += 60.0;
             if let Some(f) = tr.fit() {
                 eprintln!(
-                    "{:5.1} min  {:+.2} ± {:.2} ppm",
-                    tr.audio_s() / 60.0,
-                    f.ppm,
-                    f.ppm_sd
+                    "{:>5} min  {} ± {} ppm",
+                    fixed_text(tr.audio_s() / 60.0, 1),
+                    signed_text(f.ppm, 2),
+                    fixed_text(f.ppm_sd, 2)
                 );
             }
         }
