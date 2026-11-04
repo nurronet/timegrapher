@@ -577,6 +577,32 @@ fn a_clock_step_no_listed_pause_explains_is_a_break_too() {
 /// its session.json and clock log, has the breaks the live view skipped,
 /// with the same gaps.
 fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64, f64)> {
+    let (live, saved) = record_and_reopen(name, arrive, true, true);
+    assert_eq!(saved.len(), live.len(), "live {live:?} saved {saved:?}");
+    for (l, s) in live.iter().zip(&saved) {
+        assert!(
+            (l.0 - s.audio_s).abs() < 1e-6,
+            "live {live:?} saved {saved:?}"
+        );
+        assert!(
+            (l.1 - s.gap_s).abs() < 1e-3,
+            "live {live:?} saved {saved:?}"
+        );
+    }
+    live
+}
+
+/// The breaks seen live, as (audio s, gap s), and those of the take the
+/// recorder left, reopened: as [`live_and_saved_breaks`], with each
+/// `Live::Cut` listed only when `list_cuts` (a recorder from before cuts
+/// lists none), and the take's session.json removed before it is reopened
+/// unless `keep_list`, so its breaks come from the clock log alone.
+fn record_and_reopen(
+    name: &str,
+    arrive: &dyn Fn(usize) -> f64,
+    list_cuts: bool,
+    keep_list: bool,
+) -> (Vec<(f64, f64)>, Vec<breaks::Break>) {
     use std::time::{Duration, SystemTime};
     use timegrapher_core::capture::Block;
     use timegrapher_core::recorder::{Recorder, SessionInfo};
@@ -617,12 +643,17 @@ fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64,
             breaks::Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
             breaks::Live::Cut => {
                 live.push((written as f64 / 8000.0, 0.0));
-                rec.sound_lost(0.0);
+                if list_cuts {
+                    rec.sound_lost(0.0);
+                }
             }
         }
     }
     let files = rec.segment_paths();
     let dir = rec.finish(None).unwrap();
+    if !keep_list {
+        std::fs::remove_file(dir.join(timegrapher_core::take::RECORD)).unwrap();
+    }
     let text = std::fs::read_to_string(dir.join("clock.csv")).unwrap();
     let mut clock = timegrapher_core::take::clock(Some(&text), 8000, 2, None, None, 90.0)
         .unwrap()
@@ -630,18 +661,7 @@ fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64,
     let paths: Vec<&std::path::Path> = files.iter().map(|f| f.as_path()).collect();
     let saved = breaks::of_files_on_clock(&paths, Some(&mut clock), 8000).breaks;
     std::fs::remove_dir_all(&base).ok();
-    assert_eq!(saved.len(), live.len(), "live {live:?} saved {saved:?}");
-    for (l, s) in live.iter().zip(&saved) {
-        assert!(
-            (l.0 - s.audio_s).abs() < 1e-6,
-            "live {live:?} saved {saved:?}"
-        );
-        assert!(
-            (l.1 - s.gap_s).abs() < 1e-3,
-            "live {live:?} saved {saved:?}"
-        );
-    }
-    live
+    (live, saved)
 }
 
 #[test]
@@ -709,6 +729,40 @@ fn a_suspend_the_input_resumes_from_unsaid_is_a_break_live_and_saved() {
                 "{start} + {len}"
             );
         }
+    }
+}
+
+#[test]
+fn a_backlog_is_culled_from_the_clock_log_too() {
+    // The suspend of the test above, in a take that lists no cut (saved
+    // before cuts were listed) and in one with no list at all: the clock
+    // log's first line after the step rose 0.2 s more than the lines
+    // after it keep, so a cut falls 0.2 s after that line, at 30.0 s.
+    let arrive = |k: usize| {
+        let t = 0.1 * (k + 1) as f64;
+        if k < 297 {
+            t
+        } else {
+            (30.0 + 2400.0_f64).max(t + 2400.0)
+        }
+    };
+    for keep_list in [true, false] {
+        let (_, saved) = record_and_reopen("backlog-log", &arrive, false, keep_list);
+        let cuts: Vec<&breaks::Break> = saved.iter().filter(|b| b.gap_s == 0.0).collect();
+        assert_eq!(saved.len(), 2, "{keep_list}: {saved:?}");
+        assert_eq!(cuts.len(), 1, "{keep_list}: {saved:?}");
+        assert!(
+            (cuts[0].audio_s - 30.0).abs() < 1e-3,
+            "{keep_list}: {saved:?}"
+        );
+        assert!(saved[0].audio_s < 30.0 - 0.1, "{keep_list}: {saved:?}");
+        // Listed, the gap is the list's; from the clock log alone, the
+        // fit's own (where its stretch sits).
+        let near = if keep_list { 1e-3 } else { 0.5 };
+        assert!(
+            (saved[0].gap_s - 2400.0).abs() < near,
+            "{keep_list}: {saved:?}"
+        );
     }
 }
 
