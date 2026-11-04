@@ -491,3 +491,66 @@ fn overlay_axis_columns_lie_side_by_side() {
         .fold(last.right(), f32::max);
     assert!(widest <= screen.right(), "the last column leaves the pane");
 }
+
+/// A masked beat is drawn faint, under the hatching: 30% of its colour
+/// over the strip's ground, opaque so crowded dots don't add up to full
+/// strength, and painted before the hatching (#1068 item 2).
+#[test]
+fn masked_beats_are_faint_under_the_hatching() {
+    let mut app = synthetic(40.0, 0.0);
+    for p in [Pane::Sound, Pane::Scope, Pane::Charts, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    app.mask(20.0, 30.0);
+    let ctx = themed();
+    let mut out = None;
+    for _ in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+    }
+    let out = out.unwrap();
+    let vis = ctx.style().visuals.clone();
+    let [tick, tock] = strip::side_colors(vis.dark_mode);
+    let faint = [tick, tock].map(|c| vis.extreme_bg_color.lerp_to_gamma(c, 0.3));
+    let dots: Vec<(usize, Color32)> = out
+        .shapes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| match &c.shape {
+            egui::Shape::Circle(d)
+                if d.fill == tick || d.fill == tock || faint.contains(&d.fill) =>
+            {
+                Some((i, d.fill))
+            }
+            _ => None,
+        })
+        .collect();
+    let first_full = dots
+        .iter()
+        .find(|(_, c)| !faint.contains(c))
+        .expect("beats")
+        .0;
+    let masked: Vec<usize> = dots
+        .iter()
+        .filter(|(_, c)| faint.contains(c))
+        .map(|d| d.0)
+        .collect();
+    assert!(!masked.is_empty(), "the masked beats are drawn");
+    // Before the hatching and every other beat.
+    let hatch = theme::palette(vis.dark_mode)
+        .text_tertiary
+        .gamma_multiply(theme::MASK_WASH);
+    let first_line = out
+        .shapes
+        .iter()
+        .position(|c| matches!(&c.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == hatch))
+        .expect("the hatching");
+    let last_masked = *masked.last().unwrap();
+    assert!(last_masked < first_line && last_masked < first_full);
+}

@@ -1048,7 +1048,7 @@ the newest beats on the centre line all the time, so the older ones slide
 away from it as the rate wanders; sliding the trace by hand turns it off.
 **Centre** (two arrows meeting on a dashed line) centres once.
 
-**Mask** (scissors: nothing is deleted, the beats stay, hatched) leaves stretches out of the readings, such as a bump of the
+**Mask** (scissors: nothing is deleted, the beats stay, faint under hatching) leaves stretches out of the readings, such as a bump of the
 stand in a long take: with it on, dragging along the strip over the beats
 masks that stretch (one under half a second is left alone, as a slip of
 the mouse), dragging a masked stretch's edge moves it (the pointer is a

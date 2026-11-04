@@ -209,7 +209,8 @@ pub const STRIP: &[&str] = &[
      on, drag along the strip over the beats to mask them (the pointer is a cross), \
      drag a masked stretch's edge to move it (a two-way arrow at the edge), drag with the right button to look back, and click a masked stretch to \
      bring it back; a right click brings one \
-     back with Mask on or off. Nothing is read inside a masked stretch and no reading \
+     back with Mask on or off. Its beats stay on the strip, faint under the hatching. \
+     Nothing is read inside a masked stretch and no reading \
      reaches across one; the charts, the steadiness tests and a Positions Test leave it \
      out too. A take saved from the app keeps them; a recording opened from disk keeps \
      them when it is saved. Each point on the strip's line is the reading over the \
