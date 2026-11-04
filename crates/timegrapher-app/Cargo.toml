@@ -42,6 +42,9 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+# The menu bar at the top of the screen, where a Mac app's menus go
+# (src/mac_menu.rs).
+muda = { version = "0.17", default-features = false }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString", "NSObject"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -98,11 +98,18 @@ pub fn round_step(x: f64) -> f64 {
 /// [`round_step`] at least a fifth of it.
 const SCALE_STEPS: f64 = 5.0;
 
+/// The grid step for a scale over `span`: the [`round_step`] at least a
+/// fifth of it ([`SCALE_STEPS`]), so every chart's grid cuts its span the
+/// same way.
+pub fn step_for(span: f64) -> f64 {
+    round_step((span / SCALE_STEPS).max(1e-12))
+}
+
 /// A scale with round ends: `lo` to `hi` snapped out to the nearest
 /// [`round_step`] about a fifth of their span, and that step, as
 /// `(lo, hi, step)`. −91.9 to −21.9 reads −100 to −20 in steps of 20.
 pub fn round_ends(lo: f64, hi: f64) -> (f64, f64, f64) {
-    let step = round_step(((hi - lo) / SCALE_STEPS).max(1e-12));
+    let step = step_for(hi - lo);
     let lo = (lo / step + 1e-9).floor() * step;
     let hi = (hi / step - 1e-9).ceil() * step;
     // A single value still gets a step of room.
@@ -162,6 +169,17 @@ mod tests {
             let (x, step) = (c["x"].as_f64().unwrap(), c["step"].as_f64().unwrap());
             assert!((round_step(x) - step).abs() < step * 1e-9, "{x}");
         }
+    }
+
+    #[test]
+    fn a_grid_step_cuts_its_span_in_about_five() {
+        // At least a fifth of the span, rounded up to 1, 2 or 5.
+        assert_eq!(step_for(10.0), 2.0);
+        assert_eq!(step_for(12.0), 5.0);
+        assert_eq!(step_for(0.7), 0.2);
+        assert_eq!(step_for(500.0), 100.0);
+        // A span of nothing still has a step.
+        assert!(step_for(0.0) > 0.0);
     }
 
     #[test]
