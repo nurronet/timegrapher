@@ -313,7 +313,13 @@ the timegrapher app draws them:
   outline in `time_frequency_maps` (its periods, times, cells read and
   scale) rather than its cells, and the coherences without their
   `coherence` and `phase_deg` grids, which no view draws; the CLI's
-  `series --maps --json` gives both whole.
+  `series --maps --json` gives both whole. After Steadiness, the
+  Isochronism card draws the rate against the amplitude as the take runs
+  (#741): core's walk merged to at most 250 points, each dot coloured by
+  its time since the take's start on the same viridis and saying its time,
+  amplitude and rate on hover, joined in time order. The model reads the
+  walk's outline in `walk` (how many points, at what width, the first and
+  last); `series --json` gives every 5 min point.
 
 The charts use the app's colours for each reading (rate red, amplitude
 purple, beat error yellow, Tick blue, Tock orange) and its scales, which
