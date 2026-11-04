@@ -322,6 +322,62 @@ impl TimegrapherApp {
         )
     }
 
+    /// The Power Reserve pane's row as the pane is first shown: at its
+    /// content's height, no less than a pane's least, the Paper Strip
+    /// keeping the rest until dragged; with a run already read (a long
+    /// take's, read before the pane showed), grown to show its charts and
+    /// table, as an opened run's take is.
+    pub(super) fn fit_reserve_row(&mut self) {
+        let pane = Pane::PowerReserve;
+        match self.reserve.as_ref().and_then(|t| t.results.as_ref()) {
+            Some(r) => grow_row(&mut self.panes.tiles, pane, reserve::run_h(r.hours.len())),
+            None => fit_row(&mut self.panes.tiles, pane, MIN_PANE_H),
+        }
+    }
+
+    /// A take opened whole that isn't a Power Reserve Test: when core
+    /// reads it as a run ([`power_reserve::from_long_take`]: six hours or
+    /// more of the watch heard, in one position), the pane shows that run
+    /// as it shows a test's, saying where it came from. Nothing is written
+    /// into the take, and the pane stays where it is.
+    pub(super) fn reserve_from_long_take(&mut self) {
+        if self.reserve.is_some() {
+            return;
+        }
+        let Some(log) = self.live.as_ref().and_then(steady::log_of) else {
+            return;
+        };
+        let fit = self.reading_clock(log.duration_s);
+        let breaks = self.reading_breaks(&log);
+        let codes: Vec<&str> = self
+            .session
+            .stretches()
+            .iter()
+            .map(|(_, p)| p.code())
+            .collect();
+        let codes = if codes.is_empty() {
+            vec![self.position.code()]
+        } else {
+            codes
+        };
+        let Some(r) = power_reserve::from_long_take(
+            &log,
+            fit.as_ref(),
+            &breaks,
+            &self.masked,
+            &codes,
+            "",
+            !self.no_sound,
+        ) else {
+            return;
+        };
+        let position = Position::from_name(&r.position).unwrap_or(self.position);
+        let mut t = reserve::Test::new(position, r.sound_kept, String::new(), 0.0);
+        t.ending = Some(r.ending);
+        t.results = Some(r);
+        self.reserve = Some(t);
+    }
+
     /// The test has ended: stop listening, keep the take in the watch's
     /// history with its results, and as its analysis only if so picked.
     pub(super) fn end_reserve(&mut self) {

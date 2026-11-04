@@ -606,7 +606,7 @@ enum Input {
 
 /// The window's two views: the Bench, one take in the readings and the
 /// panes, and Watches, the library of watches and their takes. They take
-/// turns filling the window between the mode row and the status bar.
+/// turns filling the window between the top row and the status bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum View {
     #[default]
@@ -1010,9 +1010,6 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
     }
     tree
 }
-
-/// The mode row's height, in both views.
-const MODE_ROW_H: f32 = 28.0;
 
 /// The readings cards' widths: Current Position, Listen and Calibre keep
 /// these while the three reading cards share the rest; on a narrower
@@ -2201,8 +2198,9 @@ pub struct TimegrapherApp {
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
     /// `None` follows the newest beat; otherwise the time at the newest
-    /// edge of the strip. Only the strip (and the chart marker for it)
-    /// follows this: the readings and the other panes show the newest.
+    /// edge of the strip. The strip, the chart marker for it and the sound
+    /// panes (the Tick Tock Profile and the Scope) follow this; the
+    /// readings show the newest.
     strip_end: Option<f64>,
     panes: Tree<Pane>,
 
@@ -2265,9 +2263,7 @@ pub struct TimegrapherApp {
     /// seconds of this session, and one worked out from the file for a
     /// moment that history doesn't cover.
     sound_opts: profiles::Options,
-    /// The moment the profile pane shows, for its toolbar's right end.
-    sound_note: Option<String>,
-    sound_history: Vec<(f64, Profiles)>,
+    sound_history: Vec<(f64, scope_panes::Kept)>,
     /// The profiles worked out from the recording at a moment, at the
     /// settings revision they were read with.
     sound_at: Option<(f64, u64, Profiles)>,
@@ -2693,7 +2689,6 @@ impl TimegrapherApp {
             export: None,
             export_dir: None,
             sound_opts: profiles::Options::default(),
-            sound_note: None,
             sound_history: Vec::new(),
             sound_at: None,
             analysis_save: None,
@@ -3221,16 +3216,7 @@ impl TimegrapherApp {
             Pane::Strip => theme::pane_toolbar(ui, title, help::STRIP, |ui| {
                 self.strip_settings(ui);
             }),
-            Pane::Sound => {
-                let note = self.sound_note.clone();
-                theme::pane_toolbar_noted(ui, title, help::PROFILE, note.as_deref(), |ui| {
-                    self.profile_settings(ui);
-                })
-            }
-            Pane::Scope => theme::pane_toolbar(ui, title, help::SCOPE, |ui| {
-                scope::settings(ui, &mut self.scope_view);
-                self.export_button(ui, pane);
-            }),
+            Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
                 let mut info = self.steady_info;
                 let mut pin = |ui: &mut egui::Ui| {
@@ -3498,10 +3484,9 @@ impl TimegrapherApp {
             self.undrag(pane);
         }
         set_pane_visible(&mut self.panes.tiles, pane, true);
-        // A test's pane opens at its content's height, no less than a
-        // pane's least: the Paper Strip keeps the rest until dragged.
+        // A test's pane opens at its content's height, or its run's.
         if pane == Pane::PowerReserve && !was {
-            fit_row(&mut self.panes.tiles, pane, MIN_PANE_H);
+            self.fit_reserve_row();
         }
         let Some(id) = self.panes.tiles.find_pane(&pane) else {
             return;
@@ -3515,28 +3500,9 @@ impl TimegrapherApp {
         }
     }
 
-    /// The row under the menus: the Bench | Watches switch at the left, and
-    /// in Watches the view's toolbar after it. The same height in both, so
-    /// nothing below moves when the view changes.
-    fn mode_row(&mut self, ui: &mut egui::Ui) {
-        let size = Vec2::new(ui.available_width(), MODE_ROW_H);
-        let row = egui::Layout::left_to_right(egui::Align::Center);
-        ui.allocate_ui_with_layout(size, row, |ui| {
-            ui.set_min_size(size);
-            let mut view = self.view;
-            theme::segmented(ui, &mut view, &VIEWS);
-            self.view = view;
-            if self.view == View::Watches {
-                ui.add_space(theme::GAP);
-                ui.vertical(|ui| {
-                    self.pane_tools(ui, Pane::Watch);
-                });
-            }
-        });
-    }
-
     /// The Watches view: the watches and their takes, filling the window
-    /// below the mode row, as a card.
+    /// below the top row, as a card with its toolbar at the top, as a
+    /// pane's is.
     fn watches_view(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         let rect = ui.max_rect();
@@ -3544,6 +3510,7 @@ impl TimegrapherApp {
             .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
         let inner = rect.shrink2(Vec2::new(8.0, 6.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+            self.pane_tools(ui, Pane::Watch);
             self.watch_pane(ui);
         });
     }
@@ -4392,15 +4359,6 @@ impl TimegrapherApp {
         egui::TopBottomPanel::top("menus")
             .frame(bar.inner_margin(egui::Margin::symmetric(10, 4)))
             .show(ctx, |ui| self.menu_bar(ui));
-        egui::TopBottomPanel::top("mode")
-            .exact_height(MODE_ROW_H + 4.0)
-            .frame(bar.inner_margin(egui::Margin {
-                left: 12,
-                right: 12,
-                top: 4,
-                bottom: 0,
-            }))
-            .show(ctx, |ui| self.mode_row(ui));
         egui::TopBottomPanel::bottom("status")
             .frame(bar.inner_margin(egui::Margin::symmetric(14, 5)))
             .show(ctx, |ui| self.status_bar(ui));

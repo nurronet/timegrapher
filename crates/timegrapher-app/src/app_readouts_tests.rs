@@ -301,7 +301,8 @@ fn the_profiles_marks_keep_off_the_names() {
     // Stopped, the profile is the one kept at the end.
     let end = app.latest_s();
     let sides = app.live.as_ref().unwrap().tick_profiles().clone();
-    app.sound_history = vec![(end, sides)];
+    let span_s = app.average_s;
+    app.sound_history = vec![(end, scope_panes::Kept { span_s, sides })];
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let run = |app: &mut TimegrapherApp, w: f32, h: f32| {
@@ -364,15 +365,15 @@ fn the_profiles_marks_keep_off_the_names() {
     // the left corner and is low on the right, it takes the right, and
     // keeps off the marks.
     let kept = app.sound_history.clone();
-    for (_, sides) in &mut app.sound_history {
-        for p in sides.iter_mut().flatten() {
+    for (_, k) in &mut app.sound_history {
+        for p in k.sides.iter_mut().flatten() {
             let top = p.p90.iter().copied().fold(0.0f32, f32::max);
             let n = p.median.len() / 5;
             p.median[..n].fill(0.9 * top);
         }
     }
     app.sound_opts.side_by_side = true;
-    let (_, rings, bars, facts) = run(&mut app, 1440.0, 820.0);
+    let (_, rings, bars, facts) = run(&mut app, 1440.0, 788.0);
     let plots: Vec<egui::Rect> = (0..2usize)
         .filter_map(|k| {
             ctx.data(|d| d.get_temp::<(egui::Rect, egui::Rect)>(egui::Id::new(("profile plot", k))))
@@ -396,14 +397,14 @@ fn the_profiles_marks_keep_off_the_names() {
     }
     // Over a trace high under both corners, the box keeps no rows: the
     // trace and its marks come first, and the hover has the facts.
-    for (_, sides) in &mut app.sound_history {
-        for p in sides.iter_mut().flatten() {
+    for (_, k) in &mut app.sound_history {
+        for p in k.sides.iter_mut().flatten() {
             let top = p.p90.iter().copied().fold(0.0f32, f32::max);
             let n = p.median.len();
             p.median[n - n / 4..].fill(0.9 * top);
         }
     }
-    let (_, _, _, facts) = run(&mut app, 1440.0, 820.0);
+    let (_, _, _, facts) = run(&mut app, 1440.0, 788.0);
     assert!(
         facts
             .iter()

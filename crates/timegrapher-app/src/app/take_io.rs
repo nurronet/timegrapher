@@ -38,7 +38,7 @@ impl TimegrapherApp {
     /// Seconds of beats the tick and tock sound covers: the averaging time,
     /// so it describes the same beats as the readings, up to the engine's
     /// limit.
-    fn sound_span(&self) -> f64 {
+    pub(super) fn sound_span(&self) -> f64 {
         profile_span(self.average_s)
     }
 
@@ -1864,10 +1864,17 @@ impl TimegrapherApp {
         let (Some(cap), Some(live)) = (self.capture.as_ref(), self.live.as_mut()) else {
             return Ok(());
         };
-        let dropped = matches!(l, Live::Dropped(_));
+        // A cut ends a backlog culled after a break: a break with no time
+        // lost, said with the break before it.
+        let gap = l.lost_s();
+        let said = match l {
+            Live::Break(_) => Some(break_text(gap, false)),
+            Live::Dropped(_) => Some(break_text(gap, true)),
+            Live::Block(_) | Live::Cut => None,
+        };
         let b = match l {
             Live::Block(b) => b,
-            Live::Break(gap) | Live::Dropped(gap) => {
+            Live::Break(_) | Live::Dropped(_) | Live::Cut => {
                 // The computer slept or the input stalled: carry on, as
                 // after a pause, with the time between out.
                 if let Ok(Err(e)) = self.session.pause(live.duration_s()) {
@@ -1883,9 +1890,10 @@ impl TimegrapherApp {
                 if let Some(t) = self.clock_track.as_mut() {
                     t.restart(live.sample_rate());
                 }
-                let m = break_text(gap, dropped);
-                applog::warn(&m);
-                self.message = Some((m, false));
+                if let Some(m) = said {
+                    applog::warn(&m);
+                    self.message = Some((m, false));
+                }
                 return Ok(());
             }
         };
@@ -1945,7 +1953,11 @@ impl TimegrapherApp {
                 .last()
                 .is_none_or(|h| r.time_s - h.0 >= SOUND_EVERY_S);
             if due && p.iter().any(Option::is_some) {
-                self.sound_history.push((r.time_s, p.clone()));
+                let kept = scope_panes::Kept {
+                    span_s: profile_span(self.average_s),
+                    sides: p.clone(),
+                };
+                self.sound_history.push((r.time_s, kept));
                 scope_panes::thin_sound(&mut self.sound_history);
             }
         }
@@ -2168,7 +2180,19 @@ impl TimegrapherApp {
                     // A take with no sound shows the profiles it kept,
                     // thinned as listening thins them (#483).
                     if let Some(k) = profiles {
-                        self.sound_history = k.into_iter().map(|p| (p.end_s, p.sides)).collect();
+                        let span_s = timegrapher_core::analysis_take::PROFILE_EVERY_S;
+                        self.sound_history = k
+                            .into_iter()
+                            .map(|p| {
+                                (
+                                    p.end_s,
+                                    scope_panes::Kept {
+                                        span_s,
+                                        sides: p.sides,
+                                    },
+                                )
+                            })
+                            .collect();
                         scope_panes::thin_sound(&mut self.sound_history);
                     }
                 }
@@ -2253,6 +2277,8 @@ impl TimegrapherApp {
         self.anchor = None;
         self.strip_end = None;
         self.fit_take();
+        // A long take that isn't a test: its run, read as one.
+        self.reserve_from_long_take();
         let done = if self.no_sound {
             "Opened the analysis kept without its sound: the readings, charts and tests are as \
              they were measured, and the Scope needs the sound. Drag the strip to look \

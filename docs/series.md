@@ -80,10 +80,17 @@ minutes.
 All three series are tested on readings of the same length, the rate's.
 The amplitude and the beat error are measured in 2 s windows; the
 windows that fall in each rate reading make one reading, their median,
-as the session's figures take theirs (`session::window_figures`). The
-median of k windows has c(k) times the variance of their mean, c(k)
-between 1 and π/2 (`dsp::median_variance_factor`), and the isochronism
-slope counts that in each reading's noise.
+as the session's figures take theirs (`session::window_figures`).
+The slopes against the amplitude pair each rate reading with its own
+mean of those windows instead, each window weighted as the rate's
+least-squares line weights its span, 6u(1 − u) integrated over the window
+(0.104, 0.248, 0.296, 0.248, 0.104 for five windows;
+`amplitude_slope::rate_fit_weight`). A short event inside a reading then
+moves the amplitude it is paired with as far as it moves the rate. A
+median moves all the way once most windows are in the event, and a
+plain mean moves less than the rate does, so either one biases the slope
+by about 10% on a rub of 8 s in 10 (#951). The amplitude series and its
+chart stay medians.
 No reading is taken over part of its span: an amplitude or beat
 error reading needs every 2 s window its span holds (a 2 s window that
 reaches into a break's gap is left out, so a reading beside a gap is
@@ -384,8 +391,11 @@ degree is a straight line through every reading, none smoothed, so a
 short swing of amplitude counts. The amplitude readings are noisy, and
 noise in them shrinks a fitted slope towards 0, so the slope is divided
 by their reliability: the share of their spread that is the amplitude,
-1 less each reading's noise (from the scatter between neighbouring 2 s
-windows in it, over how many it holds) over their variance. It comes
+1 less each reading's noise over their variance. The noise is read once
+over the take, from the scatter between neighbouring 2 s windows within
+a reading (1.4826·MAD/√2, so an event's edge inside a reading barely
+moves it), times the sum of the squared weights (about 0.232 for five
+windows). It comes
 with a ± that allows for correlated readings, and is withheld below a
 reliability of 0.5. It is a going-together, not a cause: the
 temperature is not logged, and a take in several positions carries a

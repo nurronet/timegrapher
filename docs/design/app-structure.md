@@ -19,8 +19,8 @@ Audio files and folders of recordings are second class. They live in the File me
 
 From the top down, each level holds the next:
 
-1. **The window.** One menu bar, one mode row, one status bar.
-2. **Two views:** **Bench** and **Watches**. They take turns filling the window between the mode switch and the status bar.
+1. **The window.** One top row and one status bar. The top row holds the menus (on Windows and Linux; the Mac uses its system menu bar), the Bench | Watches switch, the pane icons, Tests and the Settings gear.
+2. **Two views:** **Bench** and **Watches**. They take turns filling the window between the top row and the status bar.
 3. **Panes.** The readings cards, the Paper Strip, Profile and Scope, the analysis panes and the tests. The user places them, and the arrangement is remembered between sessions. Each pane shows one take, and the Bench has one take at a time.
 4. **The take.** Live or opened, it's what every pane on the Bench shows.
 
@@ -28,9 +28,9 @@ Watches sits at level 2 because it's about many takes and many watches, not one 
 
 ## 3. The views
 
-### The mode switch
+### The Bench | Watches switch
 
-- A two-way segmented control, **Bench | Watches**, at the left of the mode row, under the menu and icon bar (guide, section 2), in every size down to 800 × 600. The rest of the row holds the current view's toolbar.
+- A two-way segmented control, **Bench | Watches**, on the top row: after the menus on Windows and Linux, at the start of the row on the Mac, and before the pane icons (guide, section 2). It is there at every size down to 800 × 600. A view's own toolbar is not on this row: it sits at the top of the view's card, as a pane's toolbar does.
 - ⌘1 (Ctrl+1) shows the Bench and ⌘2 (Ctrl+2) shows Watches. The View menu lists both at its top with those keys. Keys are covered in section 7.
 - The Watches icon leaves the pane icon bar, and Watches leaves the pane list in the View menu.
 - The app always opens on the Bench.
@@ -69,7 +69,7 @@ Picking a row in the list only selects it and shows its details. It never change
 
 ![The Watches view filling the window, marks 1 and 2](structure/watches-view.png)
 
-- **(1)** The mode switch, showing Watches.
+- **(1)** The Bench | Watches switch, showing Watches.
 - **(2)** The status bar, still showing the take running on the Bench.
 
 The view's content is the redesign in the guide's addendum, "The guide applied to Watches":
@@ -83,7 +83,7 @@ The view's content is the redesign in the guide's addendum, "The guide applied t
 
 The whole window gives it room. At 2560 × 1440 and 1280 × 820, the list and the watch sit side by side. At 800 × 600 the view shows one at a time, with "‹ All Watches".
 
-The view's toolbar sits on the mode row, after the switch: New Watch…, the search field, Sort, List Shows and "?". It is the Watches view's equivalent of a pane toolbar, and the guide's toolbar zones apply.
+The view's toolbar sits at the top of the Watches card: New Watch…, the search field, Sort, List Shows and "?". It is the Watches view's equivalent of a pane toolbar, and the guide's toolbar zones apply.
 
 ## 5. The Bench
 
@@ -140,7 +140,7 @@ Card order stays as decided: Position, Calibre (now with its Watch line), Listen
 
 For the Desktop app:
 
-1. The window gets the mode switch and a second top-level view. The status bar is shared by both views.
+1. The window gets the Bench | Watches switch, on the top row, and a second top-level view. The status bar is shared by both views.
 2. The Watches pane leaves the pane system. Its icon leaves the icon bar, and its entry leaves the View menu's pane list.
 3. The Watches view uses the guide's addendum design, laid out for the whole window.
 4. The Calibre card gains the Watch line and its menu.
@@ -168,8 +168,8 @@ These mock-ups are the build target for the Watches view. They follow the guide'
 
 ![The Watches view at 2560 × 1440, dark, marks 6 to 12](structure/wv-2560-dark.png)
 
-- **(6) The view's toolbar.** It sits on the mode row after the switch and a separator: New Watch…, the search field, then Sort ▾ and List Shows ▾, each labelled.
-- **(7) "?"** sits at the right end of the mode row, in the Actions zone. It is the view's help, and it is the only thing at that end.
+- **(6) The view's toolbar.** It sits at the top of the Watches card, as a pane's toolbar does: New Watch…, the search field, then Sort ▾ and List Shows ▾, each labelled. (The mock-up was drawn when the toolbar sat on a row of its own under the menus. That row has gone, #1000.)
+- **(7) "?"** sits at the right end of the view's toolbar, in the Actions zone. It is the view's help, and it is the only thing at that end.
 - **(8) The Settings gear** stays at the same x as on the Bench. The pane icons' room to its left stays empty (§7, menus).
 - **(9) Edit… and Add Photos…** are word buttons at the right of the watch's header. The header's caption carries the calibre, beat rate, lift and the fields List Shows picks, once.
 - **(10) New Take** has three equal buttons with captions. Listen is the default and is blue. **Positions Test** and **Power Reserve Test** are the entry points for the two tests. Each one switches to the Bench and starts there (§3).
