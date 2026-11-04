@@ -67,6 +67,10 @@ pub enum Live {
     /// blocks after it keep ([`kept_gap`]), which
     /// [`crate::recorder::Recorder::sound_lost`] lists for the break.
     Break(f64),
+    /// The seconds of sound the input dropped before the next block, its
+    /// queue full ([`crate::capture::Event::Lost`]): a break as
+    /// [`Live::Break`] is, however short, told apart only to say why.
+    Dropped(f64),
 }
 
 /// Audio seconds after a rise in a live input's offset that are held back
@@ -117,6 +121,22 @@ impl GapWatch {
                 .map_or(0.0, |d| d.as_secs_f64());
         let mut out = Vec::new();
         self.take(b, at - end_s, end_s, &mut out);
+        out
+    }
+
+    /// The input dropped `frames` of sound here ([`crate::capture::Event::Lost`]):
+    /// what was held back is let through, then [`Live::Dropped`],
+    /// so the sound either side is never spliced. The lost frames count as
+    /// audio, so the offset after them doesn't rise and the same loss isn't
+    /// found again as a gap.
+    pub fn lost(&mut self, frames: u64) -> Vec<Live> {
+        let mut out = self.finish();
+        if frames > 0 {
+            self.frames += frames;
+            out.push(Live::Dropped(frames as f64 / self.rate));
+            // The recorder logs the first block after a break.
+            self.line = None;
+        }
         out
     }
 
@@ -573,6 +593,7 @@ mod tests {
                         blocks += 1;
                     }
                     Live::Break(g) => found.push((blocks, g)),
+                    Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                 }
             }
             assert_eq!(blocks, 200);
@@ -746,6 +767,7 @@ mod tests {
                     match l {
                         Live::Block(b) => out_at.push((b.samples[0] as usize, k)),
                         Live::Break(g) => found.push((out_at.len(), g)),
+                        Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                     }
                 }
             }
@@ -786,5 +808,48 @@ mod tests {
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].0, 45);
         assert!((f[0].1 - 0.6).abs() < 1e-6, "{f:?}");
+    }
+
+    #[test]
+    fn sound_the_input_dropped_is_a_break_however_short() {
+        // Blocks of 0.1 s at 48 kHz arriving on time, and `lost` frames
+        // dropped after block 50, so the blocks after it arrive that much
+        // later than the audio before them says.
+        let t0 = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+        for lost in [1_440u64, 48_000] {
+            let late = lost as f64 / 48_000.0;
+            let mut w = GapWatch::new(48_000);
+            let mut out = Vec::new();
+            for k in 0..100 {
+                if k == 50 {
+                    out.extend(w.lost(lost));
+                }
+                let at = 0.1 * (k + 1) as f64 + if k >= 50 { late } else { 0.0 };
+                out.extend(w.push(Block {
+                    samples: vec![k as f32; 4_800],
+                    at: t0 + std::time::Duration::from_secs_f64(at),
+                }));
+            }
+            out.extend(w.finish());
+            let mut blocks = 0;
+            let (mut found, mut dropped) = (Vec::new(), Vec::new());
+            for l in out {
+                match l {
+                    Live::Block(b) => {
+                        assert_eq!(b.samples[0], blocks as f32);
+                        blocks += 1;
+                    }
+                    Live::Break(g) => found.push((blocks, g)),
+                    Live::Dropped(g) => dropped.push((blocks, g)),
+                }
+            }
+            assert_eq!(blocks, 100);
+            // One break, where the sound was lost, of what was lost: not
+            // found a second time from the blocks' arrival.
+            assert!(found.is_empty(), "{lost}: {found:?}");
+            assert_eq!(dropped.len(), 1, "{lost}: {dropped:?}");
+            assert_eq!(dropped[0].0, 50);
+            assert!((dropped[0].1 - late).abs() < 1e-9, "{lost}: {dropped:?}");
+        }
     }
 }

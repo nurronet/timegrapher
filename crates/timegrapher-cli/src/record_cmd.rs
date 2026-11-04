@@ -738,6 +738,7 @@ fn live(
         } else {
             match cap.rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Event::Audio(b)) => gaps.push(b),
+                Ok(Event::Lost(frames)) => gaps.lost(frames),
                 Ok(Event::Error(e)) => return Err(format!("recording failed: {e}")),
                 Ok(Event::End) => {
                     ended = true;
@@ -750,19 +751,18 @@ fn live(
             break;
         }
         for live in came {
+            let dropped = matches!(live, breaks::Live::Dropped(_));
             let b = match live {
                 breaks::Live::Block(b) => b,
-                breaks::Live::Break(gap) => {
-                    // The computer slept or the input stalled and sound was
-                    // lost: a break, as after a pause, with the time
-                    // between left out.
+                breaks::Live::Break(gap) | breaks::Live::Dropped(gap) => {
+                    // The computer slept, the input stalled, or its queue
+                    // filled, and sound was lost: a break, as after a
+                    // pause, with the time between left out.
                     rec.sound_lost(gap);
                     if let Some(f) = feed.as_mut() {
                         f.live.skip(gap);
                     }
-                    eprintln!(
-                        "  the sound stopped for {gap:.1} s (the computer slept?); left out as a break"
-                    );
+                    say_break(gap, dropped);
                     continue;
                 }
             };
@@ -1025,6 +1025,19 @@ fn print_report(r: &Report) {
         );
     }
     println!("Added to     {}", r.session_file);
+}
+
+/// What `record` says about a break: sound the input dropped (#483), or a
+/// stop in its sound.
+fn say_break(gap: f64, dropped: bool) {
+    if dropped {
+        eprintln!(
+            "  {:.0} ms of sound was lost (the input's queue filled); left out as a break",
+            gap * 1000.0
+        );
+    } else {
+        eprintln!("  the sound stopped for {gap:.1} s (the computer slept?); left out as a break");
+    }
 }
 
 #[cfg(test)]
