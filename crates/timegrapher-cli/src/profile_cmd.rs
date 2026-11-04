@@ -5,6 +5,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 use timegrapher_core::analysis::{analyze, AnalysisConfig};
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::load;
 use timegrapher_core::profile::{self, Side, TickProfile};
 
@@ -27,7 +28,11 @@ pub fn run(file: &Path, o: &Options) -> Result<(), String> {
     let from = o.at_s.clamp(0.0, dur);
     let to = (from + o.span_s).min(dur);
     if to - from < 1.0 {
-        return Err(format!("the stretch {from:.1}–{to:.1} s is too short"));
+        return Err(format!(
+            "the stretch {}–{} s is too short",
+            fixed_text(from, 1),
+            fixed_text(to, 1)
+        ));
     }
     let env = timegrapher_core::dsp::envelope(&audio.samples, fs, &o.cfg.envelope);
     let profiles = profile::profiles(&env, fs, &a.beats, 2.0 * beat, from, to, &o.cfg.amplitude);
@@ -52,7 +57,9 @@ pub fn run(file: &Path, o: &Options) -> Result<(), String> {
         )?;
     } else {
         println!(
-            "Stretch      {from:.1}–{to:.1} s at {bph} bph, lift angle {} deg; times in ms from the beat",
+            "Stretch      {}–{} s at {bph} bph, lift angle {} deg; times in ms from the beat",
+            fixed_text(from, 1),
+            fixed_text(to, 1),
             o.cfg.amplitude.lift_deg
         );
         for p in profiles.iter().flatten() {
@@ -66,7 +73,7 @@ pub fn run(file: &Path, o: &Options) -> Result<(), String> {
 }
 
 fn ms(v: Option<f64>) -> String {
-    v.map_or("-".into(), |x| format!("{x:+.2}"))
+    v.map_or("-".into(), |x| signed_text(x, 2))
 }
 
 fn print_side(p: &TickProfile) {
@@ -83,8 +90,9 @@ fn print_side(p: &TickProfile) {
         ms(p.sound1_ms),
         ms(p.sound2_ms),
         ms(p.sound3_ms),
-        p.amplitude_deg
-            .map_or("- (out of range)".into(), |a| format!("{a:.0} deg")),
+        p.amplitude_deg.map_or("- (out of range)".into(), |a| {
+            format!("{} deg", fixed_text(a, base_digits::AMPLITUDE))
+        }),
     );
 }
 
@@ -188,10 +196,11 @@ fn side(s: &mut String, p: &TickProfile, f: &Frame, y0: f64, (lo, hi): (f32, f32
         let x = xs(g);
         let _ = writeln!(
             s,
-            r##"<line x1="{x:.1}" y1="{}" x2="{x:.1}" y2="{}" stroke="#eee"/><text x="{x:.1}" y="{}" text-anchor="middle" fill="#666">{g:.0}</text>"##,
+            r##"<line x1="{x:.1}" y1="{}" x2="{x:.1}" y2="{}" stroke="#eee"/><text x="{x:.1}" y="{}" text-anchor="middle" fill="#666">{}</text>"##,
             y0 + h,
             y0 + h + 4.0,
-            y0 + h + 16.0
+            y0 + h + 16.0,
+            fixed_text(g, 0)
         );
         g += 2.0;
     }
@@ -214,9 +223,9 @@ fn side(s: &mut String, p: &TickProfile, f: &Frame, y0: f64, (lo, hi): (f32, f32
             );
         }
     }
-    let amp = p
-        .amplitude_deg
-        .map_or("out of range".into(), |a| format!("{a:.0}°"));
+    let amp = p.amplitude_deg.map_or("out of range".into(), |a| {
+        format!("{}°", fixed_text(a, base_digits::AMPLITUDE))
+    });
     let _ = writeln!(
         s,
         r##"<text x="{}" y="{}" text-anchor="end">{} beats, amplitude {amp}</text>"##,
