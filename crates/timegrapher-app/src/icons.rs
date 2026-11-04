@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 79] = [
+const ALL: [Icon; 80] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
@@ -67,6 +67,7 @@ const ALL: [Icon; 79] = [
     Icon::Drum,
     Icon::Traces,
     Icon::Stopwatch,
+    Icon::Pin,
     Icon::Gears,
     Icon::Roll,
     Icon::ProbLine,
@@ -324,6 +325,8 @@ fn drawing(icon: Icon) -> &'static str {
         Icon::Stopwatch => {
             r#"<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9M10 2.5h4M12 2.5V6M18 6.5l1.5-1.5"/>"#
         }
+        // A push pin, head up: Keep the readings' cards open.
+        Icon::Pin => r#"<path d="M8.5 3h7M10 3v6.5L6.5 14h11L14 9.5V3M12 14v7.5"/>"#,
         // Two wheels in mesh: The calibre's wheel periods.
         Icon::Gears => {
             r#"<circle cx="8.5" cy="9.5" r="4.5"/><circle cx="8.5" cy="9.5" r="1.2"/><circle cx="16.5" cy="16.5" r="3.2"/><circle cx="16.5" cy="16.5" r="1"/><path d="M13 9.5h1.9M11.7 12.7l1.3 1.3M8.5 14v1.9M5.3 12.7L4 14M4 9.5H2.1M5.3 6.3L4 5M8.5 5V3.1M11.7 6.3L13 5M19.3 18l1.5.8M16.6 19.7v1.7M13.8 18.2l-1.5.8M16.4 13.3v-1.7M19.2 14.8l1.5-.8" stroke-width="1.5"/>"#
