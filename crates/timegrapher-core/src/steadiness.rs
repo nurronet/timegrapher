@@ -29,7 +29,7 @@
 
 pub use crate::amplitude_slope::CrossCorrelation;
 use crate::amplitude_slope::{
-    cross_correlation, eiv_slope, reading_noise, slope_text, MIN_RELIABILITY, TOO_NOISY,
+    cross_correlation, eiv_slope, pairing_readings, slope_text, MIN_RELIABILITY, TOO_NOISY,
 };
 use crate::clean::Cuts;
 use crate::clock::ClockFit;
@@ -2303,10 +2303,10 @@ pub fn check(
         (rate_grid.t0, rate_grid.y.len())
     };
     let amp_readings = rebin(&amp_grid, t0, r, n);
-    let amp_noise = reading_noise(&amp_grid, t0, r, n);
+    let (amp_paired, amp_noise) = pairing_readings(&amp_grid, &amp_readings);
     let be_readings = rebin(&be_grid, t0, r, n);
-    let rate_amplitude = cross_correlation(&rate_grid, &amp_readings, &amp_noise, cfg);
-    let isochronism = isochronism_curve(&rate_grid, &amp_readings, &amp_noise, cfg);
+    let rate_amplitude = cross_correlation(&rate_grid, &amp_paired, &amp_noise, cfg);
+    let isochronism = isochronism_curve(&rate_grid, &amp_paired, &amp_noise, cfg);
     let wind_down = wind_down(&rate_grid, &amp_readings, &be_readings, cfg);
     let distributions = {
         use distribution::{Input, AMPLITUDE, BEAT_ERROR, RATE};
