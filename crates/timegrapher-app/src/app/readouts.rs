@@ -1,9 +1,8 @@
 //! The readouts and the status bar: the figures shown, the clocks behind them, the status line and notices, and what shows when nothing is open.
 
 use super::*;
-use timegrapher_core::library::{
-    base_digits as base, figure_digits, fixed_text, pm_text, signed_text,
-};
+use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm};
+use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
 
 /// What the reading cards draw from.
 struct CardCtx<'a> {
@@ -1536,60 +1535,4 @@ fn status_item(
         resp
     })
     .inner
-}
-
-/// A figure as text to the decimals its ± calls for (core's
-/// `figure_digits`, #510 K3: decimals follow the ±), from the figure's
-/// base decimals with no ± (`base_digits`). `signed` writes a rate's sign,
-/// none on a zero (`signed_text`); else a zero takes no minus
-/// (`fixed_text`).
-pub(super) fn figure(v: f64, se: Option<f64>, digits: usize, signed: bool) -> String {
-    let d = figure_digits(se, digits);
-    if signed {
-        signed_text(v, d)
-    } else {
-        fixed_text(v, d)
-    }
-}
-
-/// A figure and, where it has one, its ± after it, each to the same
-/// decimals ([`figure`], core's `pm_text`): "+1.23 ± 0.04".
-fn with_pm(v: f64, se: Option<f64>, digits: usize, signed: bool) -> String {
-    let pm = se
-        .and_then(|e| pm_text(e, digits))
-        .map_or_else(String::new, |t| format!(" ± {t}"));
-    format!("{}{pm}", figure(v, se, digits, signed))
-}
-
-#[cfg(test)]
-mod figure_tests {
-    use super::*;
-
-    /// The cards write each figure to the decimals its ± calls for, the
-    /// same as its ± (#510 K3), from core's base decimals where there is
-    /// no ±; a rate of zero takes no sign.
-    #[test]
-    fn a_cards_figure_carries_its_pms_decimals() {
-        assert_eq!(figure(1.234, None, base::RATE, true), "+1.2");
-        assert_eq!(figure(1.234, Some(0.3), base::RATE, true), "+1.2");
-        assert_eq!(figure(1.234, Some(0.04), base::RATE, true), "+1.23");
-        assert_eq!(figure(-0.04, Some(0.3), base::RATE, true), "0.0");
-        assert_eq!(with_pm(1.234, Some(0.04), base::RATE, true), "+1.23 ± 0.04");
-        assert_eq!(figure(285.37, Some(1.4), base::AMPLITUDE, false), "285");
-        assert_eq!(figure(285.37, Some(0.4), base::AMPLITUDE, false), "285.4");
-        assert_eq!(
-            with_pm(285.37, Some(0.4), base::AMPLITUDE, false),
-            "285.4 ± 0.4"
-        );
-        assert_eq!(figure(0.1234, None, base::BEAT_ERROR, false), "0.12");
-        assert_eq!(
-            figure(0.1234, Some(0.004), base::BEAT_ERROR, false),
-            "0.123"
-        );
-        assert_eq!(
-            with_pm(0.1234, Some(0.0001), base::BEAT_ERROR, false),
-            "0.123 ± <0.001"
-        );
-        assert_eq!(figure(-0.2, None, base::AMPLITUDE, false), "0");
-    }
 }
