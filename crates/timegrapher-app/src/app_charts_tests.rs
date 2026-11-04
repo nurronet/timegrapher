@@ -278,17 +278,19 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         set_pane_visible(&mut app.panes.tiles, p, false);
     }
     let ctx = themed();
-    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+    let pass_held = |app: &mut TimegrapherApp, events: Vec<egui::Event>, modifiers| {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 Vec2::new(1440.0, 1000.0),
             )),
             events,
+            modifiers,
             ..Default::default()
         };
         ctx.run(input, |ctx| app.panels(ctx))
     };
+    let pass = |app: &mut TimegrapherApp, events| pass_held(app, events, egui::Modifiers::NONE);
     let mut out = pass(&mut app, Vec::new());
     for _ in 0..3 {
         out = pass(&mut app, Vec::new());
@@ -302,13 +304,21 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         })
         .unwrap_or_else(|| panic!("{}", painted_text(&out)));
     let at = label + Vec2::new(500.0, 0.0);
-    // The hover box's time at the pointer, and the time axis's labels,
-    // a few frames after `events`.
+    // The time axis's labels a few frames after `events`, the keys a
+    // wheel turn in them was made with held throughout, as a hand holds
+    // them while the turn plays out.
     let look = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
-        pass(app, events);
+        let held = events
+            .iter()
+            .find_map(|e| match e {
+                egui::Event::MouseWheel { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or_default();
+        pass_held(app, events, held);
         let mut text = String::new();
         for _ in 0..4 {
-            text = painted_text(&pass(app, vec![egui::Event::PointerMoved(at)]));
+            text = painted_text(&pass_held(app, vec![egui::Event::PointerMoved(at)], held));
         }
         text
     };
@@ -327,6 +337,13 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
     // With Shift too, the same.
     let shifted = look(&mut app, vec![wheel(-60.0, egui::Modifiers::SHIFT)]);
     assert!(time_labels(&shifted)[0] > p[0], "{p:?} {shifted:?}");
+    // Alt and the wheel (the strip's width) does nothing here.
+    let alt = egui::Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    let still = look(&mut app, vec![wheel(60.0, alt)]);
+    assert_eq!(time_labels(&still), time_labels(&shifted));
     // A zoom (Cmd or Ctrl and the wheel, or a pinch): a shorter time.
     let zoomed = look(&mut app, vec![egui::Event::Zoom(2.0)]);
     let z = time_labels(&zoomed);

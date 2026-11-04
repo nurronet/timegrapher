@@ -296,10 +296,14 @@ fn draw_chart(
     }
     if p.response().hovered() {
         // The wheel or a swipe either way pans time, as a drag does;
-        // Cmd (Mac) or Ctrl with the wheel, or a pinch, zooms it.
-        let (s, zoom) = p.ctx().input(|i| (i.smooth_scroll_delta, i.zoom_delta()));
+        // Cmd (Mac) or Ctrl with the wheel, or a pinch, zooms it. Alt
+        // and the wheel zooms the strip's width; the charts' scale fits
+        // their lines, so here it does nothing.
+        let (s, zoom, alt) = p
+            .ctx()
+            .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
         let wheel = s.x + s.y;
-        if wheel != 0.0 {
+        if wheel != 0.0 && !alt {
             let b = p.plot_bounds();
             let px = p.response().rect.width().max(1.0);
             let dt = -f64::from(wheel / px) * b.width();
