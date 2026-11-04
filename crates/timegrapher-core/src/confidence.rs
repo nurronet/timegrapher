@@ -128,6 +128,11 @@ pub enum Slow {
     /// CUSUM's corner), so a real change of level does not read as memory
     /// and widen the band that should find it.
     Step,
+    /// The same step, read for the CUSUM's test of one level: ρ also
+    /// gets back [`STEP_CHOICE_BIAS`]/n, what choosing the step to fit
+    /// takes out of it (#917). The change finder keeps [`Slow::Step`],
+    /// whose σ only scales its penalty.
+    ChosenStep,
 }
 
 /// The long-run σ of finite values in time order (NaN, a gap, is passed
@@ -148,9 +153,10 @@ pub fn long_run_sd(values: &[f64], short_sd: f64, slow: Slow) -> f64 {
 /// [`pooled_lag_one`] reads it), plus 2(1 + 3ρ)/n for its bias downwards
 /// with two parameters taken out (Marriott and Pope 1954), n one more than
 /// the neighbouring pairs read (the values' count when none is missing),
-/// held to 0 ..= 0.99. On a seeded test of 360 AR(1) readings this keeps
-/// the CUSUM's false alarms at 4-6% from ρ 0 to 0.9, and under 8% at
-/// ρ 0.9 with block gaps or scattered dropouts (#647).
+/// held to 0 ..= 0.99. [`Slow::ChosenStep`] adds [`STEP_CHOICE_BIAS`]/n
+/// too (#917). On a seeded test of 360 AR(1)
+/// readings this keeps the CUSUM's false alarms at 4-6% from ρ 0 to 0.9,
+/// and under 8% at ρ 0.9 with block gaps or scattered dropouts (#647).
 pub fn long_run_rho(values: &[f64], slow: Slow) -> f64 {
     let at: Vec<usize> = (0..values.len())
         .filter(|&i| values[i].is_finite())
@@ -161,7 +167,7 @@ pub fn long_run_rho(values: &[f64], slow: Slow) -> f64 {
     let mut x: Vec<f64> = at.iter().map(|&i| values[i]).collect();
     match slow {
         Slow::Line => crate::dsp::detrend_line(&mut x),
-        Slow::Step => take_out_step(&mut x),
+        Slow::Step | Slow::ChosenStep => take_out_step(&mut x),
     }
     let m = x.iter().sum::<f64>() / x.len() as f64;
     x.iter_mut().for_each(|v| *v -= m);
@@ -174,13 +180,26 @@ pub fn long_run_rho(values: &[f64], slow: Slow) -> f64 {
     }
     let r = s1 / pairs as f64 / c0;
     let n = (pairs + 1) as f64;
-    let r = r + line_lag_one_bias(r, n);
+    let chosen = if slow == Slow::ChosenStep {
+        STEP_CHOICE_BIAS / n
+    } else {
+        0.0
+    };
+    let r = r + line_lag_one_bias(r, n) + chosen;
     if r.is_finite() {
         r.clamp(0.0, 0.99)
     } else {
         0.0
     }
 }
+
+/// How much further below the true ρ a lag-one correlation reads, times
+/// n, once the best single step is taken out, beyond Marriott and Pope's
+/// two parameters: the step is chosen to fit, so it takes out some of
+/// the wander too. Set so the mean of [`long_run_rho`] with
+/// [`Slow::ChosenStep`] is the true ρ within ±0.005 on seeded AR(1) readings
+/// at ρ 0.5 and 0.9 and n 180 to 1440 (#917).
+pub const STEP_CHOICE_BIAS: f64 = 3.3;
 
 /// How far a lag-one correlation `r` read from `n` values less their line
 /// falls short of the true one (Marriott and Pope 1954): 2(1 + 3r)/n. At
@@ -857,6 +876,40 @@ mod tests {
         assert_eq!(long_run_sd(&y[..2], 1.0, Slow::Step), 1.0);
     }
 
+    /// [`STEP_CHOICE_BIAS`]'s calibration (#917): on seeded AR(1)
+    /// readings the mean of [`long_run_rho`] with [`Slow::ChosenStep`]
+    /// is the true ρ within ±0.005 at ρ 0.5 and 0.9, n 180 to 1440. At
+    /// ρ 0 the hold at 0 is a floor, not a bias: a mean of half-clamped
+    /// readings sits above 0 whatever is added, so there it only stays
+    /// under 0.04.
+    #[test]
+    fn long_run_rho_with_a_step_out_is_unbiased_on_ar1_readings() {
+        let mut rng = crate::synth::Rng::new(917);
+        for n in [180usize, 360, 720, 1440] {
+            for rho in [0.0f64, 0.5, 0.9] {
+                let reps = 4000;
+                let mean = (0..reps)
+                    .map(|_| {
+                        let mut x = rng.normal() / (1.0 - rho * rho).sqrt();
+                        let y: Vec<f64> = (0..n)
+                            .map(|_| {
+                                let v = x;
+                                x = rho * x + rng.normal();
+                                v
+                            })
+                            .collect();
+                        long_run_rho(&y, Slow::ChosenStep)
+                    })
+                    .sum::<f64>()
+                    / reps as f64;
+                if rho == 0.0 {
+                    assert!(mean < 0.04, "n {n}: {mean}");
+                } else {
+                    assert!((mean - rho).abs() < 0.005, "n {n}, ρ {rho}: {mean}");
+                }
+            }
+        }
+    }
     #[test]
     fn lag_one_ignores_a_steady_drift() {
         let wave: Vec<f64> = (0..200).map(|i| (i as f64 * 0.3).sin()).collect();
