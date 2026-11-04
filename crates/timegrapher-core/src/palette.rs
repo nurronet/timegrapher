@@ -66,18 +66,14 @@ pub struct Palette {
     pub trace_amplitude: Rgb,
     pub trace_rate: Rgb,
     pub trace_beat_error: Rgb,
-    /// A calibre's wheels where their turns are marked on a period axis:
-    /// the faint grey, drawn dotted and named, so a wheel's line never
-    /// reads as a reading.
-    pub wheel: Rgb,
     /// The lines on a plot by strength, weakest first ("Line Strength on
     /// Plots"): the grid and the axes (the left and bottom edges, and a
     /// zero line) are the text colour at these opacities, see-through so
     /// they keep their strength over a tint; call-outs (named and
     /// reference lines, such as the Tick Tock profile's Unlock, Drop, Peak
-    /// and three sounds) are one grey, told apart by pattern and label, so
-    /// only the readings have colours on a plot. Data takes its reading's
-    /// colour.
+    /// and three sounds, and a calibre's wheels on a period axis) are one
+    /// grey, told apart by pattern and label, so only the readings have
+    /// colours on a plot. Data takes its reading's colour.
     pub grid_opacity: f32,
     pub axis_opacity: f32,
     pub callout: Rgb,
@@ -113,7 +109,6 @@ pub const DARK: Palette = Palette {
     trace_amplitude: rgb(0x9e6bff),
     trace_rate: rgb(0xe140a1),
     trace_beat_error: rgb(0xf6b753),
-    wheel: rgb(0x6e6e73),
     grid_opacity: 0.08,
     axis_opacity: 0.27,
     callout: CALLOUT_DARK,
@@ -140,7 +135,6 @@ pub const LIGHT: Palette = Palette {
     trace_amplitude: rgb(0x8b3df8),
     trace_rate: rgb(0xb80c7e),
     trace_beat_error: rgb(0xbc8422),
-    wheel: rgb(0x9a9aa0),
     grid_opacity: 0.09,
     axis_opacity: 0.33,
     callout: CALLOUT_LIGHT,
