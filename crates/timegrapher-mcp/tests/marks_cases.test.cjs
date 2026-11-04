@@ -20,7 +20,7 @@ function constant(name) {
 }
 const context = vm.createContext({ document: { getElementById: () => ({ clientWidth: 624 }) } });
 vm.runInContext(["CHAR_W", "DASH", "MARKS"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
-  ["esc", "chartWidth", "plotArea", "xyChart", "markOrder", "markPlace", "markPlaceRow", "markInside", "markStack", "besideSpots", "crosses", "besidePlace", "roomAbove", "markWidth", "markText", "laneAbove", "namesInside"]
+  ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "xyChart", "markOrder", "markPlace", "markPlaceRow", "markInside", "markStack", "besideSpots", "crosses", "besidePlace", "roomAbove", "markWidth", "markText", "laneAbove", "namesInside"]
     .map(definition).join("\n") + "\nthis.MARKS = MARKS;", context);
 
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -81,10 +81,10 @@ test("a plot keeps a note's room above its highest point as the app's does", () 
 
 // A Periods or FFT plot, 1 s to 1000 s, its wheels' lines as wheelMarks
 // gives them.
-const line = (x, name, rank, extra = {}) => ({ x: Math.log10(x), color: "--wheel", width: 2, dash: "dense", name, rank, ink: "--wheel", hover: `${name}: ${x} s`, ...extra });
+const line = (x, name, rank, extra = {}) => ({ x: Math.log10(x), color: "--callout", width: 1.2, dash: "dense", name, rank, ink: "--callout", hover: `${name}: ${x} s`, ...extra });
 const plot = (o) => context.xyChart({
   x: [0, 3], y: [0, 1], xTicks: () => [], yTicks: () => [[0, "0"]], lines: [{ pts: [[0, 0.5], [3, 0.5]], color: "--rate" }],
-  vlines: [line(60, "Fourth Wheel", "strong"), line(30, "Fourth Wheel ×2", "faint", { opacity: 0.6, width: 1.25, dash: "sparse" })], ...o,
+  vlines: [line(60, "Fourth Wheel", "strong"), line(30, "Fourth Wheel ×2", "faint", { width: 1, dash: "sparse" })], ...o,
 });
 
 test("a plot's lines are dotted and named above it, joined by a stroke of their colour", () => {
@@ -94,8 +94,8 @@ test("a plot's lines are dotted and named above it, joined by a stroke of their 
   assert.match(svg, new RegExp(`height="${150 + LANE + LANE_GAP}"`));
   assert.match(svg, new RegExp(`<rect class="plot" x="[\\d.]+" y="${4 + LANE + LANE_GAP}"`));
   // Dotted: round dots, 5 px apart for a wheel, 10 for its ×2.
-  assert.match(svg, /stroke="var\(--wheel\)" stroke-width="2" stroke-dasharray="0 5" stroke-linecap="round"/);
-  assert.match(svg, /stroke-opacity="0.6" stroke-width="1.25" stroke-dasharray="0 10" stroke-linecap="round"/);
+  assert.match(svg, /stroke="var\(--callout\)" stroke-width="1.2" stroke-dasharray="0 5" stroke-linecap="round"/);
+  assert.match(svg, /stroke="var\(--callout\)" stroke-width="1" stroke-dasharray="0 10" stroke-linecap="round"/);
   // Outside the plot's clip: each name over a patch of the card's colour,
   // the wheel's strong, the ×2's faint, each with its hover.
   const outside = svg.split("clip-path")[0];
