@@ -118,7 +118,13 @@ pub(super) fn check_all(
                 });
             let cfg = Config {
                 alpha: if memory { cfg.alpha } else { 0.0 },
-                trend_alpha: if trend { cfg.trend_alpha } else { 0.0 },
+                // 0 only for a trend Holm drops after its own test kept
+                // it: the bar a dropped trend's note tells apart.
+                trend_alpha: if trend || !trend_holds(&s, cfg) {
+                    cfg.trend_alpha
+                } else {
+                    0.0
+                },
                 ..cfg.clone()
             };
             check_series(kind, grid, fine, period, two_state, wheels, &cfg)
@@ -313,6 +319,26 @@ mod tests {
             c.note.as_deref(),
             Some("under the 99% a level change needs")
         );
+    }
+
+    /// A series checked again because Holm dropped its period line keeps
+    /// its trend's own bar when the trend failed that bar, so its note
+    /// does not blame Holm.
+    #[test]
+    fn a_rerun_keeps_a_failed_trend_s_own_bar() {
+        let mut z = crate::synth::Rng::new(4);
+        let white: Vec<f64> = (0..720).map(|_| 280.0 + 2.0 * z.normal()).collect();
+        let g = Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: white,
+        };
+        // A search line at p 0.1 that Holm drops, so the series is re-run.
+        let input = (SeriesKind::Amplitude, g, None, None, vec![1.0], None);
+        let (checks, named) = check_all(vec![input], &[], &Config::default());
+        assert_eq!(named, [vec![false]]);
+        let note = checks[0].trend.as_ref().unwrap().note.clone().unwrap();
+        assert!(note.ends_with(", over the 0.01 a trend needs"), "{note}");
     }
 
     /// Holm keeps the smallest p while each is under α over the tests
