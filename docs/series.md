@@ -154,7 +154,7 @@ For each series:
   `p_value`) passes 0.01 and Holm's correction (#917), the stretches
   explain at least a fifth of the variance, and the lead is not a slide. The corner is the cut nearest the CUSUM's largest
   excursion. A step that only the CUSUM shows, that explains under a
-  fifth of the variance, or that a line explains nearly as well goes
+  fifth of the variance, or that a line explains at least as well goes
   unnamed, though the line still bends.
 - **Change points**: 30 s block medians split into stretches of constant
   mean, at least 5 minutes each. A cut is placed only when it is strong

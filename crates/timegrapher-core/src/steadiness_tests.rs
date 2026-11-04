@@ -1253,11 +1253,12 @@ fn the_cusum_names_a_change_only_where_the_headline_does() {
         if step == 0.0 {
             assert!(named <= 20, "steady: {named} of {runs} named a change");
         } else {
-            // The headline tells a step from a slide by how much of it a
-            // line explains, and calls about two in five of these slides
-            // (111 named, 58 cut and called slides at this seed); either
-            // way it says the level moved.
-            assert!(named >= 100, "step: {named} of {runs} named a change");
+            // The headline tells a step from a slide by whichever of a
+            // line and the stretches explains more (#721): 158 named at
+            // this seed, against 111 when a line needed only 0.8 of the
+            // stretches' share and two in five of these steps were called
+            // slides; either way it says the level moved.
+            assert!(named >= 150, "step: {named} of {runs} named a change");
             assert!(moved >= 160, "step: {moved} of {runs} moved");
         }
     }
