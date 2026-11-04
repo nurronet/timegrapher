@@ -870,7 +870,7 @@ impl EntryRead {
             .chain(
                 crate::clean::mask_breaks(&self.masked)
                     .into_iter()
-                    .filter(|b| inside(b))
+                    .filter(inside)
                     .map(|b| Break {
                         audio_s: b.audio_s - self.settle_s,
                         ..b
