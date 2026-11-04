@@ -947,20 +947,6 @@ fn is_audio_name(c: &str) -> bool {
         || c.starts_with("bytes")
 }
 
-/// The clock fit of a take whose session file names the clock log `log`,
-/// a file in the take's folder `dir`, without its USB lines: its log fitted
-/// for rates, with the breaks the take lists placed on it. `files` are the
-/// take's sound files, in order. Kept for the app until it opens takes
-/// with [`crate::take::clock_of_files`] (#509), which also reads the USB
-/// lines; it is that function.
-pub fn of_take(
-    dir: &std::path::Path,
-    log: &str,
-    files: &[std::path::PathBuf],
-) -> Result<ClockFit, String> {
-    crate::take::clock_of_files(dir, Some(log), files, None, None)?.ok_or_else(|| "no clock".into())
-}
-
 /// The sound card's error read from the USB lines in the first
 /// `usbclock::MAX_DURATION_S` of the first of `files`, as `analyze` reads
 /// it; `None` when the recording has none. With a clock log, pass its

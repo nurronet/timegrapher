@@ -135,6 +135,9 @@ const SCALE_ROW: f32 = 21.0;
 /// An overlay axis's tick, points.
 const TICK: f32 = 4.0;
 
+/// The room before each overlay axis right of the strip, points.
+const SCALE_GAP: f32 = 8.0;
+
 /// An overlay's scale for its `range` ([`Overlay::range`]): round ends
 /// that hold still while the readings move inside them ([`steady_ends`]),
 /// kept from one frame to the next under the overlay's `name`.
@@ -239,6 +242,9 @@ impl RateLine {
 #[derive(Debug, Clone)]
 pub struct Overlay {
     pub name: &'static str,
+    /// The name its axis carries, short so the axis takes little room:
+    /// "Rate", "Amp.", "B.E.".
+    pub short: &'static str,
     pub unit: &'static str,
     pub color: Color32,
     /// The smallest range the scale spans, so a steady reading isn't
@@ -1000,7 +1006,12 @@ pub fn draw_strip(
         })
         .collect();
     let row_h = 15.0;
-    let (r, lane) = strip_rects(resp.rect, view, extras.gutter, overlays.len(), row_h);
+    let font = FontId::proportional(11.0);
+    let cols: Vec<f32> = overlays
+        .iter()
+        .map(|(o, s)| scale_column(ui, &font, o, *s))
+        .collect();
+    let (r, lane) = strip_rects(resp.rect, view, extras.gutter, &cols, row_h);
     let f = Frame {
         painter,
         outer: resp.rect,
@@ -1016,8 +1027,9 @@ pub fn draw_strip(
         extras,
         vis,
         pal: crate::theme::pal(ui),
-        font: FontId::proportional(11.0),
+        font,
         row_h,
+        cols,
         oldest,
     };
     let mut input = StripInput::default();
@@ -1038,24 +1050,51 @@ pub fn draw_strip(
     input
 }
 
+/// How wide an overlay's axis column right of the strip is: its widest
+/// text (its name, its unit, or a number past its tick) and a gap.
+fn scale_column(ui: &egui::Ui, font: &FontId, o: &Overlay, s: Scale) -> f32 {
+    let wide = |words: String| {
+        ui.fonts_mut(|f| {
+            f.layout_no_wrap(words, font.clone(), Color32::WHITE)
+                .size()
+                .x
+        })
+    };
+    let numbers = ticks(s)
+        .map(|v| wide(axis_number(v, s.2)))
+        .fold(0.0_f32, f32::max);
+    let text = wide(o.short.into()).max(wide(unit_line(o)));
+    text.max(TICK + 2.0 + numbers) + SCALE_GAP
+}
+
+/// An overlay's unit as its axis writes it, under its name: "(s/d)".
+fn unit_line(o: &Overlay) -> String {
+    format!("({})", o.unit.trim())
+}
+
 /// The plotting area inside its axes, and the track's lane: time labels
 /// down the left (or along the bottom when lying across), ms labels along
-/// the bottom (or down the left), and a scale for each of `overlays` on
-/// top (or down the right). The track of positions runs along the top
-/// when the strip lies across, the key in the corners either side of it;
-/// else the track is a column on the right, under the key.
+/// the bottom (or down the left), and a scale for each overlay on top (or
+/// down the right, in columns `cols` wide, their names and units over
+/// them). The track of positions runs along the top when the strip lies
+/// across, the key in the corners either side of it; else the track is a
+/// column on the right, under the key.
 fn strip_rects(
     outer: Rect,
     view: &StripView,
     gutter: f32,
-    overlays: usize,
+    cols: &[f32],
     row_h: f32,
 ) -> (Rect, Rect) {
     let lane_h = row_h + 4.0;
+    let overlays = cols.len();
     let r = if view.horizontal {
+        // Room over the plot for each axis's second line, its unit, clear
+        // of its top number.
+        let units = if cols.is_empty() { 0.0 } else { row_h - 4.0 };
         Rect::from_min_max(
-            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h),
-            outer.max - Vec2::new(4.0 + 58.0 * overlays as f32, row_h + 2.0),
+            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h + units),
+            outer.max - Vec2::new(4.0 + cols.iter().sum::<f32>(), row_h + 2.0),
         )
     } else {
         Rect::from_min_max(
@@ -1091,6 +1130,8 @@ struct Frame<'a> {
     font: FontId,
     /// A line of the key's height.
     row_h: f32,
+    /// Each overlay axis's column's width, when the strip lies across.
+    cols: Vec<f32>,
     /// The time at the strip's oldest end.
     oldest: f64,
 }
@@ -1723,20 +1764,48 @@ impl Frame<'_> {
         }
     }
 
-    /// An overlay's axis in column `i` right of the strip, under its name,
-    /// its unit under it.
+    /// An overlay's axis in column `i` right of the strip, under its
+    /// short name with its unit on the line under that.
     fn scale_down(&self, i: usize, o: &Overlay, s: Scale) {
         let (painter, r, font) = (&self.painter, self.g.r, &self.font);
-        let x = r.right() + 8.0 + 58.0 * i as f32;
+        let x = r.right() + SCALE_GAP + self.cols[..i].iter().sum::<f32>();
         let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
         let text = |at: Pos2, align: Align2, words: String| {
             painter.text(at, align, words, font.clone(), ink);
         };
-        text(
-            Pos2::new(x, self.lane.top() + 1.0),
-            Align2::LEFT_TOP,
-            o.name.into(),
+        // The unit just clear of the top number, the name over it.
+        let top_tick = ticks(s)
+            .map(|v| self.scale_at(s, v))
+            .fold(r.bottom(), f32::min);
+        let unit = painter.text(
+            Pos2::new(x, top_tick - font.size / 2.0 - 1.0),
+            Align2::LEFT_BOTTOM,
+            unit_line(o),
+            font.clone(),
+            ink,
         );
+        let named = painter.text(
+            Pos2::new(x, unit.top() + 1.0),
+            Align2::LEFT_BOTTOM,
+            o.short,
+            font.clone(),
+            ink,
+        );
+        // The short name in full on a hover.
+        let ctx = painter.ctx();
+        if ctx
+            .pointer_hover_pos()
+            .is_some_and(|p| named.union(unit).contains(p))
+        {
+            egui::Tooltip::always_open(
+                ctx.clone(),
+                painter.layer_id(),
+                egui::Id::new(("strip scale name", i)),
+                egui::PopupAnchor::Pointer,
+            )
+            .gap(12.0)
+            .show(|ui| ui.label(format!("{} {}", o.name, unit_line(o))));
+        }
         painter.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], line);
         let mut last = f32::INFINITY;
         for v in ticks(s) {
@@ -1749,11 +1818,6 @@ impl Frame<'_> {
                 last = y;
             }
         }
-        text(
-            Pos2::new(x, r.bottom() + 2.0),
-            Align2::LEFT_TOP,
-            o.unit.trim().into(),
-        );
     }
 
     /// An overlay's axis in row `i` above the strip: its name and unit at
@@ -1763,7 +1827,7 @@ impl Frame<'_> {
         let top = self.outer.top() + 3.0 + self.row_h + SCALE_ROW * i as f32;
         let y = top + SCALE_ROW - 2.0;
         let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
-        let name = format!("{} ({})", o.name, o.unit.trim());
+        let name = format!("{} {}", o.short, unit_line(o));
         let named = painter.text(
             Pos2::new(r.left(), top),
             Align2::LEFT_TOP,
