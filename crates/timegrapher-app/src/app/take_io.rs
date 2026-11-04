@@ -4,23 +4,42 @@ use super::*;
 
 impl TimegrapherApp {
     pub(super) fn live_config(&self) -> LiveConfig {
-        let mut c = LiveConfig::default();
-        c.analysis.bph = self.bph;
-        c.analysis.amplitude.lift_deg = self.lift_deg;
-        c.analysis.lift_known = self.lift_known();
-        c.profile_s = self.sound_span();
-        // Every beat of as long as the strip can show, a power reserve
-        // run's limit, rather than the engine's day: a take listened to
-        // for longer keeps its first hours on the strip and the charts.
-        c.max_beats = c.max_beats.max(reserve::RUN_BEATS_KEPT);
-        c
+        config_for(&self.open_inputs(&[], &[]))
+    }
+
+    /// What a take opening now rests on: its positions as its session
+    /// file gives them (`stretches`, `settles`), or as they were for one
+    /// read again at a new beat rate.
+    fn inputs_for(&self, stretches: &[(f64, Position)], settles: &[(f64, f64)]) -> OpenInputs {
+        match &self.carried_positions {
+            Some((now, _)) => self.open_inputs(&now.0 .0, &now.0 .1),
+            None => self.open_inputs(stretches, settles),
+        }
+    }
+
+    /// What a take opening now rests on, its positions beginning at
+    /// `stretches` with `settles` before their readings.
+    pub(super) fn open_inputs(
+        &self,
+        stretches: &[(f64, Position)],
+        settles: &[(f64, f64)],
+    ) -> OpenInputs {
+        OpenInputs {
+            bph: self.bph,
+            lift_deg: self.lift_deg,
+            lift_known: self.lift_known(),
+            average_s: self.average_s,
+            masked: self.masked.clone(),
+            changes: stretches.iter().map(|s| s.0).collect(),
+            settles: settles.to_vec(),
+        }
     }
 
     /// Seconds of beats the tick and tock sound covers: the averaging time,
     /// so it describes the same beats as the readings, up to the engine's
     /// limit.
     fn sound_span(&self) -> f64 {
-        self.average_s.clamp(0.5, MAX_PROFILE_S)
+        profile_span(self.average_s)
     }
 
     /// A new averaging time, for the readings and every pane: the readings
@@ -1600,6 +1619,7 @@ impl TimegrapherApp {
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let name = |p: &PathBuf| capture_label(p);
         let (count, first, last) = (files.len(), name(&files[0]), name(&files[files.len() - 1]));
+        let inputs = self.inputs_for(&stretches, &settles);
         open_in_background(
             opening,
             settings,
@@ -1607,6 +1627,7 @@ impl TimegrapherApp {
             progress.clone(),
             cancel.clone(),
             None,
+            inputs,
         );
         self.opened_path = path.display().to_string();
         self.reset_session(info.sample_rate, label.clone());
@@ -1754,6 +1775,7 @@ impl TimegrapherApp {
         let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let duration_s = header.duration_s;
+        let inputs = self.inputs_for(&stretches, &settles);
         open_in_background(
             opening,
             settings,
@@ -1761,6 +1783,7 @@ impl TimegrapherApp {
             progress.clone(),
             cancel.clone(),
             Some(duration_s),
+            inputs,
         );
         self.opened_path = path.display().to_string();
         self.reset_session(header.sample_rate, label.clone());
@@ -2111,7 +2134,9 @@ impl TimegrapherApp {
             match r {
                 Ok(Some(o)) => {
                     let Opened {
-                        log,
+                        mut live,
+                        inputs,
+                        trend,
                         clock,
                         clock_source,
                         breaks,
@@ -2129,7 +2154,17 @@ impl TimegrapherApp {
                         }
                         None => (stretches, settles),
                     };
-                    self.show_log(log, label, stretches, settles);
+                    // The readings readied with the engine, unless what
+                    // they rest on changed while the take opened.
+                    let now = self.open_inputs(&stretches, &settles);
+                    let breaks = self.take_breaks.clone().unwrap_or_default();
+                    let trend = if now == inputs {
+                        Some(trend)
+                    } else {
+                        retune(&mut live, &inputs, &now, &breaks);
+                        None
+                    };
+                    self.show_engine(live, trend, label, stretches, settles);
                     if let Some((_, opened)) = carried {
                         self.opened_positions = opened;
                     }
@@ -2169,6 +2204,8 @@ impl TimegrapherApp {
         }
     }
 
+    /// Show a take's beats, `log`, read on the window's thread.
+    #[cfg(test)]
     pub(super) fn show_log(
         &mut self,
         log: BeatLog,
@@ -2176,18 +2213,25 @@ impl TimegrapherApp {
         stretches: Vec<(f64, Position)>,
         settles: Vec<(f64, f64)>,
     ) {
-        let mut live = LiveAnalyzer::from_log(log, self.live_config());
+        let inputs = self.open_inputs(&stretches, &settles);
+        let breaks = self.take_breaks.as_deref().unwrap_or_default();
+        let live = ready_engine(log, &inputs, breaks, self.take_rate_clock());
+        self.show_engine(live, None, label, stretches, settles);
+    }
+
+    /// Show an opened take's engine, `live` (readied by [`ready_engine`]),
+    /// with its readings at the averaging time when they were readied
+    /// with it (`trend`), else read here.
+    fn show_engine(
+        &mut self,
+        live: LiveAnalyzer,
+        trend: Option<Vec<TrendPoint>>,
+        label: String,
+        stretches: Vec<(f64, Position)>,
+        settles: Vec<(f64, f64)>,
+    ) {
         self.session.load(&[], &[]);
         self.session.analysed();
-        // No reading fits across one of the take's breaks, a move or a
-        // settling's end: core's cuts, as the CLI's trend reads them. A
-        // take of one position with no settling adds neither.
-        let changes: Vec<f64> = stretches.iter().map(|s| s.0).collect();
-        live.set_breaks(timegrapher_core::take::reading_cuts(
-            self.take_breaks.as_deref().unwrap_or_default(),
-            &changes,
-            &settles,
-        ));
         // A take of one position settles too, unless its session file
         // says it was read from its start.
         if stretches.len() > 1 || !settles.is_empty() {
@@ -2200,13 +2244,12 @@ impl TimegrapherApp {
             self.session.load_recorded(&s, &t, self.position);
         }
         self.opened_positions = Some(self.positions_now());
-        live.set_masked(&self.masked);
-        // The new engine's first sight of the take's clock; after this only
-        // put_take_clock gives it one.
-        live.set_rate_clock(self.take_rate_clock());
         self.live = Some(live);
         self.rev.new_take();
-        self.refresh_trend();
+        match trend {
+            Some(points) => self.put_trend(points),
+            None => self.refresh_trend(),
+        }
         self.source_label = label;
         self.anchor = None;
         self.strip_end = None;
@@ -2256,4 +2299,178 @@ fn take_label(path: &Path, count: usize) -> String {
     } else {
         capture_label(path)
     }
+}
+
+/// A take opened by core's `take::open_entry`, for the window: its
+/// engine readied from its beats on what the window had when the opening
+/// started (`inputs`), with the readings over it, its clock and breaks,
+/// and for a take kept as its analysis alone, the Tick Tock profiles it
+/// kept. Readied off the window's thread, as reading a long take's
+/// readings takes a while.
+#[derive(Debug)]
+pub(super) struct Opened {
+    live: LiveAnalyzer,
+    inputs: OpenInputs,
+    trend: Vec<TrendPoint>,
+    clock: Option<timegrapher_core::clock::ClockFit>,
+    /// Where the clock came from, in core's words.
+    clock_source: Option<String>,
+    breaks: Vec<timegrapher_core::breaks::Break>,
+    unlisted: Option<timegrapher_core::breaks::Unlisted>,
+    profiles: Option<Vec<analysis_take::StretchProfiles>>,
+}
+
+/// What an opened take's engine and first readings rest on: taken from
+/// the window when the opening starts, so they can be readied off its
+/// thread, and again when the take arrives, to check they still hold.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct OpenInputs {
+    bph: Option<u32>,
+    lift_deg: f64,
+    lift_known: bool,
+    average_s: f64,
+    masked: Vec<(f64, f64)>,
+    /// Where each position began, and the settling before each one's
+    /// readings.
+    changes: Vec<f64>,
+    settles: Vec<(f64, f64)>,
+}
+
+/// The engine for settings `i`.
+fn config_for(i: &OpenInputs) -> LiveConfig {
+    let mut c = LiveConfig::default();
+    c.analysis.bph = i.bph;
+    c.analysis.amplitude.lift_deg = i.lift_deg;
+    c.analysis.lift_known = i.lift_known;
+    c.profile_s = profile_span(i.average_s);
+    // Every beat of as long as the strip can show, a power reserve
+    // run's limit, rather than the engine's day: a take listened to
+    // for longer keeps its first hours on the strip and the charts.
+    c.max_beats = c.max_beats.max(reserve::RUN_BEATS_KEPT);
+    c
+}
+
+/// Seconds of beats the tick and tock sound covers for averaging time
+/// `average_s`: the same beats as the readings, up to the engine's limit.
+fn profile_span(average_s: f64) -> f64 {
+    average_s.clamp(0.5, MAX_PROFILE_S)
+}
+
+/// An opened take's engine, from its beat log on `i`, with the take's
+/// `breaks` and the `clock` that corrects its rates: no reading fits
+/// across one of the take's breaks, a move or a settling's end (core's
+/// cuts, as the CLI's trend reads them). The same off the window's thread
+/// and on it.
+fn ready_engine(
+    log: BeatLog,
+    i: &OpenInputs,
+    breaks: &[timegrapher_core::breaks::Break],
+    clock: Option<&timegrapher_core::clock::ClockFit>,
+) -> LiveAnalyzer {
+    let mut live = LiveAnalyzer::from_log(log, config_for(i));
+    live.set_breaks(timegrapher_core::take::reading_cuts(
+        breaks, &i.changes, &i.settles,
+    ));
+    live.set_masked(&i.masked);
+    // The new engine's first sight of the take's clock; after this only
+    // put_take_clock gives it one.
+    live.set_rate_clock(clock);
+    live
+}
+
+/// `live`, readied on `was`, brought to what changed by `now` while its
+/// take opened, as a change just after it opened would be: each setting
+/// that changed, by the engine's own setter.
+fn retune(
+    live: &mut LiveAnalyzer,
+    was: &OpenInputs,
+    now: &OpenInputs,
+    breaks: &[timegrapher_core::breaks::Break],
+) {
+    if now.bph != was.bph {
+        live.set_bph(now.bph);
+    }
+    if now.lift_deg != was.lift_deg {
+        live.set_lift(now.lift_deg);
+    }
+    if now.lift_known != was.lift_known {
+        // The window says the clock every frame.
+        live.set_known(now.lift_known, false);
+    }
+    if now.average_s != was.average_s {
+        live.set_profile_span(profile_span(now.average_s));
+    }
+    if (&now.changes, &now.settles) != (&was.changes, &was.settles) {
+        live.set_breaks(timegrapher_core::take::reading_cuts(
+            breaks,
+            &now.changes,
+            &now.settles,
+        ));
+    }
+    if now.masked != was.masked {
+        live.set_masked(&now.masked);
+    }
+}
+
+/// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`
+/// on a thread of its own, sending what it read to `tx`: `progress` holds
+/// the seconds of sound read (for a take kept as its analysis alone, its
+/// length `kept_s` once read) and setting `cancel` stops it, sending
+/// nothing. Its engine and readings are readied there too, on `inputs`.
+fn open_in_background(
+    opening: (PathBuf, Manifest, RecordingEntry),
+    settings: timegrapher_core::take::EntrySettings,
+    tx: std::sync::mpsc::Sender<Result<Option<Opened>, String>>,
+    progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    kept_s: Option<f64>,
+    inputs: OpenInputs,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    use timegrapher_core::take;
+    std::thread::spawn(move || {
+        let (base, m, e) = opening;
+        // A cancel unwinds out of the analysis from its progress report
+        // (resume_unwind runs no panic hook, so nothing is printed).
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            take::open_entry(
+                &base,
+                &m,
+                &e,
+                &settings,
+                take::usb,
+                |first| take::correction_for(&m, first, None, None),
+                |s, _| {
+                    progress.store(s.to_bits(), Relaxed);
+                    if cancel.load(Relaxed) {
+                        std::panic::resume_unwind(Box::new(Cancelled));
+                    }
+                },
+            )
+        }));
+        match r {
+            Ok(r) => {
+                if let Some(s) = kept_s {
+                    progress.store(s.to_bits(), Relaxed);
+                }
+                let _ = tx.send(r.map(|o| {
+                    let clock = TimegrapherApp::rate_clock(&o.clock);
+                    let live = ready_engine(o.log, &inputs, &o.breaks, clock);
+                    let trend = live.trend(inputs.average_s);
+                    Some(Opened {
+                        live,
+                        inputs,
+                        trend,
+                        clock: o.clock,
+                        clock_source: o.clock_source,
+                        breaks: o.breaks,
+                        unlisted: o.unlisted,
+                        profiles: o.kept.map(|k| k.profiles),
+                    })
+                }));
+            }
+            Err(e) if e.is::<Cancelled>() => {}
+            Err(e) => std::panic::resume_unwind(e),
+        }
+    });
 }
