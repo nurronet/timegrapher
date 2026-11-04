@@ -90,6 +90,20 @@ Rates are seconds per day, positive gaining. Rates from a recording are on
 the sound card's clock unless `long` was given a clock log or a stored
 correction; a sound card can be tens of ppm off (1 ppm is 0.0864 s/d).
 
+### Reading window coverage
+
+Session measurements carry `coverage.rate`, `coverage.amplitude` and
+`coverage.beat_error`, each with `windows_used` and `windows_in_span`.
+The denominator counts nominal windows within kept time, excluding windows
+that reach into gaps or masks. Missing measurements inside kept sound count
+against coverage. Rate uses its 10 s windows; amplitude and beat error use
+their amplitude-window grid. Beat-error counts follow the selected source.
+
+Below 60% a measurement carries a `reading_windows` caveat naming the figure
+and both counts. The existing three-value minimum for a standard error is
+unchanged. `unlock_coverage` remains for compatibility; the regression
+harness uses core's amplitude coverage instead of its own 60% threshold.
+
 ### Beat-error provenance
 
 Direct readings carry `beat_error_source`: `"unlock"` when the unlock was
