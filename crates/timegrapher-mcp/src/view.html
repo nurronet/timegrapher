@@ -1558,7 +1558,10 @@ function steadinessCard(doc) {
       <p class="headline">${esc(s.headline || "")}</p>
       <p class="stats">${esc(steadyStats(s))}</p>`).join("")}<p class="sub off">${esc(status)}</p></div>`
     : "";
-  const plots = drawn ? series.map((s) => `${titleLine(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
+  // A series' own caveats, in the server's (core's) words, under its title.
+  const caveats = (s) => s.limits && s.limits.length
+    ? `<ul class="findings limits">${s.limits.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+  const plots = drawn ? series.map((s) => `${titleLine(s)}${caveats(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
   return `<div class="card"><h2>Steadiness</h2><p class="hint">How the rate, amplitude and beat error each move over the session: what was detected in each (a cycle, two levels, level changes, a trend, or none), with the statistics behind it</p>
     ${drawn ? `<div class="seg" role="group" aria-label="View">${offered.map(([key, label]) => `<button data-steady="${key}" aria-pressed="${key === steadyView}">${esc(label)}</button>`).join("")}</div>
     <div class="seg" role="group" aria-label="Switches">${steadySwitch()}<button data-switch="info" aria-pressed="${showInfo}" title="${esc(INFO_HINT)}">Info</button></div>` : ""}${info}${plots}</div>`;
@@ -1854,10 +1857,12 @@ function distributionCards(d) {
   }).join("");
 }
 
-function seriesView(doc, extra, limits) {
-  // The server sends what only the charts draw beside the document.
+function seriesView(doc, extra, limits, seriesLimits) {
+  // The server sends what only the charts draw beside the document, and
+  // each series' caveats in core's words.
+  if (extra || seriesLimits) doc = JSON.parse(JSON.stringify(doc));
+  (doc.series || []).forEach((s, i) => { if (seriesLimits && seriesLimits[i]) s.limits = seriesLimits[i]; });
   if (extra) {
-    doc = JSON.parse(JSON.stringify(doc));
     (doc.series || []).forEach((s, i) => { if (extra.views && extra.views[i]) s.views = extra.views[i]; });
     if (extra.period_span) doc.period_span = extra.period_span;
     if (extra.spectra) doc.spectra = extra.spectra;
@@ -2075,7 +2080,7 @@ function redraw() {
   } else if (doc.schema.startsWith("timegrapher.profile/")) {
     html = profileView(doc, last._meta && last._meta["timegrapher/profile_facts"]);
   } else if (doc.schema.startsWith("timegrapher.series/")) {
-    html = seriesView(doc, extra, limits);
+    html = seriesView(doc, extra, limits, last._meta && last._meta["timegrapher/series_limits"]);
   } else if (doc.schema.startsWith("timegrapher.record/")) {
     html = recordView(doc, live && live.doc, noBeat);
   } else {
