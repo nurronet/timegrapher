@@ -11,7 +11,7 @@ use crate::audio;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -79,9 +79,57 @@ pub struct Block {
 #[derive(Debug)]
 pub enum Event {
     Audio(Block),
+    /// A live input dropped this many frames of sound just before the next
+    /// block, because the queue ([`QUEUE_BLOCKS`]) was full: nothing took
+    /// its blocks for a while. The stretch is gone, so whatever reads on
+    /// treats it as a break and never splices the sound either side.
+    Lost(u64),
     /// A replayed file has reached its end.
     End,
     Error(String),
+}
+
+/// How many blocks a capture's queue holds before an input has to drop
+/// sound (a live input, see [`Event::Lost`]) or wait (a replayed file). At
+/// the 10 ms blocks inputs commonly send that is two minutes of sound, or
+/// about 23 MB at 48 kHz, so memory stays bounded however long nothing
+/// takes the blocks (#483).
+pub const QUEUE_BLOCKS: usize = 12_000;
+
+/// Why a reading that can't hold a gap stops at [`Event::Lost`].
+pub const LOST_TEXT: &str = "the input dropped sound because nothing took it in time";
+
+/// The sending side of a live input's queue. A block that doesn't fit is
+/// dropped and counted, and the count goes as [`Event::Lost`] ahead of the
+/// next block that fits, so the loss is known where it fell.
+pub struct LiveQueue {
+    tx: SyncSender<Event>,
+    lost: u64,
+}
+
+impl LiveQueue {
+    pub fn new(tx: SyncSender<Event>) -> Self {
+        LiveQueue { tx, lost: 0 }
+    }
+
+    /// Queue `b`, or drop it and count its frames when the queue is full.
+    /// Never waits, as an audio callback mustn't.
+    pub fn send(&mut self, b: Block) {
+        let frames = b.samples.len() as u64;
+        if self.lost > 0 {
+            match self.tx.try_send(Event::Lost(self.lost)) {
+                Ok(()) => self.lost = 0,
+                Err(TrySendError::Full(_)) => {
+                    self.lost += frames;
+                    return;
+                }
+                Err(TrySendError::Disconnected(_)) => return,
+            }
+        }
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(Event::Audio(b)) {
+            self.lost += frames;
+        }
+    }
 }
 
 /// A running source of audio. Dropping it stops the source.
@@ -179,7 +227,8 @@ pub fn replay_files(paths: &[PathBuf], label: String) -> Result<Capture, String>
             ));
         }
     }
-    let (tx, rx) = channel();
+    // A file waits for room rather than dropping sound.
+    let (tx, rx) = sync_channel(QUEUE_BLOCKS);
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
     let speed = Arc::new(AtomicU32::new(1.0f32.to_bits()));
@@ -435,7 +484,7 @@ mod device {
     use crate::audio::Audio;
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SampleFormat, SizedSample};
-    use std::sync::mpsc::Sender;
+    use std::sync::mpsc::channel;
 
     fn describe(dev: &cpal::Device, default_id: Option<&str>) -> InputDevice {
         let id = dev.id().map(|i| i.to_string()).unwrap_or_default();
@@ -617,7 +666,7 @@ mod device {
     ) -> Result<(Capture, Recorded), String> {
         let format = supported.sample_format();
         let config: cpal::StreamConfig = supported.config();
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(QUEUE_BLOCKS);
         let (dev, cfg) = (dev.clone(), config.clone());
         let stream = Held::start(move || {
             match format {
@@ -678,6 +727,8 @@ mod device {
                     samples.extend_from_slice(&b.samples[..take]);
                 }
                 Ok(Event::Error(e)) => return Err(format!("recording failed: {e}")),
+                // One stretch of samples can't hold a gap.
+                Ok(Event::Lost(_)) => return Err(LOST_TEXT.into()),
                 Ok(Event::End) => break,
                 Err(_) => return Err("the input stopped delivering audio".into()),
             }
@@ -870,7 +921,7 @@ mod device {
     fn build<T>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
-        tx: Sender<Event>,
+        tx: SyncSender<Event>,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
         T: SizedSample,
@@ -878,6 +929,7 @@ mod device {
     {
         let ch = config.channels.max(1) as usize;
         let err_tx = tx.clone();
+        let mut queue = LiveQueue::new(tx);
         device.build_input_stream(
             config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
@@ -890,13 +942,15 @@ mod device {
                             / ch as f32
                     })
                     .collect();
-                let _ = tx.send(Event::Audio(Block {
+                queue.send(Block {
                     samples,
                     at: SystemTime::now(),
-                }));
+                });
             },
             move |e| {
-                let _ = err_tx.send(Event::Error(e.to_string()));
+                // Never waits: an error that doesn't fit is dropped, and
+                // the input then reads as sending no sound.
+                let _ = err_tx.try_send(Event::Error(e.to_string()));
             },
             None,
         )
@@ -1013,6 +1067,7 @@ mod tests {
                 Event::Audio(b) => samples += b.samples.len(),
                 Event::End => break,
                 Event::Error(e) => panic!("{e}"),
+                Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
             }
         }
         let took = start.elapsed().as_secs_f64();
@@ -1048,6 +1103,7 @@ mod tests {
                 Event::Audio(b) => got.extend(b.samples),
                 Event::End => break,
                 Event::Error(e) => panic!("{e}"),
+                Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
             }
         }
         assert_eq!(got.len(), 8000);
@@ -1124,5 +1180,46 @@ mod tests {
         assert!((l.peak_dbfs + 6.02).abs() < 0.05, "{}", l.peak_dbfs);
         assert!((l.rms_dbfs + 9.03).abs() < 0.05, "{}", l.rms_dbfs);
         assert_eq!(l.clipped_fraction, 0.0);
+    }
+
+    #[test]
+    fn a_full_queue_drops_sound_and_says_how_much_before_the_next_block() {
+        let (tx, rx) = sync_channel(2);
+        let mut feed = LiveQueue::new(tx);
+        let at = SystemTime::UNIX_EPOCH;
+        let block = |k: usize, n: usize| Block {
+            samples: vec![k as f32; n],
+            at,
+        };
+        // Nothing takes the blocks: two fit, the next three (30 + 40 + 50
+        // frames) are dropped.
+        for (k, n) in [(0, 10), (1, 20), (2, 30), (3, 40), (4, 50)] {
+            feed.send(block(k, n));
+        }
+        let got = |rx: &Receiver<Event>| -> Vec<String> {
+            rx.try_iter()
+                .map(|e| match e {
+                    Event::Audio(b) => format!("audio {}", b.samples[0]),
+                    Event::Lost(n) => format!("lost {n}"),
+                    other => format!("{other:?}"),
+                })
+                .collect()
+        };
+        assert_eq!(got(&rx), ["audio 0", "audio 1"]);
+        // Room again: the loss goes first, then the block.
+        feed.send(block(5, 60));
+        assert_eq!(got(&rx), ["lost 120", "audio 5"]);
+        // Room for the count but not the block after it: that block is
+        // the next loss.
+        feed.send(block(6, 10));
+        feed.send(block(7, 10));
+        feed.send(block(8, 10));
+        assert_eq!(got(&rx), ["audio 6", "audio 7"]);
+        feed.send(block(9, 10));
+        assert_eq!(got(&rx), ["lost 10", "audio 9"]);
+        // Nothing lost since: blocks only.
+        feed.send(block(10, 10));
+        feed.send(block(11, 10));
+        assert_eq!(got(&rx), ["audio 10", "audio 11"]);
     }
 }

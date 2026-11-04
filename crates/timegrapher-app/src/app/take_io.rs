@@ -1872,9 +1872,10 @@ impl TimegrapherApp {
         let (Some(cap), Some(live)) = (self.capture.as_ref(), self.live.as_mut()) else {
             return Ok(());
         };
+        let dropped = matches!(l, Live::Dropped(_));
         let b = match l {
             Live::Block(b) => b,
-            Live::Break(gap) => {
+            Live::Break(gap) | Live::Dropped(gap) => {
                 // The computer slept or the input stalled: carry on, as
                 // after a pause, with the time between out.
                 if let Ok(Err(e)) = self.session.pause(live.duration_s()) {
@@ -1890,12 +1891,7 @@ impl TimegrapherApp {
                 if let Some(t) = self.clock_track.as_mut() {
                     t.restart(live.sample_rate());
                 }
-                let m = format!(
-                    "The sound's timestamps jumped by {}, as they do when the \
-                     computer sleeps. The jump is left out of the take as a \
-                     break, and listening carries on.",
-                    fields::duration(gap.round())
-                );
+                let m = break_text(gap, dropped);
                 applog::warn(&m);
                 self.message = Some((m, false));
                 return Ok(());
@@ -2009,6 +2005,15 @@ impl TimegrapherApp {
             Ok(Event::Audio(b)) => {
                 let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
                 let lives = self.gaps.get_or_insert_with(|| GapWatch::new(rate)).push(b);
+                (lives, false, None)
+            }
+            // Only a live input drops sound (#483): a break, never spliced.
+            Ok(Event::Lost(frames)) => {
+                let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
+                let lives = self
+                    .gaps
+                    .get_or_insert_with(|| GapWatch::new(rate))
+                    .lost(frames);
                 (lives, false, None)
             }
             Ok(Event::Error(e)) if is_file => (Vec::new(), false, stopped(&e)),
@@ -2473,4 +2478,23 @@ fn open_in_background(
             Err(e) => std::panic::resume_unwind(e),
         }
     });
+}
+
+/// What listening says about a break core's gap rule found: sound the
+/// input dropped (#483), or a jump in its timestamps.
+fn break_text(gap: f64, dropped: bool) -> String {
+    if dropped {
+        let lost = timegrapher_core::breaks::lost_text(gap);
+        format!(
+            "{lost} of sound was lost while the app was busy. It is left \
+             out as a break."
+        )
+    } else {
+        format!(
+            "The sound's timestamps jumped by {}, as they do when the \
+             computer sleeps. The jump is left out of the take as a \
+             break, and listening carries on.",
+            fields::duration(gap.round())
+        )
+    }
 }
