@@ -29,6 +29,7 @@ pub mod edge_takes;
 pub mod excerpt;
 pub mod figure_text;
 pub mod filter;
+pub mod flac;
 pub mod gappy;
 pub mod histogram;
 pub mod input_domain;
