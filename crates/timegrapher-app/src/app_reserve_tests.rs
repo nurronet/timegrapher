@@ -230,6 +230,24 @@ fn plot_frames(out: &egui::FullOutput, fill: egui::Color32, ran: egui::Rect) -> 
         .collect()
 }
 
+/// A 46 h run's take opened in `app`, as from the Watches view, its rate
+/// falling away and its amplitude with it; `tag` names its folder.
+fn open_long_run(app: &mut TimegrapherApp, tag: &str) {
+    let mut r = reserve::finished_run(47).results.unwrap();
+    r.run_s = 46.5 * 3600.0;
+    for hr in &mut r.hours {
+        let x = f64::from(hr.hour);
+        hr.rate_s_per_day = Some(2.0 - 0.04 * x * x);
+        hr.amplitude_deg = Some(295.0 - 2.1 * x);
+    }
+    let dir = std::env::temp_dir().join(format!("tg-app-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(power_reserve::FILE), r.to_json()).unwrap();
+    app.load_reserve(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A 46 h run's table starts at its charts' plot frame, the value labels
 /// alone in the margin to its left, stacked at 2560 x 1440 and side by
 /// side at 1000 x 700 and 800 x 600; its units are in its titles
@@ -238,13 +256,6 @@ fn plot_frames(out: &egui::FullOutput, fill: egui::Color32, ran: egui::Rect) -> 
 fn a_runs_table_starts_at_its_charts_plot_edge() {
     for (w, h) in [(2560.0f32, 1440.0f32), (1000.0, 700.0), (800.0, 600.0)] {
         let mut app = TimegrapherApp::with_devices(Vec::new(), None);
-        let mut r = reserve::finished_run(47).results.unwrap();
-        r.run_s = 46.5 * 3600.0;
-        for hr in &mut r.hours {
-            let x = f64::from(hr.hour);
-            hr.rate_s_per_day = Some(2.0 - 0.04 * x * x);
-            hr.amplitude_deg = Some(295.0 - 2.1 * x);
-        }
         let ctx = super::tests::themed();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
         let pass = |app: &mut TimegrapherApp, wheel: Option<egui::Pos2>| {
@@ -267,12 +278,7 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
         for _ in 0..3 {
             pass(&mut app, None);
         }
-        let dir = std::env::temp_dir().join(format!("tg-app-table-{}-{w}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(power_reserve::FILE), r.to_json()).unwrap();
-        app.load_reserve(&dir);
-        let _ = std::fs::remove_dir_all(&dir);
+        open_long_run(&mut app, &format!("table-{w}"));
         let mut out = pass(&mut app, None);
         for _ in 0..3 {
             out = pass(&mut app, None);
@@ -292,9 +298,18 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
         // Scroll the pane down its table, a step at a time, gathering what
         // shows: under the charts at 1000 and 800.
         let at = egui::pos2(plot_left + 20.0, frames[0].center().y);
+        // Wherever it is scrolled to, rows that show have their titles in
+        // view, so each figure keeps its unit.
+        let whole = |t: &(String, egui::Rect, egui::Rect)| t.2 == t.1;
         let mut shown = clipped_texts(&out);
-        for _ in 0..12 {
-            shown.extend(clipped_texts(&pass(&mut app, Some(at))));
+        for step in 0..14 {
+            let now = clipped_texts(&pass(&mut app, Some(at)));
+            let rows = now
+                .iter()
+                .any(|t| whole(t) && t.0.ends_with(" h") && t.0.contains('–'));
+            let titled = now.iter().any(|t| whole(t) && t.0 == "Rate (s/d)");
+            assert!(!rows || titled, "{w}, step {step}: {now:?}");
+            shown.extend(now);
         }
         let head = |name: &str| {
             shown

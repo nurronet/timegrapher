@@ -309,13 +309,13 @@ fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String,
     let mut hover = "The run, from the first beat heard to the last, in true time".to_string();
     if let Some(p) = &t.saved {
         hover.push_str(&format!(
-            ". Kept as \"{}\"{}; every pane reads it as any take",
+            ". Kept as \"{}\"{}. Every pane reads it like any other take",
             p.file_name()
                 .map_or_else(String::new, |n| n.to_string_lossy().into()),
             if t.keep_sound {
                 ""
             } else {
-                ", as its analysis only once that is written"
+                ", as its analysis alone once that is written"
             }
         ));
     }
@@ -578,17 +578,19 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
         )
         .inner
     };
-    egui::Grid::new("reserve hours")
+    let mut titles = Vec::new();
+    let grid = egui::Grid::new("reserve hours")
         .striped(true)
         .spacing([18.0, 3.0])
         .show(ui, |ui| {
             for (c, (head, hint)) in HOUR_COLUMNS.into_iter().enumerate() {
-                put(
+                let r = put(
                     ui,
                     c,
                     RichText::new(head).strong().color(pal.text_secondary),
                 )
                 .on_hover_text(hint);
+                titles.push((head, r.rect));
             }
             ui.end_row();
             for row in &rows {
@@ -598,6 +600,40 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                 ui.end_row();
             }
         });
+    pin_titles(ui, &titles, grid.response.rect, row_h);
+}
+
+/// The table's titles kept in view: once they scroll above the pane's
+/// top while rows still show, drawn again there over the rows, so each
+/// figure keeps its unit in sight (Walter's walk of #1055). `titles` are
+/// the titles as drawn, `table` the whole table.
+fn pin_titles(ui: &egui::Ui, titles: &[(&str, egui::Rect)], table: egui::Rect, row_h: f32) {
+    let top = ui.clip_rect().top();
+    let Some(first) = titles.first() else {
+        return;
+    };
+    let band_h = row_h + 3.0;
+    if first.1.top() >= top || table.bottom() <= top + band_h {
+        return;
+    }
+    let dy = top - first.1.top();
+    let pal = theme::pal(ui);
+    let painter = ui.painter();
+    painter.rect_filled(
+        egui::Rect::from_x_y_ranges(table.x_range(), top..=top + band_h),
+        0.0,
+        pal.card,
+    );
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    for (head, r) in titles {
+        painter.text(
+            r.left_top() + egui::vec2(0.0, dy),
+            egui::Align2::LEFT_TOP,
+            *head,
+            font.clone(),
+            pal.text_secondary,
+        );
+    }
 }
 
 /// The steps, in hours, the Power Reserve charts' hours go up in.
