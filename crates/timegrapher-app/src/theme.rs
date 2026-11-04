@@ -1474,14 +1474,14 @@ pub fn pane_toolbar(ui: &mut Ui, title: &str, help_text: &[&str], controls: impl
 
 /// A pane's toolbar with `note`, a fact about what the pane shows (such
 /// as the moment it is from), at its right end before the "?".
-pub fn pane_toolbar_noted(
+pub fn pane_toolbar_at(
     ui: &mut Ui,
     title: &str,
     help_text: &[&str],
-    note: Option<&str>,
+    at: Option<&str>,
     controls: impl FnMut(&mut Ui),
 ) {
-    pane_toolbar_full(ui, title, help_text, note, None, controls)
+    pane_toolbar_full(ui, title, help_text, Some(at), None, controls)
 }
 
 /// [`pane_toolbar`] with one control `pinned` just left of the "?": it
@@ -1496,13 +1496,14 @@ pub fn pane_toolbar_pinned(
     pane_toolbar_full(ui, title, help_text, None, pinned, controls)
 }
 
-/// A pane's toolbar: its controls, then at its right end its `note`, its
-/// `pinned` control and the "?".
+/// A pane's toolbar: its controls, then at its right end its slot for the
+/// moment it shows (`at`: a slot, and what is in it), its `pinned` control
+/// and the "?".
 fn pane_toolbar_full(
     ui: &mut Ui,
     title: &str,
     help_text: &[&str],
-    note: Option<&str>,
+    at: Option<Option<&str>>,
     pinned: Option<&mut dyn FnMut(&mut Ui)>,
     mut controls: impl FnMut(&mut Ui),
 ) {
@@ -1523,8 +1524,8 @@ fn pane_toolbar_full(
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| pin(ui));
     }
-    let note_w = note.map_or(0.0, |n| {
-        toolbar_note(ui, title, n, full.right() - 26.0 - pin_w, q)
+    let note_w = at.map_or(0.0, |n| {
+        toolbar_at(ui, title, n, full.right() - 26.0 - pin_w, q)
     });
     let mut text = help_text.to_vec();
     text.push(crate::help::TOOLBAR);
@@ -1584,29 +1585,39 @@ fn pane_toolbar_full(
     });
 }
 
-/// A toolbar's `note`, ending at `right` and centred on the "?" at `q`;
-/// the room it takes.
-fn toolbar_note(ui: &mut Ui, title: &str, n: &str, right: f32, q: egui::Rect) -> f32 {
+/// A toolbar's slot for the moment a pane shows, `at` in it if any,
+/// ending at `right` and centred on the "?" at `q`; the room it takes,
+/// the same whether it holds a time or not, so nothing shifts.
+fn toolbar_at(ui: &mut Ui, title: &str, at: Option<&str>, right: f32, q: egui::Rect) -> f32 {
     let p = pal(ui);
-    let g = ui.painter().layout_no_wrap(
-        n.to_owned(),
-        egui::FontId::proportional(12.0),
-        p.text_secondary,
-    );
-    let w = g.size().x;
-    ui.painter().galley(
-        egui::pos2(right - w, q.center().y - g.size().y / 2.0),
-        g,
-        p.text_secondary,
-    );
-    note_drawn(
-        ui,
-        title,
-        n,
-        egui::Rect::from_min_size(egui::pos2(right - w, q.top()), Vec2::new(w, q.height())),
-    );
-    w + 12.0
+    let font = egui::FontId::proportional(12.0);
+    let room = ui
+        .painter()
+        .layout_no_wrap(AT_WIDEST.to_owned(), font.clone(), p.text_tertiary)
+        .size()
+        .x;
+    if let Some(n) = at {
+        let g = ui
+            .painter()
+            .layout_no_wrap(n.to_owned(), font, p.text_tertiary);
+        let w = g.size().x;
+        ui.painter().galley(
+            egui::pos2(right - w, q.center().y - g.size().y / 2.0),
+            g,
+            p.text_tertiary,
+        );
+        note_drawn(
+            ui,
+            title,
+            n,
+            egui::Rect::from_min_size(egui::pos2(right - w, q.top()), Vec2::new(w, q.height())),
+        );
+    }
+    room + 12.0
 }
+
+/// The widest moment a toolbar's slot holds: a time under 100 hours.
+const AT_WIDEST: &str = "at 00:00:00";
 
 /// Each of the controls `met` in a toolbar's row and its width: as drawn
 /// now, or as last measured (`known`) while it is folded.

@@ -200,3 +200,71 @@ fn dragging_the_strip_looks_back_and_returns() {
     let now = app.strip_end.expect("looking back");
     assert!(((now - at) / 30.0 - 15.0 / 60.0).abs() < 1e-9, "{now}");
 }
+
+/// The Tick Tock Profile and the Scope follow the strip's newest edge:
+/// panning back moves the moment the Profile shows, and says it in the
+/// toolbar; a hover alone changes nothing; a double-click goes back to
+/// the newest beats. Where no sound was kept, or the moment is masked,
+/// one line says so in place of the plot.
+#[test]
+fn the_sound_panes_follow_the_strips_newest_edge() {
+    let mut app = synthetic(40.0, 0.0);
+    let heard = app.live.as_ref().unwrap().tick_profiles()[0]
+        .clone()
+        .unwrap();
+    // A kept sound every 2 s, each told apart by its beats.
+    let kept = |t: f64| {
+        let p = TickProfile {
+            beats: t as usize,
+            ..heard.clone()
+        };
+        (t, [Some(p), None])
+    };
+    app.sound_history = (5..=20).map(|k| kept(2.0 * k as f64)).collect();
+    let latest = app.latest_s();
+    let beats_shown = |app: &mut TimegrapherApp| {
+        let end = app.strip_end_s();
+        let s = app.profiles_at(end);
+        s.profiles[0].as_ref().map(|p| p.beats)
+    };
+    let newest = beats_shown(&mut app);
+    assert_eq!(newest, Some(2 * (latest as usize / 2)));
+    assert_eq!(app.sound_moment(), None);
+    // A hover alone moves nothing.
+    let hover = StripInput {
+        hover_t: Some(15.0),
+        ..Default::default()
+    };
+    app.apply_strip_input(hover, app.strip_end_s());
+    assert_eq!(app.strip_end, None);
+    assert_eq!(beats_shown(&mut app), newest);
+    // Panning back moves the Profile's window end with the strip.
+    let back = StripInput {
+        time_shift_s: -5.0,
+        ..Default::default()
+    };
+    app.apply_strip_input(back, app.strip_end_s());
+    let end = app.strip_end_s();
+    assert!((end - (latest - 5.0)).abs() < 1e-6);
+    assert_eq!(beats_shown(&mut app), Some(2 * (end as usize / 2)));
+    let at = length_text(end);
+    assert_eq!(app.sound_moment(), Some(format!("at {at}")));
+    // Masked there: one line in place of the plot.
+    app.masked = vec![(end - 15.0, end + 1.0)];
+    let s = app.profiles_at(end);
+    assert_eq!(s.line, Some(format!("Masked at {at}")));
+    app.masked.clear();
+    // Kept nowhere near: said, not filled from either side.
+    app.sound_history.retain(|h| h.0 > end + 2.0);
+    let s = app.profiles_at(end);
+    assert_eq!(s.line, Some(format!("No sound kept from {at}")));
+    // A double-click goes back to the newest beats.
+    let reset = StripInput {
+        reset: true,
+        ..Default::default()
+    };
+    app.apply_strip_input(reset, app.strip_end_s());
+    assert_eq!(app.strip_end, None);
+    assert_eq!(app.sound_moment(), None);
+    assert_eq!(beats_shown(&mut app), newest);
+}

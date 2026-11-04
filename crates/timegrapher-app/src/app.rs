@@ -2197,8 +2197,9 @@ pub struct TimegrapherApp {
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
     /// `None` follows the newest beat; otherwise the time at the newest
-    /// edge of the strip. Only the strip (and the chart marker for it)
-    /// follows this: the readings and the other panes show the newest.
+    /// edge of the strip. The strip, the chart marker for it and the sound
+    /// panes (the Tick Tock Profile and the Scope) follow this; the
+    /// readings show the newest.
     strip_end: Option<f64>,
     panes: Tree<Pane>,
 
@@ -2261,8 +2262,6 @@ pub struct TimegrapherApp {
     /// seconds of this session, and one worked out from the file for a
     /// moment that history doesn't cover.
     sound_opts: profiles::Options,
-    /// The moment the profile pane shows, for its toolbar's right end.
-    sound_note: Option<String>,
     sound_history: Vec<(f64, Profiles)>,
     /// The profiles worked out from the recording at a moment, at the
     /// settings revision they were read with.
@@ -2688,7 +2687,6 @@ impl TimegrapherApp {
             export: None,
             export_dir: None,
             sound_opts: profiles::Options::default(),
-            sound_note: None,
             sound_history: Vec::new(),
             sound_at: None,
             analysis_save: None,
@@ -3290,16 +3288,7 @@ impl TimegrapherApp {
             Pane::Strip => theme::pane_toolbar(ui, title, help::STRIP, |ui| {
                 self.strip_settings(ui);
             }),
-            Pane::Sound => {
-                let note = self.sound_note.clone();
-                theme::pane_toolbar_noted(ui, title, help::PROFILE, note.as_deref(), |ui| {
-                    self.profile_settings(ui);
-                })
-            }
-            Pane::Scope => theme::pane_toolbar(ui, title, help::SCOPE, |ui| {
-                scope::settings(ui, &mut self.scope_view);
-                self.export_button(ui, pane);
-            }),
+            Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
                 let mut info = self.steady_info;
                 let mut pin = |ui: &mut egui::Ui| {

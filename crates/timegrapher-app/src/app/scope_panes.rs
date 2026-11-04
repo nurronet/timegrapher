@@ -3,7 +3,26 @@
 use super::*;
 
 // The kept-sound rule is core's (#483).
-pub(super) use timegrapher_core::profile::{kept_sound, thin_sound};
+#[cfg(test)]
+pub(super) use timegrapher_core::profile::kept_sound;
+pub(super) use timegrapher_core::profile::{sound_at, thin_sound, SoundAt};
+
+/// What a sound pane shows for a moment: the profiles, with a line for
+/// their hover; or one line in their place.
+pub(super) struct ShownSound {
+    pub(super) profiles: Profiles,
+    pub(super) line: Option<String>,
+    pub(super) hover: Option<String>,
+}
+
+/// One line in place of a sound pane's plot, as a pane too short for its
+/// plot says so.
+fn no_sound_line(ui: &mut egui::Ui, line: &str) {
+    let pal = theme::pal(ui);
+    ui.centered_and_justified(|ui| {
+        ui.label(RichText::new(line).color(pal.text_secondary));
+    });
+}
 
 impl TimegrapherApp {
     pub(super) fn profile_settings(&mut self, ui: &mut egui::Ui) {
@@ -84,73 +103,114 @@ impl TimegrapherApp {
     }
 
     pub(super) fn sound_pane(&mut self, ui: &mut egui::Ui) {
-        let end = self.latest_s();
-        let latest = self.running();
-        let mut note = None;
-        let shown: Profiles = if latest {
-            self.live
-                .as_ref()
-                .map_or([None, None], |l| l.tick_profiles().clone())
-        } else {
-            // Stopped: what the session kept nearest before the end,
-            // else work it out from the file.
-            match kept_sound(&self.sound_history, end) {
-                Some((t, p)) => {
-                    note = Some(format!("At {}", length_text(*t)));
-                    p.clone()
-                }
-                _ => {
-                    self.poll_sound_job();
-                    match &self.sound_at {
-                        Some((t, rev, p)) if (t - end).abs() < 0.5 && *rev == self.rev.settings => {
-                            note = Some(format!("At {}", length_text(*t)));
-                            p.clone()
-                        }
-                        _ => {
-                            note = Some(if self.start_sound_job(end) {
-                                "Working It Out from the Recording…".to_string()
-                            } else {
-                                "Not Kept for This Moment".to_string()
-                            });
-                            [None, None]
-                        }
-                    }
-                }
-            }
-        };
+        let end = self.strip_end_s();
+        let shown = self.profiles_at(end);
+        if let Some(line) = &shown.line {
+            return no_sound_line(ui, line);
+        }
         let i = self.trend.partition_point(|p| p.t <= end + 1e-9);
         let drop_be = i.checked_sub(1).and_then(|i| self.trend[i].beat_error_ms);
-        // The moment shown goes in the toolbar, drawn before the pane: a
-        // change shows on the next frame.
-        if note != self.sound_note {
-            self.sound_note = note;
-            ui.ctx().request_repaint();
-        }
-        profiles::draw(ui, &shown, self.sound_opts, drop_be);
+        profiles::draw(
+            ui,
+            &shown.profiles,
+            self.sound_opts,
+            drop_be,
+            shown.hover.as_deref(),
+        );
     }
 
-    /// The Tick Tock profiles nearest `end`, as the profile pane shows them:
-    /// the latest while listening, else what the session kept, else worked
-    /// out from the recording (none until that is done).
-    fn profiles_at(&mut self, end: f64) -> Profiles {
-        let latest = self.running();
-        let kept = kept_sound(&self.sound_history, end).map(|(_, p)| p.clone());
-        match kept {
-            _ if latest => self
+    /// The Tick Tock Profile's or the Scope's toolbar, with the moment
+    /// they show at its right end.
+    pub(super) fn sound_tools(&mut self, ui: &mut egui::Ui, pane: Pane) {
+        let at = self.sound_moment();
+        let help = if pane == Pane::Sound {
+            help::PROFILE
+        } else {
+            help::SCOPE
+        };
+        theme::pane_toolbar_at(ui, pane.title(), help, at.as_deref(), |ui| {
+            if pane == Pane::Sound {
+                self.profile_settings(ui);
+            } else {
+                scope::settings(ui, &mut self.scope_view);
+                self.export_button(ui, pane);
+            }
+        });
+    }
+
+    /// When the strip has been moved off the newest beats, the time at its
+    /// newest edge, which the sound panes show, for their toolbars.
+    pub(super) fn sound_moment(&self) -> Option<String> {
+        self.strip_end
+            .is_some()
+            .then(|| format!("at {}", length_text(self.strip_end_s())))
+    }
+
+    /// The Tick Tock profiles for the window ending at `end`, the strip's
+    /// newest edge: the latest while listening at the newest beats; else
+    /// what the session kept for it ([`timegrapher_core::profile::sound_at`]),
+    /// else worked out from the recording (none until that is done); or
+    /// the line to show in their place.
+    pub(super) fn profiles_at(&mut self, end: f64) -> ShownSound {
+        let at = length_text(end);
+        let shown = |profiles: Profiles, hover: Option<String>| ShownSound {
+            profiles,
+            line: None,
+            hover,
+        };
+        let line = |l: String| ShownSound {
+            profiles: [None, None],
+            line: Some(l),
+            hover: None,
+        };
+        if self.running() && self.strip_end.is_none() {
+            let p = self
                 .live
                 .as_ref()
-                .map_or([None, None], |l| l.tick_profiles().clone()),
-            Some(p) => p,
-            None => {
+                .map_or([None, None], |l| l.tick_profiles().clone());
+            return shown(p, None);
+        }
+        let beats = self.live.as_ref().map_or(&[][..], |l| l.beats());
+        match sound_at(
+            &self.sound_history,
+            end,
+            self.average_s,
+            &self.masked,
+            beats,
+        ) {
+            SoundAt::Kept { at, coarse, sound } => {
+                let mut hover = Vec::new();
+                if self.no_sound {
+                    hover.push(format!(
+                        "2 s at {} (this take kept no sound)",
+                        length_text(at)
+                    ));
+                }
+                if coarse {
+                    hover.push("Shapes from then are kept once a minute".to_string());
+                }
+                let p = sound.clone();
+                shown(p, (!hover.is_empty()).then(|| hover.join("\n")))
+            }
+            SoundAt::Masked => line(format!("Masked at {at}")),
+            SoundAt::NoBeats => line(format!("No beats at {at}")),
+            SoundAt::NotKept => {
                 self.poll_sound_job();
-                match &self.sound_at {
+                let worked_out = match &self.sound_at {
                     Some((t, rev, p)) if (t - end).abs() < 0.5 && *rev == self.rev.settings => {
-                        p.clone()
+                        Some(p.clone())
                     }
-                    _ => {
-                        self.start_sound_job(end);
-                        [None, None]
+                    _ => None,
+                };
+                match worked_out {
+                    Some(p) => shown(p, None),
+                    None if self.start_sound_job(end) => {
+                        line("Working it out from the recording…".to_string())
                     }
+                    // At the newest beats, before any sound is kept: the
+                    // empty plots.
+                    None if self.strip_end.is_none() => shown([None, None], None),
+                    None => line(format!("No sound kept from {at}")),
                 }
             }
         }
@@ -161,7 +221,8 @@ impl TimegrapherApp {
     pub(super) fn scope_pane(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         let view = self.scope_view;
-        let profiles = self.profiles_at(self.latest_s());
+        let end = self.strip_end_s();
+        let profiles = self.profiles_at(end).profiles;
         let Some(live) = &self.live else {
             ui.label(
                 RichText::new("Listen to a watch or open a recording to see its sound here.")
@@ -176,7 +237,6 @@ impl TimegrapherApp {
             );
             return;
         }
-        let end = self.latest_s();
         // One Beat follows the watch's beat rate, 28,800 bph until known.
         let beat_s = 3600.0 / f64::from(live.bph().unwrap_or(28_800).max(1));
         let split = view.zoom.split();
@@ -222,7 +282,13 @@ impl TimegrapherApp {
             (None, None)
         } else {
             self.poll_scope_job();
-            self.scope_cut(lo, hi)
+            match self.scope_cut(lo, hi) {
+                Some(cut) => cut,
+                None if known.is_empty() => {
+                    return no_sound_line(ui, &format!("No sound kept from {}", length_text(end)));
+                }
+                None => (None, None),
+            }
         };
         let rows: Vec<scope::Row> = specs
             .iter()
@@ -259,8 +325,8 @@ impl TimegrapherApp {
 
     /// The sound from `lo` to `hi` s from the recording read in the
     /// background, with the line to show over the Scope while it is read,
-    /// or when it can't be.
-    fn scope_cut(&mut self, lo: f64, hi: f64) -> ScopeSound {
+    /// or when it can't be read; None when no sound of it is kept.
+    fn scope_cut(&mut self, lo: f64, hi: f64) -> Option<ScopeSound> {
         match &self.scope_audio {
             // What was asked for covers these beats: use what was read,
             // even when the recording ended before it, and never ask
@@ -276,22 +342,16 @@ impl TimegrapherApp {
                         sp.t0 + i0 as f64 / sp.rate,
                         sp.rate,
                     );
-                    (Some(cut), None)
+                    Some((Some(cut), None))
                 }
-                Err(e) => (None, Some(format!("Couldn't read the sound here: {e}."))),
+                Err(e) => Some((None, Some(format!("Couldn't read the sound here: {e}.")))),
             },
-            _ => {
-                let note = Some(
-                    if self.start_scope_job(lo, hi) {
-                        "Reading the sound from the recording…"
-                    } else {
-                        "The sound of these beats isn't kept: the Scope shows the last \
-                         few seconds while listening, and any moment of a recording."
-                    }
-                    .to_string(),
-                );
-                (None, note)
-            }
+            _ => self.start_scope_job(lo, hi).then(|| {
+                (
+                    None,
+                    Some("Reading the sound from the recording…".to_string()),
+                )
+            }),
         }
     }
 

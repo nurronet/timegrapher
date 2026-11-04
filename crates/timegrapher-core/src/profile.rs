@@ -305,15 +305,77 @@ pub fn thin_sound<T>(history: &mut Vec<(f64, T)>) {
 /// The sound `history` kept nearest before `end`, if it is the one shown
 /// for that moment: within a step of it, as often as it is kept there.
 pub fn kept_sound<T>(history: &[(f64, T)], end: f64) -> Option<&(f64, T)> {
+    kept_nearest(history, end).map(|(h, _)| h)
+}
+
+/// [`kept_sound`], and whether it comes from before the last
+/// [`SOUND_FULL_S`], where the sound is kept once a minute.
+fn kept_nearest<T>(history: &[(f64, T)], end: f64) -> Option<(&(f64, T), bool)> {
     let i = history.partition_point(|h| h.0 <= end + 1e-9);
     let h = &history[i.checked_sub(1)?];
     let full_from = history.last().map_or(0.0, |l| l.0 - SOUND_FULL_S);
-    let step = if h.0 >= full_from {
-        crate::analysis_take::PROFILE_EVERY_S
-    } else {
+    let coarse = h.0 < full_from;
+    let step = if coarse {
         SOUND_OLD_EVERY_S
+    } else {
+        crate::analysis_take::PROFILE_EVERY_S
     };
-    (end - h.0 <= step + 0.5).then_some(h)
+    (end - h.0 <= step + 0.5).then_some((h, coarse))
+}
+
+/// What the Tick Tock Profile shows for the moment `end`
+/// ([`sound_at`]).
+#[derive(Debug, PartialEq)]
+pub enum SoundAt<'a, T> {
+    /// The sound kept at `at`. Coarse when it comes from before the last
+    /// [`SOUND_FULL_S`], kept once a minute, so `at` can be up to a minute
+    /// before `end`.
+    Kept { at: f64, coarse: bool, sound: &'a T },
+    /// The window ending at `end`, or the sound kept for it, lies in a
+    /// masked stretch: culled, never filled from either side.
+    Masked,
+    /// The beats heard reach to either side of the window, and none fall
+    /// in it.
+    NoBeats,
+    /// No sound was kept for that moment.
+    NotKept,
+}
+
+/// The sound `history` kept for the window of `window_s` seconds ending at
+/// `end`, each kept sound being the window ending at its own time, or why
+/// there is none: the window or the sound for it masked (`masked`, cleaned
+/// as [`crate::session::masked_spans`] cleans them), or no beats in it
+/// while `beats` (times rising) reach to either side of it.
+pub fn sound_at<'a, T>(
+    history: &'a [(f64, T)],
+    end: f64,
+    window_s: f64,
+    masked: &[(f64, f64)],
+    beats: &[Beat],
+) -> SoundAt<'a, T> {
+    let from = end - window_s.max(0.0);
+    if window_s > 0.0 && crate::session::masked_within(masked, from, end) >= window_s - 1e-9 {
+        return SoundAt::Masked;
+    }
+    if let Some(((at, sound), coarse)) = kept_nearest(history, end) {
+        if crate::session::in_mask(masked, *at) {
+            return SoundAt::Masked;
+        }
+        return SoundAt::Kept {
+            at: *at,
+            coarse,
+            sound,
+        };
+    }
+    let covered = beats.first().is_some_and(|b| b.time <= from)
+        && beats.last().is_some_and(|b| b.time >= end);
+    let i = beats.partition_point(|b| b.time <= from);
+    let none_in = beats.get(i).is_none_or(|b| b.time > end);
+    if covered && none_in {
+        SoundAt::NoBeats
+    } else {
+        SoundAt::NotKept
+    }
 }
 
 #[cfg(test)]
@@ -428,5 +490,53 @@ mod tests {
         assert!(once.len() < 7_000, "{}", once.len());
         let times = |h: &[(f64, ())]| h.iter().map(|e| e.0).collect::<Vec<_>>();
         assert_eq!(times(&once), times(&grown));
+    }
+
+    /// The profile for a moment is the sound kept for it, coarse before the
+    /// last hour; or why there is none: masked (the window, or the sound
+    /// kept for it), no beats where the beats heard reach, or not kept.
+    #[test]
+    fn the_sound_at_a_moment_is_kept_masked_beatless_or_not_kept() {
+        let mut h: Vec<(f64, u32)> = (0..=3000).map(|k| (2.0 * k as f64, k)).collect();
+        thin_sound(&mut h);
+        let beat = |t: f64| Beat {
+            index: (t * 8.0) as i64,
+            time: t,
+            quality: 1.0,
+        };
+        // Beats from 0 s to 6000 s, with none from 2000 s to 2100 s.
+        let beats: Vec<Beat> = (0..48_000)
+            .map(|k| k as f64 / 8.0)
+            .filter(|t| !(2000.0..2100.0).contains(t))
+            .map(beat)
+            .collect();
+        let kept = |at: f64, coarse: bool| SoundAt::Kept {
+            at,
+            coarse,
+            sound: &h.iter().find(|e| e.0 == at).unwrap().1,
+        };
+        assert_eq!(sound_at(&h, 5999.0, 10.0, &[], &beats), kept(5998.0, false));
+        // Before the last hour the sound is kept once a minute.
+        assert_eq!(sound_at(&h, 1290.0, 10.0, &[], &beats), kept(1260.0, true));
+        // A window wholly masked, or the sound kept for it in a mask.
+        let masked = [(5000.0, 5100.0)];
+        assert_eq!(sound_at(&h, 5050.0, 10.0, &masked, &beats), SoundAt::Masked);
+        assert_eq!(sound_at(&h, 5101.0, 10.0, &masked, &beats), SoundAt::Masked);
+        assert_eq!(
+            sound_at(&h, 5104.0, 10.0, &masked, &beats),
+            kept(5104.0, false)
+        );
+        // Nothing kept: no beats in the window where the beats reach, else not kept.
+        let gappy: Vec<(f64, u32)> = h.iter().filter(|e| e.0 < 2000.0).copied().collect();
+        assert_eq!(
+            sound_at(&gappy, 2080.0, 10.0, &[], &beats),
+            SoundAt::NoBeats
+        );
+        assert_eq!(
+            sound_at(&gappy, 2200.0, 10.0, &[], &beats),
+            SoundAt::NotKept
+        );
+        assert_eq!(sound_at(&h, 9000.0, 10.0, &[], &beats), SoundAt::NotKept);
+        assert_eq!(sound_at(&h, -5.0, 10.0, &[], &[]), SoundAt::NotKept);
     }
 }
