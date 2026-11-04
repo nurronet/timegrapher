@@ -10,6 +10,7 @@
 //! position from wind to stop.
 
 use crate::app::Position;
+use crate::strength::{self, Grid};
 use crate::theme;
 use eframe::egui::{self, RichText};
 use std::path::PathBuf;
@@ -515,14 +516,20 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
         // Whole hours from 0 h, an hour at least, so a short run reads
         // 0 h to 1 h rather than the one hour over and over.
         let last = pts.iter().map(|p| p[0]).fold(1.0, f64::max);
-        Plot::new(format!("reserve {name}"))
+        let mut grid = Grid::new(
+            |g| theme::even_grid(g, 48.0, &HOUR_STEPS),
+            |g| theme::even_grid(g, 24.0, &[]),
+        );
+        if name == "rate" {
+            grid = grid.zero_y();
+        }
+        grid.on(Plot::new(format!("reserve {name}")))
             .height(height)
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
             .include_x(0.0)
             .include_x(last)
-            .x_grid_spacer(|g| theme::even_grid(g, 48.0, &HOUR_STEPS))
             // Plus zero: never "-0 h".
             .x_axis_formatter(|m, _| format!("{:.0} h", m.value + 0.0))
             // The point under the pointer in words: hours into the run and
@@ -538,16 +545,16 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
                     d = usize::from(unit != "°")
                 )
             })
-            .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
             .y_axis_formatter(move |m, _| {
                 let places = if m.step_size < 1.0 { 1 } else { 0 };
                 format!("{:.*}{unit}", places, m.value)
             })
             .show(ui, |p| {
+                grid.draw(p, pal);
                 p.line(
                     Line::new(name, PlotPoints::from(pts))
                         .color(colour)
-                        .width(1.5_f32),
+                        .width(strength::DATA_W),
                 );
             });
     }
