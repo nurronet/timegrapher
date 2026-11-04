@@ -1864,10 +1864,17 @@ impl TimegrapherApp {
         let (Some(cap), Some(live)) = (self.capture.as_ref(), self.live.as_mut()) else {
             return Ok(());
         };
-        let dropped = matches!(l, Live::Dropped(_));
+        // A cut ends a backlog culled after a break: a break with no time
+        // lost, said with the break before it.
+        let gap = l.lost_s();
+        let said = match l {
+            Live::Break(_) => Some(break_text(gap, false)),
+            Live::Dropped(_) => Some(break_text(gap, true)),
+            Live::Block(_) | Live::Cut => None,
+        };
         let b = match l {
             Live::Block(b) => b,
-            Live::Break(gap) | Live::Dropped(gap) => {
+            Live::Break(_) | Live::Dropped(_) | Live::Cut => {
                 // The computer slept or the input stalled: carry on, as
                 // after a pause, with the time between out.
                 if let Ok(Err(e)) = self.session.pause(live.duration_s()) {
@@ -1883,9 +1890,10 @@ impl TimegrapherApp {
                 if let Some(t) = self.clock_track.as_mut() {
                     t.restart(live.sample_rate());
                 }
-                let m = break_text(gap, dropped);
-                applog::warn(&m);
-                self.message = Some((m, false));
+                if let Some(m) = said {
+                    applog::warn(&m);
+                    self.message = Some((m, false));
+                }
                 return Ok(());
             }
         };
