@@ -24,18 +24,15 @@ fn file_name(path: &Path) -> String {
 /// A FLAC only takes its name once it is checked against the WAV
 /// ([`crate::flac::encode_wav`]), so the WAV is left over until deleted.
 pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, String> {
+    // The FLAC an hour was kept as, when there is one: a WAV with a FLAC
+    // twin is the same sound, left over until it is deleted.
+    let twin = |p: &Path| -> Option<PathBuf> {
+        let f = crate::flac::flac_path(p);
+        (crate::flac::is_wav(p) && f.is_file()).then_some(f)
+    };
     if !path.is_dir() {
         // A WAV named that is now kept as FLAC is read as its FLAC.
-        let flac = path.with_extension("flac");
-        let wav = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
-        return Ok(vec![if wav && flac.is_file() {
-            flac
-        } else {
-            path.to_path_buf()
-        }]);
+        return Ok(vec![twin(path).unwrap_or_else(|| path.to_path_buf())]);
     }
     let mut files: Vec<PathBuf> = std::fs::read_dir(path)
         .map_err(|e| format!("Can't read the folder {}: {e}", path.display()))?
@@ -47,17 +44,6 @@ pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, Str
                 })
         })
         .collect();
-    let has = |p: &Path, ext: &str| {
-        p.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-    };
-    // The FLAC an hour was kept as, when there is one: a WAV with a FLAC
-    // twin is the same sound, left over until it is deleted.
-    let twin = |p: &Path| -> Option<PathBuf> {
-        let f = p.with_extension("flac");
-        (has(p, "wav") && f.is_file()).then_some(f)
-    };
     files.retain(|p| twin(p).is_none());
     if files.is_empty() {
         return Err(format!(
@@ -69,8 +55,8 @@ pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, Str
     let mut names: Vec<String> = Vec::new();
     for entry in listed {
         let mut file = path.join(entry);
-        if (has(&file, "wav") && !file.is_file()) || twin(&file).is_some() {
-            file = file.with_extension("flac");
+        if (crate::flac::is_wav(&file) && !file.is_file()) || twin(&file).is_some() {
+            file = crate::flac::flac_path(&file);
         }
         if file.is_file() && file.parent().is_some_and(|parent| parent == path) {
             let name = file_name(&file);

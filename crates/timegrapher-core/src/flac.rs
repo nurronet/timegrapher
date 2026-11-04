@@ -106,6 +106,13 @@ pub fn flac_path(wav: &Path) -> PathBuf {
     wav.with_extension("flac")
 }
 
+/// Whether `p` names a WAV, by its extension.
+pub fn is_wav(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+}
+
 /// Encode the integer WAV `wav` as the FLAC file `flac`, a block at a
 /// time, then check that it decodes to exactly the WAV's samples. The
 /// FLAC is written under a temporary name and takes its own only once it
