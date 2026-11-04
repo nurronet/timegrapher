@@ -396,44 +396,10 @@ fn split_alone(pairs: &[(f64, f64)], p: &Params) -> Option<bool> {
 }
 
 /// Look for two states in `samples`, in time order.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn find(samples: &[Sample], p: &Params) -> TwoState {
     let (b, block_s) = blocks(samples, p);
     let n = b.len();
-    let mut out = TwoState {
-        fitted: false,
-        repeats: false,
-        two_levels: false,
-        blocks: n,
-        block_s,
-        low: f64::NAN,
-        high: f64::NAN,
-        low_share: 0.0,
-        separation: 0.0,
-        delta_bic: 0.0,
-        switches: 0,
-        dwell_low_s: 0.0,
-        dwell_high_s: 0.0,
-        switch_every_s: 0.0,
-        spread: false,
-        period_s: None,
-        regularity: 0.0,
-        tick_change: None,
-        tock_change: None,
-        beat_error_unlock_ms: None,
-        beat_error_drop_ms: None,
-        tick_unlock_ms: None,
-        tock_unlock_ms: None,
-        tick_edge_split_alone: None,
-        tock_edge_split_alone: None,
-        tick_split_alone: None,
-        tock_split_alone: None,
-        one_sided: false,
-        unlock_jump: false,
-    };
+    let mut out = TwoState::unfitted(n, block_s);
     let x: Vec<f64> = b.iter().map(|b| b.value).collect();
     if n < p.min_blocks {
         out.low = median_of(x.iter().copied()).unwrap_or(f64::NAN);
@@ -481,29 +447,7 @@ pub fn find(samples: &[Sample], p: &Params) -> TwoState {
         let h = part.iter().filter(|&&s| s).count() as f64 / part.len() as f64;
         h.min(1.0 - h) >= 0.05
     });
-    let mut runs: (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
-    let mut len = 1;
-    for i in 1..=n {
-        if i == n || high[i] != high[i - 1] || !next(i) {
-            if high[i - 1] {
-                runs.1.push(len);
-            } else {
-                runs.0.push(len);
-            }
-            len = 1;
-        } else {
-            len += 1;
-        }
-    }
-    let mean_run = |v: &[usize]| {
-        if v.is_empty() {
-            0.0
-        } else {
-            v.iter().sum::<usize>() as f64 / v.len() as f64 * block_s
-        }
-    };
-    out.dwell_low_s = mean_run(&runs.0);
-    out.dwell_high_s = mean_run(&runs.1);
+    (out.dwell_low_s, out.dwell_high_s) = dwells(&high, &k, block_s);
     let pick = |want: bool, f: &dyn Fn(&Block) -> Option<f64>| {
         median_of(
             b.iter()
@@ -527,31 +471,64 @@ pub fn find(samples: &[Sample], p: &Params) -> TwoState {
     out.tick_unlock_ms = pair(&|b| b.tick_edge);
     out.tock_unlock_ms = pair(&|b| b.tock_edge);
 
-    // Regularity: the first clear peak of the state sequence's
-    // autocorrelation, from two blocks up to a third of the take. Each lag
-    // is a time apart: only blocks that far apart in the take are paired,
-    // so a lag that holes leave few pairs for scores low.
-    let m = 1.0 - out.low_share;
-    let z: Vec<f64> = high.iter().map(|&s| f64::from(u8::from(s)) - m).collect();
-    let z0: f64 = z.iter().map(|v| v * v).sum();
-    if z0 > 0.0 {
-        let span = (k[n - 1] - k[0] + 1) as usize;
-        let ac: Vec<f64> = (0..=(span / 3).min(60) as i64)
-            .map(|l| {
-                (0..n)
-                    .filter_map(|i| k.binary_search(&(k[i] + l)).ok().map(|j| z[i] * z[j]))
-                    .sum::<f64>()
-                    / z0
-            })
-            .collect();
-        let peak = (2..ac.len().saturating_sub(1))
-            .find(|&l| ac[l] >= 0.25 && ac[l] >= ac[l - 1] && ac[l] >= ac[l + 1]);
-        if let Some(l) = peak {
-            out.period_s = Some(l as f64 * block_s);
-            out.regularity = ac[l];
-        }
+    if let Some((period_s, regularity)) = state_period(&high, &k, out.low_share, block_s) {
+        out.period_s = Some(period_s);
+        out.regularity = regularity;
     }
 
+    find_one_sided(&mut out, samples, p);
+
+    let two = out.delta_bic >= p.min_delta_bic
+        && out.separation >= p.min_separation
+        && out.low_share.min(1.0 - out.low_share) >= p.min_share
+        && out.switches >= p.min_switches
+        && out.spread;
+    out.fitted = true;
+    out.two_levels = two;
+    out.repeats = out.regularity >= p.min_regularity;
+    out
+}
+
+impl TwoState {
+    /// Nothing found yet, over `blocks` blocks of `block_s` seconds.
+    fn unfitted(blocks: usize, block_s: f64) -> TwoState {
+        TwoState {
+            fitted: false,
+            repeats: false,
+            two_levels: false,
+            blocks,
+            block_s,
+            low: f64::NAN,
+            high: f64::NAN,
+            low_share: 0.0,
+            separation: 0.0,
+            delta_bic: 0.0,
+            switches: 0,
+            dwell_low_s: 0.0,
+            dwell_high_s: 0.0,
+            switch_every_s: 0.0,
+            spread: false,
+            period_s: None,
+            regularity: 0.0,
+            tick_change: None,
+            tock_change: None,
+            beat_error_unlock_ms: None,
+            beat_error_drop_ms: None,
+            tick_unlock_ms: None,
+            tock_unlock_ms: None,
+            tick_edge_split_alone: None,
+            tock_edge_split_alone: None,
+            tick_split_alone: None,
+            tock_split_alone: None,
+            one_sided: false,
+            unlock_jump: false,
+        }
+    }
+}
+/// Whether the change between the states is one side's: the sides move
+/// apart, one moves much less, or one side alone splits in two; and
+/// whether the unlock beat error jumps while the drop's does not.
+fn find_one_sided(out: &mut TwoState, samples: &[Sample], p: &Params) {
     let sides: Vec<(f64, f64)> = samples
         .iter()
         .filter_map(|s| s.tick.zip(s.tock))
@@ -581,16 +558,63 @@ pub fn find(samples: &[Sample], p: &Params) -> TwoState {
         let (du, dd) = ((u.1 - u.0).abs(), (d.1 - d.0).abs());
         out.unlock_jump = du >= p.unlock_jump_ms && du > 3.0 * dd;
     }
+}
 
-    let two = out.delta_bic >= p.min_delta_bic
-        && out.separation >= p.min_separation
-        && out.low_share.min(1.0 - out.low_share) >= p.min_share
-        && out.switches >= p.min_switches
-        && out.spread;
-    out.fitted = true;
-    out.two_levels = two;
-    out.repeats = out.regularity >= p.min_regularity;
-    out
+/// The mean stay in the low state and in the high state, in seconds: runs
+/// of `high` over blocks next to each other in the take (places `k`).
+fn dwells(high: &[bool], k: &[i64], block_s: f64) -> (f64, f64) {
+    let n = high.len();
+    let mut runs: (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+    let mut len = 1;
+    for i in 1..=n {
+        if i == n || high[i] != high[i - 1] || k[i] != k[i - 1] + 1 {
+            if high[i - 1] {
+                runs.1.push(len);
+            } else {
+                runs.0.push(len);
+            }
+            len = 1;
+        } else {
+            len += 1;
+        }
+    }
+    let mean_run = |v: &[usize]| {
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<usize>() as f64 / v.len() as f64 * block_s
+        }
+    };
+    (mean_run(&runs.0), mean_run(&runs.1))
+}
+
+/// Regularity: the first clear peak of the state sequence's
+/// autocorrelation, from two blocks up to a third of the take. Each lag
+/// is a time apart: only blocks that far apart in the take are paired,
+/// so a lag that holes leave few pairs for scores low.
+/// Its period in seconds and its height, or none.
+fn state_period(high: &[bool], k: &[i64], low_share: f64, block_s: f64) -> Option<(f64, f64)> {
+    let n = high.len();
+    let m = 1.0 - low_share;
+    let z: Vec<f64> = high.iter().map(|&s| f64::from(u8::from(s)) - m).collect();
+    let z0: f64 = z.iter().map(|v| v * v).sum();
+    if z0 > 0.0 {
+        let span = (k[n - 1] - k[0] + 1) as usize;
+        let ac: Vec<f64> = (0..=(span / 3).min(60) as i64)
+            .map(|l| {
+                (0..n)
+                    .filter_map(|i| k.binary_search(&(k[i] + l)).ok().map(|j| z[i] * z[j]))
+                    .sum::<f64>()
+                    / z0
+            })
+            .collect();
+        let peak = (2..ac.len().saturating_sub(1))
+            .find(|&l| ac[l] >= 0.25 && ac[l] >= ac[l - 1] && ac[l] >= ac[l + 1]);
+        if let Some(l) = peak {
+            return Some((l as f64 * block_s, ac[l]));
+        }
+    }
+    None
 }
 
 impl TwoState {

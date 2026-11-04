@@ -329,10 +329,6 @@ fn analytic(
 /// readings to [`SST_MAX_PERIOD_S`] (or a quarter of the longest
 /// stretch), averaged into [`MAX_COLUMNS`] slices of time. `scale` as for
 /// [`stft`]. `None` when no stretch is long enough.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn sst(
     g: &Grid,
     series: &'static str,
@@ -374,54 +370,7 @@ pub fn sst(
         let t0 = g.time(a) + (k as f64 - 1.0) / 2.0 * g.step;
         let mut x = x;
         detrend_line(&mut x);
-        let l = (2 * m).next_power_of_two();
-        let fwd = planner.plan_fft_forward(l);
-        let inv = planner.plan_fft_inverse(l);
-        let mut buf = vec![0.0; l];
-        buf[..m].copy_from_slice(&x);
-        let mut spec = fwd.make_output_vec();
-        fwd.process(&mut buf, &mut spec).ok()?;
-        // The squeezed transform, accumulated per row at each reading.
-        let mut tre = vec![vec![0.0f32; m]; ROWS];
-        let mut tim = vec![vec![0.0f32; m]; ROWS];
-        let dw = std::f64::consts::TAU / (l as f64 * step);
-        for &p in &period_s {
-            let sc = OMEGA0 * p / std::f64::consts::TAU;
-            let filt = |j: usize| {
-                let om = j as f64 * dw;
-                spec[j] * morlet_gain(sc * om)
-            };
-            let Some(w) = analytic(inv.as_ref(), m, &filt) else {
-                continue;
-            };
-            let Some(dwt) = analytic(inv.as_ref(), m, &|j| {
-                filt(j) * Complex::new(0.0, j as f64 * dw)
-            }) else {
-                continue;
-            };
-            // The wavelet's e-folding time: readings nearer a stretch's
-            // end than this are read partly from outside it.
-            let coi = (std::f64::consts::SQRT_2 * sc / step).ceil() as usize;
-            for i in coi..m.saturating_sub(coi) {
-                let wi = w[i];
-                let mag2 = wi.norm_sqr();
-                if mag2 < 1e-30 {
-                    continue;
-                }
-                // The frequency the transform's phase turns at here.
-                let f = (dwt[i] * wi.conj()).im / mag2 / std::f64::consts::TAU;
-                if f <= 0.0 {
-                    continue;
-                }
-                let r = ((ln_hi - (1.0 / f).ln()) / du).round();
-                if !(0.0..ROWS as f64).contains(&r) {
-                    continue;
-                }
-                let c = wi * (du * OMEGA0 / (std::f64::consts::TAU).sqrt());
-                tre[r as usize][i] += c.re as f32;
-                tim[r as usize][i] += c.im as f32;
-            }
-        }
+        let (tre, tim) = squeezed(&mut planner, &x, step, &period_s, (du, ln_hi))?;
         for r in 0..ROWS {
             // A row sums the scales up to half again its period (longer
             // ones see a line at this period at under 1% of their gain),
@@ -464,6 +413,71 @@ pub fn sst(
         t_s,
         values,
     })
+}
+
+/// One value per row of periods and reading.
+type Rows = Vec<Vec<f32>>;
+
+/// The squeezed transform of one stretch `x` of readings `step` apart, its
+/// real and imaginary parts accumulated per row of `period_s` (log-spaced
+/// `du` apart from `ln_hi`) at each reading; none where the FFT fails.
+fn squeezed(
+    planner: &mut RealFftPlanner<f64>,
+    x: &[f64],
+    step: f64,
+    period_s: &[f64],
+    (du, ln_hi): (f64, f64),
+) -> Option<(Rows, Rows)> {
+    let m = x.len();
+    let l = (2 * m).next_power_of_two();
+    let fwd = planner.plan_fft_forward(l);
+    let inv = planner.plan_fft_inverse(l);
+    let mut buf = vec![0.0; l];
+    buf[..m].copy_from_slice(x);
+    let mut spec = fwd.make_output_vec();
+    fwd.process(&mut buf, &mut spec).ok()?;
+    // The squeezed transform, accumulated per row at each reading.
+    let mut tre = vec![vec![0.0f32; m]; ROWS];
+    let mut tim = vec![vec![0.0f32; m]; ROWS];
+    let dw = std::f64::consts::TAU / (l as f64 * step);
+    for &p in period_s {
+        let sc = OMEGA0 * p / std::f64::consts::TAU;
+        let filt = |j: usize| {
+            let om = j as f64 * dw;
+            spec[j] * morlet_gain(sc * om)
+        };
+        let Some(w) = analytic(inv.as_ref(), m, &filt) else {
+            continue;
+        };
+        let Some(dwt) = analytic(inv.as_ref(), m, &|j| {
+            filt(j) * Complex::new(0.0, j as f64 * dw)
+        }) else {
+            continue;
+        };
+        // The wavelet's e-folding time: readings nearer a stretch's
+        // end than this are read partly from outside it.
+        let coi = (std::f64::consts::SQRT_2 * sc / step).ceil() as usize;
+        for i in coi..m.saturating_sub(coi) {
+            let wi = w[i];
+            let mag2 = wi.norm_sqr();
+            if mag2 < 1e-30 {
+                continue;
+            }
+            // The frequency the transform's phase turns at here.
+            let f = (dwt[i] * wi.conj()).im / mag2 / std::f64::consts::TAU;
+            if f <= 0.0 {
+                continue;
+            }
+            let r = ((ln_hi - (1.0 / f).ln()) / du).round();
+            if !(0.0..ROWS as f64).contains(&r) {
+                continue;
+            }
+            let c = wi * (du * OMEGA0 / (std::f64::consts::TAU).sqrt());
+            tre[r as usize][i] += c.re as f32;
+            tim[r as usize][i] += c.im as f32;
+        }
+    }
+    Some((tre, tim))
 }
 
 /// The wavelet coherence of two series read at the same times: how
@@ -643,10 +657,6 @@ fn coherence_stretch(
 /// periods as for [`sst`], averaged into [`MAX_COLUMNS`] slices of time,
 /// with the red-noise level each period's coherence is read against.
 /// `None` when no stretch is long enough.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn coherence(
     x: &Grid,
     y: &Grid,
@@ -721,17 +731,49 @@ pub fn coherence(
     if longest_down == 0 {
         return None;
     }
+    let noise_95 = noise_level(&mut planner, stretches, longest_down, &period_s, step);
+    let (coherence, phase_deg) = column_means(sums);
+    let t_s = (0..ncols)
+        .map(|c| t_first - 0.5 * x.step + (c as f64 + 0.5) * col_w)
+        .collect();
+    Some(Coherence {
+        x: x_name,
+        y: y_name,
+        step_s: step,
+        period_s,
+        t_s,
+        coherence,
+        phase_deg,
+        noise_95,
+        noise_pairs: NOISE_PAIRS,
+    })
+}
+
+/// The coherence 95% level of red noise like the `stretches` of the two
+/// series (lag-one correlations pooled over each), on series long enough
+/// for the longest period to be read on [`NOISE_INSIDE`] readings and no
+/// longer than `longest` readings.
+fn noise_level(
+    planner: &mut RealFftPlanner<f64>,
+    stretches: [Vec<Vec<f64>>; 2],
+    longest: usize,
+    period_s: &[f64],
+    step: f64,
+) -> Vec<f64> {
     let ar = stretches.map(|s| {
         crate::confidence::pooled_lag_one(s.iter().map(Vec::as_slice))
             .map_or(0.0, |r| r.clamp(0.0, 0.99))
     });
-    // Long enough for the longest period to be read on NOISE_INSIDE
-    // readings, and no longer than the take's longest stretch.
     let coi_hi = std::f64::consts::SQRT_2 * OMEGA0 * period_s[0] / std::f64::consts::TAU / step;
     let noise_len = (2 * coi_hi.ceil() as usize + NOISE_INSIDE)
         .min(NOISE_MAX)
-        .min(longest_down);
-    let noise_95 = red_noise_level(&mut planner, ar, noise_len, &period_s, step);
+        .min(longest);
+    red_noise_level(planner, ar, noise_len, period_s, step)
+}
+
+/// Each column's mean coherence and the phase of its mean cross term, in
+/// degrees; NaN where a cell has no readings.
+fn column_means(sums: Vec<Vec<(f64, Complex<f64>, usize)>>) -> (Table, Table) {
     let (mut coherence, mut phase_deg) = (Vec::new(), Vec::new());
     for col in sums {
         coherence.push(
@@ -751,21 +793,11 @@ pub fn coherence(
                 .collect(),
         );
     }
-    let t_s = (0..ncols)
-        .map(|c| t_first - 0.5 * x.step + (c as f64 + 0.5) * col_w)
-        .collect();
-    Some(Coherence {
-        x: x_name,
-        y: y_name,
-        step_s: step,
-        period_s,
-        t_s,
-        coherence,
-        phase_deg,
-        noise_95,
-        noise_pairs: NOISE_PAIRS,
-    })
+    (coherence, phase_deg)
 }
+
+/// One value per column and row.
+type Table = Vec<Vec<f64>>;
 
 /// Per period, the 95th percentile of the coherence of [`NOISE_PAIRS`]
 /// pairs of unrelated red-noise series of `len` readings, with lag-one
