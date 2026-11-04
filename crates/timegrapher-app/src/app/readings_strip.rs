@@ -196,11 +196,14 @@ impl TimegrapherApp {
             let f = f.unwrap_or_else(|| "—".into()).replace('-', "−");
             let mut whole = vec![quiet(label, 13.0), strong(&f, 22.0)];
             let mut bare = vec![strong(&f, 22.0)];
+            // At the narrowest window, the figure smaller, its unit kept.
+            let mut small = vec![strong(&f, 16.0)];
             if !unit.is_empty() {
-                whole.push(quiet(unit, 13.0));
-                bare.push(quiet(unit, 13.0));
+                for pieces in [&mut whole, &mut bare, &mut small] {
+                    pieces.push(quiet(unit, 13.0));
+                }
             }
-            fit(ui, inner(cells[2 + i]), &[whole, bare]);
+            fit(ui, inner(cells[2 + i]), &[whole, bare, small]);
         }
     }
 
@@ -226,6 +229,7 @@ impl TimegrapherApp {
             None => vec![
                 vec![strong("No Watch", 15.0), quiet(&detail, 13.0)],
                 vec![quiet(&lift, 13.0)],
+                vec![quiet(&bph, 13.0)],
             ],
         }
     }
@@ -240,11 +244,14 @@ fn quiet(words: &str, size: f32) -> Piece {
 }
 
 /// Draw the first of `choices` that fits in `rect`'s width, its pieces
-/// left to right and centred in its height; the last if none does.
+/// left to right and centred in its height. If none does, the last, each
+/// piece cut short with "…" where it runs out of room, so a figure is
+/// never shown clipped as if it were whole.
 fn fit(ui: &egui::Ui, rect: egui::Rect, choices: &[Vec<Piece>]) {
     let pal = theme::pal(ui);
     let painter = ui.painter().with_clip_rect(rect);
-    let lay = |pieces: &Vec<Piece>| -> Vec<std::sync::Arc<egui::Galley>> {
+    let lay_in = |pieces: &Vec<Piece>, room: f32| -> Vec<std::sync::Arc<egui::Galley>> {
+        let mut left = room;
         pieces
             .iter()
             .map(|(words, size, is_strong)| {
@@ -253,10 +260,18 @@ fn fit(ui: &egui::Ui, rect: egui::Rect, choices: &[Vec<Piece>]) {
                 } else {
                     pal.text_secondary
                 };
-                painter.layout_no_wrap(words.clone(), egui::FontId::proportional(*size), colour)
+                let mut job = egui::text::LayoutJob::single_section(
+                    words.clone(),
+                    egui::TextFormat::simple(egui::FontId::proportional(*size), colour),
+                );
+                job.wrap = egui::text::TextWrapping::truncate_at_width(left.max(0.0));
+                let g = painter.layout_job(job);
+                left -= g.size().x + SPACE;
+                g
             })
             .collect()
     };
+    let lay = |pieces: &Vec<Piece>| lay_in(pieces, f32::INFINITY);
     let width = |gs: &[std::sync::Arc<egui::Galley>]| {
         gs.iter().map(|g| g.size().x).sum::<f32>() + SPACE * gs.len().saturating_sub(1) as f32
     };
@@ -266,7 +281,7 @@ fn fit(ui: &egui::Ui, rect: egui::Rect, choices: &[Vec<Piece>]) {
         first
     } else {
         laid.find(|gs| width(gs) <= rect.width())
-            .or_else(|| choices.last().map(lay))
+            .or_else(|| choices.last().map(|c| lay_in(c, rect.width())))
             .unwrap_or_default()
     };
     let mut x = rect.left();
