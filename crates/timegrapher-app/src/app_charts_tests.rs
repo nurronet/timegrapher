@@ -4,6 +4,11 @@
 use super::tests::{painted_text, synthetic, themed};
 use super::*;
 
+/// A trend reading's beat error as core reads one (`beat_error_signed`).
+fn trend_beat_error(p: &TrendPoint) -> Option<f64> {
+    p.beat_error().map(|(value, _)| value)
+}
+
 /// A reading's beat error is core's (`beat_error_signed`): from the
 /// unlock where it was timed, else from the drop, so a stretch with only
 /// a drop still charts.

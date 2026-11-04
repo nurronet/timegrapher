@@ -96,7 +96,21 @@ impl TimegrapherApp {
                 None => self.rate_2s = RateTwoS::default(),
             }
         }
-        let (values, kind, color, label) = self.hist_values(reading, short, pal);
+        let (values, kind, color, label, source) = self.hist_values(reading, short, pal);
+        if let Some(selected) = source {
+            if let Some(source) = selected.beat_error_source {
+                ui.label(
+                    RichText::new(format!("Beat Error: {source}"))
+                        .small()
+                        .color(pal.text_secondary),
+                );
+            }
+            for caveat in selected.caveats() {
+                if let Some(text) = caveat.long(None) {
+                    ui.label(RichText::new(text).small().color(pal.text_secondary));
+                }
+            }
+        }
         let step = if label == "2 s" {
             dist::STRETCH_S
         } else {
@@ -162,6 +176,7 @@ impl TimegrapherApp {
         timegrapher_core::distribution::Kind,
         Color32,
         &'static str,
+        Option<core_session::BeatErrorSelection>,
     ) {
         // Only the position the watch is in now: values from another
         // position are a different measurement.
@@ -173,20 +188,13 @@ impl TimegrapherApp {
         let every = self.average_s;
         let trend = &self.trend;
         let readings = |f: fn(&TrendPoint) -> Option<f64>| -> Vec<f64> {
-            let mut last = f64::NEG_INFINITY;
-            trend
-                .iter()
-                .filter(|p| inside(p.t))
-                .filter_map(|p| Some((p.t, f(p)?)))
-                .filter(|&(t, _)| {
-                    let keep = t >= last + every - 1e-6;
-                    if keep {
-                        last = t;
-                    }
-                    keep
-                })
-                .map(|(_, v)| v)
-                .collect()
+            timegrapher_core::live::spaced_readings(
+                trend
+                    .iter()
+                    .filter(|p| inside(p.t))
+                    .filter_map(|p| Some((p.t, f(p)?))),
+                every,
+            )
         };
         use timegrapher_core::distribution::{AMPLITUDE, BEAT_ERROR, RATE};
         match reading {
@@ -200,12 +208,14 @@ impl TimegrapherApp {
                 RATE,
                 pal.trace_rate,
                 "2 s",
+                None,
             ),
             SeriesKind::Rate => (
                 readings(|p| p.rate_s_per_day),
                 RATE,
                 pal.trace_rate,
                 "readings",
+                None,
             ),
             SeriesKind::Amplitude if short => (
                 windows
@@ -216,32 +226,47 @@ impl TimegrapherApp {
                 AMPLITUDE,
                 pal.trace_amplitude,
                 "2 s",
+                None,
             ),
             SeriesKind::Amplitude => (
                 readings(|p| p.amplitude_deg),
                 AMPLITUDE,
                 pal.trace_amplitude,
                 "readings",
+                None,
             ),
-            SeriesKind::BeatError if short => (
-                windows
-                    .iter()
-                    .filter(|w| inside(w.end_s) && self.in_position(w.start_s + 1e-6))
-                    .filter_map(|w| {
-                        core_session::beat_error_signed(w.beat_error_unlock_ms, w.beat_error_ms)
-                    })
-                    .collect(),
-                BEAT_ERROR,
-                pal.trace_beat_error,
-                "2 s",
-            ),
-            SeriesKind::BeatError => (
-                readings(trend_beat_error),
-                BEAT_ERROR,
-                pal.trace_beat_error,
-                "readings",
-            ),
+            SeriesKind::BeatError => {
+                let selected = self.hist_beat_errors(short);
+                let values = selected.values.iter().map(|(_, v)| *v).collect();
+                (
+                    values,
+                    BEAT_ERROR,
+                    pal.trace_beat_error,
+                    if short { "2 s" } else { "readings" },
+                    Some(selected),
+                )
+            }
         }
+    }
+    fn hist_beat_errors(&self, short: bool) -> core_session::BeatErrorSelection {
+        if short {
+            return core_session::select_beat_errors(
+                self.unmasked_windows()
+                    .iter()
+                    .filter(|w| self.in_position(w.end_s) && self.in_position(w.start_s + 1e-6))
+                    .map(|w| {
+                        core_session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)
+                    }),
+            );
+        }
+        let readings = timegrapher_core::live::spaced_readings(
+            self.trend
+                .iter()
+                .filter(|p| self.in_position(p.t))
+                .filter_map(|p| Some((p.t, p.beat_error()?))),
+            self.average_s,
+        );
+        core_session::select_beat_errors(readings.into_iter().map(Some))
     }
 }
 
@@ -365,4 +390,52 @@ fn probability_paper(
 /// least 80 points apart.
 fn value_grid(g: egui_plot::GridInput) -> Vec<GridMark> {
     theme::even_grid(g, 80.0, &[])
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    #[test]
+    fn beat_error_distribution_selects_after_spacing_and_reports_left_out_readings() {
+        let mut app = super::super::tests::synthetic(30.0, 0.0);
+        app.average_s = 2.0;
+        app.trend = [Some(0.2), None, None, None, Some(0.4)]
+            .into_iter()
+            .enumerate()
+            .map(|(i, unlock)| TrendPoint {
+                t: i as f64,
+                rate_s_per_day: None,
+                amplitude_deg: None,
+                amplitude_even_deg: None,
+                amplitude_odd_deg: None,
+                beat_error_unlock_ms: unlock,
+                beat_error_ms: Some(0.8),
+                heard: true,
+            })
+            .collect();
+        let selected = app.hist_beat_errors(false);
+        assert_eq!(
+            selected.beat_error_sources,
+            core_session::BeatErrorSources { unlock: 2, drop: 1 }
+        );
+        assert_eq!(selected.values, vec![(0, 0.2), (2, 0.4)]);
+        assert!(matches!(
+            selected.caveats().as_slice(),
+            [Caveat::BeatErrorSourceReadings {
+                used: 2,
+                readings: 3,
+                ..
+            }]
+        ));
+        for p in &mut app.trend {
+            p.beat_error_unlock_ms = None;
+        }
+        let selected = app.hist_beat_errors(false);
+        assert_eq!(
+            selected.beat_error_source,
+            Some(core_session::BeatErrorSource::Drop)
+        );
+        assert_eq!(selected.values.len(), 3);
+        assert!(selected.caveats().contains(&Caveat::BeatErrorFromDrop));
+    }
 }

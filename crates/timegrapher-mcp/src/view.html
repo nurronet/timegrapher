@@ -595,10 +595,18 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   const html = head + readingTiles({
     rate: rate.value, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: rateNote.join("<br>"),
     amplitude: doc.amplitude_deg, amplitudePm: pm.amplitude, even: doc.amplitude_even_deg, odd: doc.amplitude_odd_deg,
-    unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms,
+    unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms, source: doc.beat_error_source,
     beats: doc.beats_found, jitter: Number.isFinite(doc.jitter_us) ? doc.jitter_us : o.jitter_us,
   });
   return html + recordingCards(doc, extra, limits, o.beat_error_ms);
+}
+
+// Current documents name core's choice. The absent-field fallback reads older
+// documents; an explicit null stays unknown and is never labelled as a source.
+function chosenBeatError(unlock, drop, source) {
+  if (source === undefined) source = Number.isFinite(unlock) ? "unlock" : Number.isFinite(drop) ? "drop" : null;
+  const value = source === "unlock" ? unlock : source === "drop" ? drop : null;
+  return Number.isFinite(value) ? { value, source } : { value: null, source: null };
 }
 
 // One reading's four tiles, for the whole file or a take's reading. The
@@ -608,15 +616,16 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // The ± is the unlock's, so the drop's figure keeps core's base decimals.
 function readingTiles(f) {
   const d = { ...BASE_DIGITS, ...(f.digits || {}) };
-  const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
-  const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : "from the drop";
+  const chosen = chosenBeatError(f.unlock, f.drop, f.source);
+  const be = chosen.value;
+  const beNote = chosen.source === "unlock"
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : chosen.source === "drop" ? "from the drop" : "";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
     ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
     ${tile("Rate", "--rate", signed(f.rate, d.rate), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
     ${tile("Amplitude", "--amplitude", num(f.amplitude, d.amplitude), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
-    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), typeof f.beatErrorPm === "string" ? `± ${esc(f.beatErrorPm)} milliseconds` : "milliseconds", beNote)}
+    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), chosen.source === "unlock" && typeof f.beatErrorPm === "string" ? `± ${esc(f.beatErrorPm)} milliseconds` : "milliseconds", beNote)}
     ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, d.jitter)} µs` : "")}
   </div>`;
 }
@@ -647,7 +656,7 @@ function takeTiles(readings, pms) {
     return head + readingTiles({
       rate: m.rate_s_per_day, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
       amplitude: m.amplitude_deg, amplitudePm: pm.amplitude, even: m.amplitude_even_deg, odd: m.amplitude_odd_deg,
-      unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, beats: m.beats, jitter: m.jitter_us,
+      unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, source: m.beat_error_source, beats: m.beats, jitter: m.jitter_us,
     });
   }).join("");
 }
@@ -675,7 +684,7 @@ function sessionView(doc, limits) {
     const heard = m.watch_heard !== false;
     html += `<tr><td>${esc(pos[1])} <span style="color:var(--text3)">${esc(pos[0])}</span></td>` +
       (heard ? cell(m.rate_s_per_day, 1, true) + cell(m.amplitude_deg, 0) +
-        cell(abs(Number.isFinite(m.beat_error_unlock_ms) ? m.beat_error_unlock_ms : m.beat_error_ms), 2)
+        cell(abs(chosenBeatError(m.beat_error_unlock_ms, m.beat_error_ms, m.beat_error_source).value), 2)
         : `<td colspan="3" style="text-align:center;color:var(--text2)">${esc(NO_BEAT_TITLE)}</td>`) +
       `<td>${esc(r.wind_h == null ? 0 : r.wind_h)}</td></tr>`;
   });
@@ -1896,8 +1905,13 @@ function trendStrip(t) {
   const pts = (ys) => (ys || []).map((y, i) => [t.t_s[i], y == null ? NaN : y]).filter(([, y]) => Number.isFinite(y));
   // The beat error as a size, as the take's check gives it: the live and
   // the whole-take measures do not agree on its sign.
-  const size = (ys) => pts(ys).map(([x, y]) => [x, Math.abs(y)]);
-  return { rate: pts(t.rate), amplitude: pts(t.amplitude), beat_error_unlock: size(t.beat_error) };
+  const sourced = (source) => {
+    const values = (t.beat_error || []).map((y, i) => [t.t_s[i],
+      (t.beat_error_source || [])[i] === source && Number.isFinite(y) ? Math.abs(y) : NaN]);
+    return values.some(([, y]) => Number.isFinite(y)) ? values : [];
+  };
+  return { rate: pts(t.rate), amplitude: pts(t.amplitude),
+    beat_error_unlock: sourced("unlock"), beat_error_drop: sourced("drop") };
 }
 
 // strip::wrap: fold into [-half, half).
@@ -1959,12 +1973,13 @@ function liveView(l) {
   }
   const heard = r.beats_used > 0;
   const wait = "Listening…";
-  const be = Number.isFinite(r.beat_error_unlock_ms) ? r.beat_error_unlock_ms : r.beat_error_ms;
+  const chosen = chosenBeatError(r.beat_error_unlock_ms, r.beat_error_ms, r.beat_error_source);
+  const be = chosen.value;
   const dg = { ...BASE_DIGITS, ...((l.pm || {}).digits || {}) };
   html += `<div class="tiles">
     ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, dg.rate) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
     ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, dg.amplitude) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
-    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
+    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (chosen.source ? `from the ${chosen.source}` : "") : wait)}
     ${tile("Beats Heard", "", esc(d.beats_heard || 0), "", heard ? `${esc(r.beats_used)} in the last ${num(r.span_s, 0)} s` : wait)}
   </div>`;
   // Clipping, when core counts it, in the server's (core's) words (#808).

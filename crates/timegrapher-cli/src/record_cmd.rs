@@ -590,8 +590,8 @@ struct Feed {
     live: LiveAnalyzer,
     /// The strip's anchor, set once from the first beats as the app does.
     anchor: Option<Anchor>,
-    /// Time, rate, amplitude and beat error from the unlock, once a second.
-    trend: Vec<[Option<f64>; 4]>,
+    /// Time, rate, amplitude, chosen beat error and its source, once a second.
+    trend: Vec<([Option<f64>; 4], Option<session::BeatErrorSource>)>,
     next_s: f64,
 }
 
@@ -637,12 +637,15 @@ impl Feed {
             }
         }
         if r.beats_used > 0 {
-            self.trend.push([
-                Some(t),
-                r.rate_s_per_day,
-                r.amplitude_deg,
-                session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
-            ]);
+            self.trend.push((
+                [
+                    Some(t),
+                    r.rate_s_per_day,
+                    r.amplitude_deg,
+                    session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
+                ],
+                r.beat_error_source,
+            ));
             if self.trend.len() > MAX_TREND {
                 // Every other point of the older half goes.
                 let half = self.trend.len() / 2;
@@ -663,7 +666,7 @@ impl Feed {
                 .collect(),
             _ => Vec::new(),
         };
-        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p[i]).collect() };
+        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p.0[i]).collect() };
         let doc = json!({
             "schema": "timegrapher.live/1",
             "position": self.position,
@@ -674,7 +677,8 @@ impl Feed {
             "beats_heard": beats.len(),
             "reading": r,
             "strip": { "span_s": STRIP_S, "period_s": period, "beats": strip },
-            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3) },
+            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3),
+                "beat_error_source": self.trend.iter().map(|p| p.1).collect::<Vec<_>>() },
         });
         let tmp = self.path.with_extension("tmp");
         if fs::write(&tmp, doc.to_string()).is_ok() {
