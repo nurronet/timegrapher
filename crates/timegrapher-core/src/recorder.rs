@@ -1,11 +1,18 @@
 //! Saving what the microphone hears, so every test can be analysed again.
 //!
-//! A recording is a folder holding the audio as WAV files of at most an
-//! hour each (`audio-001.wav`, `audio-002.wav`, ...), a clock log
+//! A recording is a folder holding the audio as files of at most an hour
+//! each (`audio-001.flac`, `audio-002.flac`, ...), a clock log
 //! (`clock.csv`: system time against frames captured, every 10 s) and
 //! `session.json` with the watch, position, lift angle and settings.
 //! `timegrapher long <folder>/ --clock <folder>/clock.csv` reads it as one
 //! continuous recording calibrated against the system clock.
+//!
+//! Each hour is written as a WAV (`audio-001.wav`), whose header a flush
+//! keeps whole should the program stop. Once the hour closes (it is full,
+//! listening carries on after a pause), a thread of its own keeps it as
+//! FLAC ([`crate::flac::keep_as_flac`], #503), and `session.json` names
+//! the FLAC from then on. A copy saved meanwhile holds every closed hour
+//! as FLAC too. The hour still being written stays a WAV.
 //!
 //! A pause leaves the audio running straight on but the time between out:
 //! listening again starts a new file, the clock log gets a line either side
@@ -127,6 +134,10 @@ pub struct Recorder {
     started_utc: String,
     writer: Option<hound::WavWriter<BufWriter<File>>>,
     segments: Vec<String>,
+    /// Closed hours being kept as FLAC, by their WAV's name.
+    converting: Vec<(String, Converting)>,
+    /// Whether closed hours are kept as FLAC; only a test keeps them WAVs.
+    keep_flac: bool,
     seg_frames: u64,
     frames: u64,
     clock: BufWriter<File>,
@@ -150,6 +161,15 @@ pub struct Recorder {
     /// Held locked while recording ([`in_use`]), beside the folder rather
     /// than in it, so a save never copies it.
     lock: Option<File>,
+}
+
+/// A closed hour being kept as FLAC on a thread of its own.
+type Converting = std::thread::JoinHandle<Result<PathBuf, crate::audio::AudioError>>;
+
+/// Whether `name` is one of a recording's sound files, as the recorder
+/// names them: no companion file may take such a name.
+fn is_sound(name: &str) -> bool {
+    name.to_ascii_lowercase().starts_with("audio-")
 }
 
 /// The lock file beside a recording folder while it is being recorded.
@@ -215,6 +235,8 @@ impl Recorder {
             started_utc,
             writer: None,
             segments: Vec::new(),
+            converting: Vec::new(),
+            keep_flac: true,
             seg_frames: 0,
             frames: 0,
             clock,
@@ -263,9 +285,7 @@ impl Recorder {
         if self.frames == 0 {
             return Ok(());
         }
-        if let Some(w) = self.writer.take() {
-            w.finalize().map_err(io_err)?;
-        }
+        self.close_segment()?;
         self.open_segment()?;
         let fs = self.info.sample_rate as f64;
         // A block arrives with its last frame; its first came earlier.
@@ -292,6 +312,49 @@ impl Recorder {
     /// Where listening carried on after a pause, oldest first.
     pub fn breaks(&self) -> &[Break] {
         &self.breaks
+    }
+
+    /// Close the hour being written, and keep it as FLAC on a thread of
+    /// its own.
+    fn close_segment(&mut self) -> io::Result<()> {
+        let Some(w) = self.writer.take() else {
+            return Ok(());
+        };
+        w.finalize().map_err(io_err)?;
+        if let Some(name) = self.segments.last().filter(|_| self.keep_flac).cloned() {
+            let wav = self.dir.join(&name);
+            let job = std::thread::spawn(move || crate::flac::keep_as_flac(&wav));
+            self.converting.push((name, job));
+        }
+        Ok(())
+    }
+
+    /// Take in the hours kept as FLAC since last time (all of them, waiting
+    /// on each, with `wait`): `segments` and the breaks name the FLAC from
+    /// now on. An hour that could not be converted stays a WAV, whole.
+    /// Returns whether a name changed, for `session.json` to follow.
+    fn reap(&mut self, wait: bool) -> bool {
+        let mut renamed = false;
+        let mut i = 0;
+        while i < self.converting.len() {
+            if !wait && !self.converting[i].1.is_finished() {
+                i += 1;
+                continue;
+            }
+            let (wav, job) = self.converting.remove(i);
+            let Ok(Ok(flac)) = job.join() else {
+                continue;
+            };
+            let flac = flac.file_name().unwrap_or_default().to_string_lossy();
+            let names = self.segments.iter_mut();
+            for n in names.chain(self.breaks.iter_mut().map(|b| &mut b.segment)) {
+                if *n == wav {
+                    *n = flac.to_string();
+                    renamed = true;
+                }
+            }
+        }
+        renamed
     }
 
     fn open_segment(&mut self) -> io::Result<()> {
@@ -327,9 +390,7 @@ impl Recorder {
         let full = ((1u64 << (self.info.bits - 1)) - 1) as f32;
         for &s in &b.samples {
             if self.writer.is_none() || self.seg_frames >= SEGMENT_S * fs {
-                if let Some(w) = self.writer.take() {
-                    w.finalize().map_err(io_err)?;
-                }
+                self.close_segment()?;
                 self.open_segment()?;
             }
             let w = self.writer.as_mut().expect("segment open");
@@ -347,6 +408,9 @@ impl Recorder {
                 w.flush().map_err(io_err)?;
             }
             self.last_clock = Some(b.at);
+            if self.reap(false) {
+                self.write_session(None, None)?;
+            }
         }
         Ok(())
     }
@@ -413,23 +477,38 @@ impl Recorder {
     ) -> io::Result<()> {
         fs::write(
             self.dir.join(take::RECORD),
-            self.session_text(ended, result)?,
+            self.session_text(ended, result, false)?,
         )
     }
 
+    /// `session.json`'s text; for a saved copy (`copy`), naming every
+    /// closed hour as the FLAC the copy holds it as.
     fn session_text(
         &self,
         ended: Option<String>,
         result: Option<&serde_json::Value>,
+        copy: bool,
     ) -> io::Result<String> {
+        let name = |n: &String| match copy && !self.is_open(n) {
+            true => as_flac(n),
+            false => n.clone(),
+        };
+        let breaks: Vec<Break> = self
+            .breaks
+            .iter()
+            .map(|b| Break {
+                segment: name(&b.segment),
+                ..b.clone()
+            })
+            .collect();
         let f = SessionFile {
             info: &self.info,
             started_utc: &self.started_utc,
             ended_utc: ended,
             duration_s: self.duration_s(),
-            segments: self.segments.clone(),
+            segments: self.segments.iter().map(name).collect(),
             notes: &self.notes,
-            breaks: &self.breaks,
+            breaks: &breaks,
             result,
         };
         serde_json::to_string_pretty(&f).map_err(io::Error::other)
@@ -508,13 +587,13 @@ impl Recorder {
         self.flush()?;
         let mut name = self.copy_name(calibre);
         name.push("_analysis");
-        let session = self.session_text(Some(utc(SystemTime::now())), result)?;
+        let session = self.session_text(Some(utc(SystemTime::now())), result, false)?;
         let mut files = vec![(take::RECORD.to_string(), session.into_bytes())];
         let mut names: Vec<_> = fs::read_dir(&self.dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n != take::RECORD && !self.segments.iter().any(|s| s == n))
+            .filter(|n| n != take::RECORD && !is_sound(n))
             .collect();
         names.sort();
         for n in names {
@@ -606,7 +685,7 @@ impl Recorder {
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
                 || [take::RECORD, take::CLOCK_LOG].contains(&name.to_ascii_lowercase().as_str())
-                || name.to_ascii_lowercase().starts_with("audio-")
+                || is_sound(name)
                 || self.dir.join(name).exists()
                 || !names.insert(name.to_ascii_lowercase())
             {
@@ -640,51 +719,41 @@ impl Recorder {
             ));
         }
         self.flush()?;
-        let session = self.session_text(Some(utc(SystemTime::now())), result)?;
-        let open = self.writer.as_ref().and_then(|_| self.segments.last());
-        // Enumerate required sources explicitly: a missing segment must not
-        // disappear from read_dir and turn an incomplete take into a success.
-        let mut sources: std::collections::BTreeSet<PathBuf> =
-            self.segment_paths().into_iter().collect();
-        sources.insert(self.dir.join(take::CLOCK_LOG));
+        if self.reap(false) {
+            self.write_session(None, None)?;
+        }
+        let session = self.session_text(Some(utc(SystemTime::now())), result, true)?;
+        let mut files = Vec::new();
+        // Enumerate the hours explicitly: a missing one must not disappear
+        // from read_dir and turn an incomplete take into a success.
+        for n in &self.segments {
+            files.push(self.pending_segment(n)?);
+        }
+        // The other files, but any sound file the hours left (a WAV beside
+        // its FLAC, a FLAC being written).
+        let mut sources = std::collections::BTreeSet::from([self.dir.join(take::CLOCK_LOG)]);
         for e in fs::read_dir(&self.dir)? {
             let e = e?;
-            if e.file_type()?.is_file() && e.file_name() != take::RECORD {
+            let n = e.file_name();
+            if e.file_type()?.is_file() && n != take::RECORD && !is_sound(&n.to_string_lossy()) {
                 sources.insert(e.path());
             }
         }
-        let mut files = Vec::new();
         for source in sources {
-            let metadata = fs::symlink_metadata(&source)?;
-            if !metadata.is_file() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("{} is not a regular file", source.display()),
-                ));
-            }
-            let closed = source
-                .file_name()
-                .and_then(|f| f.to_str())
-                .is_some_and(|n| {
-                    self.segments.iter().any(|s| s == n) && open.is_none_or(|s| s != n)
-                });
+            let metadata = regular_file(&source)?;
             // A file still being written only grows, but each flush writes
             // the open audio file's header again: keep its start as it is
-            // now. A closed audio file never changes again.
-            let head = if closed {
-                Vec::new()
-            } else {
-                let mut head = Vec::new();
-                File::open(&source)?
-                    .take(SNAPSHOT_HEAD.min(metadata.len()))
-                    .read_to_end(&mut head)?;
-                head
-            };
+            // now.
+            let mut head = Vec::new();
+            File::open(&source)?
+                .take(SNAPSHOT_HEAD.min(metadata.len()))
+                .read_to_end(&mut head)?;
             files.push(PendingFile {
                 source,
                 len: metadata.len(),
                 head,
-                closed,
+                held: None,
+                as_flac: false,
             });
         }
         let mut written = vec![(take::RECORD.to_string(), session.into_bytes())];
@@ -702,6 +771,47 @@ impl Recorder {
         })
     }
 
+    /// Whether `name` is the hour still being written.
+    fn is_open(&self, name: &str) -> bool {
+        self.writer.is_some() && self.segments.last().is_some_and(|s| s == name)
+    }
+
+    /// The hour `name` as a save copies it. The open one is copied as it
+    /// is now. A closed one never changes again, and is held open so that
+    /// keeping it as FLAC meanwhile cannot take it from the save: a WAV
+    /// the copy holds as FLAC, a FLAC as it is (the WAV may have become
+    /// one since its name was noted).
+    fn pending_segment(&self, name: &str) -> io::Result<PendingFile> {
+        if self.is_open(name) {
+            let source = self.dir.join(name);
+            let len = regular_file(&source)?.len();
+            let mut head = Vec::new();
+            File::open(&source)?
+                .take(SNAPSHOT_HEAD.min(len))
+                .read_to_end(&mut head)?;
+            return Ok(PendingFile {
+                source,
+                len,
+                head,
+                held: None,
+                as_flac: false,
+            });
+        }
+        let mut source = self.dir.join(name);
+        if !source.exists() && crate::flac::is_wav(&source) {
+            source = crate::flac::flac_path(&source);
+        }
+        let len = regular_file(&source)?.len();
+        let held = File::open(&source)?;
+        Ok(PendingFile {
+            as_flac: crate::flac::is_wav(&source),
+            source,
+            len,
+            head: Vec::new(),
+            held: Some(held),
+        })
+    }
+
     /// Note a copy [`PendingSave::write`] wrote, so Save Again saves into
     /// it.
     pub fn note_saved(&mut self, copy: &SavedCopy) {
@@ -710,10 +820,15 @@ impl Recorder {
 
     /// Close the files, saving `result` (the readings at the end) with the
     /// settings. Returns the folder.
+    ///
+    /// Waits for the hours being kept as FLAC, so the folder is left as it
+    /// stays. The last hour, which was never closed by another, is left a
+    /// WAV.
     pub fn finish(mut self, result: Option<serde_json::Value>) -> io::Result<PathBuf> {
         if let Some(w) = self.writer.take() {
             w.finalize().map_err(io_err)?;
         }
+        self.reap(true);
         self.log_last_block()?;
         self.write_session(Some(utc(SystemTime::now())), result.as_ref())?;
         if self.lock.take().is_some() {
@@ -752,8 +867,73 @@ struct PendingFile {
     /// Its first bytes then, copied instead of what is there by the time
     /// of the copy. Empty for a closed audio file.
     head: Vec<u8>,
-    /// A closed audio file, left alone when the copy already holds it whole.
-    closed: bool,
+    /// A closed audio file, held open from the start of the save; left
+    /// alone when the copy already holds it whole.
+    held: Option<File>,
+    /// A closed WAV, which the copy holds as FLAC.
+    as_flac: bool,
+}
+
+impl PendingFile {
+    /// Its name in the copy.
+    fn name(&self) -> std::ffi::OsString {
+        let file = Path::new(self.source.file_name().expect("recording file"));
+        match self.as_flac {
+            true => crate::flac::flac_path(file).into_os_string(),
+            false => file.as_os_str().to_os_string(),
+        }
+    }
+
+    /// Whether `there`, in the copy already, holds it whole: a closed audio
+    /// file at its full length, or with the same samples as the WAV it is
+    /// the FLAC of. A file still being written is always copied again.
+    fn already(&self, there: &Path, len: u64) -> bool {
+        match (&self.held, self.as_flac) {
+            (Some(held), true) => crate::flac::same_samples_file(held, there).unwrap_or(false),
+            (Some(_), false) => len == self.len,
+            (None, _) => false,
+        }
+    }
+
+    /// Write it to `to`, as it was at the start of the save.
+    fn copy_to(&self, to: &Path) -> io::Result<()> {
+        let Some(held) = &self.held else {
+            return copy_as_it_was(self, to);
+        };
+        if self.as_flac {
+            crate::flac::encode_wav_file(held, to).map_err(io::Error::other)?;
+            return Ok(());
+        }
+        let mut from = held;
+        from.seek(io::SeekFrom::Start(0))?;
+        let copied = io::copy(&mut from.take(self.len), &mut File::create(to)?)?;
+        if copied != self.len {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("{} got shorter during the save", self.source.display()),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// `name` with `.flac` in place of its extension.
+fn as_flac(name: &str) -> String {
+    crate::flac::flac_path(Path::new(name))
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The metadata of `p`, which must be a regular file and no link.
+fn regular_file(p: &Path) -> io::Result<fs::Metadata> {
+    let metadata = fs::symlink_metadata(p)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a regular file", p.display()),
+        ));
+    }
+    Ok(metadata)
 }
 
 /// A copy [`PendingSave::write`] wrote.
@@ -784,8 +964,8 @@ impl PendingSave {
     ) -> io::Result<SavedCopy> {
         let mut update = SaveUpdate::new(&self.parent, &self.dest)?;
         for f in &self.files {
-            let file = f.source.file_name().expect("recording file");
-            let to = self.dest.join(file);
+            let file = f.name();
+            let to = self.dest.join(&file);
             let there = match fs::symlink_metadata(&to) {
                 Ok(m) if !m.is_file() => {
                     return Err(io::Error::new(
@@ -793,26 +973,31 @@ impl PendingSave {
                         format!("{} is not a regular file", to.display()),
                     ))
                 }
-                Ok(m) => m.len() == f.len,
+                Ok(m) => f.already(&to, m.len()),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => false,
                 Err(e) => return Err(e),
             };
-            if f.closed && there {
+            if there {
                 continue;
             }
-            let staged = update.staged.join(file);
             before(SaveStep::Stage, &to)?;
-            if f.closed {
-                fs::copy(&f.source, &staged)?;
-            } else {
-                copy_as_it_was(f, &staged)?;
-            }
+            f.copy_to(&update.staged.join(&file))?;
         }
         for (file, bytes) in &self.written {
             before(SaveStep::Stage, &self.dest.join(file))?;
             fs::write(update.staged.join(file), bytes)?;
         }
         update.install(&mut before)?;
+        // An hour the copy held as a WAV before, and holds as FLAC now.
+        for f in &self.files {
+            let file = Path::new(&f.name()).to_path_buf();
+            if f.held.is_some() && !crate::flac::is_wav(&file) {
+                let wav = self.dest.join(file.with_extension("wav"));
+                if fs::symlink_metadata(&wav).is_ok_and(|m| m.is_file()) {
+                    let _ = fs::remove_file(wav);
+                }
+            }
+        }
         Ok(SavedCopy {
             dir: self.dest,
             name: self.name,
@@ -1204,6 +1389,14 @@ mod tests {
         (r, base)
     }
 
+    /// Wait for the closed hours to be kept as FLAC, and `session.json` to
+    /// name them so.
+    fn settle(r: &mut Recorder) {
+        if r.reap(true) {
+            r.write_session(None, None).unwrap();
+        }
+    }
+
     fn append_second(r: &mut Recorder, second: u64) {
         r.write(&Block {
             samples: vec![0.1; 8000],
@@ -1248,8 +1441,11 @@ mod tests {
         // Save Again brings the same copy up to now.
         let again = r.save_copy(&base.join("saved"), "", None).unwrap();
         assert_eq!(again, copy.dir);
-        let first = crate::audio::load(&again.join("audio-001.wav")).unwrap();
+        // Closed by the pause since, the first hour is saved as FLAC, in
+        // place of the WAV saved before.
+        let first = crate::audio::load(&again.join("audio-001.flac")).unwrap();
         assert_eq!(first.samples.len(), 14 * 8000);
+        assert!(!again.join("audio-001.wav").exists());
         let second = crate::audio::load(&again.join("audio-002.wav")).unwrap();
         assert_eq!(second.samples.len(), 8000);
         assert_eq!(
@@ -1336,7 +1532,8 @@ mod tests {
         r.pause().unwrap();
         r.resume("test");
         append_second(&mut r, 62);
-        let first = r.dir().join("audio-001.wav");
+        settle(&mut r);
+        let first = r.dir().join("audio-001.flac");
         let bytes = fs::read(&first).unwrap();
         // The first segment is closed, so this fault is portable to Windows.
         fs::remove_file(&first).unwrap();
@@ -1346,7 +1543,7 @@ mod tests {
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
         fs::write(&first, &bytes).unwrap();
         let dest = r.save_copy(&parent, "", None).unwrap();
-        assert_eq!(fs::read(dest.join("audio-001.wav")).unwrap(), bytes);
+        assert_eq!(fs::read(dest.join("audio-001.flac")).unwrap(), bytes);
         assert_eq!(
             hound::WavReader::open(dest.join("audio-002.wav"))
                 .unwrap()
@@ -1589,12 +1786,13 @@ mod tests {
         r.pause().unwrap();
         r.resume("test");
         append_second(&mut r, 62);
+        settle(&mut r);
         let parent = base.join("saved");
         let dest = r.save_copy(&parent, "", None).unwrap();
-        let first = dest.join("audio-001.wav");
+        let first = dest.join("audio-001.flac");
         let original = fs::read(&first).unwrap();
         fs::remove_file(&first).unwrap();
-        std::os::unix::fs::symlink(r.dir().join("audio-001.wav"), &first).unwrap();
+        std::os::unix::fs::symlink(r.dir().join("audio-001.flac"), &first).unwrap();
         let metadata = fs::read(dest.join("session.json")).unwrap();
         append_second(&mut r, 63);
         assert!(r.save_copy(&parent, "", None).is_err());
@@ -1743,10 +1941,11 @@ mod tests {
         for k in 63..65 {
             r.write(&block(k)).unwrap();
         }
+        settle(&mut r);
         let copy = r.save_copy(&base.join("saved"), "", None).unwrap();
         // Saved again: the file closed by the pause is not copied again
         // (a mark put in the saved copy stays), the open one is.
-        let first = copy.join("audio-001.wav");
+        let first = copy.join("audio-001.flac");
         let mut bytes = fs::read(&first).unwrap();
         let last = bytes.len() - 1;
         bytes[last] ^= 1;
@@ -1760,7 +1959,7 @@ mod tests {
         assert_eq!(load("audio-002.wav"), 3 * 8000);
         // The sound after the pause is in a file of its own.
         assert_eq!(
-            (load("audio-001.wav"), load("audio-002.wav")),
+            (load("audio-001.flac"), load("audio-002.wav")),
             (3 * 8000, 3 * 8000)
         );
         let clock = fs::read_to_string(copy.join("clock.csv")).unwrap();
@@ -1800,7 +1999,13 @@ mod tests {
         assert_eq!(r.breaks()[1].device, "test");
         assert_eq!(r.breaks()[1].segment, "audio-003.wav");
         let dir = r.finish(None).unwrap();
-        let total: usize = ["audio-001.wav", "audio-002.wav", "audio-003.wav"]
+        // Each hour closed is kept as FLAC; the last stays a WAV.
+        let names = ["audio-001.flac", "audio-002.flac", "audio-003.wav"];
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+        assert_eq!(v["segments"], serde_json::json!(names));
+        assert_eq!(v["breaks"][0]["segment"], "audio-002.flac");
+        let total: usize = names
             .iter()
             .map(|f| crate::audio::load(&dir.join(f)).unwrap().samples.len())
             .sum();
@@ -1884,6 +2089,171 @@ mod tests {
         assert_eq!(fs::read(copy.join("notes.txt")).unwrap(), b"kept");
         assert!(!copy.join("photos").exists());
         drop(r);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_closed_hour_is_kept_as_flac_and_named_so() {
+        let (mut r, base) = save_fixture("kept-as-flac");
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        let wav = crate::audio::load(&r.dir().join("audio-001.wav")).unwrap();
+        r.resume("test");
+        append_second(&mut r, 62);
+        settle(&mut r);
+        let dir = r.dir().to_path_buf();
+        // The hour closed by the pause is its FLAC alone, the same samples.
+        assert!(!dir.join("audio-001.wav").exists());
+        assert!(!dir.join("audio-001.flac.part").exists());
+        let flac = crate::audio::load(&dir.join("audio-001.flac")).unwrap();
+        assert_eq!(flac.samples, wav.samples);
+        assert_eq!(flac.samples.len(), 2 * 8000);
+        let session = || -> serde_json::Value {
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap()
+        };
+        assert_eq!(
+            session()["segments"],
+            serde_json::json!(["audio-001.flac", "audio-002.wav"])
+        );
+        assert_eq!(session()["breaks"][0]["segment"], "audio-002.wav");
+        // The folder reads as the take it is, its break where it was.
+        let files = crate::recording_order::recordings_in(&dir, &[]).unwrap();
+        let names: Vec<_> = files.iter().map(|f| f.file_name().unwrap()).collect();
+        assert_eq!(names, ["audio-001.flac", "audio-002.wav"]);
+        let refs: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+        let found = crate::breaks::of_files(&refs, None, 8000);
+        assert_eq!(found.unlisted, None);
+        drop(r);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_save_holds_a_closed_wav_as_flac_and_leaves_no_wav_twin() {
+        use std::os::unix::fs::MetadataExt;
+        let (mut r, base) = save_fixture("save-as-flac");
+        // Hours not yet kept as FLAC when the save begins.
+        r.keep_flac = false;
+        let parent = base.join("saved");
+        let dest = r.save_copy(&parent, "", None).unwrap();
+        assert!(dest.join("audio-001.wav").exists());
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 62);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 64);
+        assert_eq!(r.save_copy(&parent, "", None).unwrap(), dest);
+        let scratch = r.dir().to_path_buf();
+        let live = |n: &str| crate::audio::load(&scratch.join(n)).unwrap().samples;
+        let saved = |n: &str| crate::audio::load(&dest.join(n)).unwrap().samples;
+        // Each closed WAV is held as FLAC of the same samples, the WAV the
+        // copy held before gone; the open one is a WAV.
+        for n in ["audio-001", "audio-002"] {
+            assert_eq!(saved(&format!("{n}.flac")), live(&format!("{n}.wav")));
+            assert!(!dest.join(format!("{n}.wav")).exists());
+        }
+        assert_eq!(saved("audio-003.wav"), live("audio-003.wav"));
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dest.join("session.json")).unwrap()).unwrap();
+        assert_eq!(
+            v["segments"],
+            serde_json::json!(["audio-001.flac", "audio-002.flac", "audio-003.wav"])
+        );
+        assert_eq!(v["breaks"][0]["segment"], "audio-002.flac");
+        assert_eq!(v["breaks"][1]["segment"], "audio-003.wav");
+        // Saved again, a FLAC that holds its WAV's samples is left alone.
+        let ino = fs::metadata(dest.join("audio-001.flac")).unwrap().ino();
+        append_second(&mut r, 65);
+        r.save_copy(&parent, "", None).unwrap();
+        assert_eq!(
+            fs::metadata(dest.join("audio-001.flac")).unwrap().ino(),
+            ino
+        );
+        // One that does not is written again.
+        fs::write(dest.join("audio-002.flac"), b"not the sound").unwrap();
+        r.save_copy(&parent, "", None).unwrap();
+        assert_eq!(saved("audio-002.flac"), live("audio-002.wav"));
+        drop(r);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_save_while_an_hour_is_being_kept_as_flac_holds_it_whole() {
+        let (mut r, base) = save_fixture("save-mid-swap");
+        for second in 2..=30 {
+            append_second(&mut r, second);
+        }
+        r.pause().unwrap();
+        let wav = crate::audio::load(&r.dir().join("audio-001.wav")).unwrap();
+        assert_eq!(wav.samples.len(), 30 * 8000);
+        r.resume("test");
+        append_second(&mut r, 90);
+        // Begun at once, the save may find the hour a WAV, its FLAC, or
+        // both; either way the copy holds its FLAC, whole.
+        let pending = r.begin_save(&base.join("saved"), "", None, &[]).unwrap();
+        settle(&mut r);
+        let copy = pending.write().unwrap();
+        let flac = crate::audio::load(&copy.dir.join("audio-001.flac")).unwrap();
+        assert_eq!(flac.samples, wav.samples);
+        assert!(!copy.dir.join("audio-001.wav").exists());
+        let names: Vec<_> = fs::read_dir(&copy.dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.starts_with("audio-"))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        assert_eq!(names, ["audio-001.flac", "audio-002.wav"]);
+        drop(r);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn an_hour_that_cannot_be_kept_as_flac_stays_a_whole_wav() {
+        let (mut r, base) = save_fixture("flac-fails");
+        append_second(&mut r, 2);
+        let dir = r.dir().to_path_buf();
+        // A folder where the FLAC is written first: the conversion fails.
+        fs::create_dir(dir.join("audio-001.flac.part")).unwrap();
+        r.pause().unwrap();
+        let wav = crate::audio::load(&dir.join("audio-001.wav")).unwrap();
+        assert_eq!(wav.samples.len(), 2 * 8000);
+        r.resume("test");
+        append_second(&mut r, 62);
+        settle(&mut r);
+        let whole = || {
+            assert_eq!(
+                crate::audio::load(&dir.join("audio-001.wav"))
+                    .unwrap()
+                    .samples,
+                wav.samples
+            );
+            assert!(!dir.join("audio-001.flac").exists());
+        };
+        whole();
+        let session = || -> serde_json::Value {
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap()
+        };
+        // Nothing was renamed, so nothing in session.json was either.
+        assert_eq!(session()["segments"], serde_json::json!(["audio-001.wav"]));
+        assert_eq!(r.segments, ["audio-001.wav", "audio-002.wav"]);
+        assert_eq!(r.breaks()[0].segment, "audio-002.wav");
+        // A save still holds the hour, as FLAC of the same samples, and
+        // leaves the recording's WAV as it was.
+        let copy = r.save_copy(&base.join("saved"), "", None).unwrap();
+        let saved = crate::audio::load(&copy.join("audio-001.flac")).unwrap();
+        assert_eq!(saved.samples, wav.samples);
+        whole();
+        // Finished, the recording still names and holds the WAV.
+        let done = r.finish(None).unwrap();
+        assert_eq!(done, dir);
+        whole();
+        assert_eq!(
+            session()["segments"],
+            serde_json::json!(["audio-001.wav", "audio-002.wav"])
+        );
+        assert_eq!(session()["breaks"][0]["segment"], "audio-002.wav");
         fs::remove_dir_all(&base).unwrap();
     }
 }

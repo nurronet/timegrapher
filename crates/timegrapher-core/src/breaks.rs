@@ -514,9 +514,11 @@ pub fn of_files(
         Ok(json) => json,
         Err(why) => return of_clock(clock, why),
     };
-    let names: Vec<String> = files
+    // A WAV listed and the FLAC it was kept as are the same file (#503).
+    let kept = |n: &std::ffi::OsStr| crate::flac::kept_name(std::path::Path::new(n));
+    let names: Vec<std::path::PathBuf> = files
         .iter()
-        .filter_map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .filter_map(|f| f.file_name().map(kept))
         .collect();
     let whole = json
         .as_ref()
@@ -524,7 +526,8 @@ pub fn of_files(
             Some(list) => list
                 .iter()
                 .filter_map(|s| s.as_str())
-                .eq(names.iter().map(|n| n.as_str())),
+                .map(|s| kept(s.as_ref()))
+                .eq(names.iter().cloned()),
             None => names.len() == 1,
         });
     let mut found = for_take(json.as_ref().filter(|_| whole), clock, sample_rate);
