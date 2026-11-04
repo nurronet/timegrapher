@@ -67,18 +67,23 @@ pub fn feature_request(c: &AgcControl, request: u8, selector: u8, length: u16) -
 /// descriptor (the whole of it, as GET_DESCRIPTOR returns it): each
 /// feature unit with an AGC control between an input terminal and a USB
 /// streaming output terminal, the one that carries sound to the computer.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn capture_agc(config: &[u8]) -> Vec<AgcControl> {
-    #[derive(Clone)]
-    enum Entity {
-        Input,
-        Output { usb: bool, source: u8 },
-        Unit { sources: Vec<u8> },
-        Feature { source: u8, controls: Vec<u32> },
-    }
+    agc_on_capture_paths(&entities(config))
+}
+
+/// An entity of an AudioControl interface, as far as the capture paths
+/// need it.
+#[derive(Clone)]
+enum Entity {
+    Input,
+    Output { usb: bool, source: u8 },
+    Unit { sources: Vec<u8> },
+    Feature { source: u8, controls: Vec<u32> },
+}
+
+/// The AudioControl entities of a configuration descriptor, each with its
+/// interface and id.
+fn entities(config: &[u8]) -> Vec<(u8, u8, Entity)> {
     let mut entities: Vec<(u8, u8, Entity)> = Vec::new();
     let mut ac_interface: Option<u8> = None;
     let mut i = 0;
@@ -136,13 +141,19 @@ pub fn capture_agc(config: &[u8]) -> Vec<AgcControl> {
         }
         i += len;
     }
+    entities
+}
+
+/// The automatic gain switches on the paths from an input terminal to a
+/// USB streaming output terminal, among `entities`.
+fn agc_on_capture_paths(entities: &[(u8, u8, Entity)]) -> Vec<AgcControl> {
     let find = |ifc: u8, id: u8| {
         entities
             .iter()
             .find(|e| e.0 == ifc && e.1 == id && !matches!(e.2, Entity::Output { .. }))
     };
     let mut out = Vec::new();
-    for (ifc, _, e) in &entities {
+    for (ifc, _, e) in entities {
         let Entity::Output { usb: true, source } = e else {
             continue;
         };

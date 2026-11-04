@@ -2623,18 +2623,16 @@ pub(crate) fn rate_windows(
     )
 }
 
-/// Average the windows of `fine` into `n` readings of `step` seconds
-/// from `t0`. A reading needs every one of its windows: one at the edge
+/// The median of the windows of `fine` in each of `n` readings of `step`
+/// seconds from `t0`. A reading needs every one of its windows: one at the edge
 /// of a gap or a masked stretch, or with a window missing, is left out
 /// rather than taken from part of its span.
 fn rebin(fine: &Grid, t0: f64, step: f64, n: usize) -> Grid {
-    let mut sum = vec![0.0; n];
-    let mut count = vec![0usize; n];
+    let mut bins: Vec<Vec<f64>> = vec![Vec::new(); n];
     for (i, &v) in fine.y.iter().enumerate() {
         let b = ((fine.time(i) - t0) / step).floor();
         if v.is_finite() && b >= 0.0 && (b as usize) < n {
-            sum[b as usize] += v;
-            count[b as usize] += 1;
+            bins[b as usize].push(v);
         }
     }
     // The windows whose middles fall in each reading: all of them must be
@@ -2645,14 +2643,21 @@ fn rebin(fine: &Grid, t0: f64, step: f64, n: usize) -> Grid {
         let hi = lo + step / fine.step;
         ((hi - 0.5).ceil() - (lo - 0.5).ceil()).max(1.0) as usize
     };
+    // Their median, as every other reading of a stretch's windows takes
+    // it (`session::window_figures`, #656).
     Grid {
         t0,
         step,
-        y: sum
-            .iter()
-            .zip(&count)
+        y: bins
+            .iter_mut()
             .enumerate()
-            .map(|(b, (s, &c))| if c >= need(b) { s / c as f64 } else { f64::NAN })
+            .map(|(b, v)| {
+                if v.len() >= need(b) {
+                    crate::dsp::median(v)
+                } else {
+                    f64::NAN
+                }
+            })
             .collect(),
     }
 }

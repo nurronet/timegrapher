@@ -204,10 +204,6 @@ pub fn measure(template: &[f32], fs: f64, origin: usize, cfg: &ShapeConfig) -> O
     measure_at(template, fs, origin, cfg).map(|m| m.0)
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 fn measure_at(
     template: &[f32],
     fs: f64,
@@ -239,32 +235,8 @@ fn measure_at(
         .fold((p3, t[p3]), |m, p| if p.1 < m.1 { p } else { m });
     let at3 = crossing(&t, b3 + 1, p3, base3 + 0.5 * (e.peak_level - base3))?;
 
-    // Every rise from just before the unlock edge to just before the drop.
     let gap = samples(0.0003) as f64;
-    let first = (e.unlock - samples(0.0005) as f64).max(0.0) as usize;
-    let inner: Vec<Rise> = rises(&t, fs, first, at3 as usize, min_step, cfg.min_rise)
-        .into_iter()
-        .filter(|r| r.at < at3 - gap)
-        .collect();
-    // Sound 1 must start at the unlock edge; sound 2 is the biggest rise after it.
-    let s1 = inner
-        .first()
-        .copied()
-        .filter(|r| r.at <= e.unlock + samples(0.001) as f64);
-    let after1 = s1.map_or(e.unlock, |r| r.at + gap);
-    // A rise just after sound 1 is measured from the lowest point after
-    // sound 1, not from before the unlock, or the unlock's own climb would
-    // count towards it and a shoulder on sound 1 would outweigh the impulse.
-    let rise_after1 = |r: &Rise| {
-        let from = r.from.max(after1 as usize);
-        let to = (r.at as usize).max(from);
-        r.top - t[from..=to].iter().copied().fold(f32::INFINITY, f32::min)
-    };
-    let s2 = inner
-        .iter()
-        .copied()
-        .filter(|r| r.at > after1)
-        .max_by(|a, b| rise_after1(a).total_cmp(&rise_after1(b)));
+    let (inner, s1, s2) = sound_rises(&t, fs, e.unlock, at3, min_step, cfg);
 
     // Each sound's peak lies between its own rise and the start of the next.
     let reach = samples(0.001);
@@ -275,15 +247,8 @@ fn measure_at(
     let pk2 = s2.and_then(|r| peak_in(r.at, b3));
     let pk3 = (p3, e.peak_level);
     let at = |i: usize| parabolic(&t, i);
-    let between = |p: (usize, f32), q: (usize, f32)| -> (f64, f64) {
-        let seg = &a[p.0..=q.0];
-        let low = seg.iter().copied().fold(f64::INFINITY, f64::min);
-        let mean = seg.iter().sum::<f64>() / seg.len() as f64;
-        let (lp, lq) = (a[p.0], a[q.0]);
-        (low / lp.min(lq), mean / ((lp + lq) / 2.0))
-    };
-    let v12 = pk1.zip(pk2).map(|(a, b)| between(a, b));
-    let v23 = pk2.map(|a| between(a, pk3));
+    let v12 = pk1.zip(pk2).map(|(p, q)| valley(&a, p, q));
+    let v23 = pk2.map(|p| valley(&a, p, pk3));
 
     // Tail: mean level over a stretch after the drop peak.
     let ta = p3 + samples(cfg.tail_s.0);
@@ -295,19 +260,12 @@ fn measure_at(
     };
 
     // Extra events: rises a little way outside the 1-to-3 span.
-    let extra = |a: f64, b: f64| -> Vec<ExtraEvent> {
-        if b <= a {
-            return Vec::new();
-        }
-        let step = cfg.extra_prominence * height;
-        rises(&t, fs, a as usize, b as usize, step, cfg.min_rise)
-            .into_iter()
-            .map(|r| ExtraEvent {
-                t_ms: ms(r.at),
-                level: lvl(r.top),
-            })
-            .collect()
+    let step = cfg.extra_prominence * height;
+    let event = |r: &Rise| ExtraEvent {
+        t_ms: ms(r.at),
+        level: lvl(r.top),
     };
+    let extra = |a: f64, b: f64| extra_events(&t, fs, (a, b), step, cfg.min_rise, &event);
     let quiet = samples(0.003) as f64;
     let span = samples(cfg.extra_span_s) as f64;
     let egap = samples(cfg.extra_gap_s) as f64;
@@ -350,6 +308,77 @@ fn measure_at(
         at3,
     };
     Some((shape, marks))
+}
+
+/// Every rise from just before the unlock edge at `unlock` to just before
+/// the drop's crossing at `at3`, in the smoothed envelope `t`, and which of
+/// them are sounds 1 and 2.
+fn sound_rises(
+    t: &[f32],
+    fs: f64,
+    unlock: f64,
+    at3: f64,
+    min_step: f32,
+    cfg: &ShapeConfig,
+) -> (Vec<Rise>, Option<Rise>, Option<Rise>) {
+    let samples = |s: f64| (s * fs) as usize;
+    let gap = samples(0.0003) as f64;
+    // Every rise from just before the unlock edge to just before the drop.
+    let first = (unlock - samples(0.0005) as f64).max(0.0) as usize;
+    let inner: Vec<Rise> = rises(t, fs, first, at3 as usize, min_step, cfg.min_rise)
+        .into_iter()
+        .filter(|r| r.at < at3 - gap)
+        .collect();
+    // Sound 1 must start at the unlock edge; sound 2 is the biggest rise after it.
+    let s1 = inner
+        .first()
+        .copied()
+        .filter(|r| r.at <= unlock + samples(0.001) as f64);
+    let after1 = s1.map_or(unlock, |r| r.at + gap);
+    // A rise just after sound 1 is measured from the lowest point after
+    // sound 1, not from before the unlock, or the unlock's own climb would
+    // count towards it and a shoulder on sound 1 would outweigh the impulse.
+    let rise_after1 = |r: &Rise| {
+        let from = r.from.max(after1 as usize);
+        let to = (r.at as usize).max(from);
+        r.top - t[from..=to].iter().copied().fold(f32::INFINITY, f32::min)
+    };
+    let s2 = inner
+        .iter()
+        .copied()
+        .filter(|r| r.at > after1)
+        .max_by(|a, b| rise_after1(a).total_cmp(&rise_after1(b)));
+    (inner, s1, s2)
+}
+
+/// The valley between two peaks `p` and `q` of the levels `a`: its lowest
+/// level and its mean level, each over the peaks' own.
+fn valley(a: &[f64], p: (usize, f32), q: (usize, f32)) -> (f64, f64) {
+    let seg = &a[p.0..=q.0];
+    let low = seg.iter().copied().fold(f64::INFINITY, f64::min);
+    let mean = seg.iter().sum::<f64>() / seg.len() as f64;
+    let (lp, lq) = (a[p.0], a[q.0]);
+    (low / lp.min(lq), mean / ((lp + lq) / 2.0))
+}
+
+/// The rises of at least `step` between samples `a` and `b` of the
+/// smoothed envelope `t`, each as `event` gives it; none where `b` is not
+/// past `a`.
+fn extra_events(
+    t: &[f32],
+    fs: f64,
+    (a, b): (f64, f64),
+    step: f32,
+    min_rise: f32,
+    event: &dyn Fn(&Rise) -> ExtraEvent,
+) -> Vec<ExtraEvent> {
+    if b <= a {
+        return Vec::new();
+    }
+    rises(t, fs, a as usize, b as usize, step, min_rise)
+        .iter()
+        .map(event)
+        .collect()
 }
 
 /// Median over beats of each beat's median envelope level from `a` to `b`
@@ -494,10 +523,6 @@ pub fn of_envelope(env: &[f32], fs: f64, bph: u32) -> (ShapeReport, f64) {
 }
 
 /// Shape of both sides in windows and over the whole recording.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn analyze(
     env: &[f32],
     fs: f64,
@@ -539,17 +564,7 @@ pub fn analyze(
                 let s = side_shape(env, fs, &times, beat_s, cfg);
                 if let Some((_, m, tmpl)) = &s {
                     if let Some(a1) = m.at1 {
-                        // Single beats: each one's rises 1 and 3 against the template's.
-                        let lag = (0.0004 * fs) as usize;
-                        let i13: Vec<f64> = times
-                            .iter()
-                            .filter_map(|&t| {
-                                let start = (t * fs).round() as isize - origin as isize;
-                                let o1 = beat_offset(env, fs, start, tmpl, a1, lag)?;
-                                let o3 = beat_offset(env, fs, start, tmpl, m.at3, lag)?;
-                                Some((m.at3 + o3 - a1 - o1) / fs * 1000.0)
-                            })
-                            .collect();
+                        let i13 = single_beat_i13(env, fs, &times, origin, tmpl, a1, m.at3);
                         if i13.len() >= 3 {
                             let m = median(&mut i13.clone());
                             beat_dev[k].extend(i13.iter().map(|v| (v - m) * 1000.0));
@@ -578,40 +593,73 @@ pub fn analyze(
     let (template_even, whole_even) = whole(true);
     let (template_odd, whole_odd) = whole(false);
 
-    let report = |k: usize, whole: Option<Shape>| -> SideReport {
-        let shapes: Vec<&Shape> = windows
-            .iter()
-            .filter_map(|w| {
-                if k == 0 {
-                    w.even.as_ref()
-                } else {
-                    w.odd.as_ref()
-                }
-            })
-            .collect();
-        let spread = (beat_i13[k].len() >= 10).then(|| Spread {
-            beats: beat_i13[k].len(),
-            i13_ms: median(&mut beat_i13[k].clone()),
-            i13_sd_us: robust_sd(&beat_dev[k]),
-        });
-        SideReport {
-            windows: median_shape(&shapes),
-            windows_measured: shapes.len(),
-            windows_with_1: shapes.iter().filter(|s| s.t1_ms.is_some()).count(),
-            windows_with_2: shapes.iter().filter(|s| s.t2_ms.is_some()).count(),
-            windows_with_extra_pre: shapes.iter().filter(|s| !s.extra_pre.is_empty()).count(),
-            windows_with_extra_post: shapes.iter().filter(|s| !s.extra_post.is_empty()).count(),
-            whole,
-            spread,
-        }
-    };
     ShapeReport {
-        even: report(0, whole_even),
-        odd: report(1, whole_odd),
+        even: side_report(&windows, 0, whole_even, &beat_i13[0], &beat_dev[0]),
+        odd: side_report(&windows, 1, whole_odd, &beat_i13[1], &beat_dev[1]),
         windows,
         template_even,
         template_odd,
         template_start_ms: -cfg.pre_s * 1000.0,
+    }
+}
+
+/// Single beats' 1-to-3 intervals in ms: each one's rises 1 and 3, at
+/// `a1` and `at3` in the template `tmpl`, found in the beat itself.
+fn single_beat_i13(
+    env: &[f32],
+    fs: f64,
+    times: &[f64],
+    origin: usize,
+    tmpl: &[f32],
+    a1: f64,
+    at3: f64,
+) -> Vec<f64> {
+    let lag = (0.0004 * fs) as usize;
+    times
+        .iter()
+        .filter_map(|&t| {
+            let start = (t * fs).round() as isize - origin as isize;
+            let o1 = beat_offset(env, fs, start, tmpl, a1, lag)?;
+            let o3 = beat_offset(env, fs, start, tmpl, at3, lag)?;
+            Some((at3 + o3 - a1 - o1) / fs * 1000.0)
+        })
+        .collect()
+}
+
+/// One side's report (`k` 0 for even beats, 1 for odd) from the windows'
+/// shapes, its whole-take shape, and its single beats' 1-to-3 intervals
+/// `i13` and their deviations `dev` from their windows' medians.
+fn side_report(
+    windows: &[ShapeWindow],
+    k: usize,
+    whole: Option<Shape>,
+    i13: &[f64],
+    dev: &[f64],
+) -> SideReport {
+    let shapes: Vec<&Shape> = windows
+        .iter()
+        .filter_map(|w| {
+            if k == 0 {
+                w.even.as_ref()
+            } else {
+                w.odd.as_ref()
+            }
+        })
+        .collect();
+    let spread = (i13.len() >= 10).then(|| Spread {
+        beats: i13.len(),
+        i13_ms: median(&mut i13.to_vec()),
+        i13_sd_us: robust_sd(dev),
+    });
+    SideReport {
+        windows: median_shape(&shapes),
+        windows_measured: shapes.len(),
+        windows_with_1: shapes.iter().filter(|s| s.t1_ms.is_some()).count(),
+        windows_with_2: shapes.iter().filter(|s| s.t2_ms.is_some()).count(),
+        windows_with_extra_pre: shapes.iter().filter(|s| !s.extra_pre.is_empty()).count(),
+        windows_with_extra_post: shapes.iter().filter(|s| !s.extra_post.is_empty()).count(),
+        whole,
+        spread,
     }
 }
 
