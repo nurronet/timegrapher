@@ -7,17 +7,14 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use timegrapher_core::calibre_store::{self, UserCalibres};
 use timegrapher_core::calibres;
-use timegrapher_core::clean::Cuts;
-use timegrapher_core::dsp::{envelope, EnvelopeConfig};
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::LongConfig;
 use timegrapher_core::periodicity::Wheel;
 use timegrapher_core::session::{
     self, Finding, Manifest, Position, Reading, RecordingEntry, SessionReport,
 };
-use timegrapher_core::shape::{self, ShapeConfig};
-use timegrapher_core::stream::{BeatLog, StreamConfig};
-use timegrapher_core::{analysis_take, audio, beats, breaks, take, timing, twostate};
+use timegrapher_core::stream::StreamConfig;
+use timegrapher_core::{analysis_take, audio, take, twostate};
 
 pub use timegrapher_core::take::MANIFEST;
 
@@ -406,32 +403,6 @@ fn excerpt(files: &[PathBuf], from_s: f64, len_s: f64) -> Result<(Vec<f32>, f64)
     Ok((out, fs))
 }
 
-/// The log from `from_s` to `to_s`, with times shifted to start at zero.
-/// Its amplitude windows are the reading's: those
-/// [`session::stretch_windows`] keeps in the stretch with the reading's
-/// cuts `holes`, so none reaches into a mask or a pause (#636).
-fn trimmed(log: &BeatLog, holes: &Cuts, from_s: f64, to_s: f64) -> BeatLog {
-    let mut l = log.clone();
-    l.beats.retain(|b| b.time >= from_s && b.time < to_s);
-    for b in &mut l.beats {
-        b.time -= from_s;
-    }
-    l.amplitude_windows = session::stretch_windows(holes, &log.amplitude_windows, from_s, to_s)
-        .into_iter()
-        .cloned()
-        .collect();
-    for w in &mut l.amplitude_windows {
-        w.start_s -= from_s;
-        w.end_s -= from_s;
-    }
-    l.snippets.retain(|s| s.0 >= from_s && s.0 < to_s);
-    for s in &mut l.snippets {
-        s.0 -= from_s;
-    }
-    l.duration_s = to_s.min(log.duration_s) - from_s;
-    l
-}
-
 pub(crate) struct Ctx<'a> {
     pub m: &'a Manifest,
     pub calibre: &'a SessionCalibre,
@@ -661,42 +632,11 @@ fn cycles_of(c: &Ctx, read: &take::EntryRead) -> Vec<session::Cycle> {
                 .collect(),
             ..Default::default()
         };
-        // The reading's own windows: its cuts, as `measure_masked` makes
-        // them.
-        let holes = Cuts::new(read.clock.as_ref(), &read.breaks, &read.masked);
-        let part = trimmed(&read.log, &holes, read.settle_s, read.end_s);
-        // The part's times start at `settle`, so its breaks move with
-        // it; a clock fit that holds the gaps at their own places is left
-        // out (a ppm or so makes no odds to a cycle's period).
-        let mut inside: Vec<_> = read
-            .breaks
-            .iter()
-            .filter(|b| b.audio_s > read.settle_s && b.audio_s < read.end_s)
-            .map(|b| breaks::Break {
-                audio_s: b.audio_s - read.settle_s,
-                // A pause the clock log did not see has no gap (#646).
-                gap_s: if read.clock.as_ref().is_some_and(|c| !c.keeps_gap(b)) {
-                    0.0
-                } else {
-                    b.gap_s
-                },
-            })
-            // A masked stretch is cut at both ends, with no time lost.
-            .chain(
-                timegrapher_core::clean::mask_breaks(&read.masked)
-                    .into_iter()
-                    .filter(|b| b.audio_s > read.settle_s && b.audio_s < read.end_s)
-                    .map(|b| breaks::Break {
-                        audio_s: b.audio_s - read.settle_s,
-                        ..b
-                    }),
-            )
-            .collect();
-        inside.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
-        let part_clock = read.clock.as_ref().filter(|c| c.breaks.is_empty());
-        let mut long = longrun::analyse_with_breaks(&part, part_clock, &inside, &lc);
+        // The reading's own stretch, cut as the reading is.
+        let part = read.measured_part();
+        let mut long = longrun::analyse_with_breaks(&part.log, part.clock, &part.breaks, &lc);
         // The cycles the Steadiness pane names (#659).
-        timegrapher_core::steadiness::family_long(&part, part_clock, &mut long, &lc);
+        timegrapher_core::steadiness::family_long(&part.log, part.clock, &mut long, &lc);
         session::cycles(&long, &lc.wheels)
     }
 }
@@ -734,12 +674,7 @@ fn shape_of(
         analysis_take::shape_stretch(&read.masked, read.settle_s, read.end_s)
     {
         let (x, fs) = excerpt(&read.files, from, len)?;
-        let env = envelope(&x, fs, &EnvelopeConfig::default());
-        let (found, _) = beats::detect(&env, fs, read.log.bph);
-        let beat_s =
-            timing::fit(&found, read.log.bph).map_or(3600.0 / read.log.bph as f64, |f| f.period_s);
-        let r = shape::analyze(&env, fs, &found, beat_s, &ShapeConfig::default());
-        Some(session::shape_summary(&r, from, x.len() as f64 / fs))
+        analysis_take::measure_shape(&x, fs, read.log.bph, from)
     } else {
         None
     };
@@ -1299,49 +1234,6 @@ fn print_findings(r: &SessionReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A part of a log takes the reading's amplitude windows: those whose
-    /// midpoint is in it and that reach into no cut (#636).
-    #[test]
-    fn a_part_of_a_log_takes_the_windows_whose_midpoint_is_in_it() {
-        let w = |start_s: f64| timegrapher_core::amplitude::AmplitudeWindow {
-            start_s,
-            end_s: start_s + 2.0,
-            even_deg: Some(250.0),
-            odd_deg: Some(250.0),
-            beat_error_ms: None,
-            beat_error_unlock_ms: None,
-            even_unlock_ms: None,
-            odd_unlock_ms: None,
-            even_drop_ms: None,
-            odd_drop_ms: None,
-        };
-        let log = BeatLog {
-            sample_rate: 48000,
-            duration_s: 40.0,
-            bph: 28800,
-            lift_deg: 52.0,
-            beats: Vec::new(),
-            amplitude_windows: [8.5, 9.5, 10.5, 28.5, 29.5].map(w).to_vec(),
-            clipped_beats: Vec::new(),
-            clipped_samples: 0,
-            jumps: Vec::new(),
-            sided: Vec::new(),
-            by_count: Vec::new(),
-            snippets: Vec::new(),
-        };
-        let none = Cuts::new(None, &[], &[]);
-        let part = trimmed(&log, &none, 10.0, 30.0);
-        let starts: Vec<f64> = part.amplitude_windows.iter().map(|w| w.start_s).collect();
-        // Midpoints 10.5, 11.5 and 29.5 are in [10, 30); 9.5 and 30.5 not.
-        assert_eq!(starts, vec![-0.5, 0.5, 18.5]);
-        // A window that reaches into a mask is not the reading's, so not
-        // the part's either.
-        let masked = Cuts::new(None, &[], &[(11.0, 12.0)]);
-        let part = trimmed(&log, &masked, 10.0, 30.0);
-        let starts: Vec<f64> = part.amplitude_windows.iter().map(|w| w.start_s).collect();
-        assert_eq!(starts, vec![18.5]);
-    }
 
     fn options(bph: Option<u32>, lift: Option<f64>, calibre: Option<&str>) -> Options {
         Options {

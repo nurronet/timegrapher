@@ -76,7 +76,7 @@ fn parse_args() -> Result<Args, String> {
         devices: false,
         bph: None,
         lift: 52.0,
-        average_s: 10.0,
+        average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
         every_s: 10.0,
     };
     let mut it = std::env::args().skip(1);

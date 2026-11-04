@@ -7,6 +7,7 @@
 
 use crate::analysis_take;
 use crate::breaks::{self, Break};
+use crate::clean::Cuts;
 use crate::clock::{self, ClockFit};
 use crate::session::{self, Manifest, Measurement, RecordingEntry};
 use crate::stream::{self, BeatLog, StreamConfig};
@@ -832,6 +833,85 @@ pub struct EntryRead {
     pub measurement: Measurement,
 }
 
+/// The stretch an entry's reading measured, on its own: for reading the
+/// changes over it that repeat (`session`'s cycles) as the reading itself
+/// is read ([`EntryRead::measured_part`]).
+pub struct MeasuredPart<'a> {
+    /// The reading's beats, windows and sounds, timed from its start.
+    pub log: BeatLog,
+    /// The take's clock, when it holds no gap of its own to keep in place
+    /// (a ppm or so makes no odds to a cycle's period).
+    pub clock: Option<&'a ClockFit>,
+    /// The breaks inside it, and each masked stretch cut at both ends with
+    /// no time lost, timed from its start, in order.
+    pub breaks: Vec<Break>,
+}
+
+impl EntryRead {
+    /// The stretch this reading measured, from its settling to its end,
+    /// cut as [`session::measure_masked`] cuts it.
+    pub fn measured_part(&self) -> MeasuredPart<'_> {
+        let holes = Cuts::new(self.clock.as_ref(), &self.breaks, &self.masked);
+        let log = trimmed(&self.log, &holes, self.settle_s, self.end_s);
+        let inside = |b: &Break| b.audio_s > self.settle_s && b.audio_s < self.end_s;
+        let mut breaks: Vec<Break> = self
+            .breaks
+            .iter()
+            .filter(|b| inside(b))
+            .map(|b| Break {
+                audio_s: b.audio_s - self.settle_s,
+                // A pause the clock log did not see has no gap (#646).
+                gap_s: if self.clock.as_ref().is_some_and(|c| !c.keeps_gap(b)) {
+                    0.0
+                } else {
+                    b.gap_s
+                },
+            })
+            .chain(
+                crate::clean::mask_breaks(&self.masked)
+                    .into_iter()
+                    .filter(inside)
+                    .map(|b| Break {
+                        audio_s: b.audio_s - self.settle_s,
+                        ..b
+                    }),
+            )
+            .collect();
+        breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+        MeasuredPart {
+            log,
+            clock: self.clock.as_ref().filter(|c| c.breaks.is_empty()),
+            breaks,
+        }
+    }
+}
+
+/// The log from `from_s` to `to_s`, with times shifted to start at zero.
+/// Its amplitude windows are the reading's: those
+/// [`session::stretch_windows`] keeps in the stretch with the reading's
+/// cuts `holes`, so none reaches into a mask or a pause (#636).
+fn trimmed(log: &BeatLog, holes: &Cuts, from_s: f64, to_s: f64) -> BeatLog {
+    let mut l = log.clone();
+    l.beats.retain(|b| b.time >= from_s && b.time < to_s);
+    for b in &mut l.beats {
+        b.time -= from_s;
+    }
+    l.amplitude_windows = session::stretch_windows(holes, &log.amplitude_windows, from_s, to_s)
+        .into_iter()
+        .cloned()
+        .collect();
+    for w in &mut l.amplitude_windows {
+        w.start_s -= from_s;
+        w.end_s -= from_s;
+    }
+    l.snippets.retain(|s| s.0 >= from_s && s.0 < to_s);
+    for s in &mut l.snippets {
+        s.0 -= from_s;
+    }
+    l.duration_s = to_s.min(log.duration_s) - from_s;
+    l
+}
+
 /// Open entry `e` of the take described by `m` in the folder `base`, as
 /// every surface reads a take: its beats (found in its sound, or kept as
 /// its analysis alone), its clock and breaks ([`clock`], [`breaks`]) and
@@ -1214,6 +1294,49 @@ pub fn whole_take(m: &Manifest) -> Result<RecordingEntry, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A part of a log takes the reading's amplitude windows: those whose
+    /// midpoint is in it and that reach into no cut (#636).
+    #[test]
+    fn a_part_of_a_log_takes_the_windows_whose_midpoint_is_in_it() {
+        let w = |start_s: f64| crate::amplitude::AmplitudeWindow {
+            start_s,
+            end_s: start_s + 2.0,
+            even_deg: Some(250.0),
+            odd_deg: Some(250.0),
+            beat_error_ms: None,
+            beat_error_unlock_ms: None,
+            even_unlock_ms: None,
+            odd_unlock_ms: None,
+            even_drop_ms: None,
+            odd_drop_ms: None,
+        };
+        let log = BeatLog {
+            sample_rate: 48000,
+            duration_s: 40.0,
+            bph: 28800,
+            lift_deg: 52.0,
+            beats: Vec::new(),
+            amplitude_windows: [8.5, 9.5, 10.5, 28.5, 29.5].map(w).to_vec(),
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        };
+        let none = Cuts::new(None, &[], &[]);
+        let part = trimmed(&log, &none, 10.0, 30.0);
+        let starts: Vec<f64> = part.amplitude_windows.iter().map(|w| w.start_s).collect();
+        // Midpoints 10.5, 11.5 and 29.5 are in [10, 30); 9.5 and 30.5 not.
+        assert_eq!(starts, vec![-0.5, 0.5, 18.5]);
+        // A window that reaches into a mask is not the reading's, so not
+        // the part's either.
+        let masked = Cuts::new(None, &[], &[(11.0, 12.0)]);
+        let part = trimmed(&log, &masked, 10.0, 30.0);
+        let starts: Vec<f64> = part.amplitude_windows.iter().map(|w| w.start_s).collect();
+        assert_eq!(starts, vec![18.5]);
+    }
 
     fn entry(file: &str, clock: Option<&str>, masked: &[[f64; 2]]) -> RecordingEntry {
         RecordingEntry {

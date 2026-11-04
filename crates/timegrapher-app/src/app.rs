@@ -2561,7 +2561,7 @@ impl TimegrapherApp {
             input_fault: None,
             pump_fault: None,
             check_pending: false,
-            average_s: 10.0,
+            average_s: timegrapher_core::live::DEFAULT_AVERAGE_S,
             watch: String::new(),
             calibre: String::new(),
             cal: calibre_ui::Calibres::in_memory(),
@@ -2617,11 +2617,8 @@ impl TimegrapherApp {
             open_note: None,
             may_close: false,
             save_dir: home.join("Timegrapher recordings").display().to_string(),
-            strip: StripView {
-                half_width_ms: 10.0,
-                span_s: 30.0,
-                horizontal: true,
-            },
+            // As the settings first are.
+            strip: Settings::default().strip,
             follow: false,
             rate_line: true,
             rate_guides: true,
