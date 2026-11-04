@@ -403,6 +403,7 @@ The same page following the rules:
 - [ ] Colours are the palette's, and a quantity's colour is used only for it.
 - [ ] Dialog buttons are at the bottom right, with the default rightmost.
 - [ ] Every count says what it counts, and every scale that isn't shared is stated.
+- [ ] On a plot, scroll pans and ⌘/Ctrl+scroll zooms (section 11), and an axis the app scales takes no gesture.
 - [ ] Screenshots in the PR, before and after.
 
 ---
