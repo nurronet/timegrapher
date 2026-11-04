@@ -630,7 +630,7 @@
         "amplitude_deg": 286.0598436346811,
         "beat_error_unlock_ms": 0.2034149382625406,
         "beat_error_ms": 0.4167640223627916,
-        "beats": 13895,
+        "beats": 13933,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
@@ -739,7 +739,7 @@
         "amplitude_deg": 281.78269413346766,
         "beat_error_unlock_ms": 0.23807625896468212,
         "beat_error_ms": 0.4805681056533675,
-        "beats": 4547,
+        "beats": 4551,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
@@ -1448,7 +1448,7 @@
         "amplitude_deg": 310.5541592646955,
         "beat_error_unlock_ms": -0.027515950130229616,
         "beat_error_ms": 0.2523140609745332,
-        "beats": 14196,
+        "beats": 14204,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
@@ -1654,7 +1654,7 @@
         "amplitude_deg": 317.32183153779454,
         "beat_error_unlock_ms": -0.14868918144922888,
         "beat_error_ms": 0.3386520801387702,
-        "beats": 4627,
+        "beats": 4638,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
@@ -1751,7 +1751,7 @@
         "amplitude_deg": 316.03791088841,
         "beat_error_unlock_ms": -0.042155929698789674,
         "beat_error_ms": 0.4534989206537829,
-        "beats": 4629,
+        "beats": 4635,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
