@@ -265,6 +265,13 @@ pub enum Caveat {
     /// heard, and are left out of the readings
     /// ([`crate::session::watch_lead_s`], #844).
     LeadLeftOut { seconds: f64 },
+    /// The amplitude's or beat error's period search named a cycle on a
+    /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose
+    /// readings are correlated at `rho` (lag one, the ρ the search whitens
+    /// by) of [`crate::longterm::NOISE_CAVEAT_RHO`] or more, over `span_s`:
+    /// there the search names a cycle in noise alone about 1 time in 10
+    /// (#916).
+    PeriodMayBeNoise { rho: f64, span_s: f64 },
 }
 
 impl Caveat {
@@ -318,6 +325,7 @@ impl Caveat {
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
+            Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
         })
     }
 
@@ -419,6 +427,12 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
+            Caveat::PeriodMayBeNoise { rho, span_s } => format!(
+                "On a take this short with readings this correlated (ρ {rho:.2} over {:.0} \
+                 min), the period search names a cycle in noise alone about 1 time in 10, \
+                 not 1 in 33: this cycle may be noise.",
+                span_s / 60.0
+            ),
         })
     }
 
@@ -473,6 +487,7 @@ impl Caveat {
             Caveat::BeatErrorFromDrop => 16,
             Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::ReadingWindows { .. } => 17,
+            Caveat::PeriodMayBeNoise { .. } => 19,
         }
     }
 }
