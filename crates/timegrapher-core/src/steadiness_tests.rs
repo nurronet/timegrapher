@@ -1464,3 +1464,37 @@ fn independent_readings_over_15_minutes_read_no_correlation_after_the_quadratic(
         assert!(low_p <= 30, "gap {gap}: p under 0.01 in {low_p} of {runs}");
     }
 }
+
+/// The CUSUM's long-run σ allows for the bias of a ρ read with the
+/// series' largest step chosen and taken out (#917): `check_series`
+/// reads it with [`Slow::ChosenStep`], which the change finder's
+/// [`Slow::Step`] leaves out.
+#[test]
+fn the_cusum_scales_by_the_rho_of_a_chosen_step() {
+    let mut z = Noise(917);
+    let mut x = 0.0;
+    let y: Vec<f64> = (0..720)
+        .map(|_| {
+            x = 0.5 * x + 0.75f64.sqrt() * z.next();
+            x
+        })
+        .collect();
+    let c = check_series(
+        SeriesKind::Rate,
+        grid(y.clone(), 10.0),
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    let sst = c.short_term_sd.unwrap();
+    let got = c.long_run_sd.unwrap();
+    let chosen = confidence::long_run_sd(&y, sst, Slow::ChosenStep);
+    let step = confidence::long_run_sd(&y, sst, Slow::Step);
+    assert!(
+        (got - chosen).abs() < 1e-12 * chosen,
+        "{got} against {chosen}"
+    );
+    assert!(got - step > 1e-3 * step, "{got} against {step}");
+}

@@ -1,7 +1,9 @@
 //! Each synthetic edge take read by `timegrapher session --json` reads what
 //! core reads for it ([`edge_takes::read`]), to the last bit, with the same
 //! caveats: the command line adds no logic of its own to an awkward take.
-//! And `doctor --file` finishes on every sound file of every edge take.
+//! And `doctor --file` finishes on every sound file of every edge take,
+//! and `record` fed an edge take's sound checks it as `session` then reads
+//! the take it saved.
 //!
 //! One test makes the takes once and runs both checks on them: making them
 //! is about a third of the work, and each test of its own made them again
@@ -21,6 +23,7 @@ fn session_and_doctor_on_each_edge_take() {
     for t in &takes {
         session_reads_as_core_does(&root, t, &mut wrong);
         doctor_finishes(&root, t);
+        record_checks_as_session_reads(&root, t, &mut wrong);
     }
     std::fs::remove_dir_all(&root).ok();
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
@@ -87,6 +90,86 @@ fn session_reads_as_core_does(root: &Path, t: &EdgeTake, wrong: &mut Vec<String>
             ));
         }
         eprintln!("{id}: {codes:?}");
+    }
+}
+
+/// The edge take `t`'s first sound, when it has one, fed to `record` as its input: the check
+/// `record --json` gives at the end is what `session` reads of the take it
+/// saved, to the last bit. What differs goes in `wrong`.
+fn record_checks_as_session_reads(root: &Path, t: &EdgeTake, wrong: &mut Vec<String>) {
+    let tg = |args: &[&std::ffi::OsStr]| -> Value {
+        let run = Command::new(env!("CARGO_BIN_EXE_timegrapher"))
+            .args(args)
+            .env("TIMEGRAPHER_CONFIG_DIR", root.join("config"))
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        serde_json::from_slice(&run.stdout).unwrap()
+    };
+    let file = root.join("takes").join(t.id).join("audio-001.wav");
+    if !file.is_file() {
+        // A take kept as its analysis alone has no sound to record.
+        return;
+    }
+    let into = root.join("recorded").join(t.id);
+    let rec = tg(&[
+        "record".as_ref(),
+        into.as_os_str(),
+        "--position=DU".as_ref(),
+        "--lift=52".as_ref(),
+        format!("--file={}", file.display()).as_ref(),
+        "--json".as_ref(),
+    ]);
+    let saved = std::path::PathBuf::from(rec["take"].as_str().expect("the take saved"));
+    let out = root.join("out-recorded").join(t.id);
+    let doc = tg(&[
+        "session".as_ref(),
+        saved.as_os_str(),
+        "--json".as_ref(),
+        "--out".as_ref(),
+        out.as_os_str(),
+    ]);
+    let c = &rec["check"];
+    let m = &doc["readings"][0]["measurement"];
+    for (what, check, session) in [
+        ("from", "from_s", "start_s"),
+        ("to", "to_s", "end_s"),
+        ("beats", "beats_found", "beats"),
+        ("watch heard", "watch_heard", "watch_heard"),
+        ("rate", "rate_s_per_day", "rate_s_per_day"),
+        ("amplitude", "amplitude_deg", "amplitude_deg"),
+    ] {
+        if c[check] != m[session] {
+            wrong.push(format!(
+                "{}: {what} {} from record, {} from session",
+                t.id, c[check], m[session]
+            ));
+        }
+    }
+    // The timing scatter, ms in the check, microseconds in the reading.
+    let scatter_us = c["timing_scatter_ms"].as_f64().map(|ms| ms * 1000.0);
+    if let Some(us) = m["jitter_us"].as_f64() {
+        if scatter_us.is_none_or(|s| (s - us).abs() > 1e-9 * us.abs().max(1.0)) {
+            wrong.push(format!(
+                "{}: timing scatter {scatter_us:?} us from record, {us} from session",
+                t.id
+            ));
+        }
+    }
+    // The beat error a reading shows: the unlock's, else the drop's.
+    let shown = timegrapher_core::session::beat_error_signed(
+        m["beat_error_unlock_ms"].as_f64(),
+        m["beat_error_ms"].as_f64(),
+    );
+    if c["beat_error_ms"].as_f64() != shown {
+        wrong.push(format!(
+            "{}: beat error {} from record, {shown:?} from session",
+            t.id, c["beat_error_ms"]
+        ));
     }
 }
 

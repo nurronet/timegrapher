@@ -52,7 +52,10 @@ cell) it names nothing but the correlation on 95 or more from 2 h to
 24 h at ρ 0 to 0.7, and from 8 h at ρ 0.9; on 30 min it names something
 on 7, 6 and 30 in 100 at ρ 0, 0.5 and 0.9, and on 2 h at ρ 0.9 on 9
 (#916, #917). A level
-change alone is named on 7 in 100 at 30 min ρ 0.9 and 3 at 2 h (#917). `long` (its text,
+change alone is named on 7 in 100 at 30 min ρ 0.9 and 3 at 2 h (#917):
+about 2% a series at 30 min, a floor rather than a bias, because a take
+whose readings follow themselves that closely holds about 10 independent
+readings, too few to read their correlation closely. `long` (its text,
 report and summary) and a session's cycles list the same lines: core
 decides the kept set once (`steadiness::hold_to_family`).
 
@@ -134,7 +137,9 @@ For each series:
 - **CUSUM**: the running sum of each reading's distance from the mean,
   in units of σ√n, where σ is the readings' long-run scatter
   (`long_run_sd`: the reading-to-reading scatter allowing for their
-  correlation). With no change of level, correlated or not, it stays
+  correlation, read once their largest step is out; that step is chosen
+  to fit, so the correlation gets back 3.3/n for it,
+  `confidence::STEP_CHOICE_BIAS`, #917). With no change of level, correlated or not, it stays
   within ±1.36 about 95% of the time. A step in the mean bends it into a
   V or a tent. The band is a guide: the corner is marked only where the
   headline names a level change (#697): the change finder below cuts the

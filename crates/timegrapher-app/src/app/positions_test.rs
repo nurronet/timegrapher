@@ -378,9 +378,8 @@ impl TimegrapherApp {
         ) {
             if let Some(t) = &self.guided {
                 let text = guided::export_text(t, &about, ',');
-                if let Some(m) = guided::save_csv(&text, &self.guided_dir()) {
-                    self.info_msg(m);
-                }
+                let d = guided::csv_dialog(&self.guided_dir());
+                self.save_text_as(d, "the Positions Test", text);
             }
         }
         if theme::tool_word_button(
@@ -411,9 +410,8 @@ impl TimegrapherApp {
                 false,
                 None,
             ) {
-                if let Some(m) = guided::save_results(&k, &self.guided_dir()) {
-                    self.info_msg(m);
-                }
+                let d = guided::results_dialog(&k, &self.guided_dir());
+                self.save_text_as(d, "the Positions Test's results", k.to_json());
             }
         }
     }
