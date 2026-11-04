@@ -21,6 +21,10 @@ pub(super) struct ShownSound {
     pub(super) profiles: Profiles,
     pub(super) line: Option<String>,
     pub(super) hover: Option<String>,
+    /// The moment shown is masked out, by core's rule for the sound kept
+    /// there ([`timegrapher_core::profile::sound_at`]): the Scope draws no
+    /// beats there either.
+    pub(super) masked: bool,
 }
 
 /// One line in place of a sound pane's plot, as a pane too short for its
@@ -165,11 +169,13 @@ impl TimegrapherApp {
             profiles,
             line: None,
             hover,
+            masked: false,
         };
         let line = |l: String| ShownSound {
             profiles: [None, None],
             line: Some(l),
             hover: None,
+            masked: false,
         };
         if self.running() && self.strip_end.is_none() {
             let p = self
@@ -203,7 +209,10 @@ impl TimegrapherApp {
                 let p = sound.sides.clone();
                 shown(p, (!hover.is_empty()).then(|| hover.join("\n")))
             }
-            SoundAt::Masked => line(format!("Masked at {at}")),
+            SoundAt::Masked => ShownSound {
+                masked: true,
+                ..line(format!("Masked at {at}"))
+            },
             SoundAt::NoBeats => line(format!("No beats at {at}")),
             SoundAt::NotKept => {
                 self.poll_sound_job();
@@ -233,21 +242,21 @@ impl TimegrapherApp {
         let pal = theme::pal(ui);
         let view = self.scope_view;
         let end = self.strip_end_s();
-        let profiles = self.profiles_at(end).profiles;
-        let Some(live) = &self.live else {
-            ui.label(
-                RichText::new("Listen to a watch or open a recording to see its sound here.")
-                    .color(pal.text_tertiary),
-            );
+        let shown = self.profiles_at(end);
+        // Masked out where the profile says so, by the same rule.
+        if let (true, Some(line)) = (shown.masked, &shown.line) {
+            return no_sound_line(ui, line);
+        }
+        let profiles = shown.profiles;
+        let Some(live) = self.live.as_ref().filter(|_| !self.no_sound) else {
+            let words = if self.live.is_none() {
+                "Listen to a watch or open a recording to see its sound here."
+            } else {
+                "This take's sound was removed, so there is no waveform to show."
+            };
+            ui.label(RichText::new(words).color(pal.text_tertiary));
             return;
         };
-        if self.no_sound {
-            ui.label(
-                RichText::new("This take's sound was removed, so there is no waveform to show.")
-                    .color(pal.text_tertiary),
-            );
-            return;
-        }
         // One Beat follows the watch's beat rate, 28,800 bph until known.
         let beat_s = 3600.0 / f64::from(live.bph().unwrap_or(28_800).max(1));
         let split = view.zoom.split();
