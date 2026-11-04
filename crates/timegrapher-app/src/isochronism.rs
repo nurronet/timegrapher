@@ -4,6 +4,7 @@
 //! Nothing is computed here: the curve comes ready made with the report.
 
 use crate::marks;
+use crate::strength::{self, Grid, Strength};
 use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_plot::{Line, Plot, Points, VLine};
@@ -93,7 +94,13 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32) {
         .collect();
     let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
     let h = (h - lane).max(40.0);
-    let resp = chart_plot(h, x_bounds, y_bounds).show(ui, |p| {
+    let grid = Grid::new(
+        |g| theme::even_grid(g, 80.0, &[]),
+        |g| theme::even_grid(g, 24.0, &[]),
+    )
+    .zero_y();
+    let resp = chart_plot(&grid, h, x_bounds, y_bounds).show(ui, |p| {
+        grid.draw(p, pal);
         chart_items(p, c, curve, pal);
         if inside {
             p.add(marks::InsideNames {
@@ -151,9 +158,10 @@ fn curve_and_bounds(c: &IsochronismCurve) -> Option<(Vec<[f64; 2]>, Span, Span)>
     Some((curve, (a_lo - a_pad, a_hi + a_pad), (lo - pad, hi + pad)))
 }
 
-/// The chart's plot, fixed in place, `h` high over the given bounds.
-fn chart_plot(h: f32, (x_lo, x_hi): Span, (y_lo, y_hi): Span) -> Plot<'static> {
-    Plot::new("isochronism")
+/// The chart's plot, fixed in place, `h` high over the given bounds, on
+/// `grid`.
+fn chart_plot(grid: &Grid, h: f32, (x_lo, x_hi): Span, (y_lo, y_hi): Span) -> Plot<'static> {
+    grid.on(Plot::new("isochronism"))
         .allow_scroll(false)
         .allow_zoom(false)
         .allow_drag(false)
@@ -164,11 +172,9 @@ fn chart_plot(h: f32, (x_lo, x_hi): Span, (y_lo, y_hi): Span) -> Plot<'static> {
         .show_y(false)
         .y_axis_min_width(GUTTER)
         .height(h)
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
         .x_axis_formatter(|m, r| {
             theme::clear_of_right_edge(format!("{:.0}°", m.value), m.value, r, 0.03)
         })
-        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(|m, _| rate_label(m.value, m.step_size))
         .default_x_bounds(x_lo, x_hi)
         .default_y_bounds(y_lo, y_hi)
@@ -189,10 +195,14 @@ fn chart_items(
                 vec![[b.amplitude_deg, b.rate_q25], [b.amplitude_deg, b.rate_q75]],
             )
             .color(colour)
-            .width(1.2_f32),
+            .width(strength::DATA_W),
         );
     }
-    p.line(Line::new("curve", curve).color(colour).width(1.2_f32));
+    p.line(
+        Line::new("curve", curve)
+            .color(colour)
+            .width(strength::DATA_W),
+    );
     p.points(
         Points::new(
             "median",
@@ -205,11 +215,8 @@ fn chart_items(
         .radius(3.0_f32),
     );
     if let Some(t) = c.turn_deg {
-        p.vline(
-            VLine::new("turn", t)
-                .color(pal.text_secondary)
-                .width(1.0_f32),
-        );
+        let s = strength::stroke(Strength::CallOut, pal);
+        p.vline(VLine::new("turn", t).color(s.color).width(s.width));
     }
 }
 

@@ -1,6 +1,7 @@
 //! The Distributions pane: how each reading's values spread over the take.
 
 use super::*;
+use crate::strength::{self, Grid, Strength};
 
 /// The width kept for the shares up the side of a distribution's plot.
 const SIDE_AXIS_W: f32 = 44.0;
@@ -135,7 +136,6 @@ impl TimegrapherApp {
             .allow_double_click_reset(false)
             .show_x(false)
             .show_y(false)
-            .x_grid_spacer(|g| theme::even_grid(g, 80.0, &[]))
             .x_axis_formatter(move |m, r| {
                 let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
                 theme::clear_of_ends(format!("{v}{unit_owned}"), m.value, r, plot_w)
@@ -266,7 +266,9 @@ fn cumulative_plot(
         }
         pts.push([x, q * 100.0]);
     }
-    plot.y_grid_spacer(|g| theme::even_grid(g, 30.0, &[]))
+    let pal = theme::pal(ui);
+    let grid = Grid::new(value_grid, |g| theme::even_grid(g, 30.0, &[]));
+    grid.on(plot)
         .y_axis_formatter(|m, _| {
             if m.value < -1e-9 || m.value > 100.0 + 1e-9 {
                 String::new()
@@ -276,6 +278,7 @@ fn cumulative_plot(
         })
         .default_y_bounds(0.0, 100.0)
         .show(ui, |p| {
+            grid.draw(p, pal);
             p.line(
                 Line::new("share at or below", pts)
                     .color(color)
@@ -310,7 +313,7 @@ fn probability_paper(
             [l.centre + l.spread * z_top, z_top],
         ]
     });
-    plot.y_grid_spacer(move |g| {
+    let grid = Grid::new(value_grid, move |g: egui_plot::GridInput| {
         // From 50% outwards, leaving out a share whose label would crowd
         // the one before it.
         let px = 8.0 / g.base_step_size;
@@ -328,28 +331,38 @@ fn probability_paper(
                 step_size: 1.0,
             })
             .collect()
-    })
-    .y_axis_formatter(|m, _| {
-        PROBABILITY_MARKS
-            .iter()
-            .find(|&&(pc, _)| (hist::normal_quantile(pc / 100.0) - m.value).abs() < 1e-6)
-            .map_or(String::new(), |&(_, label)| label.to_string())
-    })
-    .default_y_bounds(-z_top, z_top)
-    .show(ui, |p| {
-        if let Some(l) = line {
-            p.line(
-                Line::new("one steady state", l)
-                    .color(pal.text_tertiary)
-                    .style(LineStyle::dashed_loose())
-                    .width(1.0_f32),
-            );
-        }
-        p.points(
-            Points::new("values", pts)
-                .color(color)
-                .radius(1.6_f32)
-                .filled(true),
-        );
     });
+    grid.on(plot)
+        .y_axis_formatter(|m, _| {
+            PROBABILITY_MARKS
+                .iter()
+                .find(|&&(pc, _)| (hist::normal_quantile(pc / 100.0) - m.value).abs() < 1e-6)
+                .map_or(String::new(), |&(_, label)| label.to_string())
+        })
+        .default_y_bounds(-z_top, z_top)
+        .show(ui, |p| {
+            grid.draw(p, pal);
+            // The line one steady state would follow: a call-out, dashed.
+            if let Some(l) = line {
+                let s = strength::stroke(Strength::CallOut, pal);
+                p.line(
+                    Line::new("one steady state", l)
+                        .color(s.color)
+                        .style(LineStyle::dashed_loose())
+                        .width(s.width),
+                );
+            }
+            p.points(
+                Points::new("values", pts)
+                    .color(color)
+                    .radius(1.6_f32)
+                    .filled(true),
+            );
+        });
+}
+
+/// A distribution's value axis: every grid line and label alike, at
+/// least 80 points apart.
+fn value_grid(g: egui_plot::GridInput) -> Vec<GridMark> {
+    theme::even_grid(g, 80.0, &[])
 }
