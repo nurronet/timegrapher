@@ -869,21 +869,14 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
   return g.ticks.map((v) => [v, fmt(v, g.step)]);
 }
 
-// core steady_views::chance_label: a whole score as the chance it stands
-// for, 1 in 10 to the score; held to core by score_ticks.test.cjs.
-function chanceLabel(score) {
-  const k = Math.max(0, Math.round(score));
-  if (k <= 6) return `1 in ${Math.pow(10, k).toLocaleString("en-US")}`;
-  return `1 in 10${String(k).split("").map((c) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[+c]).join("")}`;
-}
-
 // core steady_views::score_ticks: whole scores from 1 up, on a round step
-// of at least 1, at least `minPx` apart, each written as its chance.
+// of at least 1, at least `minPx` apart, written as axisLabel writes them;
+// held to core by score_ticks.test.cjs.
 function scoreTicks(lo, hi, px, minPx) {
   if (!(hi > lo)) return [];
   const step = roundStep(Math.max(1, (hi - lo) / Math.max(1, px / minPx)));
   const out = [];
-  for (let k = Math.ceil(Math.max(lo, 1) / step - 1e-9); k * step <= hi + 1e-9; k++) out.push([k * step, chanceLabel(k * step)]);
+  for (let k = Math.ceil(Math.max(lo, 1) / step - 1e-9); k * step <= hi + 1e-9; k++) out.push([k * step, axisLabel(k * step, step)]);
   return out;
 }
 
@@ -1375,8 +1368,8 @@ function steadyPlot(s, view, doc) {
       const raw = p.period_s.map((t, i) => [t > 0 ? Math.log10(t) : NaN, p.score[i]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
       const span = doc.period_span || [Math.min(...raw.map((q) => q[0])), Math.max(...raw.map((q) => q[0]))];
       if (!(span[1] > span[0])) return steadyNote("The period search needs a longer session.");
-      // A score is −log10 of a chance, so it is drawn as it is, and its
-      // ticks are written as the chances (core steady_views::score_ticks).
+      // A score is −log10 of a chance under the search's noise model, so
+      // it is drawn as it is, in whole scores (core steady_views::score_ticks).
       const tallest = Math.max(p.threshold, ...raw.map((q) => q[1]));
       const pts = raw;
       const y = [0, tallest * 1.15];

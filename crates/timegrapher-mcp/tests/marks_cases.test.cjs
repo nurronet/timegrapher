@@ -164,8 +164,8 @@ test("a note keeps clear of the Ljung–Box note in the corner", () => {
 });
 
 test("a named line across a plot is named right of it, with its hover, and the y axis can carry one", () => {
-  const svg = context.xyChart({ x: [0, 1], y: [0, 5], xTicks: () => [], yTicks: () => [[1, "1 in 10"], [2, "1 in 100"]],
-    yHover: "Chance that noise alone makes a peak this tall at this period.",
+  const svg = context.xyChart({ x: [0, 1], y: [0, 5], xTicks: () => [], yTicks: () => [[1, "1"], [2, "2"]],
+    yHover: "Score: how far a peak stands above the noise expected at its period.",
     hlines: [{ y: 3, color: "--callout", width: 1.2, dash: "loose", name: "Threshold", hover: "Peaks above this line are named as periods." }],
     lines: [{ pts: [[0, 1], [1, 4]], color: "--rate" }] });
   // The plot gives up its right edge to the lane, and the name sits in it.
@@ -175,5 +175,5 @@ test("a named line across a plot is named right of it, with its hover, and the y
   assert.ok(name, svg);
   assert.ok(+name[1] > right, "named right of the plot");
   assert.match(svg, /stroke-dasharray="6 5"/);
-  assert.match(svg, /<g><title>Chance that noise alone makes a peak this tall at this period.<\/title><text[^>]*>1 in 10<\/text><text[^>]*>1 in 100<\/text><\/g>/);
+  assert.match(svg, /<g><title>Score: how far a peak stands above the noise expected at its period.<\/title><text[^>]*>1<\/text><text[^>]*>2<\/text><\/g>/);
 });

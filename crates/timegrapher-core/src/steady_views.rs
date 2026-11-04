@@ -327,52 +327,53 @@ pub fn reference_hover(label: &str) -> String {
     format!("Reference period, {label}. This calibre's wheels aren't known.")
 }
 
-/// The Periods plot's score axis (#1065, Norm and Hugh): a period's
-/// score is −log10 of the chance of a peak that tall from noise alone at
-/// that one period ([`Search::score`]), so the axis is linear in the score
-/// and its ticks are written as those chances. No title: the ticks say it,
-/// and this is the axis' hover.
-pub const SCORE_AXIS_HOVER: &str = "Chance that noise alone makes a peak this tall at this period.";
+/// The Periods plot's score axis (#1065, Norm): a period's score is
+/// −log10 of the chance of a peak that tall at that one period under the
+/// search's AR(1) noise model ([`Search::score`]), with no allowance for the
+/// many periods tried. Where the model doesn't fit it can be far off, so the
+/// axis is the score itself, in plain whole numbers, and this hover says what
+/// it is. No title.
+pub const SCORE_AXIS_HOVER: &str = "Score: how far a peak stands above the noise expected at its period. If the noise is as expected, a score of 3 means noise alone would reach it there 1 time in 1,000. Many periods are tried, so only peaks above the Threshold are named.";
 /// The name of the line a period's score must pass to be named
 /// ([`Search::threshold`]), beside the plot.
 pub const THRESHOLD_NAME: &str = "Threshold";
-/// That line's hover: with the trials correction in it, noise alone puts a
-/// peak above it somewhere in the whole search with the search's chance of
-/// a false alarm ([`LongConfig::false_alarm`], 1 in 100 by default).
+/// One series' search crossed its threshold about 1 time in this many on
+/// seeded white and AR(1) noise, the noise its model fits: 3 to 3.5% in
+/// Percy's #916 grid (400 seeds a cell), about 3× the design rate.
+pub const MEASURED_CROSSING_IN: u32 = 33;
+/// …and up to 1 time in this many on 30 min takes with a slow wander under
+/// white noise, lag one ρ 0.5 to 0.8 (9 to 10%, the same grid), the case
+/// [`longterm::period_may_be_noise`] names.
+pub const SHORT_CORRELATED_CROSSING_IN: u32 = 10;
+
+/// That line's hover (Norm, worded by Hugh): the model's search-wide rate,
+/// the search's [`LongConfig::false_alarm`] (1 in 100 by default), and the
+/// rates measured on seeded noise, so it agrees with `period_may_be_noise`.
 pub fn threshold_hover(false_alarm: f64) -> String {
-    let chance = chance_label(-false_alarm.log10());
-    format!("Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about {chance} times.")
+    let n = thousands((1.0 / false_alarm).round() as u64);
+    format!(
+        "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in {n}. \
+         On test noise it was crossed about 1 time in {MEASURED_CROSSING_IN}, and up to 1 time in {SHORT_CORRELATED_CROSSING_IN} on short takes with correlated readings. \
+         The more periods searched, the higher the line."
+    )
 }
 
-/// A whole score as the chance it stands for: 1 in 10 to the score, with
-/// thousands separators up to a million ("1 in 1,000") and as a power of
-/// ten above ("1 in 10⁷").
-pub fn chance_label(score: f64) -> String {
-    let k = score.round().max(0.0) as u32;
-    if k <= 6 {
-        let digits = 10u64.pow(k).to_string();
-        let mut out = String::new();
-        for (i, c) in digits.chars().enumerate() {
-            if i > 0 && (digits.len() - i).is_multiple_of(3) {
-                out.push(',');
-            }
-            out.push(c);
+/// A whole number with thousands separators: "1,000".
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
         }
-        format!("1 in {out}")
-    } else {
-        const SUP: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
-        let power: String = k
-            .to_string()
-            .chars()
-            .map(|c| SUP[c.to_digit(10).unwrap_or(0) as usize])
-            .collect();
-        format!("1 in 10{power}")
+        out.push(c);
     }
+    out
 }
 
 /// The ticks of a score axis from `lo` to `hi`, `px` tall, at least
 /// `min_px` apart: whole scores from 1 up, on a [`chart_scale::round_step`]
-/// of at least 1, each with its [`chance_label`].
+/// of at least 1, written as [`chart_scale::axis_number`] writes them.
 pub fn score_ticks(lo: f64, hi: f64, px: f64, min_px: f64) -> Vec<(f64, String)> {
     if hi.partial_cmp(&lo) != Some(std::cmp::Ordering::Greater) {
         return Vec::new();
@@ -383,7 +384,7 @@ pub fn score_ticks(lo: f64, hi: f64, px: f64, min_px: f64) -> Vec<(f64, String)>
     (first..)
         .map(|k| k as f64 * step)
         .take_while(|v| *v <= hi + 1e-9)
-        .map(|v| (v, chance_label(v)))
+        .map(|v| (v, chart_scale::axis_number(v, step)))
         .collect()
 }
 
@@ -529,7 +530,7 @@ pub fn views(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_score_axis_is_marked_in_chances_at_whole_scores() {
+    fn a_score_axis_is_marked_at_whole_scores() {
         // The MCP view's scoreTicks reads the same cases (score_ticks.test.cjs).
         let cases: Vec<serde_json::Value> =
             serde_json::from_str(include_str!("../tests/fixtures/score_ticks.json")).unwrap();
@@ -543,15 +544,13 @@ mod tests {
                 "{c}"
             );
         }
-        assert_eq!(super::chance_label(0.0), "1 in 1");
-        assert_eq!(super::chance_label(3.0), "1 in 1,000");
-        assert_eq!(super::chance_label(6.0), "1 in 1,000,000");
-        assert_eq!(super::chance_label(12.0), "1 in 10¹²");
         assert_eq!(
             super::threshold_hover(super::LongConfig::default().false_alarm),
-            "Peaks above this line are named as periods. Noise alone would put a peak above it somewhere in the search about 1 in 100 times."
+            "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in 100. \
+             On test noise it was crossed about 1 time in 33, and up to 1 time in 10 on short takes with correlated readings. \
+             The more periods searched, the higher the line."
         );
-        assert!(super::threshold_hover(0.001).contains("about 1 in 1,000 times"));
+        assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));
     }
 
     #[test]

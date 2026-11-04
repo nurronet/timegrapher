@@ -13,12 +13,12 @@ function definition(name, optional = false) {
 // The Periods plot's words, as the server puts them in from core steady_views.rs.
 const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
 const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
-// The threshold's hover is core's threshold_hover at the default 1 in 100;
-// views.rs's test checks the page carries it.
+// The threshold's hover is core's threshold_hover, which views.rs's test
+// checks the page carries; here a stand-in.
 const SCORE_WORDS = { axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"),
-  threshold_hover: viewsRs.match(/pub fn threshold_hover[\s\S]*?format!\("([^"]*)"\)/)[1].replace("{chance}", "1 in 100") };
+  threshold_hover: "Peaks above this line are named." };
 const context = vm.createContext({
-  SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 in 10 (${lo}..${hi})`]],
+  SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 (${lo}..${hi})`]],
   fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], wheelTitle: String,
   xyChart: (chart) => { context.last = JSON.parse(JSON.stringify(chart)); return "<svg data-test='FFT'></svg>"; },
 });
@@ -67,17 +67,17 @@ test("malformed support cannot claim complete FFT input", () => {
   }
 });
 
-test("the Periods score is drawn as it is, marked in chances, with its threshold named in core's words", () => {
+test("the Periods score is drawn as it is, in whole scores, with its threshold named in core's words", () => {
   const views = { search: { period_s: [100, 99, 98, 97, 90], score: [1, 9, 0.5, 2, 1], threshold: 3 } };
   context.steadyPlot({ series: "rate", views }, "periods", { period_span: [1.9, 2.1] });
   const c = context.last;
   // No log or dB: the points are the scores.
   assert.deepEqual(c.lines[0].pts.map(([, y]) => y), [1, 9, 0.5, 2, 1]);
   assert.deepEqual(c.y, [0, 9 * 1.15]);
-  assert.equal(c.yHover, "Chance that noise alone makes a peak this tall at this period.");
+  assert.equal(c.yHover, SCORE_WORDS.axis_hover);
+  assert.ok(c.yHover.includes("If the noise is as expected"), "a chance only under the model");
   assert.deepEqual(c.hlines.map((h) => [h.y, h.name, h.hover, h.dash]),
     [[3, "Threshold", SCORE_WORDS.threshold_hover, "loose"]]);
-  assert.ok(SCORE_WORDS.threshold_hover.includes("1 in 100"));
 });
 
 test("the Periods label sits on its line's top, not a thinned slice's low point", () => {

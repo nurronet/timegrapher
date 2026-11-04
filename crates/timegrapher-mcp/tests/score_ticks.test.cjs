@@ -1,4 +1,4 @@
-// The view's Periods axis (scoreTicks, chanceLabel) against core
+// The view's Periods axis (scoreTicks) against core
 // steady_views::score_ticks, by the fixture core's own test reads (#1065).
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -16,7 +16,7 @@ const definition = (name) => {
   return match[0];
 };
 const context = vm.createContext({});
-vm.runInContext(["roundStep", "chanceLabel", "scoreTicks"].map(definition).join("\n"), context);
+vm.runInContext(["roundStep", "axisLabel", "scoreTicks"].map(definition).join("\n"), context);
 
 test("the fixture has cases", () => assert.ok(cases.length > 0));
 for (const c of cases) {
@@ -25,9 +25,3 @@ for (const c of cases) {
   });
 }
 
-test("a chance is written as core writes it", () => {
-  assert.equal(context.chanceLabel(0), "1 in 1");
-  assert.equal(context.chanceLabel(3), "1 in 1,000");
-  assert.equal(context.chanceLabel(6), "1 in 1,000,000");
-  assert.equal(context.chanceLabel(12), "1 in 10¹²");
-});
