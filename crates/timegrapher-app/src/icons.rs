@@ -93,7 +93,7 @@ const ALL: [Icon; 79] = [
 /// The drawing behind each icon, with the pun it makes.
 #[expect(
     clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
+    reason = "one arm per icon, each its SVG data: the match is how the compiler checks every Icon has a drawing (#514)"
 )]
 fn drawing(icon: Icon) -> &'static str {
     match icon {
