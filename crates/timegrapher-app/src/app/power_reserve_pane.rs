@@ -339,17 +339,29 @@ impl TimegrapherApp {
     /// reads it as a run ([`power_reserve::from_long_take`]: six hours or
     /// more of the watch heard, in one position), the pane shows that run
     /// as it shows a test's, saying where it came from. Nothing is written
-    /// into the take, and the pane stays where it is.
+    /// into the take, and the pane stays where it is. Read here and now,
+    /// as the tests read it; the window reads it in the background
+    /// ([`Self::long_reserve_shown`], #1014).
+    #[cfg(test)]
     pub(super) fn reserve_from_long_take(&mut self) {
-        if self.reserve.is_some() {
-            return;
+        if let Some(read) = self.long_take_reader() {
+            self.reserve = read();
         }
-        let Some(log) = self.live.as_ref().and_then(steady::log_of) else {
-            return;
-        };
-        let fit = self.reading_clock(log.duration_s);
-        let breaks = self.reading_breaks(&log);
-        let codes: Vec<&str> = self
+    }
+
+    /// The reading of [`Self::reserve_from_long_take`], ready to run here
+    /// or in the background: none when the pane already has a test or
+    /// there is no take.
+    pub(super) fn long_take_reader(
+        &self,
+    ) -> Option<impl FnOnce() -> Option<reserve::Test> + Send + 'static> {
+        if self.reserve.is_some() {
+            return None;
+        }
+        let live = self.live.clone()?;
+        let (take_clock, opened) = (self.take_clock.clone(), self.take_breaks.is_some());
+        let (ppm, take_breaks) = (self.clock.as_ref().map(|c| c.ppm), self.take_breaks.clone());
+        let codes: Vec<&'static str> = self
             .session
             .stretches()
             .iter()
@@ -360,22 +372,26 @@ impl TimegrapherApp {
         } else {
             codes
         };
-        let Some(r) = power_reserve::from_long_take(
-            &log,
-            fit.as_ref(),
-            &breaks,
-            &self.masked,
-            &codes,
-            "",
-            !self.no_sound,
-        ) else {
-            return;
-        };
-        let position = Position::from_name(&r.position).unwrap_or(self.position);
-        let mut t = reserve::Test::new(position, r.sound_kept, String::new(), 0.0);
-        t.ending = Some(r.ending);
-        t.results = Some(r);
-        self.reserve = Some(t);
+        let (masked, position, sound) = (self.masked.clone(), self.position, !self.no_sound);
+        Some(move || {
+            let log = steady::log_of(&live)?;
+            let fit = reading_clock(take_clock.as_ref(), opened, ppm, log.duration_s);
+            let breaks = steady::reading_breaks(take_breaks.unwrap_or_default(), &log);
+            let r = power_reserve::from_long_take(
+                &log,
+                fit.as_ref(),
+                &breaks,
+                &masked,
+                &codes,
+                "",
+                sound,
+            )?;
+            let position = Position::from_name(&r.position).unwrap_or(position);
+            let mut t = reserve::Test::new(position, r.sound_kept, String::new(), 0.0);
+            t.ending = Some(r.ending);
+            t.results = Some(r);
+            Some(t)
+        })
     }
 
     /// The test has ended: stop listening, keep the take in the watch's

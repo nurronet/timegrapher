@@ -22,10 +22,10 @@ fn esc(s: &str) -> String {
 }
 
 /// About five round tick values covering `lo..hi`, labelled: core's
-/// round step (`chart_scale::round_step`), written as every axis writes a
+/// grid step (`chart_scale::step_for`), written as every axis writes a
 /// value of that step (`chart_scale::axis_number`).
 fn ticks(lo: f64, hi: f64) -> Vec<(f64, String)> {
-    let step = chart_scale::round_step((hi - lo).max(1e-12) / 5.0);
+    let step = chart_scale::step_for(hi - lo);
     let mut v = Vec::new();
     let mut k = (lo / step - 1e-9).ceil();
     while k * step <= hi + 1e-9 * step {

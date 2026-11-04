@@ -26,11 +26,6 @@ const MR: f64 = 16.0;
 const MT: f64 = 14.0;
 const MB: f64 = 44.0;
 
-/// The grid step for `span`: core's round step for about five steps.
-fn nice_step(span: f64) -> f64 {
-    timegrapher_core::chart_scale::round_step(span.max(1e-9) / 5.0)
-}
-
 struct Series<'a> {
     class: &'a str,
     label: &'a str,
@@ -71,7 +66,7 @@ fn position_chart(unit: &str, series: &[Series], zero: bool) -> String {
     let hi = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let pad = ((hi - lo) * 0.08).max(5.0);
     let (lo, hi) = (lo - pad, hi + pad);
-    let step = nice_step(hi - lo);
+    let step = timegrapher_core::chart_scale::step_for(hi - lo);
     let (lo, hi) = ((lo / step).floor() * step, (hi / step).ceil() * step);
     let pw = W - ML - MR;
     let f = Frame {

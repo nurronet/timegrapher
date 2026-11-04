@@ -6,7 +6,7 @@
     "crates/timegrapher-app/src/app.rs": {
      "bounds": 7,
      "comparisons": 6,
-     "constants": 17,
+     "constants": 16,
      "defaults": 0
     },
     "crates/timegrapher-app/src/app/distributions.rs": {
@@ -73,6 +73,12 @@
      "bounds": 2,
      "comparisons": 4,
      "constants": 0,
+     "defaults": 0
+    },
+    "crates/timegrapher-app/src/app/take_reads.rs": {
+     "bounds": 0,
+     "comparisons": 0,
+     "constants": 1,
      "defaults": 0
     },
     "crates/timegrapher-app/src/app/watches_pane.rs": {
@@ -284,7 +290,7 @@
      "defaults": 0
     },
     "crates/timegrapher-cli/src/report.rs": {
-     "bounds": 4,
+     "bounds": 3,
      "comparisons": 4,
      "constants": 6,
      "defaults": 0
@@ -296,7 +302,7 @@
      "defaults": 1
     },
     "crates/timegrapher-cli/src/session_report.rs": {
-     "bounds": 3,
+     "bounds": 2,
      "comparisons": 2,
      "constants": 6,
      "defaults": 0
@@ -309,7 +315,7 @@
     }
    },
    "total": {
-    "bounds": 12,
+    "bounds": 10,
     "comparisons": 18,
     "constants": 17,
     "defaults": 26
@@ -345,6 +351,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 4692
+  "crates/timegrapher-app/src/app.rs": 4648
  }
 }
