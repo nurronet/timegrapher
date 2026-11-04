@@ -83,6 +83,21 @@ fn a_reading_follows_what_it_is_read_from() {
     assert!((after - want).abs() < 0.01, "{after} vs fresh {want}");
     assert!((after - before).abs() > 1.0, "{before} -> {after}");
     assert!(library::kept_reading(&dir).is_some(), "kept again");
+    // Audit: engine identity. A reading kept by other code of the same
+    // version (here the version alone, as older builds kept it) is read
+    // again, not reused.
+    let kept = root.join("config").join(library::READINGS_FILE);
+    let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&kept).unwrap()).unwrap();
+    for k in json.as_object_mut().unwrap().values_mut() {
+        k["outside"]["engine"] = env!("CARGO_PKG_VERSION").into();
+    }
+    fs::write(&kept, serde_json::to_vec(&json).unwrap()).unwrap();
+    assert!(
+        library::kept_reading(&dir).is_none(),
+        "a reading kept by another engine of the same version was reused"
+    );
+    library::reading(&dir).unwrap();
+    assert!(library::kept_reading(&dir).is_some(), "kept by this engine");
     // And one gone is said, not read from what was kept.
     fs::remove_file(&clock).unwrap();
     assert!(
