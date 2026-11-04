@@ -144,11 +144,14 @@ test("each figure takes the decimals the server gives with its ±", () => {
   assert.equal(value(based, "Rate"), `+${(9).toFixed(BASE_DIGITS.rate)}`);
   assert.equal(value(based, "Amplitude"), (269.63).toFixed(BASE_DIGITS.amplitude));
   assert.equal(value(based, "Beat Error"), (0.4123).toFixed(BASE_DIGITS.beat_error));
-  const pm = { rate: "0.007", amplitude: "0.4", digits: { rate: 3, amplitude: 1, beat_error: 2 } };
+  const pm = { rate: "0.007", amplitude: "0.4", beat_error: "0.004", digits: { rate: 3, amplitude: 1, beat_error: 3 } };
   const fine = context.recordingView(doc, null, null, null, pm);
   assert.equal(value(fine, "Rate"), "+9.000");
   assert.ok(fine.includes("± 0.007 seconds per day"), fine);
   assert.equal(value(fine, "Amplitude"), "269.6");
+  // The beat error's ± is shown beside it, as the text the agent reads.
+  assert.equal(value(fine, "Beat Error"), "0.412");
+  assert.ok(fine.includes("± 0.004 milliseconds"), fine);
   // A take's readings each take their own.
   const take = context.recordingView(listed([reading("DU", 5), reading("DD", -3)]), null, null, null,
     { readings: [{ rate: "0.04", digits: { rate: 2 } }, { rate: "1.5" }] });

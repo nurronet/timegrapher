@@ -81,9 +81,12 @@ struct Check {
     /// The stretch read, seconds from the start of the take.
     from_s: f64,
     to_s: f64,
+    /// Whether a regular beat is heard over the stretch read (over the
+    /// whole take when nothing is read).
     watch_heard: bool,
-    /// The median timing scatter of the beats over the whole take, and
-    /// that as a share of the beat: 2% or more is no regular beat.
+    /// The median timing scatter of the beats over the stretch read (over
+    /// the whole take when it gives none), and that as a share of the
+    /// beat: 2% or more is no regular beat.
     timing_scatter_ms: Option<f64>,
     timing_scatter_fraction: Option<f64>,
     bph: u32,
@@ -849,14 +852,20 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
     let check = |from_s: f64, to_s: f64, bph: u32, m: Option<&session::Measurement>| {
         let heard = whole.watch_heard && m.is_some_and(|m| m.watch_heard);
         let beats_found = m.map_or(0, |m| m.beats);
+        // The scatter of the stretch read, with its breaks and masks, as
+        // `session` gives it; over the whole take when that stretch gives
+        // none (nothing read once settled, or too short for a window).
+        let scatter_us = m.and_then(|m| m.jitter_us).or(whole.jitter_us);
+        // Whether a regular beat is heard, from the same stretch.
+        let watch_heard = m.map_or(whole.watch_heard, |m| m.watch_heard);
         let m = m.filter(|_| heard);
         Check {
             bph_set: set.bph,
             from_s,
             to_s,
-            watch_heard: whole.watch_heard,
-            timing_scatter_ms: whole.jitter_us.map(|j| j / 1000.0),
-            timing_scatter_fraction: beats::timing_scatter_fraction(whole.jitter_us, bph),
+            watch_heard,
+            timing_scatter_ms: scatter_us.map(|j| j / 1000.0),
+            timing_scatter_fraction: beats::timing_scatter_fraction(scatter_us, bph),
             bph,
             beats_found,
             beats_expected: beats::expected_beats(to_s - from_s, bph).round() as usize,
