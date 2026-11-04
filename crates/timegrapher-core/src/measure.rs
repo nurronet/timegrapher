@@ -434,12 +434,7 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
-            Caveat::PeriodMayBeNoise { rho, span_s } => format!(
-                "On a take this short with its 2 s windows this correlated (ρ {rho:.2} from \
-                 one to the next, over {:.0} min), the period search names a cycle in noise \
-                 alone about 1 time in 10, not 1 in 33: this cycle may be noise.",
-                span_s / 60.0
-            ),
+            Caveat::PeriodMayBeNoise { rho, span_s } => may_be_noise_text(*rho, *span_s),
         })
     }
 
@@ -509,6 +504,16 @@ impl From<crate::clock::SourcesDisagree> for Caveat {
             against: d.against,
         }
     }
+}
+
+/// [`Caveat::PeriodMayBeNoise`] as a sentence.
+fn may_be_noise_text(rho: f64, span_s: f64) -> String {
+    format!(
+        "On a take this short with its 2 s windows this correlated (ρ {rho:.2} from one to \
+         the next, over {:.0} min), the period search names a cycle in noise alone about 1 \
+         time in 10, not 1 in 33: this cycle may be noise.",
+        span_s / 60.0
+    )
 }
 
 fn plural(n: usize) -> &'static str {
