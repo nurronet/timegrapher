@@ -16,8 +16,8 @@ pub fn is_svg(path: &Path) -> bool {
 }
 
 /// The save dialog for a pane's picture, starting in `dir` with the pane's
-/// name. A name typed without an extension is saved as a PNG.
-pub fn ask_path(title: &str, dir: Option<&Path>) -> Option<PathBuf> {
+/// name.
+pub fn dialog(title: &str, dir: Option<&Path>) -> rfd::FileDialog {
     let mut d = rfd::FileDialog::new()
         .set_title(format!("Export {title}"))
         .add_filter("PNG Picture", &["png", "PNG"])
@@ -26,12 +26,17 @@ pub fn ask_path(title: &str, dir: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = dir.filter(|d| d.is_dir()) {
         d = d.set_directory(dir);
     }
-    let p = d.save_file()?;
-    Some(if p.extension().is_none() {
+    d
+}
+
+/// Where a picture is saved: a name typed without an extension is saved
+/// as a PNG.
+pub fn png_unless_named(p: PathBuf) -> PathBuf {
+    if p.extension().is_none() {
         p.with_extension("png")
     } else {
         p
-    })
+    }
 }
 
 /// The part of a screenshot under `rect`, in points at `pixels_per_point`.

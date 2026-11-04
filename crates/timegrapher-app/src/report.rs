@@ -156,6 +156,8 @@ pub struct ReportDialog {
     saving: Option<Receiver<Saved>>,
     result: Option<Saved>,
     save_dir: Option<PathBuf>,
+    /// Save Report… was pressed: the app asks where ([`Self::save_asked`]).
+    save_ask: bool,
 }
 
 impl ReportDialog {
@@ -364,7 +366,7 @@ impl ReportDialog {
                     DialogButton::new(Role::Cancel, "Cancel", ""),
                 ];
                 match theme::dialog_buttons_right(ui, &buttons) {
-                    Some(0) => self.save(),
+                    Some(0) => self.save_ask = true,
                     Some(_) => self.close(),
                     None => {}
                 }
@@ -604,9 +606,13 @@ impl ReportDialog {
         );
     }
 
-    fn save(&mut self) {
-        let created = recorder::utc(SystemTime::now());
-        let stamp: String = created
+    /// The dialog asking where to save the report, once Save Report… has
+    /// been pressed; the app shows it and hands the place to [`Self::save_to`].
+    pub fn save_asked(&mut self) -> Option<rfd::FileDialog> {
+        if !std::mem::take(&mut self.save_ask) {
+            return None;
+        }
+        let stamp: String = recorder::utc(SystemTime::now())
             .chars()
             .filter(|c| c.is_ascii_digit() || *c == 'T')
             .take(15)
@@ -618,7 +624,12 @@ impl ReportDialog {
         if let Some(dir) = self.save_dir.clone().or_else(dirs_download) {
             d = d.set_directory(dir);
         }
-        let Some(zip) = d.save_file() else { return };
+        Some(d)
+    }
+
+    /// Save the report as `zip`, on a thread of its own.
+    pub fn save_to(&mut self, zip: PathBuf) {
+        let created = recorder::utc(SystemTime::now());
         self.save_dir = zip.parent().map(Path::to_path_buf);
         let sound = match (&self.clip, self.has_sound()) {
             (Some(Ok(c)), true) => Some(Excerpt {

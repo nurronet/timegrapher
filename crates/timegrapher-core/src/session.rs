@@ -305,6 +305,8 @@ pub struct Measurement {
     /// error from the unlock rest on those windows.
     pub amplitude_windows: usize,
     pub unlock_coverage: Option<f64>,
+    /// Per-figure nominal and measured windows within kept time.
+    pub coverage: crate::confidence::FigureCoverage,
     /// Whether amplitude (from the 2 s windows) and rate (from 10 s
     /// readings) sit at two levels the watch switches between.
     pub amplitude_states: TwoState,
@@ -451,7 +453,12 @@ pub fn stretch_windows<'w>(
 /// to exactly one of two stretches that meet (#632). The one rule for
 /// which windows a stretch takes.
 pub fn window_in(w: &AmplitudeWindow, from_s: f64, to_s: f64) -> bool {
-    let mid = (w.start_s + w.end_s) / 2.0;
+    window_span_in(w.start_s, w.end_s, from_s, to_s)
+}
+
+/// Midpoint membership for measured and nominal amplitude windows alike.
+fn window_span_in(start: f64, end: f64, from_s: f64, to_s: f64) -> bool {
+    let mid = (start + end) / 2.0;
     mid >= from_s && mid < to_s
 }
 
@@ -486,6 +493,11 @@ pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
+/// Rate and timing-scatter fits use ten seconds to collect enough beats.
+const RATE_WINDOW_S: f64 = 10.0;
+/// Half-window spacing keeps the existing overlapping rate-reading grid.
+const RATE_WINDOW_STEP_S: f64 = 5.0;
+
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
 pub fn scatter_windows(
@@ -496,7 +508,15 @@ pub fn scatter_windows(
     to_s: f64,
     part_s: f64,
 ) -> Vec<WindowFit> {
-    holes.windows(beats, bph, from_s, to_s, 10.0, 5.0, part_s)
+    holes.windows(
+        beats,
+        bph,
+        from_s,
+        to_s,
+        RATE_WINDOW_S,
+        RATE_WINDOW_STEP_S,
+        part_s,
+    )
 }
 
 /// The timing scatter a stretch is judged on for whether a watch is
@@ -786,6 +806,7 @@ pub fn measure_masked(
         rate_p95: percentile(&rates, 0.95),
         amplitude_p05: percentile(&amps, 0.05),
         amplitude_p95: percentile(&amps, 0.95),
+        coverage: Default::default(),
         amplitude_windows: amp.len(),
         unlock_coverage: (!amp.is_empty()).then(|| {
             amp.iter()
@@ -875,6 +896,34 @@ pub fn measure_masked(
     }
     m.beat_error_source =
         chosen_beat_error(m.beat_error_unlock_ms, m.beat_error_ms).map(|(_, source)| source);
+    m.coverage = reading_coverage(
+        log,
+        &holes,
+        &beats,
+        &windows,
+        &amp,
+        from_s,
+        to_s,
+        m.beat_error_source,
+    );
+    if m.watch_heard {
+        for (reading, coverage) in [
+            (crate::confidence::Figure::Rate, m.coverage.rate),
+            (crate::confidence::Figure::Amplitude, m.coverage.amplitude),
+            (crate::confidence::Figure::BeatError, m.coverage.beat_error),
+        ] {
+            if coverage.is_thin() {
+                crate::measure::add(
+                    &mut m.caveats,
+                    crate::measure::Caveat::ReadingWindows {
+                        reading,
+                        windows_used: coverage.windows_used,
+                        windows_in_span: coverage.windows_in_span,
+                    },
+                );
+            }
+        }
+    }
     if let Some(caveat) = m.beat_error_source.and_then(BeatErrorSource::caveat) {
         crate::measure::add(&mut m.caveats, caveat);
     }
@@ -2091,5 +2140,163 @@ mod beat_error_source_tests {
     #[test]
     fn unheard_unlock_uses_drop_with_a_factual_caveat() {
         check(synth::unlock_unheard(30.0, 0.8), "drop");
+    }
+}
+
+/// Count the same grids and cut membership used by the selected figures.
+#[allow(clippy::too_many_arguments)]
+fn reading_coverage(
+    log: &BeatLog,
+    holes: &Cuts,
+    beats: &[Beat],
+    rate: &[WindowFit],
+    amp: &[&AmplitudeWindow],
+    from: f64,
+    to: f64,
+    source: Option<BeatErrorSource>,
+) -> crate::confidence::FigureCoverage {
+    use crate::confidence::{Coverage, FigureCoverage};
+    let rate_total = beats.first().map_or(0, |b| {
+        crate::clean::nominal_windows(
+            b.time,
+            holes.true_time(to),
+            RATE_WINDOW_S,
+            RATE_WINDOW_STEP_S,
+        )
+        .filter(|&(a, b)| holes.clear(a, b))
+        .count()
+    });
+    let part = window_part_s(&log.amplitude_windows);
+    let amp_total = crate::clean::nominal_windows(0.0, log.duration_s, part, part)
+        .filter(|&(a, b)| window_span_in(a, b, from, to))
+        .filter(|&(a, b)| holes.clear(holes.true_time(a), holes.true_time(b)))
+        .count();
+    FigureCoverage {
+        rate: Coverage {
+            windows_used: rate.len(),
+            windows_in_span: rate_total,
+        },
+        amplitude: Coverage {
+            windows_used: amp.iter().filter(|w| w.mean().is_some()).count(),
+            windows_in_span: amp_total,
+        },
+        beat_error: Coverage {
+            windows_used: amp
+                .iter()
+                .filter(|w| match source {
+                    Some(BeatErrorSource::Unlock) => w.beat_error_unlock_ms.is_some(),
+                    Some(BeatErrorSource::Drop) => w.beat_error_ms.is_some(),
+                    None => false,
+                })
+                .count(),
+            windows_in_span: amp_total,
+        },
+    }
+}
+
+#[cfg(test)]
+mod reading_coverage_tests {
+    use super::*;
+
+    fn log() -> BeatLog {
+        let cfg = crate::synth::SynthConfig {
+            duration_s: 60.0,
+            seed: 645,
+            ..Default::default()
+        };
+        let audio = crate::synth::generate(&cfg, |_| 270.0, |_| 0.0);
+        let mut log =
+            crate::stream::analyze_samples(&audio.samples, audio.sample_rate, &Default::default());
+        // Exact beat spacing makes both sides of a mask use the same rate grid.
+        for (i, beat) in log.beats.iter_mut().enumerate() {
+            beat.time = i as f64 * 3600.0 / log.bph as f64;
+            beat.index = i as i64;
+        }
+        for w in &mut log.amplitude_windows {
+            w.even_deg = Some(270.0);
+            w.odd_deg = Some(270.0);
+            w.beat_error_unlock_ms = Some(0.4);
+        }
+        log
+    }
+
+    fn thin(log: &mut BeatLog, keep: usize) {
+        for w in log.amplitude_windows.iter_mut().skip(keep) {
+            w.even_deg = None;
+            w.odd_deg = None;
+            w.beat_error_unlock_ms = None;
+        }
+    }
+
+    #[test]
+    fn missing_measurements_count_against_window_coverage() {
+        let mut log = log();
+        thin(&mut log, 5);
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.coverage.amplitude.windows_used, 5);
+        assert_eq!(m.coverage.amplitude.windows_in_span, 30);
+        assert!(m.caveats.iter().any(|c| matches!(c,
+            crate::measure::Caveat::ReadingWindows { reading, windows_used: 5, windows_in_span: 30 }
+                if *reading == crate::confidence::Figure::Amplitude)));
+    }
+
+    #[test]
+    fn two_measured_windows_have_no_uncertainty() {
+        let mut log = log();
+        thin(&mut log, 2);
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.coverage.amplitude.windows_used, 2);
+        let c = m.confidence.unwrap();
+        assert_eq!(c.amplitude.se, None);
+        assert_eq!(c.beat_error.se, None);
+    }
+
+    #[test]
+    fn full_window_coverage_has_no_thin_caveat() {
+        let log = log();
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.coverage.amplitude.windows_used, 30);
+        assert_eq!(m.coverage.amplitude.windows_in_span, 30);
+        assert_eq!(
+            m.coverage.rate.windows_used,
+            m.coverage.rate.windows_in_span
+        );
+        assert_eq!(
+            m.coverage.beat_error.windows_used,
+            m.coverage.beat_error.windows_in_span
+        );
+        assert!(m.confidence.unwrap().amplitude.se.is_some());
+        assert!(!m
+            .caveats
+            .iter()
+            .any(|c| matches!(c, crate::measure::Caveat::ReadingWindows { .. })));
+    }
+
+    #[test]
+    fn mask_coverage_counts_only_the_kept_stretches() {
+        let log = log();
+        let masked = measure_masked(&log, None, &[], &[(20.0, 40.0)], 0.0, 60.0);
+        let a = measure(&log, None, 0.0, 20.0);
+        let b = measure(&log, None, 40.0, 60.0);
+        for (whole, first, last) in [
+            (masked.coverage.rate, a.coverage.rate, b.coverage.rate),
+            (
+                masked.coverage.amplitude,
+                a.coverage.amplitude,
+                b.coverage.amplitude,
+            ),
+            (
+                masked.coverage.beat_error,
+                a.coverage.beat_error,
+                b.coverage.beat_error,
+            ),
+        ] {
+            assert_eq!(
+                whole.windows_in_span,
+                first.windows_in_span + last.windows_in_span
+            );
+            assert_eq!(whole.windows_used, first.windows_used + last.windows_used);
+        }
+        assert_eq!(masked.coverage.amplitude.windows_in_span, 20);
     }
 }

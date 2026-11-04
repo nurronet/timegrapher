@@ -222,6 +222,13 @@ pub fn median(v: &mut [f64]) -> f64 {
     middle(v, f64::total_cmp).map_or(f64::NAN, |(lo, hi)| if odd { hi } else { 0.5 * (lo + hi) })
 }
 
+/// [`median`] of the finite values `v` gives; `None` when there are none
+/// (#512).
+pub fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
+    let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
+    (!w.is_empty()).then(|| median(&mut w))
+}
+
 /// How many times the variance of their mean a [`median`] of `k`
 /// independent normal values has: its variance is `c(k)·σ²/k`. Exact normal order
 /// statistics for k ≤ 10, by integration (an even count averages the two

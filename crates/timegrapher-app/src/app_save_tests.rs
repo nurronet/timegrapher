@@ -800,3 +800,46 @@ fn opening_a_recording_asks_before_unsaved_sound_goes() {
     assert!(!app.mic_session_set_aside());
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A file dialog is shown once the frame has let the app go, so the
+/// listening thread can take the sound in while it is open (#483). What
+/// was picked comes back to the app, a cancel does nothing, and a second
+/// dialog isn't asked for while one waits.
+#[test]
+fn a_file_dialog_lets_listening_carry_on_while_it_is_open() {
+    let dir = std::env::temp_dir().join(format!("tg-app-pick-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("table.csv");
+    let mut app = synthetic(2.0, 0.0);
+    app.save_text_as(rfd::FileDialog::new(), "the table", "a,b\n".into());
+    // Only the first is kept: this one's text is never written.
+    app.save_text_as(rfd::FileDialog::new(), "another", "c,d\n".into());
+    assert!(app.picking());
+    let app = std::sync::Mutex::new(app);
+    let shown = crate::pick::answer(&app, |_, pick| {
+        assert_eq!(pick, Pick::Save);
+        assert!(
+            app.try_lock().is_ok(),
+            "the app is held while the dialog is open"
+        );
+        vec![path.clone()]
+    });
+    assert!(shown);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a,b\n");
+    let mut app = app.into_inner().unwrap();
+    assert!(app
+        .message
+        .as_ref()
+        .is_some_and(|(m, error)| !*error && m.contains("Saved the table to")));
+    assert!(!app.picking());
+    // Cancelled: nothing written, nothing said.
+    app.message = None;
+    app.save_text_as(rfd::FileDialog::new(), "the table", "e,f\n".into());
+    let app = std::sync::Mutex::new(app);
+    assert!(crate::pick::answer(&app, |_, _| Vec::new()));
+    assert!(!crate::pick::answer(&app, |_, _| unreachable!()));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "a,b\n");
+    assert!(app.into_inner().unwrap().message.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}

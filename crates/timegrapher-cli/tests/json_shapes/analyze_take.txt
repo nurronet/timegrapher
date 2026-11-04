@@ -152,6 +152,16 @@ take.readings[].measurement.confidence.beat_error
 take.readings[].measurement.confidence.beat_error.se
 take.readings[].measurement.confidence.rate
 take.readings[].measurement.confidence.rate.se
+take.readings[].measurement.coverage
+take.readings[].measurement.coverage.amplitude
+take.readings[].measurement.coverage.amplitude.windows_in_span
+take.readings[].measurement.coverage.amplitude.windows_used
+take.readings[].measurement.coverage.beat_error
+take.readings[].measurement.coverage.beat_error.windows_in_span
+take.readings[].measurement.coverage.beat_error.windows_used
+take.readings[].measurement.coverage.rate
+take.readings[].measurement.coverage.rate.windows_in_span
+take.readings[].measurement.coverage.rate.windows_used
 take.readings[].measurement.end_s
 take.readings[].measurement.jitter_us
 take.readings[].measurement.rate_p05
