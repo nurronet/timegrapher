@@ -816,3 +816,28 @@ fn a_recent_gap_in_the_sound_kept_shows_none() {
     assert!(kept_sound(&h, 20.0).is_none());
     assert_eq!(kept_sound(&h, 31.0).map(|e| e.0), Some(30.0));
 }
+
+/// A reading card's sparkline reads the card's own figure each second over
+/// the last minute, the figure itself last, and a second look from the
+/// seconds it kept gives the same (Reading Card Sparklines).
+#[test]
+fn a_cards_sparkline_is_its_figure_over_the_last_minute() {
+    let ctx = themed();
+    let app = synthetic(90.0, 20.0);
+    let r = app.reading().expect("a reading");
+    let pts = app.spark_trend(&ctx, &r);
+    let last = pts.last().expect("points");
+    assert_eq!(last.t, r.time_s);
+    assert_eq!(last.rate_s_per_day, r.rate_s_per_day);
+    assert!(pts.len() >= 59 && pts.len() <= 61, "{}", pts.len());
+    assert!(
+        pts.first().unwrap().t > r.time_s - 61.0,
+        "{:?}",
+        pts.first()
+    );
+    let rates: Vec<f64> = pts.iter().filter_map(|p| p.rate_s_per_day).collect();
+    assert!(rates.len() > 40, "{rates:?}");
+    assert!(rates.iter().all(|v| (v - 20.0).abs() < 2.0), "{rates:?}");
+    // Read again, the kept seconds give the same points.
+    assert_eq!(app.spark_trend(&ctx, &r), pts);
+}
