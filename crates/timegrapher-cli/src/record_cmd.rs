@@ -1143,7 +1143,7 @@ mod tests {
         assert_eq!(times.len(), values.len());
         for i in 0..times.len() - 1 {
             let original = (times[i].as_f64().unwrap() * 100.0).round() as usize;
-            let (value, source) = if original % 2 == 0 {
+            let (value, source) = if original.is_multiple_of(2) {
                 (0.2, "unlock")
             } else {
                 (0.8, "drop")
