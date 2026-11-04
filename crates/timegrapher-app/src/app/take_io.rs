@@ -38,7 +38,7 @@ impl TimegrapherApp {
     /// Seconds of beats the tick and tock sound covers: the averaging time,
     /// so it describes the same beats as the readings, up to the engine's
     /// limit.
-    fn sound_span(&self) -> f64 {
+    pub(super) fn sound_span(&self) -> f64 {
         profile_span(self.average_s)
     }
 
@@ -1945,7 +1945,11 @@ impl TimegrapherApp {
                 .last()
                 .is_none_or(|h| r.time_s - h.0 >= SOUND_EVERY_S);
             if due && p.iter().any(Option::is_some) {
-                self.sound_history.push((r.time_s, p.clone()));
+                let kept = scope_panes::Kept {
+                    span_s: profile_span(self.average_s),
+                    sides: p.clone(),
+                };
+                self.sound_history.push((r.time_s, kept));
                 scope_panes::thin_sound(&mut self.sound_history);
             }
         }
@@ -2168,7 +2172,19 @@ impl TimegrapherApp {
                     // A take with no sound shows the profiles it kept,
                     // thinned as listening thins them (#483).
                     if let Some(k) = profiles {
-                        self.sound_history = k.into_iter().map(|p| (p.end_s, p.sides)).collect();
+                        let span_s = timegrapher_core::analysis_take::PROFILE_EVERY_S;
+                        self.sound_history = k
+                            .into_iter()
+                            .map(|p| {
+                                (
+                                    p.end_s,
+                                    scope_panes::Kept {
+                                        span_s,
+                                        sides: p.sides,
+                                    },
+                                )
+                            })
+                            .collect();
                         scope_panes::thin_sound(&mut self.sound_history);
                     }
                 }
