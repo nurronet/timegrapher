@@ -1870,11 +1870,12 @@ impl TimegrapherApp {
         let said = match l {
             Live::Break(_) => Some(break_text(gap, false)),
             Live::Dropped(_) => Some(break_text(gap, true)),
+            Live::Glitch => Some(timegrapher_core::breaks::GLITCH_TEXT.to_string()),
             Live::Block(_) | Live::Cut => None,
         };
         let b = match l {
             Live::Block(b) => b,
-            Live::Break(_) | Live::Dropped(_) | Live::Cut => {
+            Live::Break(_) | Live::Dropped(_) | Live::Cut | Live::Glitch => {
                 // The computer slept or the input stalled: carry on, as
                 // after a pause, with the time between out.
                 if let Ok(Err(e)) = self.session.pause(live.duration_s()) {
@@ -2022,6 +2023,16 @@ impl TimegrapherApp {
                     .gaps
                     .get_or_insert_with(|| GapWatch::new(rate))
                     .lost(frames);
+                (lives, false, None)
+            }
+            // A glitch the input carries on after (#1046): a break, never
+            // a stop.
+            Ok(Event::Glitch) => {
+                let rate = self.live.as_ref().map_or(1, |l| l.sample_rate());
+                let lives = self
+                    .gaps
+                    .get_or_insert_with(|| GapWatch::new(rate))
+                    .glitch();
                 (lives, false, None)
             }
             Ok(Event::Error(e)) if is_file => (Vec::new(), false, stopped(&e)),

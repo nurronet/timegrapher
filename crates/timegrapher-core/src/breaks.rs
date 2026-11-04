@@ -86,6 +86,13 @@ pub enum Live {
     /// queue full ([`crate::capture::Event::Lost`]): a break as
     /// [`Live::Break`] is, however short, told apart only to say why.
     Dropped(f64),
+    /// The input glitched here ([`crate::capture::Event::Glitch`]): a
+    /// buffer underrun or overrun, after which it carried on. A moment of
+    /// sound may be missing, of a length not known, so it is a break of no
+    /// time lost: the sound either side is never read across. A loss of
+    /// [`MIN_GAP_S`] or more still shows in the offset after it and is
+    /// found as a [`Live::Break`] (#1046).
+    Glitch,
     /// The end of sound culled after a [`Live::Break`]: a break with no
     /// time lost. The blocks between the two came late, all together,
     /// after the gap (an input waking from a suspend brings the sound it
@@ -101,7 +108,7 @@ impl Live {
     pub fn lost_s(&self) -> f64 {
         match self {
             Live::Break(gap) | Live::Dropped(gap) => *gap,
-            Live::Block(_) | Live::Cut => 0.0,
+            Live::Block(_) | Live::Cut | Live::Glitch => 0.0,
         }
     }
 }
@@ -121,6 +128,10 @@ pub fn lost_text(gap_s: f64) -> String {
         crate::library::length_text(gap_s)
     }
 }
+
+/// What the app and `record` both say at a [`Live::Glitch`].
+pub const GLITCH_TEXT: &str = "The computer fell behind reading this input for a moment, and \
+     some sound may be lost. That moment is left out as a break, and listening carries on.";
 
 /// Audio seconds after a rise in a live input's offset that are held back
 /// before judging it, or the rise itself when it is shorter: longer than
@@ -149,9 +160,41 @@ pub struct GapWatch {
     frames: u64,
     /// The offset at the clock log's last line, and that block's arrival.
     line: Option<(f64, SystemTime)>,
-    /// Blocks held back after a rise, with their offsets and the audio
-    /// seconds by their end.
-    held: Vec<(Block, f64, f64)>,
+    /// What is held back after a rise, in stream order (#1048).
+    held: Vec<Held>,
+    /// A [`Live::Glitch`] given back, with no block since: another before
+    /// the next block is the same moment, not a second break.
+    glitched: bool,
+}
+
+/// What [`GapWatch`] holds back after a rise, in stream order: a block,
+/// with its offset and the audio seconds by its end, or a break the input
+/// told of ([`Live::Dropped`], [`Live::Glitch`]) with the audio second it
+/// came at. A told break waits in place, so the rise before it is judged
+/// on the blocks after it as on any others: its backlog is still culled,
+/// and the sound either side of the jump is never spliced.
+#[derive(Debug)]
+enum Held {
+    Block(Block, f64, f64),
+    Told(Live, f64),
+}
+
+impl Held {
+    /// The audio second it starts at.
+    fn start_s(&self, rate: f64) -> f64 {
+        match self {
+            Held::Block(b, _, end_s) => end_s - b.samples.len() as f64 / rate,
+            Held::Told(_, at_s) => *at_s,
+        }
+    }
+
+    /// A block's offset and the audio seconds by its end.
+    fn block(&self) -> Option<(f64, f64)> {
+        match self {
+            Held::Block(_, off, end_s) => Some((*off, *end_s)),
+            Held::Told(..) => None,
+        }
+    }
 }
 
 impl GapWatch {
@@ -161,11 +204,13 @@ impl GapWatch {
             frames: 0,
             line: None,
             held: Vec::new(),
+            glitched: false,
         }
     }
 
     /// Take the next block; give back what can be let through now.
     pub fn push(&mut self, b: Block) -> Vec<Live> {
+        self.glitched = false;
         self.frames += b.samples.len() as u64;
         let end_s = self.frames as f64 / self.rate;
         let at =
@@ -177,17 +222,32 @@ impl GapWatch {
     }
 
     /// The input dropped `frames` of sound here ([`crate::capture::Event::Lost`]):
-    /// what was held back is let through, then [`Live::Dropped`],
-    /// so the sound either side is never spliced. The lost frames count as
-    /// audio, so the offset after them doesn't rise and the same loss isn't
-    /// found again as a gap.
+    /// a [`Live::Dropped`] in its place among the blocks, so the sound
+    /// either side is never spliced. The lost frames count as audio, so
+    /// the offset after them doesn't rise and the same loss isn't found
+    /// again as a gap.
     pub fn lost(&mut self, frames: u64) -> Vec<Live> {
-        let mut out = self.finish();
+        let mut out = Vec::new();
         if frames > 0 {
+            let at_s = self.frames as f64 / self.rate;
             self.frames += frames;
-            out.push(Live::Dropped(frames as f64 / self.rate));
-            // The recorder logs the first block after a break.
-            self.line = None;
+            self.told(Live::Dropped(frames as f64 / self.rate), at_s, &mut out);
+        }
+        out
+    }
+
+    /// The input glitched here ([`crate::capture::Event::Glitch`]): a
+    /// [`Live::Glitch`] in its place among the blocks, so the sound either
+    /// side is never spliced. Its loss isn't known: the frames counted
+    /// stay as they are, and a step of [`MIN_GAP_S`] or more in the offset
+    /// after it is still found as a gap. Glitches with no block between
+    /// are one.
+    pub fn glitch(&mut self) -> Vec<Live> {
+        let mut out = Vec::new();
+        if !self.glitched {
+            self.glitched = true;
+            let at_s = self.frames as f64 / self.rate;
+            self.told(Live::Glitch, at_s, &mut out);
         }
         out
     }
@@ -200,6 +260,24 @@ impl GapWatch {
             self.settle(&mut out);
         }
         out
+    }
+
+    /// A break the input told of: given back now, or held in its place
+    /// behind the blocks held after a rise.
+    fn told(&mut self, l: Live, at_s: f64, out: &mut Vec<Live>) {
+        if self.held.is_empty() {
+            self.give(l, out);
+        } else {
+            self.held.push(Held::Told(l, at_s));
+        }
+    }
+
+    fn give(&mut self, l: Live, out: &mut Vec<Live>) {
+        if matches!(l, Live::Dropped(_)) {
+            // The recorder logs the first block after a break.
+            self.line = None;
+        }
+        out.push(l);
     }
 
     fn let_through(&mut self, b: Block, off: f64, end_s: f64, out: &mut Vec<Live>) {
@@ -215,27 +293,32 @@ impl GapWatch {
             self.let_through(b, off, end_s, out);
             return;
         }
-        self.held.push((b, off, end_s));
+        self.held.push(Held::Block(b, off, end_s));
         // Held until the blocks cover the rise (or HOLD_S), so a backlog
         // has come, and then HELD_ENTRIES more to judge it on.
-        let rise = self.held[0].1 - line.unwrap_or(off);
-        let start_s = self.held[0].2 - self.held[0].0.samples.len() as f64 / self.rate;
-        let covered = self
-            .held
-            .iter()
-            .position(|h| h.2 - start_s >= rise.min(HOLD_S) - 1e-9);
-        if covered.is_some_and(|j| self.held.len() > j + HELD_ENTRIES) {
+        let rate = self.rate;
+        let blocks: Vec<&Held> = self.held.iter().filter(|h| h.block().is_some()).collect();
+        let (first_off, _) = blocks[0].block().expect("a held block");
+        let rise = first_off - line.unwrap_or(off);
+        let start_s = blocks[0].start_s(rate);
+        let covered = blocks.iter().position(|h| {
+            h.block()
+                .is_some_and(|(_, e)| e - start_s >= rise.min(HOLD_S) - 1e-9)
+        });
+        if covered.is_some_and(|j| blocks.len() > j + HELD_ENTRIES) {
             self.settle(out);
         }
     }
 
     /// Judge the first held block's rise on the last blocks held, let it
-    /// through, and take the rest again in order.
+    /// through, and take the rest again in order. What is held always
+    /// starts with a block: a told break comes back at once when nothing
+    /// is held.
     fn settle(&mut self, out: &mut Vec<Live>) {
         let held = std::mem::take(&mut self.held);
-        let line = self.line.map_or(held[0].1, |l| l.0);
-        let step = held[0].1 - line;
-        let offs: Vec<f64> = held.iter().map(|h| h.1).collect();
+        let offs: Vec<f64> = held.iter().filter_map(|h| h.block().map(|b| b.0)).collect();
+        let line = self.line.map_or(offs[0], |l| l.0);
+        let step = offs[0] - line;
         let kept = held_step(line, &offs[offs.len().saturating_sub(HELD_ENTRIES)..]);
         let mut rest = held.into_iter().peekable();
         if let Some(gap) = kept_gap(step, kept) {
@@ -244,27 +327,37 @@ impl GapWatch {
             self.line = None;
             // What the first late block rose by beyond the gap is sound
             // from before the gap that came late after it: with it, the
-            // backlog.
-            let first_end = rest.peek().expect("a held block").2;
+            // backlog, and any break told of within it.
+            let first_end = rest.peek().and_then(Held::block).expect("a held block").1;
             let backlog_end = backlog_s(step, gap).map(|b| first_end + b);
             let rate = self.rate;
             let mut culled = false;
-            while let Some((b, off, end_s)) = rest.next_if(|h| {
-                backlog_end.is_some_and(|e| h.2 - h.0.samples.len() as f64 / rate < e - 1e-6)
-            }) {
-                self.let_through(b, off, end_s, out);
-                culled = true;
+            while let Some(h) =
+                rest.next_if(|h| backlog_end.is_some_and(|e| h.start_s(rate) < e - 1e-6))
+            {
+                culled |= h.block().is_some();
+                self.pass(h, out);
             }
             if culled {
                 out.push(Live::Cut);
                 self.line = None;
             }
         } else {
-            let (first, off, end_s) = rest.next().expect("a held block");
-            self.let_through(first, off, end_s, out);
+            let first = rest.next().expect("a held block");
+            self.pass(first, out);
         }
-        for (b, off, end_s) in rest {
-            self.take(b, off, end_s, out);
+        for h in rest {
+            match h {
+                Held::Block(b, off, end_s) => self.take(b, off, end_s, out),
+                Held::Told(l, at_s) => self.told(l, at_s, out),
+            }
+        }
+    }
+
+    fn pass(&mut self, h: Held, out: &mut Vec<Live>) {
+        match h {
+            Held::Block(b, off, end_s) => self.let_through(b, off, end_s, out),
+            Held::Told(l, _) => self.give(l, out),
         }
     }
 }
@@ -675,6 +768,7 @@ mod tests {
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                     Live::Cut => found.push((blocks, -1.0)),
+                    Live::Glitch => panic!("no glitch, but one"),
                 }
             }
             assert_eq!(blocks, 200);
@@ -719,6 +813,99 @@ mod tests {
             run(&|k| 0.1 * (k + 1) as f64 + if k >= 198 { 2.0 } else { 0.0 }),
             &[(198, 2.0)],
         );
+    }
+
+    /// Blocks of 0.1 s at 1 kHz, each arriving at `arrive(k)`, with `tell`
+    /// called before block `at`: (blocks before, what) for each break, the
+    /// gap of a [`Live::Break`], -1 a cut, -2 a glitch, -3 a drop.
+    fn told_run(
+        arrive: &dyn Fn(usize) -> f64,
+        at: usize,
+        tell: &dyn Fn(&mut GapWatch) -> Vec<Live>,
+    ) -> Vec<(usize, f64)> {
+        let t0 = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+        let mut w = GapWatch::new(1_000);
+        let mut out = Vec::new();
+        for k in 0..120 {
+            if k == at {
+                out.extend(tell(&mut w));
+            }
+            out.extend(w.push(Block {
+                samples: vec![k as f32; 100],
+                at: t0 + std::time::Duration::from_secs_f64(arrive(k)),
+            }));
+        }
+        out.extend(w.finish());
+        let mut blocks = 0;
+        let mut found = Vec::new();
+        for l in out {
+            match l {
+                Live::Block(b) => {
+                    assert_eq!(b.samples[0], blocks as f32);
+                    blocks += 1;
+                }
+                Live::Break(g) => found.push((blocks, (g * 100.0).round() / 100.0)),
+                Live::Cut => found.push((blocks, -1.0)),
+                Live::Glitch => found.push((blocks, -2.0)),
+                Live::Dropped(_) => found.push((blocks, -3.0)),
+            }
+        }
+        assert_eq!(blocks, 120);
+        found
+    }
+
+    /// A break the input tells of while blocks are held after a rise
+    /// waits in its place: the rise is judged as without it, its backlog
+    /// still culled, so the sound either side of the jump is never
+    /// spliced (#1048). A 10 s suspend before block 50, and blocks 50 to
+    /// 69 a backlog of sound from before it that comes all at once on
+    /// waking.
+    #[test]
+    fn a_told_break_waits_in_place_behind_held_blocks() {
+        let arrive = |k: usize| match k {
+            0..50 => 0.1 * (k + 1) as f64,
+            50..70 => 17.0,
+            _ => 0.1 * (k + 1) as f64 + 10.0,
+        };
+        let glitch = |w: &mut GapWatch| w.glitch();
+        assert_eq!(
+            told_run(&arrive, usize::MAX, &glitch),
+            [(50, 10.0), (70, -1.0)]
+        );
+        for (at, want) in [
+            (30, vec![(30, -2.0), (50, 10.0), (70, -1.0)]),
+            (52, vec![(50, 10.0), (52, -2.0), (70, -1.0)]),
+            (60, vec![(50, 10.0), (60, -2.0), (70, -1.0)]),
+            (72, vec![(50, 10.0), (70, -1.0), (72, -2.0)]),
+        ] {
+            assert_eq!(told_run(&arrive, at, &glitch), want, "a glitch at {at}");
+        }
+        // A drop the same: it counts as audio, so the gap after it is
+        // what it is less the drop.
+        for (at, want) in [
+            (52, vec![(50, 9.9), (52, -3.0), (70, -1.0)]),
+            (60, vec![(50, 9.9), (60, -3.0), (70, -1.0)]),
+        ] {
+            let lose = |w: &mut GapWatch| w.lost(100);
+            assert_eq!(told_run(&arrive, at, &lose), want, "a drop at {at}");
+        }
+    }
+
+    /// Behind blocks held after a small rise that is no break (one block
+    /// 1.5 s late), a glitch comes out after the blocks before it and
+    /// before those after; two with no block between are one.
+    #[test]
+    fn a_glitch_behind_a_late_block_keeps_its_place_and_two_are_one() {
+        let arrive = |k: usize| 0.1 * (k + 1) as f64 + if k == 80 { 1.5 } else { 0.0 };
+        let once = |w: &mut GapWatch| w.glitch();
+        assert_eq!(told_run(&arrive, 82, &once), [(82, -2.0)]);
+        let twice = |w: &mut GapWatch| {
+            let mut out = w.glitch();
+            out.extend(w.glitch());
+            out
+        };
+        assert_eq!(told_run(&arrive, 82, &twice), [(82, -2.0)]);
+        assert_eq!(told_run(&arrive, 30, &twice), [(30, -2.0)]);
     }
 
     /// The shifts run on over the gaps, each rounded to whole tick-tock
@@ -850,6 +1037,7 @@ mod tests {
                         Live::Break(g) => found.push((out_at.len(), g)),
                         Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
                         Live::Cut => panic!("no backlog, but a cut"),
+                        Live::Glitch => panic!("no glitch, but one"),
                     }
                 }
             }
@@ -924,6 +1112,7 @@ mod tests {
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => dropped.push((blocks, g)),
                     Live::Cut => panic!("no backlog, but a cut"),
+                    Live::Glitch => panic!("no glitch, but one"),
                 }
             }
             assert_eq!(blocks, 100);

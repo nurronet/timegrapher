@@ -197,6 +197,7 @@ fn drain_replay_source(app: &TimegrapherApp) -> usize {
             Event::End => return samples,
             Event::Error(e) => panic!("{e}"),
             Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
+            Event::Glitch => panic!("a file never glitches"),
         }
     }
 }
