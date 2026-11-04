@@ -189,6 +189,12 @@
      "constants": 0,
      "defaults": 0
     },
+    "crates/timegrapher-app/src/sparkline.rs": {
+     "bounds": 0,
+     "comparisons": 0,
+     "constants": 4,
+     "defaults": 0
+    },
     "crates/timegrapher-app/src/steady.rs": {
      "bounds": 8,
      "comparisons": 9,
@@ -223,7 +229,7 @@
    "total": {
     "bounds": 105,
     "comparisons": 108,
-    "constants": 54,
+    "constants": 58,
     "defaults": 2
    }
   },
@@ -306,7 +312,7 @@
     "bounds": 12,
     "comparisons": 18,
     "constants": 17,
-    "defaults": 27
+    "defaults": 26
    }
   },
   "timegrapher-mcp": {

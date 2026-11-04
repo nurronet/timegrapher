@@ -38,6 +38,7 @@ mod session;
 mod settings;
 mod settings_window;
 mod span;
+mod sparkline;
 mod steady;
 mod strength;
 mod strip;

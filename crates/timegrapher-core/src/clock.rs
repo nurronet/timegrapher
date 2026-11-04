@@ -813,6 +813,30 @@ impl ClockFit {
             .count()
     }
 
+    /// A break with no gap at the end of each break's backlog the log
+    /// shows ([`breaks::backlog_s`]): the log's first entry after the step
+    /// rose more than the entries after it keep ([`breaks::held_step`]),
+    /// so the sound up to that excess past it came late from before the
+    /// gap. Read on the log's own offsets, as [`breaks::GapWatch`] reads
+    /// the blocks'.
+    pub fn backlog_cuts(&self) -> Vec<Break> {
+        let off = |q: &(f64, f64)| q.1 - q.0;
+        self.entry_before
+            .iter()
+            .filter_map(|&e| {
+                let j = self.entries.iter().position(|q| q.0 > e + 1e-6)?;
+                let before = off(self.entries[..j].last()?);
+                let later: Vec<f64> = self.entries[j..].iter().map(off).collect();
+                let rise = later[0] - before;
+                let kept = breaks::held_step(before, &later).min(rise);
+                breaks::backlog_s(rise, kept).map(|excess| Break {
+                    audio_s: self.entries[j].0 + excess,
+                    gap_s: 0.0,
+                })
+            })
+            .collect()
+    }
+
     /// The audio seconds of the log's first entry after `e`, or `e` when
     /// there is none.
     fn entry_after(&self, e: f64) -> f64 {
@@ -1800,6 +1824,36 @@ unix_s,frames
         assert_eq!(at, [150.0, 300.0], "{:?}", fit.breaks);
         assert!((fit.breaks[1].gap_s - 0.2).abs() < 1e-3, "{:?}", fit.breaks);
         assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+    }
+
+    #[test]
+    fn a_backlogs_cut_is_kept_unless_a_listed_break_is_that_cut() {
+        // A 60 s gap at 150 s whose first line rose 0.3 s more than the
+        // lines after it keep: a backlog, cut at 150.3 s. A listed break
+        // at that second is that cut; another 0.3 s later is not, and
+        // both are kept.
+        let line = |a: f64, off: f64| (a, 1.79e9 + a + off);
+        let mut pairs: Vec<(f64, f64)> = (0..=14).map(|i| line(i as f64 * 10.0, 0.0)).collect();
+        pairs.push(line(150.0, 60.3));
+        pairs.extend((0..15).map(|i| line(160.0 + i as f64 * 10.0, 60.0)));
+        let gap = Break {
+            audio_s: 150.0,
+            gap_s: 60.0,
+        };
+        let cut_at = |audio_s: f64| Break {
+            audio_s,
+            gap_s: 0.0,
+        };
+        let at = |listed: Vec<Break>| -> Vec<f64> {
+            let mut fit = ClockFit::new(&pairs).unwrap();
+            let out = breaks::on_clock(listed, Some(&mut fit));
+            out.iter()
+                .map(|b| (b.audio_s * 1e3).round() / 1e3)
+                .collect()
+        };
+        assert_eq!(at(vec![gap]), [150.0, 150.3]);
+        assert_eq!(at(vec![gap, cut_at(150.3)]), [150.0, 150.3]);
+        assert_eq!(at(vec![gap, cut_at(150.6)]), [150.0, 150.3, 150.6]);
     }
 
     #[test]
