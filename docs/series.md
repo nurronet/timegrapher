@@ -38,8 +38,9 @@ The thresholds are detection thresholds, stated with each test below
 tolerance for a watch.
 
 The p-gated tests across the three series, each one's period search
-lines, its Ljung–Box test and its trend's F test, are one family: a
-line, memory or slide is named only when its own test and Holm's
+lines, its Ljung–Box test, its trend's F test and its CUSUM's test of
+one level (#917), are one family: a line, memory, slide or level change
+is named only when its own test and Holm's
 correction at 0.05 across the family both keep it (#659), so one take's
 several tests do not add up to a false alarm. A peak of the
 autocorrelation carries no p-value, so in the pane it only refines a
@@ -49,7 +50,9 @@ the seeded control scenario it names nothing on 192 takes in 200 (#723).
 On steady takes whose readings follow themselves (AR(1), 100 seeds a
 cell) it names nothing but the correlation on 95 or more from 2 h to
 24 h at ρ 0 to 0.7, and from 8 h at ρ 0.9; on 30 min it names something
-on 8 to 33 in 100, and on 2 h at ρ 0.9 on 11 (#916, #917). `long` (its text,
+on 7, 6 and 30 in 100 at ρ 0, 0.5 and 0.9, and on 2 h at ρ 0.9 on 9
+(#916, #917). A level
+change alone is named on 7 in 100 at 30 min ρ 0.9 and 3 at 2 h (#917). `long` (its text,
 report and summary) and a session's cycles list the same lines: core
 decides the kept set once (`steadiness::hold_to_family`).
 
@@ -135,15 +138,17 @@ For each series:
   within ±1.36 about 95% of the time. A step in the mean bends it into a
   V or a tent. The band is a guide: the corner is marked only where the
   headline names a level change (#697): the change finder below cuts the
-  series, the stretches explain at least a fifth of the variance, and the
-  lead is not a slide. The corner is the cut nearest the CUSUM's largest
+  series, the CUSUM's p (the Kolmogorov tail of its largest excursion,
+  `p_value`) passes 0.01 and Holm's correction (#917), the stretches
+  explain at least a fifth of the variance, and the lead is not a slide. The corner is the cut nearest the CUSUM's largest
   excursion. A step that only the CUSUM shows, that explains under a
   fifth of the variance, or that a line explains nearly as well goes
   unnamed, though the line still bends.
 - **Change points**: 30 s block medians split into stretches of constant
-  mean, at least 5 minutes each. A change is kept only when it is strong
+  mean, at least 5 minutes each. A cut is placed only when it is strong
   evidence against one level: the gain must exceed 3 ln n, and never be
-  less than 15.
+  less than 15. The penalty only places the cuts; whether the level
+  changed is the CUSUM's test, above.
 - **Trend**: a straight line and a quadratic. The quadratic also covers a
   rise followed by a fall. Its p-value is the F test of the quadratic
   against the mean on n(1 − ρ)/(1 + ρ) readings, ρ their lag-one
@@ -449,7 +454,7 @@ Each entry of `series[]`:
 | `autocorrelation` | `lag_s[]`, `r[]` (thinned to about 600 points), `band`, `band_by_lag[]` (the band at each of `lag_s`, 1.96/√pairs from the pairs that lag was read from: wider than `band` where gaps leave fewer pairs; null where none), `ljung_box_q`, `ljung_box_lags`, `p_value`, `max_short_lag_r`, `memory_s`, `repeat_lag_s`, `repeat_r` |
 | `allan` | `tau_s[]`, `deviation[]`, `white[]`, `pairs[]`, `slope_short`, `best_tau_s`, `best_deviation`, `max_excess` (largest deviation over the white line) |
 | `cusum` | `t_s[]`, `s[]` (thinned, scaled by `long_run_sd`), `max`, `at_s`, `at` (the CUSUM there, signed), `p_value`, `band` (1.36: readings with no change of level, correlated or not, stay inside ±band about 95% of the time) and `shift` (the headline names a level change, so the level changes near `at_s`, the change finder's cut nearest `max`; `max` past the band alone does not set it). Without a cut, `at_s` and `at` are where `max` is |
-| `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained`, `named` (whether the headline names the levels: a level change, or the steps of a slide) and `note` (when it does not, why: under the share a level change needs, or not the headline's finding; null when named) |
+| `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained`, `p_value` (the CUSUM's p that the level never moves, before Holm's correction, #917), `named` (whether the headline names the levels: a level change, or the steps of a slide) and `note` (when it does not, why: as for the trend's, "not significant: p …, over the 0.01 a level change needs", "not significant after Holm's correction (p … alone)", under the share a level change needs, or not the headline's finding; null when named) |
 | `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null), `p_value` (the quadratic's F test on the readings' effective count, before Holm's correction), `significant` (whether that test passes `trend_alpha` and Holm's correction), `named` (whether the headline names the trend) and `note` (when it does not, why: "not significant: p …, over the 0.01 a trend needs" when its own test fails, "not significant after Holm's correction (p … alone)" when it passes that but not Holm's correction, under the share a trend needs, or not the headline's finding; null when named). The text output adds the note to the detail row, so a trend or levels row under a headline that names neither says so |
 | `period` | the period search's strongest component (`other_periods_s`: the weaker ones, each also tried as a cycle): `period_s`, `significance` (−log10 false alarm), `explained`, `peak_to_peak` (for the rate, the swing of the rate itself from the slope of the average cycle, which 10 s readings show less of; see [long-runs.md](long-runs.md)), `timing_peak_to_peak_ms` (rate only), `size` and `size_unit` (the figure to show: ms of timing for a rate cycle under 30 s, see [long-runs.md](long-runs.md)), `wheel`, `harmonic_of` and `other_harmonic_of[]` (one per `other_periods_s`): null, or `period_s` and `n` when a longer cycle the search also found is n times this period (n 2 to 8, when n times the longer cycle's frequency is within one resolution, 1/span, of this one's, and only when one n and one longer cycle fit: neighbouring n are 1/q apart, so two can fit only when the longer cycle is over half the span, and then none is told) |
 | `two_state` | the two-state finder's full result (rate and amplitude only) |
