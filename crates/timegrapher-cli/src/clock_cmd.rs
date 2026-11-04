@@ -240,6 +240,8 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
         match cap.rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(Event::Audio(b)) => tr.push(b.samples.len(), b.at),
             Ok(Event::Error(e)) => return Err(format!("the input failed: {e}")),
+            // The fit needs every frame's arrival.
+            Ok(Event::Lost(_)) => return Err(timegrapher_core::capture::LOST_TEXT.into()),
             Ok(Event::End) => break,
             Err(_) => return Err("the input stopped delivering audio".into()),
         }

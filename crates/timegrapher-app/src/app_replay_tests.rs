@@ -196,6 +196,7 @@ fn drain_replay_source(app: &TimegrapherApp) -> usize {
             Event::Audio(b) => samples += b.samples.len(),
             Event::End => return samples,
             Event::Error(e) => panic!("{e}"),
+            Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
         }
     }
 }

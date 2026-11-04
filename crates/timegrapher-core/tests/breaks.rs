@@ -614,6 +614,7 @@ fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64,
                 written += b.samples.len();
                 rec.write(&b).unwrap();
             }
+            breaks::Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
         }
     }
     let files = rec.segment_paths();
