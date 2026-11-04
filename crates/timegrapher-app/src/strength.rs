@@ -41,6 +41,16 @@ pub const CALL_OUT_W: f32 = 1.2;
 /// same grey, thinner.
 pub const FAINT_CALL_OUT_W: f32 = 1.0;
 
+/// The length of a dash, points.
+const DASH: f32 = 6.0;
+
+/// The pattern of a reference or fitted call-out (a threshold, a band, a
+/// state level, a reference period): named marks are solid, sounds and
+/// wheels dotted.
+pub fn dashed() -> egui_plot::LineStyle {
+    egui_plot::LineStyle::Dashed { length: DASH }
+}
+
 /// The colour of a grid, axis or call-out line. Grid and axis are the
 /// text colour see-through, so they keep their strength over a tint such
 /// as the Paper Strip's wash.

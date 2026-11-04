@@ -896,7 +896,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         .show_y(false)
         .y_axis_min_width(64.0)
         .height(ui.available_height().max(40.0));
-    let dashed = LineStyle::Dashed { length: 6.0 };
+    let dashed = strength::dashed();
     let r = Row {
         s,
         i,
@@ -991,12 +991,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         }
         if let Some(levels) = state_levels(c.two_state.as_ref()) {
             for v in levels {
-                p.hline(
-                    HLine::new("state", v)
-                        .color(pal.text)
-                        .style(dashed)
-                        .width(1.0_f32),
-                );
+                p.hline(call_out(HLine::new("state", v), dashed, pal));
             }
         }
     });
@@ -1762,7 +1757,7 @@ pub(crate) fn wheel_lines(wheels: Option<&[Wheel]>, (x_lo, x_hi): (f64, f64)) ->
 }
 
 /// The lines in the plot, under its trace, all call-outs: a wheel's
-/// dotted, a ×2's looser, a reference's solid. Their names are drawn by
+/// dotted, a ×2's looser, a reference period's dashed. Their names are drawn by
 /// [`wheel_names`].
 fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::Palette) {
     for l in lines {
@@ -1772,12 +1767,13 @@ fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::
         p.vline(match l.turn {
             Turn::Wheel => v.style(LineStyle::dotted_dense()),
             Turn::Twice => v.style(LineStyle::dotted_loose()),
-            Turn::Reference => v,
+            Turn::Reference => v.style(strength::dashed()),
         });
     }
 }
 
-/// A threshold or band across a plot: a call-out, dashed.
+/// A reference or fitted line across a plot (a threshold, a band, a
+/// state level): a call-out, dashed.
 fn call_out(h: HLine, dashed: LineStyle, pal: &theme::Palette) -> HLine {
     let s = strength::stroke(Strength::CallOut, pal);
     h.color(s.color).width(s.width).style(dashed)
