@@ -150,6 +150,16 @@ fn record_checks_as_session_reads(root: &Path, t: &EdgeTake, wrong: &mut Vec<Str
             ));
         }
     }
+    // The timing scatter, ms in the check, microseconds in the reading.
+    let scatter_us = c["timing_scatter_ms"].as_f64().map(|ms| ms * 1000.0);
+    if let Some(us) = m["jitter_us"].as_f64() {
+        if scatter_us.is_none_or(|s| (s - us).abs() > 1e-9 * us.abs().max(1.0)) {
+            wrong.push(format!(
+                "{}: timing scatter {scatter_us:?} us from record, {us} from session",
+                t.id
+            ));
+        }
+    }
     // The beat error a reading shows: the unlock's, else the drop's.
     let shown = timegrapher_core::session::beat_error_signed(
         m["beat_error_unlock_ms"].as_f64(),
