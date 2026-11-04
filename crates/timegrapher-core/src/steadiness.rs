@@ -2448,6 +2448,12 @@ pub fn check(
         cfg,
     );
     beat_error::set_provenance(&mut series, &selected_be);
+    for (s, r) in series.iter_mut().skip(1).zip([&long.amplitude, &be_long]) {
+        if let Some(c) = s.period.as_ref().and(longterm::period_may_be_noise(r)) {
+            crate::measure::add(&mut s.caveats, c);
+            s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+        }
+    }
     // An amplitude split one side carries alone is the unlock mark
     // hopping (the two-state finder's direct check): whatever the
     // amplitude and the beat error from the unlock seem to do may be the

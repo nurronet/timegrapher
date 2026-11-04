@@ -238,7 +238,7 @@ fn chart_lines(
 }
 
 /// A reading's chart, linked in time to the others: the wheel zooms time,
-/// a drag pans, and the axes stay put. Its grid, with a zero line on the
+/// a drag pans it, and the scale fits the lines on its own. Its grid, with a zero line on the
 /// rate's (0 s/d).
 fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
     // Short charts still get a label at the top and the bottom: the
@@ -258,8 +258,11 @@ fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
             .link_axis("trend", [true, false])
             .link_cursor("trend", [true, false])
             .allow_scroll(false)
-            .allow_zoom([false, true])
-            // The wheel zooms and a drag pans; the axes stay put.
+            // The wheel zooms time (below) and a drag pans it. The scale
+            // fits the lines on its own, so it neither zooms nor pans: a
+            // zoom would only be put back.
+            .allow_zoom(false)
+            .allow_drag([true, false])
             .allow_axis_zoom_drag(false)
             .allow_boxed_zoom(false))
         .custom_x_axes(vec![egui_plot::AxisHints::new_x()
@@ -350,11 +353,11 @@ fn chart_hover(
         }
         ui.label(
             RichText::new(if running {
-                "Wheel zooms time, Ctrl+wheel the scale, drag pans, \
+                "Wheel zooms time, drag pans it, \
                  click shows that moment on the strip, \
                  double-click follows live again."
             } else {
-                "Wheel zooms time, Ctrl+wheel the scale, drag pans, \
+                "Wheel zooms time, drag pans it, \
                  click shows that moment on the strip, \
                  double-click shows the whole session."
             })

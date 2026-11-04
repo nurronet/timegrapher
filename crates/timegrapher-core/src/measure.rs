@@ -267,6 +267,13 @@ pub enum Caveat {
     /// heard, and are left out of the readings
     /// ([`crate::session::watch_lead_s`], #844).
     LeadLeftOut { seconds: f64 },
+    /// The amplitude's or beat error's period search named a cycle on a
+    /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose 2 s
+    /// windows are correlated at `rho` (lag one, the ρ the search whitens
+    /// by, not the 10 s readings' lag-1 r) of [`crate::longterm::NOISE_CAVEAT_RHO`] or more, over `span_s`:
+    /// there the search names a cycle in noise alone about 1 time in 10
+    /// (#916).
+    PeriodMayBeNoise { rho: f64, span_s: f64 },
 }
 
 impl Caveat {
@@ -323,6 +330,7 @@ impl Caveat {
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
+            Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
         })
     }
 
@@ -426,6 +434,7 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
+            Caveat::PeriodMayBeNoise { rho, span_s } => may_be_noise_text(*rho, *span_s),
         })
     }
 
@@ -481,6 +490,7 @@ impl Caveat {
             Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::BeatErrorUnknownSource { .. } => 19,
             Caveat::ReadingWindows { .. } => 17,
+            Caveat::PeriodMayBeNoise { .. } => 19,
         }
     }
 }
@@ -494,6 +504,16 @@ impl From<crate::clock::SourcesDisagree> for Caveat {
             against: d.against,
         }
     }
+}
+
+/// [`Caveat::PeriodMayBeNoise`] as a sentence.
+fn may_be_noise_text(rho: f64, span_s: f64) -> String {
+    format!(
+        "On a take this short with its 2 s windows this correlated (ρ {rho:.2} from one to \
+         the next, over {:.0} min), the period search names a cycle in noise alone about 1 \
+         time in 10, not 1 in 33: this cycle may be noise.",
+        span_s / 60.0
+    )
 }
 
 fn plural(n: usize) -> &'static str {
