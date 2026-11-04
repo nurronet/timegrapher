@@ -263,6 +263,10 @@ impl LiveAnalyzer {
         }
         a.beats = log.beats;
         a.amp = log.amplitude_windows;
+        // In order of midpoint, as listening keeps them, so a reading finds
+        // its stretch's windows by halving ([`Self::amp_within`]). The
+        // engine writes them so; the sort only moves a log that isn't.
+        a.amp.sort_by(|x, y| amp_mid(x).total_cmp(&amp_mid(y)));
         a.clipped = log.clipped_beats;
         a.intrinsic_breaks = log.jumps;
         a.by_count = log.by_count;
@@ -954,7 +958,8 @@ impl LiveAnalyzer {
         // windows' grid starts again at each cut, and `stretch_windows`
         // keeps only windows clear of every hole, so a jump in a recording
         // read whole falls between two.
-        let wins = crate::session::stretch_windows(holes, &self.amp, from, end_s);
+        let wins =
+            crate::session::stretch_windows(holes, self.amp_within(from, end_s), from, end_s);
         // One unbroken run of beats: its beat error's sign does not turn.
         let figures = crate::session::window_figures(&wins, false);
         let amplitude_error_deg =
@@ -1004,6 +1009,19 @@ impl LiveAnalyzer {
             beat_error_unlock_error_ms: sided(assessment.confidence.and_then(|c| c.beat_error.se)),
             caveats,
         }
+    }
+
+    /// The amplitude windows whose midpoint lies from `from_s` up to but
+    /// not at `to_s`, found by halving: the only ones
+    /// [`crate::session::window_in`] can take for that stretch. `amp` is
+    /// kept in order of midpoint: listening adds each pass's windows after
+    /// the last, and [`Self::from_log`] sorts a log's. Filtering every
+    /// window of a 65 h take for each of a trend's 4,000 readings held
+    /// the window for seconds after a mask (#978).
+    fn amp_within(&self, from_s: f64, to_s: f64) -> &[AmplitudeWindow] {
+        let lo = self.amp.partition_point(|w| amp_mid(w) < from_s);
+        let hi = self.amp.partition_point(|w| amp_mid(w) < to_s);
+        &self.amp[lo..hi.max(lo)]
     }
 
     /// The stretch read at `end_s` over the averaging time from
@@ -1267,6 +1285,12 @@ pub const DEFAULT_STRIP_S: f64 = 30.0;
 /// Most readings a trend over a whole take is read at: the app's charts
 /// over time, and the MCP view's.
 pub const TREND_POINTS: f64 = 4000.0;
+
+/// An amplitude window's midpoint, the time [`crate::session::window_in`]
+/// places it by.
+fn amp_mid(w: &AmplitudeWindow) -> f64 {
+    (w.start_s + w.end_s) / 2.0
+}
 
 /// The times a trend over `duration_s` seconds is read at: evenly spaced,
 /// at most [`TREND_POINTS`] of them and no closer than 0.5 s, the last at
@@ -2671,6 +2695,65 @@ mod tests {
             assert_eq!(live.beat_error_unlock_ms, saved.beat_error_unlock_ms);
             assert_eq!(live.beat_error_ms, saved.beat_error_ms);
         }
+    }
+
+    /// A reading takes its amplitude windows by halving (#978), and takes
+    /// the very ones it took by looking at every window: across a mask, at
+    /// every averaging time, and from a log whose windows come out of
+    /// order.
+    #[test]
+    fn a_reading_finds_its_windows_by_halving() {
+        let cfg = SynthConfig {
+            duration_s: 60.0,
+            rate_s_per_day: 8.0,
+            ..Default::default()
+        };
+        let audio = generate(&cfg, |t| 240.0 + 2.0 * t, |_| 0.0);
+        let mut heard = LiveAnalyzer::new(48000, LiveConfig::default());
+        feed(&mut heard, &audio.samples);
+        let mut log = BeatLog {
+            sample_rate: 48000,
+            duration_s: heard.duration_s(),
+            bph: heard.bph().unwrap(),
+            lift_deg: heard.config().analysis.amplitude.lift_deg,
+            beats: heard.beats().to_vec(),
+            amplitude_windows: heard.amp.clone(),
+            clipped_beats: heard.clipped_beats().to_vec(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        };
+        assert!(log.amplitude_windows.len() > 20);
+        let in_order = LiveAnalyzer::from_log(log.clone(), LiveConfig::default());
+        log.amplitude_windows.reverse();
+        let mut a = LiveAnalyzer::from_log(log, LiveConfig::default());
+        a.set_masked(&[(31.3, 36.0)]);
+        let mids: Vec<f64> = a.amp.iter().map(amp_mid).collect();
+        assert!(mids.windows(2).all(|m| m[0] <= m[1]), "in order: {mids:?}");
+        assert_eq!(
+            format!("{:?}", a.amp),
+            format!("{:?}", in_order.amp),
+            "as the log in order"
+        );
+        let mut taken = 0;
+        for end in [20.0, 31.0, 40.0, 45.5, 50.0, a.settled_to] {
+            for average_s in [2.0, 7.3, 10.0, 30.0] {
+                let st = a.stretch_at(end - average_s, end);
+                let every = crate::session::stretch_windows(&st.holes, &a.amp, st.from, end);
+                let halved = crate::session::stretch_windows(
+                    &st.holes,
+                    a.amp_within(st.from, end),
+                    st.from,
+                    end,
+                );
+                let at = |w: &[&AmplitudeWindow]| w.iter().map(|w| w.start_s).collect::<Vec<_>>();
+                assert_eq!(at(&halved), at(&every), "{end} {average_s}");
+                taken += every.len();
+            }
+        }
+        assert!(taken > 50, "{taken} windows taken");
     }
 
     /// A profile's guide for each side is the unlock of the latest window
