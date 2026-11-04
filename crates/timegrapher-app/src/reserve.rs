@@ -131,13 +131,7 @@ impl Test {
         let from = beats.partition_point(|b| b.time < self.began_s);
         self.heard = power_reserve::heard(&beats[from..], beat_s);
         self.now_s = now_s;
-        let ending = if self.heard.stopped(now_s) {
-            Ending::Stopped
-        } else if now_s - self.began_s >= power_reserve::LIMIT_S {
-            Ending::Limit
-        } else {
-            return None;
-        };
+        let ending = self.heard.ending(now_s, self.began_s)?;
         self.ending = Some(ending);
         Some(ending)
     }
