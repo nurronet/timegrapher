@@ -76,6 +76,7 @@ fn reference_hover() -> String {
 fn score_words() -> String {
     use timegrapher_core::steady_views as v;
     json!({
+        "axis_name": v::SCORE_AXIS_NAME,
         "axis_hover": v::SCORE_AXIS_HOVER,
         "threshold_name": v::THRESHOLD_NAME,
         "threshold_hover": v::threshold_hover(timegrapher_core::longterm::LongConfig::default().false_alarm),

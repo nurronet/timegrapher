@@ -334,6 +334,10 @@ pub fn reference_hover(label: &str) -> String {
 /// axis is the score itself, in plain whole numbers, and this hover says what
 /// it is. No title.
 pub const SCORE_AXIS_HOVER: &str = "Score: how far a peak stands above the noise expected at its period. If the noise is as expected, a score of 3 means noise alone would reach it there 1 time in 1,000. Many periods are tried, so only peaks above the Threshold are named.";
+/// The score axis' visible name, at the top of the axis above its top
+/// tick, in the tick labels' size and colour (Hugh, #1069): plain "1, 2,
+/// 5" don't say what they count. Its hover is [`SCORE_AXIS_HOVER`].
+pub const SCORE_AXIS_NAME: &str = "Score";
 /// The name of the line a period's score must pass to be named
 /// ([`Search::threshold`]), beside the plot.
 pub const THRESHOLD_NAME: &str = "Threshold";
