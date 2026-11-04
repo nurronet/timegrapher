@@ -12,13 +12,30 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// One explicit path unchanged, or a folder's direct WAV/FLAC files.
+/// One explicit path unchanged (a WAV kept as FLAC as its FLAC), or a
+/// folder's direct WAV/FLAC files.
 /// Existing files listed by the manifest come first, then unlisted files
 /// in natural name order. Missing, nested and whole-folder entries do not
 /// rank files; repeated entries rank a physical file only once.
+///
+/// A WAV whose name is also there as a FLAC (`audio-001.wav` beside
+/// `audio-001.flac`) is the same sound kept as FLAC (#503): the FLAC is
+/// read and the WAV left out, and an entry naming the WAV ranks the FLAC.
+/// A FLAC only takes its name once it is checked against the WAV
+/// ([`crate::flac::encode_wav`]), so the WAV is left over until deleted.
 pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, String> {
     if !path.is_dir() {
-        return Ok(vec![path.to_path_buf()]);
+        // A WAV named that is now kept as FLAC is read as its FLAC.
+        let flac = path.with_extension("flac");
+        let wav = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+        return Ok(vec![if wav && flac.is_file() {
+            flac
+        } else {
+            path.to_path_buf()
+        }]);
     }
     let mut files: Vec<PathBuf> = std::fs::read_dir(path)
         .map_err(|e| format!("Can't read the folder {}: {e}", path.display()))?
@@ -30,6 +47,18 @@ pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, Str
                 })
         })
         .collect();
+    let has = |p: &Path, ext: &str| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+    };
+    // The FLAC an hour was kept as, when there is one: a WAV with a FLAC
+    // twin is the same sound, left over until it is deleted.
+    let twin = |p: &Path| -> Option<PathBuf> {
+        let f = p.with_extension("flac");
+        (has(p, "wav") && f.is_file()).then_some(f)
+    };
+    files.retain(|p| twin(p).is_none());
     if files.is_empty() {
         return Err(format!(
             "There are no WAV or FLAC files in {}.",
@@ -39,7 +68,10 @@ pub fn recordings_in(path: &Path, listed: &[String]) -> Result<Vec<PathBuf>, Str
     files.sort_by(|a, b| natural_order(&file_name(a), &file_name(b)));
     let mut names: Vec<String> = Vec::new();
     for entry in listed {
-        let file = path.join(entry);
+        let mut file = path.join(entry);
+        if (has(&file, "wav") && !file.is_file()) || twin(&file).is_some() {
+            file = file.with_extension("flac");
+        }
         if file.is_file() && file.parent().is_some_and(|parent| parent == path) {
             let name = file_name(&file);
             if !names.contains(&name) {
@@ -118,6 +150,58 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn an_hour_kept_as_flac_is_read_once_in_its_place() {
+        let f = Folder::new();
+        for n in [
+            "audio-001.wav",
+            "audio-001.flac",
+            "audio-002.wav",
+            "audio-003.flac",
+        ] {
+            f.file(n);
+        }
+        // Mid-swap: the hour's WAV beside its checked FLAC is left out.
+        assert_eq!(
+            f.names(&[]),
+            ["audio-001.flac", "audio-002.wav", "audio-003.flac"]
+        );
+        // A session file written while the hours were WAVs still ranks
+        // them: an entry naming a WAV kept as FLAC ranks the FLAC.
+        let listed = ["audio-003.wav", "audio-002.wav", "audio-001.wav"];
+        assert_eq!(
+            f.names(&listed),
+            ["audio-003.flac", "audio-002.wav", "audio-001.flac"]
+        );
+        // A FLAC alone, named by its WAV's name, is still a FLAC.
+        std::fs::remove_file(f.0.join("audio-001.wav")).unwrap();
+        assert_eq!(
+            f.names(&listed),
+            ["audio-003.flac", "audio-002.wav", "audio-001.flac"]
+        );
+        // A file named on its own: a WAV kept as FLAC is its FLAC.
+        let one = |n: &str| {
+            recordings_in(&f.0.join(n), &[])
+                .unwrap()
+                .iter()
+                .map(|p| file_name(p))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(one("audio-001.wav"), ["audio-001.flac"]);
+        assert_eq!(one("audio-002.wav"), ["audio-002.wav"]);
+        // A FLAC with no WAV twin and other names are as they were.
+        f.file("other.wav");
+        assert_eq!(
+            f.names(&[]),
+            [
+                "audio-001.flac",
+                "audio-002.wav",
+                "audio-003.flac",
+                "other.wav"
+            ]
+        );
     }
 
     #[test]

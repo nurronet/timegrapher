@@ -149,6 +149,17 @@ pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
     written
 }
 
+/// Keep the WAV `wav` as FLAC: [`encode_wav`] beside it under the same
+/// name, then delete the WAV once the FLAC checks. Readers take the FLAC
+/// over a WAV of the same name ([`crate::recording_order::recordings_in`]),
+/// so at no moment is the sound missing or there twice. Returns the FLAC.
+pub fn keep_as_flac(wav: &Path) -> Result<PathBuf, AudioError> {
+    let flac = flac_path(wav);
+    encode_wav(wav, &flac)?;
+    std::fs::remove_file(wav).map_err(AudioError::Io)?;
+    Ok(flac)
+}
+
 /// Whether the integer WAV `wav` and the FLAC `flac` hold the same
 /// samples, in the same format, read side by side a sample at a time.
 pub fn same_samples(wav: &Path, flac: &Path) -> Result<bool, AudioError> {
@@ -261,6 +272,30 @@ mod tests {
                 );
             }
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_wav_kept_as_flac_is_gone_once_its_flac_checks() {
+        let dir = scratch("keep");
+        let w = dir.join("audio-001.wav");
+        let samples = wav(&w, 6_000, 1, 16);
+        let f = keep_as_flac(&w).unwrap();
+        assert_eq!(f, dir.join("audio-001.flac"));
+        assert!(!w.exists());
+        let back: Vec<i32> = claxon::FlacReader::open(&f)
+            .unwrap()
+            .samples()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(back, samples);
+        // One that can't be kept stays a WAV.
+        let w = dir.join("audio-002.wav");
+        wav(&w, 6_000, 1, 16);
+        let bytes = std::fs::read(&w).unwrap();
+        std::fs::write(&w, &bytes[..bytes.len() / 2]).unwrap();
+        assert!(keep_as_flac(&w).is_err());
+        assert!(w.exists() && !flac_path(&w).exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 
