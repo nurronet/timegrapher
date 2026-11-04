@@ -320,6 +320,66 @@ fn phase_bins(period: f64, step: f64) -> usize {
         .map_or((r.round() as usize).clamp(6, 40), |x| x.round() as usize)
 }
 
+/// What a reference line ([`crate::periodicity::reference_lines`]) says on
+/// hover, on a period plot with no wheel named: it is a period alone, not a
+/// wheel's (#1065).
+pub fn reference_hover(label: &str) -> String {
+    format!("Reference period, {label}. This calibre's wheels aren't known.")
+}
+
+/// The Periods plot's score axis (#1065, Norm): a period's score is
+/// −log10 of the chance of a peak that tall at that one period under the
+/// search's AR(1) noise model ([`Search::score`]), with no allowance for the
+/// many periods tried. Where the model doesn't fit it can be far off, so the
+/// axis is the score itself, in plain whole numbers, and this hover says what
+/// it is. No title.
+pub const SCORE_AXIS_HOVER: &str = "Score: how far a peak stands above the noise expected at its period. If the noise is as expected, a score of 3 means noise alone would reach it there 1 time in 1,000. Many periods are tried, so only peaks above the Threshold are named.";
+/// The name of the line a period's score must pass to be named
+/// ([`Search::threshold`]), beside the plot.
+pub const THRESHOLD_NAME: &str = "Threshold";
+/// That line's hover (Norm, worded by Hugh): the model's search-wide rate,
+/// the search's [`LongConfig::false_alarm`] (1 in 100 by default), and the
+/// rates measured on seeded noise, so it agrees with `period_may_be_noise`.
+pub fn threshold_hover(false_alarm: f64) -> String {
+    use longterm::{MEASURED_CROSSING_IN, SHORT_CORRELATED_CROSSING_IN};
+    let n = thousands((1.0 / false_alarm).round() as u64);
+    format!(
+        "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in {n}. \
+         On test noise it was crossed about 1 time in {MEASURED_CROSSING_IN}, and up to 1 time in {SHORT_CORRELATED_CROSSING_IN} on short takes with correlated readings. \
+         The more periods searched, the higher the line."
+    )
+}
+
+/// A whole number with thousands separators: "1,000".
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The ticks of a score axis from `lo` to `hi`, `px` tall, at least
+/// `min_px` apart: whole scores from 1 up, on a [`chart_scale::round_step`]
+/// of at least 1, written as [`chart_scale::axis_number`] writes them.
+pub fn score_ticks(lo: f64, hi: f64, px: f64, min_px: f64) -> Vec<(f64, String)> {
+    if hi.partial_cmp(&lo) != Some(std::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    let want = (hi - lo) / (px / min_px).max(1.0);
+    let step = chart_scale::round_step(want.max(1.0));
+    let first = (lo.max(1.0) / step - 1e-9).ceil() as i64;
+    (first..)
+        .map(|k| k as f64 * step)
+        .take_while(|v| *v <= hi + 1e-9)
+        .map(|v| (v, chart_scale::axis_number(v, step)))
+        .collect()
+}
+
 /// The periods the searches cover between them, log10 seconds.
 pub fn period_span(searches: &[Option<Search>; 3]) -> Option<(f64, f64)> {
     searches
@@ -461,6 +521,38 @@ pub fn views(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_score_axis_is_marked_at_whole_scores() {
+        // The MCP view's scoreTicks reads the same cases (score_ticks.test.cjs).
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/score_ticks.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let f = |k: &str| c[k].as_f64().unwrap();
+            let want: Vec<(f64, String)> = serde_json::from_value(c["ticks"].clone()).unwrap();
+            assert_eq!(
+                super::score_ticks(f("lo"), f("hi"), f("px"), f("min_px")),
+                want,
+                "{c}"
+            );
+        }
+        assert_eq!(
+            super::threshold_hover(super::LongConfig::default().false_alarm),
+            "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in 100. \
+             On test noise it was crossed about 1 time in 33, and up to 1 time in 10 on short takes with correlated readings. \
+             The more periods searched, the higher the line."
+        );
+        assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));
+    }
+
+    #[test]
+    fn a_reference_line_says_it_is_a_period_alone() {
+        assert_eq!(
+            super::reference_hover("1 min"),
+            "Reference period, 1 min. This calibre's wheels aren't known."
+        );
+    }
+
     #[test]
     fn thinning_long_readings_keeps_the_original_grid_stride() {
         let mut g = super::Grid {

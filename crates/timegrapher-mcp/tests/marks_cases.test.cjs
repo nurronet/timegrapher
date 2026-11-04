@@ -20,7 +20,7 @@ function constant(name) {
 }
 const context = vm.createContext({ document: { getElementById: () => ({ clientWidth: 624 }) } });
 vm.runInContext(["CHAR_W", "DASH", "MARKS"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
-  ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "xyChart", "markOrder", "markPlace", "markPlaceRow", "markInside", "markStack", "besideSpots", "crosses", "besidePlace", "roomAbove", "markWidth", "markText", "laneAbove", "namesInside"]
+  ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "xyChart", "markOrder", "markPlace", "markPlaceRow", "markInside", "markStack", "besideSpots", "crosses", "besidePlace", "roomAbove", "markWidth", "markText", "laneAbove", "namesInside", "sideWidth", "laneRight"]
     .map(definition).join("\n") + "\nthis.MARKS = MARKS;", context);
 
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -161,4 +161,19 @@ test("a note keeps clear of the Ljung–Box note in the corner", () => {
   assert.ok(x + w <= left || x >= right || y >= +corner[2] + 4, `${plate[0]} vs corner at ${left}-${right}`);
   // The dot is 0.2 of the plot's 126 px below its top, at 4 px.
   assert.ok(y > 4 + 0.2 * 126, "below the dot");
+});
+
+test("a named line across a plot is named right of it, with its hover, and the y axis can carry one", () => {
+  const svg = context.xyChart({ x: [0, 1], y: [0, 5], xTicks: () => [], yTicks: () => [[1, "1"], [2, "2"]],
+    yHover: "Score: how far a peak stands above the noise expected at its period.",
+    hlines: [{ y: 3, color: "--callout", width: 1.2, dash: "loose", name: "Threshold", hover: "Peaks above this line are named as periods." }],
+    lines: [{ pts: [[0, 1], [1, 4]], color: "--rate" }] });
+  // The plot gives up its right edge to the lane, and the name sits in it.
+  const plot = svg.match(/<rect class="plot" x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/);
+  const right = +plot[1] + +plot[2];
+  const name = svg.match(/<g><title>Peaks above this line are named as periods.<\/title><polyline[^>]*\/><text x="([\d.]+)"[^>]*>Threshold<\/text><\/g>/);
+  assert.ok(name, svg);
+  assert.ok(+name[1] > right, "named right of the plot");
+  assert.match(svg, /stroke-dasharray="6 5"/);
+  assert.match(svg, /<g><title>Score: how far a peak stands above the noise expected at its period.<\/title><text[^>]*>1<\/text><text[^>]*>2<\/text><\/g>/);
 });
