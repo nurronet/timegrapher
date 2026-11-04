@@ -713,7 +713,11 @@ of the pane, the rate and amplitude against hours since the first beat, and a ta
 of each hour (the last as long as is left): its rate, median amplitude
 and beat error from the unlock, each measured as `timegrapher session`
 measures a stretch (core `session::measure_masked`), and how much of it
-its whole 10 s readings cover (core `clean`). **Save as CSV…** and
+its whole 10 s readings cover (core `clean`). The table starts at the
+charts' plot edge, their value labels alone in the margin to its left, is
+no wider than the plots (scrolling sideways when it would be), and gives
+the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
+Read (%), the figures right-aligned. **Save as CSV…** and
 **Copy** give the watch, the run and the table. The take
 is kept in the picked watch's history, named by its local start time and
 "Power Reserve", with

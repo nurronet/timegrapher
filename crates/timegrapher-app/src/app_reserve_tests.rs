@@ -196,6 +196,164 @@ fn a_long_runs_charts_read_with_its_take_open_in_a_small_window() {
     assert!(axis_labels(&shown, "°") >= 2, "{shown:?}");
 }
 
+/// Each text drawn, its rect, and the part of it its clip shows.
+fn clipped_texts(out: &egui::FullOutput) -> Vec<(String, egui::Rect, egui::Rect)> {
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => {
+                let r = t.galley.rect.translate(t.pos.to_vec2());
+                Some((t.galley.text().to_string(), r, r.intersect(c.clip_rect)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The Power Reserve plots' frames: drawn in the plot's `fill` below the
+/// run's line `ran`, at least 40 pt each way.
+fn plot_frames(out: &egui::FullOutput, fill: egui::Color32, ran: egui::Rect) -> Vec<egui::Rect> {
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Rect(r)
+                if r.fill == fill
+                    && r.rect.top() > ran.bottom()
+                    && r.rect.height() >= 40.0
+                    && r.rect.width() >= 40.0
+                    && r.rect.left() >= ran.left() =>
+            {
+                Some(r.rect)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A 46 h run's take opened in `app`, as from the Watches view, its rate
+/// falling away and its amplitude with it; `tag` names its folder.
+fn open_long_run(app: &mut TimegrapherApp, tag: &str) {
+    let mut r = reserve::finished_run(47).results.unwrap();
+    r.run_s = 46.5 * 3600.0;
+    for hr in &mut r.hours {
+        let x = f64::from(hr.hour);
+        hr.rate_s_per_day = Some(2.0 - 0.04 * x * x);
+        hr.amplitude_deg = Some(295.0 - 2.1 * x);
+    }
+    let dir = std::env::temp_dir().join(format!("tg-app-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(power_reserve::FILE), r.to_json()).unwrap();
+    app.load_reserve(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A 46 h run's table starts at its charts' plot frame, the value labels
+/// alone in the margin to its left, stacked at 2560 x 1440 and side by
+/// side at 1000 x 700 and 800 x 600; its units are in its titles
+/// (Peter's macOS screenshot, 11-04; Hugh's rules).
+#[test]
+fn a_runs_table_starts_at_its_charts_plot_edge() {
+    for (w, h) in [(2560.0f32, 1440.0f32), (1000.0, 700.0), (800.0, 600.0)] {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let ctx = super::tests::themed();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
+        let pass = |app: &mut TimegrapherApp, wheel: Option<egui::Pos2>| {
+            let mut events = Vec::new();
+            if let Some(at) = wheel {
+                events.push(egui::Event::PointerMoved(at));
+                events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -120.0),
+                    modifiers: Default::default(),
+                });
+            }
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            ctx.run(input, |ctx| app.panels(ctx))
+        };
+        for _ in 0..3 {
+            pass(&mut app, None);
+        }
+        open_long_run(&mut app, &format!("table-{w}"));
+        let mut out = pass(&mut app, None);
+        for _ in 0..3 {
+            out = pass(&mut app, None);
+        }
+        let ran = clipped_texts(&out)
+            .iter()
+            .find(|t| t.0.starts_with("Ran "))
+            .map(|t| t.1)
+            .unwrap_or_else(|| panic!("{w}: no run line"));
+        let frames = plot_frames(&out, ctx.style().visuals.extreme_bg_color, ran);
+        assert_eq!(frames.len(), 2, "{w}: {frames:?}");
+        let plot_left = frames
+            .iter()
+            .map(|r| r.left())
+            .fold(f32::INFINITY, f32::min);
+        let plot_right = frames.iter().map(|r| r.right()).fold(0.0f32, f32::max);
+        // Scroll the pane down its table, a step at a time, gathering what
+        // shows: under the charts at 1000 and 800.
+        let at = egui::pos2(plot_left + 20.0, frames[0].center().y);
+        // Wherever it is scrolled to, rows that show have their titles in
+        // view, so each figure keeps its unit.
+        let whole = |t: &(String, egui::Rect, egui::Rect)| t.2 == t.1;
+        let mut shown = clipped_texts(&out);
+        for step in 0..14 {
+            let now = clipped_texts(&pass(&mut app, Some(at)));
+            let rows = now
+                .iter()
+                .any(|t| whole(t) && t.0.ends_with(" h") && t.0.contains('–'));
+            let titled = now.iter().any(|t| whole(t) && t.0 == "Rate (s/d)");
+            assert!(!rows || titled, "{w}, step {step}: {now:?}");
+            shown.extend(now);
+        }
+        let head = |name: &str| {
+            shown
+                .iter()
+                .find(|t| t.0 == name)
+                .map(|t| (t.1, t.2))
+                .unwrap_or_else(|| panic!("{w}: no {name}: {shown:?}"))
+        };
+        let hours = head("Hours").0;
+        assert!(
+            (hours.left() - plot_left).abs() < 1.0,
+            "{w}: table at {}, plots at {plot_left}",
+            hours.left()
+        );
+        // Each hour's row starts there too.
+        let rows: Vec<f32> = shown
+            .iter()
+            .filter(|t| t.0.ends_with(" h") && t.0.contains('–'))
+            .map(|t| t.1.left())
+            .collect();
+        assert!(!rows.is_empty(), "{w}: {shown:?}");
+        assert!(
+            rows.iter().all(|x| (x - plot_left).abs() < 1.0),
+            "{w}: {rows:?} {plot_left}"
+        );
+        // No wider than the plots, scrolling sideways when it would be;
+        // units in the titles, not the cells.
+        let read = head("Read (%)").1;
+        assert!(
+            read.right() <= plot_right + 1.0,
+            "{w}: {read:?} {plot_right}"
+        );
+        for title in ["Rate (s/d)", "Amplitude (°)", "Beat Error (ms)"] {
+            head(title);
+        }
+        assert!(
+            !shown.iter().any(|t| t.1.top() > ran.bottom()
+                && t.1.left() >= plot_left - 1.0
+                && (t.0.ends_with(" ms") || t.0.ends_with('%'))),
+            "{w}: {shown:?}"
+        );
+    }
+}
+
 /// Quick Listen asks before unsaved sound goes, then shows Unsorted
 /// and listens with no watch picked; Stop keeps nothing, Save… saves
 /// the take into Unsorted, which the list shows at its top, and File
