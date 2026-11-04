@@ -200,34 +200,55 @@ fn strip_points(doc: &mut serde_json::Value, keep_overall: bool) {
     }
 }
 
-/// The isochronism walk in one line: its points at the default width and
-/// where it starts and ends; every 5 min point is in the JSON's `walk`.
+/// The isochronism walk in one line: what it is, its points at the
+/// default width, where it starts and ends, and how far the rate and the
+/// amplitude range between; every 5 min point is in the JSON's `walk`.
 fn walk_line(w: &timegrapher_core::walk::IsochronismWalk) -> String {
-    use timegrapher_core::walk::{default_merge, merged};
+    use timegrapher_core::figure_text::{base_digits, fixed_text, signed_text};
+    use timegrapher_core::walk::{default_merge, merged, WalkPoint};
     let m = merged(w, default_merge(w));
-    let at = |p: &timegrapher_core::walk::WalkPoint| {
+    let (Some(a), Some(b)) = (m.points.first(), m.points.last()) else {
+        return String::new();
+    };
+    let deg = |x: f64| format!("{}°", fixed_text(x, base_digits::AMPLITUDE));
+    let sd = |x: f64| format!("{} s/d", signed_text(x, base_digits::RATE));
+    let at = |p: &WalkPoint| {
         format!(
-            "{:.0}° at {:+.1} s/d ({:.1} h)",
-            p.amplitude_deg, p.rate_s_per_day, p.wind_h
+            "{} and {} at {}",
+            deg(p.amplitude_deg),
+            sd(p.rate_s_per_day),
+            crate::long::duration(p.t_s)
         )
     };
-    let finer = (m.points.len() < w.points.len()).then(|| {
+    let span = |f: fn(&WalkPoint) -> f64| {
+        let v = m.points.iter().map(f);
+        (
+            v.clone().fold(f64::INFINITY, f64::min),
+            v.fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let (r0, r1) = span(|p| p.rate_s_per_day);
+    let (a0, a1) = span(|p| p.amplitude_deg);
+    let finer = if m.points.len() < w.points.len() {
         format!(
             "; one per {} in the JSON's walk",
             crate::long::duration(w.bin_s)
         )
-    });
-    match (m.points.first(), m.points.last()) {
-        (Some(a), Some(b)) => format!(
-            "Walk         {} points, one per {}, from {} to {}{}",
-            m.points.len(),
-            crate::long::duration(m.bin_s),
-            at(a),
-            at(b),
-            finer.unwrap_or_default()
-        ),
-        _ => String::new(),
-    }
+    } else {
+        String::new()
+    };
+    format!(
+        "Walk         The rate against the amplitude in time order, one point per {} ({} points{finer}). \
+         It starts at {} and ends at {}; between, the rate runs {} to {} and the amplitude {} to {}.",
+        crate::long::duration(m.bin_s),
+        m.points.len(),
+        at(a),
+        at(b),
+        sd(r0),
+        sd(r1),
+        deg(a0),
+        deg(a1)
+    )
 }
 
 fn print_text(r: &Report, calibrated: bool) {
