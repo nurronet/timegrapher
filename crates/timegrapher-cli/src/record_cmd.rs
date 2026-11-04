@@ -826,34 +826,58 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
     cfg.amplitude.lift_deg = set.lift;
     cfg.lift_known = set.lift_known;
     let whole = analyze(&a, &cfg).summary;
-    // The readings as `session` will take them: the same analysis, after
-    // the same settling time, on the sound card's clock.
-    let mut scfg = StreamConfig::default();
-    scfg.analysis.bph = set.bph;
-    scfg.analysis.amplitude.lift_deg = set.lift;
-    scfg.analysis.lift_known = set.lift_known;
-    let log = stream::analyze_files(&[wav.as_path()], &scfg, |_| {})
-        .map_err(|e| format!("{}: {e}", wav.display()))?;
-    let (from, to) = take::measured(0.0, log.duration_s, set.settle_s, None);
-    let m = session::measure(&log, None, from, to);
-    // Readings only when that stretch alone hears the watch too; a take
-    // not much longer than its settling may leave too little.
-    let heard = whole.watch_heard && m.watch_heard;
-    Ok(Check {
-        bph_set: set.bph,
-        from_s: m.start_s,
-        to_s: m.end_s,
-        watch_heard: whole.watch_heard,
-        timing_scatter_ms: whole.jitter_us.map(|j| j / 1000.0),
-        timing_scatter_fraction: beats::timing_scatter_fraction(whole.jitter_us, log.bph),
-        bph: log.bph,
-        beats_found: m.beats,
-        beats_expected: beats::expected_beats(m.end_s - m.start_s, log.bph).round() as usize,
-        rate_s_per_day: m.rate_s_per_day.filter(|_| heard),
-        amplitude_deg: m.amplitude_deg.filter(|_| heard),
-        beat_error_ms: m.beat_error_signed().filter(|_| heard),
-        clipping: whole.clipping,
-    })
+    // The readings as `session` will take them: the take saved, read as
+    // every surface reads a take, with its clock log, breaks and masks,
+    // after the same settling time.
+    let path = dir.join(MANIFEST);
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    let e = m
+        .recordings
+        .first()
+        .ok_or_else(|| format!("{}: no recording listed", path.display()))?;
+    let settings = take::EntrySettings {
+        stream: take::stream_settings(&m, None, take::Given::default()),
+        card_clock: false,
+        settle_s: set.settle_s,
+    };
+    let read = take::measure_entry(dir, &m, e, &settings, take::usb, |first| {
+        take::correction_for(&m, first, None, None)
+    });
+    // Readings only when the stretch read alone hears the watch too; a
+    // take not much longer than its settling may leave too little.
+    let check = |from_s: f64, to_s: f64, bph: u32, m: Option<&session::Measurement>| {
+        let heard = whole.watch_heard && m.is_some_and(|m| m.watch_heard);
+        let beats_found = m.map_or(0, |m| m.beats);
+        let m = m.filter(|_| heard);
+        Check {
+            bph_set: set.bph,
+            from_s,
+            to_s,
+            watch_heard: whole.watch_heard,
+            timing_scatter_ms: whole.jitter_us.map(|j| j / 1000.0),
+            timing_scatter_fraction: beats::timing_scatter_fraction(whole.jitter_us, bph),
+            bph,
+            beats_found,
+            beats_expected: beats::expected_beats(to_s - from_s, bph).round() as usize,
+            rate_s_per_day: m.and_then(|m| m.rate_s_per_day),
+            amplitude_deg: m.and_then(|m| m.amplitude_deg),
+            beat_error_ms: m.and_then(|m| m.beat_error_signed()),
+            clipping: whole.clipping,
+        }
+    };
+    match read {
+        Ok(r) => {
+            let m = &r.measurement;
+            Ok(check(m.start_s, m.end_s, r.log.bph, Some(m)))
+        }
+        // Nothing to read once settled: the take is kept, with no readings.
+        Err(take::EntryError::NoReading(_)) => {
+            let (from, to) = take::measured(0.0, a.duration(), set.settle_s, None);
+            Ok(check(from, to, whole.bph, None))
+        }
+        Err(take::EntryError::Failed(why)) => Err(why),
+    }
 }
 
 /// A TOML string literal.
@@ -1031,6 +1055,17 @@ fn print_report(r: &Report) {
 mod tests {
     use super::*;
 
+    /// The take in `dir` checked as `record` checks the take it saved:
+    /// listed in its own session file, here with no clock log.
+    fn check_saved(dir: &Path, set: &Settings) -> Result<Check, String> {
+        let text = format!(
+            "{}\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+            header(set)
+        );
+        fs::write(dir.join(MANIFEST), text).unwrap();
+        check(dir, set)
+    }
+
     /// A noisy recording gives a percentage only when its beat rate was supplied.
     #[test]
     fn noise_without_a_set_rate_has_no_guessed_percent_in_the_quick_check() {
@@ -1063,7 +1098,7 @@ mod tests {
                 lift_known: true,
                 settle_s: Some(0.0),
             };
-            let c = check(&dir, &set).unwrap();
+            let c = check_saved(&dir, &set).unwrap();
             assert!(!c.watch_heard);
             assert_eq!(c.bph_set, bph);
             assert!(
@@ -1156,7 +1191,7 @@ mod tests {
             lift_known: true,
             settle_s: None,
         };
-        let c = check(&dir, &set).unwrap();
+        let c = check_saved(&dir, &set).unwrap();
         let mut scfg = StreamConfig::default();
         scfg.analysis.bph = set.bph;
         let log = stream::analyze_files(&[wav.as_path()], &scfg, |_| {}).unwrap();
