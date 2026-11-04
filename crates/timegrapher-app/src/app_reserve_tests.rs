@@ -240,7 +240,10 @@ fn rows_cut(out: &egui::FullOutput, fill: egui::Color32) -> Vec<String> {
     let band = out.shapes.iter().find_map(|c| match &c.shape {
         egui::Shape::Rect(r)
             if r.fill == fill
-                && (r.rect.top() - title.1.top()).abs() < 4.0
+                // From the pane's top: the titles, or the key over them.
+                && r.rect.top() <= title.1.top() + 4.0
+                && title.1.top() - r.rect.top() < 30.0
+                && r.rect.bottom() >= title.1.bottom()
                 && r.rect.width() > 100.0 =>
         {
             Some(r.rect)
@@ -261,6 +264,57 @@ fn rows_cut(out: &egui::FullOutput, fill: egui::Color32) -> Vec<String> {
         .map(|t| t.0)
         .collect()
 }
+
+/// Scrolled down the table, with every beat error dimmed: the key is
+/// pinned whole above the pinned titles, and a pinned title shows its
+/// hover (Walter's walk of #1084).
+fn pinned_key_and_hovers(
+    ctx: &egui::Context,
+    app: &mut TimegrapherApp,
+    at: egui::Pos2,
+    screen: egui::Rect,
+) {
+    let w = screen.width();
+    ctx.style_mut(|s| {
+        s.interaction.tooltip_delay = 0.0;
+        s.interaction.show_tooltips_only_when_still = false;
+    });
+    let run = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let out = run(app, vec![egui::Event::PointerMoved(at)]);
+    let texts = clipped_texts(&out);
+    let whole = |name: &str| {
+        texts
+            .iter()
+            .filter(|t| t.0 == name && t.2 == t.1)
+            .map(|t| t.1)
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap_or_else(|| panic!("{w}: {name} not whole: {texts:?}"))
+    };
+    let key = whole(reserve::DIM_KEY_TEXT);
+    let rate = whole("Rate (s/d)");
+    assert!(key.bottom() <= rate.top(), "{w}: {key:?} {rate:?}");
+    // The table has scrolled: its first hour is out of sight.
+    assert!(!texts.iter().any(|t| t.0 == "0–1 h" && t.2 == t.1), "{w}");
+    let mut out = run(app, vec![egui::Event::PointerMoved(rate.center())]);
+    for _ in 0..2 {
+        out = run(app, Vec::new());
+    }
+    let hint = HOUR_RATE_HINT;
+    assert!(
+        clipped_texts(&out).iter().any(|t| t.0 == hint),
+        "{w}: no hover over the pinned title"
+    );
+}
+
+/// The Rate title's hover, as a pinned title shows it.
+const HOUR_RATE_HINT: &str = "The hour's rate, s/d, as the command line reads a stretch";
 
 /// A 46 h run's take opened in `app`, as from the Watches view, its rate
 /// falling away and its amplitude with it; `tag` names its folder.
@@ -346,6 +400,7 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
             assert!(!rows || titled, "{w}, step {step}: {now:?}");
             shown.extend(now);
         }
+        pinned_key_and_hovers(&ctx, &mut app, at, screen);
         let head = |name: &str| {
             shown
                 .iter()
