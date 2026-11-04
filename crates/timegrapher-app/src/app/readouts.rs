@@ -249,8 +249,8 @@ fn with_moment(moment: Option<&str>, hover: &str) -> String {
 fn whole_text(whole_breaks: &str, figure: String, spread: Option<String>, span: f64) -> String {
     let spread = spread.map_or_else(String::new, |s| format!(", {s}"));
     format!(
-        "\n\nWhole take {figure}{spread} over {}. The big figure is the last stretch \
-         of Average Over; this is the take in this position, settling left out, read \
+        "\n\nWhole take {figure}{spread} over {}. The big figure is the stretch of \
+         Average Over ending at the strip's newest edge; this is the take in this position, settling left out, read \
          as the command line reads it.{whole_breaks}",
         length_text(span)
     )
