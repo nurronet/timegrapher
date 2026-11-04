@@ -122,25 +122,30 @@ impl TimegrapherApp {
         }
         let i = self.trend.partition_point(|p| p.t <= end + 1e-9);
         let drop_be = i.checked_sub(1).and_then(|i| self.trend[i].beat_error_ms);
+        // Moved back, the moment first: the strip says it, and the hover
+        // says where it was set.
+        let note = match (self.moment_hover(), shown.hover) {
+            (Some(m), Some(h)) => Some(format!("{m}\n{h}")),
+            (m, h) => m.or(h),
+        };
         profiles::draw(
             ui,
             &shown.profiles,
             self.sound_opts,
             drop_be,
-            shown.hover.as_deref(),
+            note.as_deref(),
         );
     }
 
-    /// The Tick Tock Profile's or the Scope's toolbar, with the moment
-    /// they show at its right end.
+    /// The Tick Tock Profile's or the Scope's toolbar. The moment they
+    /// show is said once, on the strip that sets it (#1068).
     pub(super) fn sound_tools(&mut self, ui: &mut egui::Ui, pane: Pane) {
-        let at = self.sound_moment();
         let help = if pane == Pane::Sound {
             help::PROFILE
         } else {
             help::SCOPE
         };
-        theme::pane_toolbar_at(ui, pane.title(), help, at.as_deref(), |ui| {
+        theme::pane_toolbar(ui, pane.title(), help, |ui| {
             if pane == Pane::Sound {
                 self.profile_settings(ui);
             } else {
@@ -151,11 +156,17 @@ impl TimegrapherApp {
     }
 
     /// When the strip has been moved off the newest beats, the time at its
-    /// newest edge, which the sound panes show, for their toolbars.
+    /// newest edge, which the sound panes show.
     pub(super) fn sound_moment(&self) -> Option<String> {
         self.strip_end
             .is_some()
             .then(|| format!("at {}", length_text(self.strip_end_s())))
+    }
+
+    /// For a pane's hover when the strip is moved back: the moment, and
+    /// that the strip set it.
+    pub(super) fn moment_hover(&self) -> Option<String> {
+        Some(format!("{}, set by the Paper Strip.", self.sound_moment()?))
     }
 
     /// The Tick Tock profiles for the window ending at `end`, the strip's
@@ -345,7 +356,10 @@ impl TimegrapherApp {
             ui.label(RichText::new(n).small().color(pal.text_tertiary));
         }
         let rate = audio.as_ref().map_or(fs, |a| a.2);
-        scope::draw(ui, &rows, view.zoom, beat_s, rate);
+        let drawn = scope::draw(ui, &rows, view.zoom, beat_s, rate);
+        if let Some(m) = self.moment_hover() {
+            drawn.on_hover_text(m);
+        }
     }
 
     /// The sound from `lo` to `hi` s from the recording read in the

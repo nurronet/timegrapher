@@ -165,11 +165,11 @@ impl Mark {
 }
 
 /// Draw the rows one above the other, sharing a time axis.
-pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
+pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) -> egui::Response {
     let pal = theme::pal(ui);
     let avail = ui.available_size();
     let axis_h = 18.0;
-    let (rect, _) = ui.allocate_exact_size(avail, egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(avail, egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let plot = egui::Rect::from_min_max(
         rect.min + Vec2::new(44.0, 0.0),
@@ -263,6 +263,7 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
             lane_names(ui, r, &edges, names_id.with(k));
         }
     }
+    response
 }
 
 /// The edges' names in the lane above the row `r`.
