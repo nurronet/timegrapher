@@ -496,8 +496,9 @@ fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<e
         hour_grid(ui, hours);
         return;
     };
-    ui.horizontal(|ui| {
-        ui.add_space((x.min - ui.cursor().left()).max(0.0));
+    // The plots' span across, from here down.
+    let below = egui::Rect::from_x_y_ranges(x, ui.available_rect_before_wrap().y_range());
+    ui.scope_builder(egui::UiBuilder::new().max_rect(below), |ui| {
         egui::ScrollArea::horizontal()
             .id_salt("reserve hours across")
             // egui shows a scroll area's content a clip margin past its
@@ -552,11 +553,13 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
     };
     // Each column as wide as its title or its widest figure, a point to
     // spare for the bold title.
-    let widths: Vec<f32> = (0..5)
-        .map(|c| {
+    let widths: Vec<f32> = HOUR_COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(c, (head, _))| {
             rows.iter()
                 .map(|r| wide(&r[c]))
-                .fold(wide(HOUR_COLUMNS[c].0) + 1.0, f32::max)
+                .fold(wide(head) + 1.0, f32::max)
         })
         .collect();
     let row_h = ui.spacing().interact_size.y;
