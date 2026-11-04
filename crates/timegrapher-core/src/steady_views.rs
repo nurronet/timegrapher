@@ -22,7 +22,7 @@ use serde::Serialize;
 pub const MAX_READINGS: usize = 3000;
 /// Most periods kept from a period search.
 pub const MAX_PERIODS: usize = 600;
-/// Most folded cycles kept per series; the rest are counted.
+/// Most raster rows a fold is thinned to per series ([`longterm::thin`]).
 pub const MAX_CYCLES: usize = 200;
 
 /// The views behind one series' headline.
@@ -94,10 +94,14 @@ pub struct FoldView {
     pub wheel: Option<String>,
     /// Median of the detrended readings in each phase bin; NaN as null.
     pub profile: Vec<f64>,
-    /// Cycles folded, and up to [`MAX_CYCLES`] of them, evenly spread, one
-    /// row per cycle and one value per phase bin (null where empty).
+    /// Cycles folded, and their raster thinned to at most [`MAX_CYCLES`]
+    /// rows ([`longterm::thin`]): each row the mean of a run of cycles,
+    /// one value per phase bin (null where empty).
     pub cycles: usize,
     pub raster: Vec<Vec<f64>>,
+    /// The cycles each raster row averages, `[first, end)` counted from
+    /// 0: one cycle a row for a fold of no more than [`MAX_CYCLES`].
+    pub raster_cycles: Vec<[usize; 2]>,
     /// Each phase bin's quartiles (lower, median, upper) over every cycle
     /// folded, not only the rows kept; null for a bin with fewer than four
     /// readings. The app draws the middle half as a box.
@@ -169,23 +173,21 @@ pub fn fold_spread(f: &longterm::Fold, columns: &[Option<[f64; 3]>]) -> Option<(
     Some((hi - lo, middle))
 }
 
-/// A fold as its view gives it: up to [`MAX_CYCLES`] of its cycles kept
-/// for drawing, its columns and spread over every cycle, and its scale
+/// A fold as its view gives it: its cycles thinned to at most
+/// [`MAX_CYCLES`] rows for drawing, its columns and spread over every cycle, and its scale
 /// ([`fold_range`]).
 fn fold_view(f: &longterm::Fold, from: &'static str, wheel: Option<String>) -> FoldView {
     let columns = fold_columns(f);
     let spread_of = fold_spread(f, &columns);
-    let raster: Vec<Vec<f64>> = spread(f.raster.len(), MAX_CYCLES)
-        .into_iter()
-        .map(|k| f.raster[k].clone())
-        .collect();
+    let thinned = f.thinned(MAX_CYCLES, f.profile.len());
     FoldView {
         period_s: f.period_s,
         from,
         wheel,
         profile: f.profile.clone(),
         cycles: f.raster.len(),
-        raster,
+        raster: thinned.cells,
+        raster_cycles: thinned.rows,
         columns,
         swing: spread_of.map(|s| s.0),
         middle_half: spread_of.map(|s| s.1),
@@ -921,8 +923,9 @@ mod tests {
     #[test]
     fn a_folds_scale_takes_every_cycle() {
         let nan = f64::NAN;
-        // 1000 cycles: those kept for drawing read 0, the rest 1, so the
-        // rows kept and the whole fold have different scales.
+        // 1000 cycles: those `spread` picks read 0, the rest 1, so the
+        // rows drawn (each the mean of five cycles) and the whole fold
+        // have different scales.
         let kept = spread(1000, MAX_CYCLES);
         let raster: Vec<Vec<f64>> = (0..1000)
             .map(|r| vec![if kept.contains(&r) { 0.0 } else { 1.0 }, nan])
@@ -936,7 +939,7 @@ mod tests {
             t0: 0.0,
         };
         assert_eq!(fold_range(&f), chart_scale::spread(&all));
-        // The view keeps 200 cycles to draw, and its scale is still every
+        // The view thins to 200 rows to draw, and its scale is still every
         // cycle's.
         let v = fold_view(&f, "own", None);
         assert!(
