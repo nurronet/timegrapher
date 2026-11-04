@@ -605,7 +605,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     }),
                     Some((beat_error_source_label(src), dimmed(h))),
                 ),
-                plain(fixed_text(100.0 * h.read_share(), 0)),
+                plain(cell(h.read_share(), |v| fixed_text(100.0 * v, 0))),
             ]
         })
         .collect();
