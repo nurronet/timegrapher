@@ -17,7 +17,7 @@ const context = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => 
   periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false });
 vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
   constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
-  ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "ordinal", "steadinessCard"].map(definition)].join("\n"), context);
+  ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "banded", "steadinessCard"].map(definition)].join("\n"), context);
 
 const rate = { series: "rate", unit: "s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
   headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak" };
@@ -50,12 +50,13 @@ test("a trend or a level split the headline leaves out says why, in core's words
 });
 
 test("the Readings view's key says what a dot is and how many are drawn", () => {
-  assert.equal(context.dotKey({ step_s: 10, stride: 1 }, 179), "10 s readings (179)");
-  assert.equal(context.dotKey({ step_s: 2, stride: 1 }, 912), "2 s windows (912)");
-  assert.equal(context.dotKey({ step_s: 2, stride: 3 }, 3000), "2 s windows, every 3rd (3,000)");
-  assert.equal(context.dotKey({ step_s: 20, stride: 1 }, 90), "20 s readings (90)");
-  assert.equal(context.dotKey({ step_s: 5, stride: 1 }, 40), "5 s windows (40)");
-  assert.equal(context.ordinal(12), "12th");
+  assert.equal(context.dotKey({ step_s: 10, n: 179, counts: [1, 1] }, 179), "10 s readings (179)");
+  assert.equal(context.dotKey({ step_s: 2, n: 912, counts: [1, 1] }, 912), "2 s windows (912)");
+  assert.equal(context.dotKey({ step_s: 2, n: 9000, counts: Array(3000).fill(3) }, 3000), "2 s windows in 3,000 bands (9,000)");
+  // The readings the bands hold, not the take's slots: a missing one is in no band.
+  assert.equal(context.dotKey({ step_s: 2, n: 9001, counts: [3, 2] }, 2), "2 s windows in 2 bands (5)");
+  assert.equal(context.dotKey({ step_s: 20, n: 90, counts: [1] }, 90), "20 s readings (90)");
+  assert.equal(context.dotKey({ step_s: 5, n: 40, counts: [1] }, 40), "5 s windows (40)");
 });
 
 test("the Long Recording view says what limits its readings, as the analyze and session views do", () => {
@@ -73,7 +74,7 @@ test("a series' own caveat shows once, on that series, in the server's words", (
     distributionCards: () => "", walkCard: () => "", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
     constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
-    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "ordinal", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
+    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "banded", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
   const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 10, not 1 in 33: this cycle may be noise.";
   const series = [rate, { ...rate, series: "amplitude", unit: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },

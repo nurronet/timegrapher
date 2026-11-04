@@ -21,7 +21,7 @@ const context = vm.createContext({
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const TIME_BANDS = .*$/m)[0] + "\n" +
   html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + html.match(/^const NAME_CLEAR = .*$/m)[0] + "\n" + 
-  ["esc", "axisLabel", "stepText", "tableRgb", "timeRgb", "steadyNote", "steadyPlot", "xyChart"].map(definition).join("\n") +
+  ["esc", "axisLabel", "stepText", "tableRgb", "timeRgb", "steadyNote", "banded", "steadyPlot", "xyChart"].map(definition).join("\n") +
   "\nthis.realChart = xyChart;", context);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
@@ -90,4 +90,22 @@ test("the Readings view draws level lines only where the words name the levels (
   assert.deepEqual(chart.lines, [], "stretches the level test rejects draw no line");
   plot(true);
   assert.deepEqual(chart.lines.map((l) => l.pts), segments.map((g) => [[g.start_s, g.mean], [g.end_s, g.mean]]));
+});
+
+test("a long series' readings draw each chunk as a filled band, lowest to highest, under its dot (#1038)", () => {
+  let chart;
+  context.xyChart = (c) => { chart = plain(c); return "<svg/>"; };
+  context.dotKey = () => "10 s readings in 2 bands (12)";
+  const readings = { t_s: [30, 90], values: [1, 2], lo: [0.5, 1.5], hi: [1.4, 2.6], counts: [6, 6], chunk_s: 60, y_range: [0, 3], step_s: 10 };
+  context.steadyPlot({ series: "rate", views: { readings } }, "readings", {});
+  assert.deepEqual(chart.rects, [
+    { x0: 0, x1: 60, y0: 0.5, y1: 1.4, color: "--rate", fill: 0.6 },
+    { x0: 60, x1: 120, y0: 1.5, y1: 2.6, color: "--rate", fill: 0.6 },
+  ]);
+  // A short series, one reading a point, has no bands.
+  context.steadyPlot({ series: "rate", views: { readings: { ...readings, lo: [1, 2], hi: [1, 2], counts: [1, 1] } } }, "readings", {});
+  assert.deepEqual(chart.rects, []);
+  // Filled at the box opacity, with no outline.
+  const svg = context.realChart({ x: [0, 1], y: [0, 1], xTicks: () => [], yTicks: () => [], rects: [{ x0: 0, x1: 1, y0: 0, y1: 1, color: "--rate", fill: 0.6 }] });
+  assert.match(svg, /<rect [^>]*fill="var\(--rate\)" fill-opacity="0.6" stroke="none"\/>/);
 });

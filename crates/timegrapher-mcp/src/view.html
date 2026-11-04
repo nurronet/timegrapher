@@ -905,7 +905,8 @@ function scoreTicks(lo, hi, px, minPx) {
 //   notes: [{x, y, text, above}] beside a point; beside: [{x, y, text}], a
 //   marked point's note in the nearest clear space (marks::beside), the y
 //   range kept tall enough for it (noteRoom); corner: {text, top}, a line
-//   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined; a dot set's rgb
+//   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined, or
+//   filled at `fill` opacity with no outline when `fill` is given; a dot set's rgb
 //   overrides its color
 // How far a y axis' name sits above its top tick label's baseline, past
 // the label's own height.
@@ -982,7 +983,10 @@ function xyChart(o) {
   }
   for (const r of o.rects || []) {
     const [a, b] = [sx(r.x0), sx(r.x1)], [c, d] = [sy(r.y1), sy(r.y0)];
-    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"/>`;
+    const paint = r.fill
+      ? `fill="var(${r.color})" fill-opacity="${r.fill}" stroke="none"`
+      : `fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"`;
+    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" ${paint}/>`;
   }
   const path = (l) => {
     let d = "", pen = false;
@@ -1365,17 +1369,20 @@ function referenceLines(doc) {
 function steadyNote(text) { return `<p class="empty">${esc(text)}</p>`; }
 
 // One series' plot under the chosen view.
-// What a dot is, and how many are drawn, as the app's steady::kind_of:
+// What a dot is, and how many are drawn, as the app's steady::readings_key:
 // "10 s readings (179)"; shorter than 10 s, "2 s windows (912)". On a long
-// take only every few are drawn, and it says so.
+// take each dot is a chunk's mean, over the band of its readings, and it
+// says how many bands hold how many readings.
 function dotKey(r, drawn) {
   const what = `${secs(r.step_s)} ${r.step_s >= 10 - 1e-9 ? "readings" : "windows"}`;
-  const nth = r.stride > 1 ? `, every ${ordinal(r.stride)}` : "";
-  return `${what}${nth} (${drawn.toLocaleString("en-US")})`;
+  const k = (v) => v.toLocaleString("en-US");
+  // The readings the bands hold (their counts' sum), as the app's key.
+  const read = (r.counts || []).reduce((a, c) => a + c, 0);
+  return banded(r) ? `${what} in ${k(drawn)} bands (${k(read)})` : `${what} (${k(drawn)})`;
 }
-function ordinal(k) {
-  const t = k % 100, u = k % 10;
-  return `${k}${t >= 11 && t <= 13 ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th"}`;
+// steady_views::Readings: a long series comes in chunks, each a band.
+function banded(r) {
+  return (r.counts || []).some((c) => c > 1);
 }
 
 function steadyPlot(s, view, doc) {
@@ -1387,6 +1394,9 @@ function steadyPlot(s, view, doc) {
       const r = v.readings;
       if (!r || !r.t_s || r.t_s.length < 2) return steadyNote("No readings to draw.");
       const pts = r.t_s.map((t, i) => [t, r.values[i]]).filter(([, y]) => Number.isFinite(y));
+      // Each chunk's band, lowest to highest, as the app's bars (#1034).
+      const half = (r.chunk_s || r.step_s) / 2;
+      const bands = banded(r) ? r.t_s.map((t, i) => ({ x0: t - half, x1: t + half, y0: r.lo[i], y1: r.hi[i], color, fill: BOX_OPACITY })) : [];
       const [lo, hi] = r.y_range || [0, 1];
       // Level lines only where the words name the levels (#1112): the
       // detail row says why stretches of one level are not named.
@@ -1396,7 +1406,7 @@ function steadyPlot(s, view, doc) {
         title: "Readings", x: [Math.min(...r.t_s), Math.max(...r.t_s)], y: [lo, hi],
         xTicks: (a, b, w) => linTicks(a, b, w, Math.min(80, w / 4), (t) => fmtTime(t), TIME_STEPS),
         yTicks: (a, b, h) => linTicks(a, b, h, 24, (y, st) => stepText(y, st, unit)),
-        dots: [{ pts, color, r: 1.4 }], key: { color, text: dotKey(r, pts.length) },
+        rects: bands, dots: [{ pts, color, r: 1.4 }], key: { color, text: dotKey(r, pts.length) },
         lines: segs.map((g) => ({ pts: [[g.start_s, g.mean], [g.end_s, g.mean]], color: "--text", width: 1.8 })),
         hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--callout", width: CALL_OUT_W, dash: "loose" })) : [],
       });
