@@ -1,20 +1,99 @@
-//! The menu bar: Watches, File, Edit, View and Help, and what File's Open asks before it opens.
+//! The menus: File, Edit, View, Watches and Help, what each item does
+//! and its shortcut, and what File's Open asks before it opens. On a Mac
+//! the same items go in the menu bar at the top of the screen
+//! (`mac_menu`); elsewhere they are in the window's top row.
 
 use super::*;
 
+/// What a menu item does, whichever menu bar it is in. Its shortcut and
+/// both menu bars run it through [`TimegrapherApp::run_menu_command`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum MenuCommand {
+    OpenRecording,
+    OpenFolder,
+    Save,
+    SaveAs,
+    SaveAnalysisOnly,
+    NewSession,
+    Quit,
+    RemoveMasks,
+    Settings,
+    View(View),
+    Readings,
+    Pane(Pane),
+    ResetPanes,
+    NewWatch,
+    FindInWatches,
+    CheckForUpdates,
+    ReportProblem,
+}
+
+impl MenuCommand {
+    /// The items with a shortcut, in the order the keys are read: Save
+    /// As before Save, which would also take Cmd+Shift+S.
+    pub(super) const WITH_KEYS: [MenuCommand; 7] = [
+        MenuCommand::OpenRecording,
+        MenuCommand::SaveAs,
+        MenuCommand::Save,
+        MenuCommand::Quit,
+        MenuCommand::View(View::Bench),
+        MenuCommand::View(View::Watches),
+        MenuCommand::Settings,
+    ];
+}
+
+/// An item's shortcut: the platform's command key (Ctrl, or ⌘ on a Mac)
+/// with O to open, S to save, Shift+S to save as, Q to quit, 1 and 2 for
+/// the views, and the comma for Settings.
+pub(super) fn menu_shortcut(c: MenuCommand) -> Option<egui::KeyboardShortcut> {
+    let key = match c {
+        MenuCommand::OpenRecording => egui::Key::O,
+        MenuCommand::Save | MenuCommand::SaveAs => egui::Key::S,
+        MenuCommand::Quit => egui::Key::Q,
+        MenuCommand::View(View::Bench) => egui::Key::Num1,
+        MenuCommand::View(View::Watches) => egui::Key::Num2,
+        MenuCommand::Settings => egui::Key::Comma,
+        _ => return None,
+    };
+    let shift = if c == MenuCommand::SaveAs {
+        egui::Modifiers::SHIFT
+    } else {
+        egui::Modifiers::NONE
+    };
+    Some(egui::KeyboardShortcut::new(
+        egui::Modifiers::COMMAND | shift,
+        key,
+    ))
+}
+
+/// Whether a Mac's menu bar at the top of the screen has the menus, so
+/// the window leaves its own out.
+#[cfg(target_os = "macos")]
+use super::mac_menu::shown as mac_menu_shown;
+#[cfg(not(target_os = "macos"))]
+fn mac_menu_shown() -> bool {
+    false
+}
+
 impl TimegrapherApp {
     /// The one row across the very top: the menus, File, Edit, View,
-    /// Watches and Help; the Bench | Watches switch; and an icon for each
-    /// pane that shows or hides it, then the Settings gear.
+    /// Watches and Help, unless a Mac's menu bar has them; the Bench |
+    /// Watches switch; and an icon for each pane that shows or hides it,
+    /// then the Settings gear.
     pub(super) fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        #[cfg(target_os = "macos")]
+        self.mac_menus(ui.ctx());
+        let in_window = !mac_menu_shown();
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| self.file_menu(ui));
-            ui.menu_button("Edit", |ui| self.edit_menu(ui));
-            ui.menu_button("View", |ui| self.view_menu(ui));
-            ui.menu_button("Watches", |ui| self.watches_menu(ui));
-            ui.menu_button("Help", |ui| self.help_menu(ui));
-            ui.add_space(6.0);
-            ui.separator();
+            if in_window {
+                ui.menu_button("File", |ui| self.file_menu(ui));
+                ui.menu_button("Edit", |ui| self.edit_menu(ui));
+                ui.menu_button("View", |ui| self.view_menu(ui));
+                ui.menu_button("Watches", |ui| self.watches_menu(ui));
+                ui.menu_button("Help", |ui| self.help_menu(ui));
+                ui.add_space(6.0);
+                ui.separator();
+            }
             let mut view = self.view;
             theme::segmented(ui, &mut view, &VIEWS);
             self.view = view;
@@ -26,26 +105,129 @@ impl TimegrapherApp {
         });
     }
 
+    /// Whether `c` can be run now: what dims its item.
+    pub(super) fn menu_enabled(&self, c: MenuCommand) -> bool {
+        let can_save = self.session.allows(Action::Save);
+        let saving = self.saving.is_some();
+        match c {
+            MenuCommand::Save => self.marks_unsaved() || (can_save && !saving),
+            MenuCommand::SaveAs => can_save && self.session.saved_to().is_some() && !saving,
+            MenuCommand::SaveAnalysisOnly => self.can_save_analysis(),
+            MenuCommand::NewSession => self.live.is_some(),
+            MenuCommand::RemoveMasks => !self.masked.is_empty(),
+            // The panes are the Bench's: dimmed in Watches.
+            MenuCommand::Readings | MenuCommand::Pane(_) | MenuCommand::ResetPanes => {
+                self.view == View::Bench
+            }
+            MenuCommand::CheckForUpdates => !self.updates.checking(),
+            _ => true,
+        }
+    }
+
+    /// Whether `c`'s item is ticked: the view on show, and what is shown.
+    pub(super) fn menu_checked(&self, c: MenuCommand) -> bool {
+        match c {
+            MenuCommand::View(v) => self.view == v,
+            MenuCommand::Readings => self.show_readings,
+            MenuCommand::Pane(p) => pane_visible(&self.panes.tiles, p),
+            _ => false,
+        }
+    }
+
+    /// `c`'s name now, for the two whose name changes: Save's and Check
+    /// for Updates'.
+    pub(super) fn menu_name(&self, c: MenuCommand) -> Option<&'static str> {
+        match c {
+            MenuCommand::Save if self.marks_unsaved() => Some("Save"),
+            MenuCommand::Save if self.session.saved_to().is_some() => Some("Save Again"),
+            MenuCommand::Save => Some("Save…"),
+            MenuCommand::CheckForUpdates if self.updates.checking() => {
+                Some("Checking for Updates…")
+            }
+            MenuCommand::CheckForUpdates => Some("Check for Updates…"),
+            _ => None,
+        }
+    }
+
+    /// Run `c`, from either menu bar or its shortcut, if it can be run
+    /// now.
+    pub(super) fn run_menu_command(&mut self, ctx: &egui::Context, c: MenuCommand) {
+        if !self.menu_enabled(c) {
+            return;
+        }
+        match c {
+            MenuCommand::OpenRecording => self.open_from_menu(false),
+            MenuCommand::OpenFolder => self.open_from_menu(true),
+            MenuCommand::Save if self.marks_unsaved() => self.save_marks(),
+            MenuCommand::Save => self.save_again(),
+            MenuCommand::SaveAs => self.save_recording(),
+            MenuCommand::SaveAnalysisOnly => self.save_analysis_only(),
+            // Anything shown, from the microphone or a recording, can be
+            // cleared, listening or not.
+            MenuCommand::NewSession if self.needs_save_confirmation() => {
+                self.confirm = Some(Confirm::NewSession);
+            }
+            MenuCommand::NewSession => self.new_session(),
+            MenuCommand::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            MenuCommand::RemoveMasks => self.remove_masks_asked = true,
+            MenuCommand::Settings => self.open_settings(self.settings_last),
+            MenuCommand::View(v) => self.view = v,
+            MenuCommand::Readings => self.show_readings = !self.show_readings,
+            MenuCommand::Pane(p) => {
+                let on = pane_visible(&self.panes.tiles, p);
+                self.show_pane(p, !on);
+            }
+            MenuCommand::ResetPanes => {
+                self.show_readings = true;
+                self.panes = default_layout(self.strip.horizontal);
+                self.panes_dragged.clear();
+            }
+            MenuCommand::NewWatch => self.open_new_watch_form(),
+            MenuCommand::FindInWatches => self.find_in_watches(),
+            MenuCommand::CheckForUpdates => self.updates.start(ctx, true),
+            MenuCommand::ReportProblem => self.open_report(),
+        }
+    }
+
+    /// An item of the window's menus that runs `c`: its name (unless it
+    /// names itself), its shortcut, its hover, and `off`, why it is
+    /// dimmed.
+    fn menu_item(&mut self, ui: &mut egui::Ui, c: MenuCommand, name: &str, hint: &str, off: &str) {
+        let mut button = egui::Button::new(self.menu_name(c).unwrap_or(name));
+        if let Some(k) = menu_shortcut(c) {
+            button = button.shortcut_text(ui.ctx().format_shortcut(&k));
+        }
+        let mut r = ui.add_enabled(self.menu_enabled(c), button);
+        if !hint.is_empty() {
+            r = r.on_hover_text(hint);
+        }
+        if !off.is_empty() {
+            r = r.on_disabled_hover_text(off);
+        }
+        if r.clicked() {
+            ui.close();
+            self.run_menu_command(ui.ctx(), c);
+        }
+    }
+
     /// The Watches menu: New Watch… and Find in Watches…. Going to the
     /// Watches view is View ▸ Watches (Cmd+2); No Watch (Quick Listen) is
     /// on the Calibre card's Watch line.
     pub(super) fn watches_menu(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .button("New Watch…")
-            .on_hover_text("Add a watch: its name, calibre, lift angle and beat rate")
-            .clicked()
-        {
-            ui.close();
-            self.open_new_watch_form();
-        }
-        if ui
-            .button("Find in Watches…")
-            .on_hover_text("Show the Watches view with its search field ready to type in")
-            .clicked()
-        {
-            ui.close();
-            self.find_in_watches();
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::NewWatch,
+            "New Watch…",
+            "Add a watch: its name, calibre, lift angle and beat rate",
+            "",
+        );
+        self.menu_item(
+            ui,
+            MenuCommand::FindInWatches,
+            "Find in Watches…",
+            "Show the Watches view with its search field ready to type in",
+            "",
+        );
     }
 
     /// The Watches view's list, its search field ready to type in.
@@ -58,255 +240,166 @@ impl TimegrapherApp {
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .add(
-                egui::Button::new("Open Recording…")
-                    .shortcut_text(ui.ctx().format_shortcut(&command(egui::Key::O))),
-            )
-            .on_hover_text(
-                "Choose a WAV or FLAC recording and analyse it all. From outside your \
-                 watches, it asks first whether to add it to one of them.",
-            )
-            .clicked()
-        {
-            ui.close();
-            self.open_from_menu(false);
-        }
-        if ui
-            .button("Open Folder…")
-            .on_hover_text(FOLDER_RULE)
-            .clicked()
-        {
-            ui.close();
-            self.open_from_menu(true);
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::OpenRecording,
+            "Open Recording…",
+            "Choose a WAV or FLAC recording and analyse it all. From outside your watches, it \
+             asks first whether to add it to one of them.",
+            "",
+        );
+        self.menu_item(ui, MenuCommand::OpenFolder, "Open Folder…", FOLDER_RULE, "");
         ui.separator();
         self.file_menu_save(ui);
-        // Anything shown, from the microphone or a recording, can be
-        // cleared, listening or not.
-        if ui
-            .add_enabled(self.live.is_some(), egui::Button::new("New Session"))
-            .on_hover_text(NEW_SESSION_HINT)
-            .on_disabled_hover_text(
-                "Nothing to clear yet: listen to a watch or open a recording first",
-            )
-            .clicked()
-        {
-            ui.close();
-            if self.needs_save_confirmation() {
-                self.confirm = Some(Confirm::NewSession);
-            } else {
-                self.new_session();
-            }
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::NewSession,
+            "New Session",
+            NEW_SESSION_HINT,
+            "Nothing to clear yet: listen to a watch or open a recording first",
+        );
         ui.separator();
-        if ui
-            .add(
-                egui::Button::new("Quit")
-                    .shortcut_text(ui.ctx().format_shortcut(&command(egui::Key::Q))),
-            )
-            .clicked()
-        {
-            ui.close();
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-        }
+        self.menu_item(ui, MenuCommand::Quit, "Quit", "", "");
     }
 
     /// The File menu's Save, Save Again, Save As and Save Analysis Only
     /// items.
     fn file_menu_save(&mut self, ui: &mut egui::Ui) {
-        let saved = self.session.saved_to().is_some();
         let can_save = self.session.allows(Action::Save);
         let saving = self.saving.is_some();
-        if self.marks_unsaved() {
-            if ui
-                .add(
-                    egui::Button::new("Save")
-                        .shortcut_text(ui.ctx().format_shortcut(&command(egui::Key::S))),
-                )
-                .on_hover_text(SAVE_MARKS_HINT)
-                .clicked()
-            {
-                ui.close();
-                self.save_marks();
-            }
-        } else if ui
-            .add_enabled(
-                can_save && !saving,
-                egui::Button::new(if saved { "Save Again" } else { "Save…" })
-                    .shortcut_text(ui.ctx().format_shortcut(&command(egui::Key::S))),
-            )
-            .on_hover_text(SAVE_HINT)
-            .on_disabled_hover_text(if saving {
-                SAVING_HINT
-            } else {
-                "Nothing to save yet: listen to a watch first"
-            })
-            .clicked()
-        {
-            ui.close();
-            self.save_again();
-        }
-        if ui
-            .add_enabled(
-                can_save && saved && !saving,
-                egui::Button::new("Save As…")
-                    .shortcut_text(ui.ctx().format_shortcut(&save_as_shortcut())),
-            )
-            .on_hover_text(SAVE_AS_HINT)
-            .on_disabled_hover_text(if saving {
-                SAVING_HINT
-            } else {
-                "Save once first; Save… asks where"
-            })
-            .clicked()
-        {
-            ui.close();
-            self.save_recording();
-        }
-        if ui
-            .add_enabled(
-                self.can_save_analysis(),
-                egui::Button::new("Save Analysis Only…"),
-            )
-            .on_hover_text(ANALYSIS_ONLY_HINT)
-            .on_disabled_hover_text(if self.analysis_save.is_some() {
-                "The analysis is being kept now"
-            } else if can_save {
-                "Stop listening first: the whole take's sound is read again"
-            } else {
-                "Nothing to save yet: listen to a watch first"
-            })
-            .clicked()
-        {
-            ui.close();
-            self.save_analysis_only();
-        }
+        let nothing = "Nothing to save yet: listen to a watch first";
+        let save_hint = if self.marks_unsaved() {
+            SAVE_MARKS_HINT
+        } else {
+            SAVE_HINT
+        };
+        let off = if saving { SAVING_HINT } else { nothing };
+        self.menu_item(ui, MenuCommand::Save, "Save…", save_hint, off);
+        let off = if saving {
+            SAVING_HINT
+        } else {
+            "Save once first; Save… asks where"
+        };
+        self.menu_item(ui, MenuCommand::SaveAs, "Save As…", SAVE_AS_HINT, off);
+        let off = if self.analysis_save.is_some() {
+            "The analysis is being kept now"
+        } else if can_save {
+            "Stop listening first: the whole take's sound is read again"
+        } else {
+            nothing
+        };
+        self.menu_item(
+            ui,
+            MenuCommand::SaveAnalysisOnly,
+            "Save Analysis Only…",
+            ANALYSIS_ONLY_HINT,
+            off,
+        );
     }
 
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        let none = self.masked.is_empty();
-        if ui
-            .add_enabled(!none, egui::Button::new("Remove All Masks…"))
-            .on_hover_text("Bring every masked stretch back into the readings, after asking")
-            .on_disabled_hover_text("Nothing is masked")
-            .clicked()
-        {
-            ui.close();
-            self.remove_masks_asked = true;
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::RemoveMasks,
+            "Remove All Masks…",
+            "Bring every masked stretch back into the readings, after asking",
+            "Nothing is masked",
+        );
         ui.separator();
-        if ui
-            .add(
-                egui::Button::new("Settings…")
-                    .shortcut_text(ui.ctx().format_shortcut(&settings_shortcut())),
-            )
-            .on_hover_text(
-                "How the app looks, the calibres and each input's kept clock, in a window \
-                 of their own",
-            )
-            .clicked()
-        {
-            ui.close();
-            self.open_settings(self.settings_last);
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::Settings,
+            "Settings…",
+            "How the app looks, the calibres and each input's kept clock, in a window of their \
+             own",
+            "",
+        );
     }
 
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         for (view, name, hint) in VIEWS {
+            let c = MenuCommand::View(view);
+            let shortcut = menu_shortcut(c).map(|k| ui.ctx().format_shortcut(&k));
             if ui
                 .add(
-                    egui::Button::selectable(self.view == view, name)
-                        .shortcut_text(ui.ctx().format_shortcut(&view_shortcut(view))),
+                    egui::Button::selectable(self.menu_checked(c), name)
+                        .shortcut_text(shortcut.unwrap_or_default()),
                 )
                 .on_hover_text(hint)
                 .clicked()
             {
                 ui.close();
-                self.view = view;
+                self.run_menu_command(ui.ctx(), c);
             }
         }
         ui.separator();
         // The panes are the Bench's: dimmed in Watches.
-        let bench = self.view == View::Bench;
+        let bench = self.menu_enabled(MenuCommand::ResetPanes);
         ui.add_enabled_ui(bench, |ui| self.view_menu_panes(ui));
     }
 
     fn view_menu_panes(&mut self, ui: &mut egui::Ui) {
         let off = "The panes are on the Bench: View > Bench first";
-        ui.checkbox(&mut self.show_readings, "Readings")
-            .on_hover_text("The rate, amplitude and beat error cards")
-            .on_disabled_hover_text(off);
-        let mut pane_box = |ui: &mut egui::Ui, pane: Pane| {
-            let mut on = pane_visible(&self.panes.tiles, pane);
+        let item = |app: &mut Self, ui: &mut egui::Ui, c: MenuCommand, name: &str, hint| {
+            let mut on = app.menu_checked(c);
             if ui
-                .checkbox(&mut on, pane.title())
-                .on_hover_text(pane.hint())
+                .checkbox(&mut on, name)
+                .on_hover_text(hint)
                 .on_disabled_hover_text(off)
                 .changed()
             {
-                self.show_pane(pane, on);
+                app.run_menu_command(ui.ctx(), c);
             }
         };
+        item(
+            self,
+            ui,
+            MenuCommand::Readings,
+            "Readings",
+            "The rate, amplitude and beat error cards",
+        );
         // In the icon bar's order: its panes, Analysis, then Tests.
         for pane in Pane::CORE {
-            pane_box(ui, pane);
+            item(self, ui, MenuCommand::Pane(pane), pane.title(), pane.hint());
         }
         ui.menu_button("Analysis", |ui| {
             for pane in Pane::ANALYSIS {
-                pane_box(ui, pane);
+                item(self, ui, MenuCommand::Pane(pane), pane.title(), pane.hint());
             }
         });
         ui.separator();
         for pane in Pane::TESTS {
-            pane_box(ui, pane);
+            item(self, ui, MenuCommand::Pane(pane), pane.title(), pane.hint());
         }
         ui.separator();
-        if ui
-            .button("Reset Panes")
-            .on_hover_text("Put the panes back as the app starts: the readings, the Paper Strip and the Tick Tock Profile, every other pane hidden")
-            .on_disabled_hover_text(off)
-            .clicked()
-        {
-            ui.close();
-            self.show_readings = true;
-            self.panes = default_layout(self.strip.horizontal);
-            self.panes_dragged.clear();
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::ResetPanes,
+            "Reset Panes",
+            "Put the panes back as the app starts: the readings, the Paper Strip and the Tick \
+             Tock Profile, every other pane hidden",
+            off,
+        );
     }
 
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        let checking = self.updates.checking();
-        if ui
-            .add_enabled(
-                !checking,
-                egui::Button::new(if checking {
-                    "Checking for Updates…"
-                } else {
-                    "Check for Updates…"
-                }),
-            )
-            .on_hover_text(
-                "Ask GitHub whether a newer Timegrapher is published. Nothing downloads or \
-                 installs itself.",
-            )
-            .clicked()
-        {
-            ui.close();
-            self.updates.start(ui.ctx(), true);
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::CheckForUpdates,
+            "Check for Updates…",
+            "Ask GitHub whether a newer Timegrapher is published. Nothing downloads or installs \
+             itself.",
+            "",
+        );
         ui.separator();
-        if ui
-            .button("Report a Problem…")
-            .on_hover_text(
-                "Make a zip of what went wrong, with up to five minutes of the sound, to \
-                 attach to a GitHub issue. The app sends nothing itself.",
-            )
-            .clicked()
-        {
-            ui.close();
-            self.open_report();
-        }
+        self.menu_item(
+            ui,
+            MenuCommand::ReportProblem,
+            "Report a Problem…",
+            "Make a zip of what went wrong, with up to five minutes of the sound, to attach to a \
+             GitHub issue. The app sends nothing itself.",
+            "",
+        );
         if cfg!(target_os = "linux") {
             ui.separator();
             if ui
@@ -446,10 +539,4 @@ impl TimegrapherApp {
             started: need.started,
         }
     }
-}
-
-/// A shortcut of the platform's command key (Ctrl, or ⌘ on a Mac) and
-/// `key`.
-fn command(key: egui::Key) -> egui::KeyboardShortcut {
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)
 }
