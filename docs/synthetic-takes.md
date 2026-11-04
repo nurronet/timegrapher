@@ -3,7 +3,9 @@
 `timegrapher synth --scenario NAME FOLDER` writes a take with one known
 variation hidden in it, as a take folder the app, `series` and `long`
 open like a recording: two hours as twelve 10-minute FLAC files,
-`session.json`, and a README saying what is hidden and what the analysis
+`session.json`, the `session.toml` a take folder opens with (so the take
+is read at its own 28,800 bph and lift angle of 50°, not the default
+lift of 52°), and a README saying what is hidden and what the analysis
 should find. `--scenario list` names them, and `--seed` changes the
 noise (the same command always writes the same sound). The watch is
 synthetic: 28,800 bph laid out as an ETA 2824-2 (a 20-tooth escape
@@ -14,21 +16,21 @@ synthetic choice (each 10 s rate reading then scatters by about
 0.9 s/d). Choose the ETA 2824-2 as the calibre so the
 views name its wheels.
 
-| Scenario | Hidden | Headline (`series`, seed 1) | Where it shows |
+| Scenario | Hidden | Headline (`series --calibre "ETA 2824-2"`, seed 1) | Where it shows |
 |---|---|---|---|
-| `control` | nothing | "Rate: 719 10 s readings, median +5.0 s/d, ±0.9 s/d from one reading to the next; no cycle, level change, trend or correlation between readings detected." (amplitude and beat error alike) | every view stays inside its noise bands |
-| `fourth-wheel` | rate ±1 s/d every 60 s | "Rate repeats every 60 s (the fourth wheel), 1.8 s/d peak to peak." | Periods, FFT, Cycle and the autocorrelation's repeat at 60 s |
-| `escape-wheel` | rate ±10 s/d every 5 s (0.18 ms of timing peak to peak) | "Rate: … the beat timing repeats every 5.0 s, the escape wheel's period, 0.18 ms peak to peak; 10 s readings are too coarse to show it." | FFT with Timing; not in the readings, since a 10 s reading is two whole turns |
-| `half-period` | rate ±1 s/d every 45 s | "Rate repeats every 45 s, 1.7 s/d peak to peak." | Periods, FFT and Cycle at 45 s, four and a half readings a turn |
-| `line-switches-on` | rate ±1.5 s/d every 60 s, from 60 min on only | "Rate repeats every 60 s (the fourth wheel), 1.3 s/d peak to peak. The rate's period search also finds 58 s and 62 s." | over the whole take as for `fourth-wheel`; the `series --json --maps` time and frequency maps show the 60 s line only from about 60 min |
+| `control` | nothing | "Rate: 717 10 s readings, median +5.0 s/d, ±0.9 s/d from one reading to the next; no cycle, level change, trend or correlation between readings detected." (amplitude and beat error alike) | every view stays inside its noise bands |
+| `fourth-wheel` | rate ±1 s/d every 60 s | "Rate repeats every 60 s (the fourth wheel), 1.9 s/d peak to peak." | Periods, FFT, Cycle and the autocorrelation's repeat at 60 s |
+| `escape-wheel` | rate ±10 s/d every 5 s (0.18 ms of timing peak to peak) | "Rate: … the beat timing repeats every 5.0 s, the escape wheel's period, 0.19 ms peak to peak; 10 s readings are too coarse to show it." | FFT with Timing; not in the readings, since a 10 s reading is two whole turns |
+| `half-period` | rate ±1 s/d every 45 s | "Rate repeats every 45 s, 1.8 s/d peak to peak." | Periods, FFT and Cycle at 45 s, four and a half readings a turn |
+| `line-switches-on` | rate ±1.5 s/d every 60 s, from 60 min on only | "Rate repeats every 60 s (the fourth wheel), 1.3 s/d peak to peak. The rate's period search also finds 63 s, 58 s and 181 s." | over the whole take as for `fourth-wheel`; the `series --json --maps` time and frequency maps show the 60 s line only from about 60 min |
 | `slow-cycle` | amplitude ±3° every 8 min | "Amplitude repeats every 8 min, 6.6° peak to peak." | Periods, FFT and Cycle at 480 s, and a bump in the Allan deviation near 180 s (for a cycle of period *P* the bump peaks near 0.37 *P*) |
 | `beat-error-cycle` | beat error ±0.1 ms every 120 s | "Beat error repeats every 120 s, 0.22 ms peak to peak." | Periods, FFT and Cycle for the beat error |
 | `letting-down` | amplitude 280° falling to 260° | "Amplitude slides from 279° to 259° (-10.0° per hour)." | Trend, and an Allan deviation that rises at long τ |
-| `knock` | rate +5 to +8 s/d at 70 min | "Rate shifts level 1 time: +5.0 s/d, then +8.1 s/d." | CUSUM's corner and Change points at 70 min |
-| `wander` | rate random walk, about 1 s/d per 10 min | "Rate shifts level 5 times, between -0.2 s/d and +4.5 s/d: +4.5 s/d at the start, +1.8 s/d at the end." | the change finder splits a walk into steps; a slow-falling autocorrelation; Allan deviation above the white line |
-| `rub` | for 8 s every 180 s, rate −30 s/d and amplitude −15° | "Rate repeats every 3 min, 26.8 s/d peak to peak." and "Amplitude repeats every 3 min, 15.2° peak to peak." | Periods, FFT and Cycle at 180 s; Two states shows the low level |
+| `knock` | rate +5 to +8 s/d at 70 min | "Rate shifts level 1 time: +5.1 s/d, then +8.0 s/d." | CUSUM's corner and Change points at 70 min |
+| `wander` | rate random walk, about 1 s/d per 10 min | "Rate shifts level 2 times: +3.7 s/d, then +0.4 s/d, then +1.7 s/d." | the change finder splits a walk into steps; a slow-falling autocorrelation; Allan deviation above the white line |
+| `rub` | for 8 s every 180 s, rate −30 s/d and amplitude −15° | "Rate repeats every 3 min, 27.2 s/d peak to peak." and "Amplitude repeats every 3 min, 15.1° peak to peak." | Periods, FFT and Cycle at 180 s; Two states shows the low level |
 
-The headlines are from the sound, through the whole analysis. A test
+The headlines are from the sound, through the whole analysis, read as a take is: from the end of its 20 s settling. A test
 (`scenarios::tests`) runs each scenario's beats and 2 s windows, made
 straight from its tracks with the same spread, through the steadiness
 analysis and checks that every headline starts as the table's does and
