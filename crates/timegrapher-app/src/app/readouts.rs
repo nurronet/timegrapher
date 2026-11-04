@@ -21,6 +21,8 @@ struct CardCtx<'a> {
     /// The cards' figures each second over the last minute, for their
     /// sparklines.
     spark: Vec<TrendPoint>,
+    /// "at hh:mm:ss" and its hover, when the strip is moved back.
+    moment: Option<(String, String)>,
 }
 
 /// The cards' widths at `total`: Current Position, Listen, Calibre and
@@ -251,7 +253,7 @@ impl TimegrapherApp {
     /// Returns what the cards asked for, and where their controls go.
     pub(super) fn readouts(&self, ui: &mut egui::Ui) -> Readouts {
         let pal = theme::pal(ui);
-        let r = self.reading();
+        let r = self.card_reading();
         let gap = theme::GAP;
         let total = ui.available_width();
         let widths = six_widths(total, gap);
@@ -324,6 +326,7 @@ impl TimegrapherApp {
             unheard,
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
+            moment: self.card_moment(),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -357,7 +360,14 @@ impl TimegrapherApp {
         let compact = c.compact;
         let rate = r.and_then(|r| r.rate_s_per_day);
         let rate_facts = reading_limits("Rate", caveats, lift_now, beats);
-        card_title(ui, rows.title, "Rate", &help::RATE, &rate_facts, None);
+        card_title(
+            ui,
+            rows.title,
+            "Rate",
+            &help::RATE,
+            &rate_facts,
+            c.moment.as_ref(),
+        );
         let unit = match pm.and_then(|e| pm_text(e, base::RATE)) {
             Some(t) => format!("± {t} s/d"),
             None => "s/d".to_string(),
@@ -429,6 +439,27 @@ impl TimegrapherApp {
             behind.trim_start(),
             compact,
         );
+    }
+
+    /// The reading the cards show: the newest, or where the strip is
+    /// moved off the newest beats, the one ending at its newest edge, as
+    /// the sound panes show that moment.
+    pub(super) fn card_reading(&self) -> Option<LiveReading> {
+        match self.strip_end {
+            Some(_) => self.reading_at_time(self.strip_end_s()),
+            None => self.reading(),
+        }
+    }
+
+    /// The moment the cards are read at, for their titles, when it is not
+    /// the newest.
+    fn card_moment(&self) -> Option<(String, String)> {
+        let at = self.sound_moment()?;
+        let hover = format!(
+            "Read {at}, the strip's newest edge, over Average Over. Drag the \
+             strip to its newest beats, or double-click it, for the live reading."
+        );
+        Some((at, hover))
     }
 
     /// The figures the reading cards showed each whole second over the
@@ -520,7 +551,14 @@ impl TimegrapherApp {
         let whole = c.whole;
         let compact = c.compact;
         let facts = reading_limits("Amplitude", caveats, lift_now, beats);
-        card_title(ui, rows.title, "Amplitude", help::AMPLITUDE, &facts, None);
+        card_title(
+            ui,
+            rows.title,
+            "Amplitude",
+            help::AMPLITUDE,
+            &facts,
+            c.moment.as_ref(),
+        );
         // Whole degrees, unless the ± is under a degree: a decimal only
         // where the beats can say it (decimals follow the ±, #510 K3).
         let amp_pm = r.and_then(|r| r.amplitude_error_deg);
@@ -586,7 +624,7 @@ impl TimegrapherApp {
             "Beat Error",
             help::BEAT_ERROR,
             &reading_limits("Beat Error", caveats, lift_now, beats),
-            None,
+            c.moment.as_ref(),
         );
         let be_pm = be_pm.filter(|_| unlock.is_some());
         let unit = match be_pm.and_then(|e| pm_text(e, base::BEAT_ERROR)) {
