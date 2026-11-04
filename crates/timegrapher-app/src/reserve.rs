@@ -592,6 +592,9 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32, sid
     // clears the value axis.
     let x_range = (-end * 0.05, end * 1.05);
     let gutter = shared_gutter(ui, hours);
+    // Room at the right for half the last hour's label, which centres on
+    // the plot's edge, clear of the pane's scroll bar.
+    ui.set_max_width(ui.available_width() - 18.0);
     if side {
         ui.columns(2, |cols| {
             for (col, series) in cols.iter_mut().zip(SERIES) {

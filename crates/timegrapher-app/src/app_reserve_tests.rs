@@ -173,7 +173,25 @@ fn a_long_runs_charts_read_with_its_take_open_in_a_small_window() {
         std::fs::write(format!("{d}/open-1000.svg"), svg).unwrap();
     }
     let shown = under_run_line(out.as_ref().unwrap(), screen);
-    assert_eq!(shown.iter().filter(|t| *t == "0 h").count(), 2, "{shown:?}");
+    // Each chart's first and last hour drawn whole, the right one clear
+    // of the pane's edge and its scroll bar.
+    for h in ["0 h", "48 h"] {
+        assert_eq!(shown.iter().filter(|t| *t == h).count(), 2, "{shown:?}");
+    }
+    let last_right = out
+        .as_ref()
+        .unwrap()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "48 h" => {
+                Some(t.galley.rect.translate(t.pos.to_vec2()).right())
+            }
+            _ => None,
+        })
+        .fold(0.0f32, f32::max);
+    // The pane's 12 pt edge and its scroll bar, with room to spare.
+    assert!(last_right <= screen.right() - 36.0, "{last_right}");
     assert!(axis_labels(&shown, " s/d") >= 2, "{shown:?}");
     assert!(axis_labels(&shown, "°") >= 2, "{shown:?}");
 }
