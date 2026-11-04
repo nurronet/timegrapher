@@ -145,7 +145,7 @@
      "bounds": 11,
      "comparisons": 11,
      "constants": 1,
-     "defaults": 1
+     "defaults": 0
     },
     "crates/timegrapher-app/src/pump.rs": {
      "bounds": 0,
@@ -211,7 +211,7 @@
      "bounds": 5,
      "comparisons": 3,
      "constants": 8,
-     "defaults": 1
+     "defaults": 0
     },
     "crates/timegrapher-app/src/watches.rs": {
      "bounds": 6,
@@ -224,7 +224,7 @@
     "bounds": 105,
     "comparisons": 108,
     "constants": 54,
-    "defaults": 4
+    "defaults": 2
    }
   },
   "timegrapher-cli": {

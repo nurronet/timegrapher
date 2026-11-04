@@ -904,12 +904,7 @@ fn time_axis(ui: &egui::Ui, t: &egui_plot::PlotTransform, foot: egui::Rect) {
         return;
     }
     let want = (hi - lo) / frame.width() as f64 * 80.0;
-    let p = 10f64.powf(want.log10().floor());
-    let step = [1.0, 2.0, 5.0, 10.0]
-        .into_iter()
-        .map(|m| m * p)
-        .find(|&s| s >= want * (1.0 - 1e-9))
-        .unwrap_or(10.0 * p);
+    let step = timegrapher_core::chart_scale::round_step(want);
     let painter = ui.painter_at(foot.expand2(egui::vec2(40.0, 0.0)));
     let mut k = (lo / step).ceil();
     while k * step <= hi {
