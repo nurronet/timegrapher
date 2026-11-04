@@ -6,6 +6,7 @@ use crate::beats::{self, Beat};
 use crate::confidence::{Confidence, Doubts};
 use crate::dsp::percentile;
 use crate::dsp::{envelope, median, EnvelopeConfig};
+use crate::measure::NoWatchReason;
 use crate::periodicity::{self, Component, Series};
 use crate::timing::{self, TimingFit, WindowFit};
 use crate::usbclock::{self, UsbClock};
@@ -229,15 +230,275 @@ fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
     (!w.is_empty()).then(|| median(&mut w))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let fs = audio.sample_rate as f64;
     let env = envelope(&audio.samples, fs, &cfg.envelope);
     let guessed = beats::guess_bph(&env, fs);
     let bph = cfg.bph.unwrap_or(guessed);
+    let (log, lead_s) = read_take(audio, cfg, bph);
+    let from_s = lead_s.unwrap_or(0.0);
+    // Under 10 s the beats' averaged sound says whether a watch is heard.
+    let beat_sound = log.beat_sound(&log.beats, &cfg.amplitude);
+    let beats = log.beats;
+    let amplitude_windows = log.amplitude_windows;
+    let fits = fit_take(
+        &beats,
+        &amplitude_windows,
+        &log.jumps,
+        bph,
+        from_s,
+        audio.duration(),
+        cfg,
+    );
+    let rates = fits.rates();
+    let duration = audio.duration();
+    let (timing_periods, amplitude_periods) =
+        periods(&beats, &fits.residuals, &fits.clear, bph, cfg);
+
+    let se = |f: &dyn Fn(&AmplitudeWindow) -> Option<f64>| {
+        crate::confidence::amplitude_windows_se(fits.clear.iter(), f)
+    };
+    let heard = hear(audio, &beats, bph, &fits.rate_windows, from_s, beat_sound);
+    let watch_heard = heard.no_watch.is_none();
+    let amplitude_se_deg = se(&|w| w.mean());
+    let assessment = assess_take(
+        cfg,
+        &beats,
+        (&log.jumps, log.by_count.len()),
+        (bph, guessed),
+        &fits,
+        &heard,
+        lead_s,
+    );
+    let doubts = assessment.doubts;
+    let confidence = assessment.confidence;
+    let caveats = assessment.caveats;
+    let shape = watch_heard.then(|| {
+        let beat_s = crate::timing::beat_period_s(fits.overall.as_ref(), bph);
+        let r = crate::shape::analyze(&env, fs, &beats, beat_s, &Default::default());
+        crate::shape::Measures::of(&r, &fits.clear)
+    });
+    let mut summary = Summary {
+        bph_set: cfg.bph,
+        duration_s: duration,
+        sample_rate: audio.sample_rate,
+        bph,
+        bph_heard: (bph != guessed).then_some(guessed),
+        beats_found: beats.len(),
+        beats_found_fraction: if heard.expected > 0.0 {
+            beats.len() as f64 / heard.expected
+        } else {
+            0.0
+        },
+        watch_heard,
+        overall: fits.overall,
+        beat_error_source: None,
+        beat_error_unlock_ms: timing::median_signed(
+            fits.clear.iter().filter_map(|w| w.beat_error_unlock_ms),
+            fits.turned,
+        ),
+        rate_p05: percentile(&rates, 0.05),
+        rate_p95: percentile(&rates, 0.95),
+        jitter_us: heard.jitter_us,
+        timing_scatter_fraction: beats::timing_scatter_fraction(heard.jitter_us, bph),
+        amplitude_deg: median_of(fits.clear.iter().filter_map(|w| w.mean())),
+        amplitude_even_deg: median_of(fits.clear.iter().filter_map(|w| w.even_deg)),
+        amplitude_odd_deg: median_of(fits.clear.iter().filter_map(|w| w.odd_deg)),
+        amplitude_se_deg,
+        amplitude_even_se_deg: se(&|w| w.even_deg),
+        amplitude_odd_se_deg: se(&|w| w.odd_deg),
+        lift_deg: cfg.amplitude.lift_deg,
+        timing_periods,
+        amplitude_periods,
+        clipping: heard.clipping,
+        usb_clock: heard.usb_clock,
+        rate_s_per_day: fits.overall.map(|f| f.rate_s_per_day),
+        rate_corrected_s_per_day: heard.usb_clock.and_then(|c| {
+            fits.overall
+                .map(|f| crate::clockstore::correct_rate(f.rate_s_per_day, c.ppm))
+        }),
+        doubts,
+        confidence,
+        caveats,
+        shape,
+    };
+    settle_beat_error(&mut summary);
+    Analysis {
+        summary,
+        beats,
+        residuals: fits.residuals,
+        rate_windows: fits.rate_windows,
+        amplitude_windows,
+    }
+}
+
+/// What the beats say of whether a watch is heard, and how the sound was
+/// taken.
+struct Heard {
+    /// The median timing scatter of the rate windows, in µs.
+    jitter_us: Option<f64>,
+    /// Why no watch is heard; none when one is.
+    no_watch: Option<NoWatchReason>,
+    /// The sound heard after any lead of noise.
+    listened_s: f64,
+    /// The beats expected over it.
+    expected: f64,
+    clipping: Clipping,
+    usb_clock: Option<UsbClock>,
+}
+
+/// Whether a watch is heard in `beats` at `bph`, listened to from
+/// `from_s`, and how the sound was taken.
+fn hear(
+    audio: &Audio,
+    beats: &[Beat],
+    bph: u32,
+    rate_windows: &[WindowFit],
+    from_s: f64,
+    beat_sound: Option<bool>,
+) -> Heard {
+    let fs = audio.sample_rate as f64;
+    let listened_s = audio.duration() - from_s;
+    let jitter_us = crate::session::scatter_jitter_us(rate_windows);
+    Heard {
+        jitter_us,
+        no_watch: crate::measure::no_watch_reason(jitter_us, bph, listened_s, beat_sound),
+        listened_s,
+        expected: crate::beats::expected_beats(listened_s, bph),
+        clipping: Clipping::measure(&audio.samples, fs, beats),
+        usb_clock: usbclock::measure(&audio.samples, audio.sample_rate),
+    }
+}
+
+/// A whole take's assessment, from its `jumps` and the jumps that name
+/// Tick and Tock by count (`by_count`), the rate set and the rate guessed,
+/// its fits, and whether a watch is heard; with a caveat for a lead of
+/// noise left out up to `lead_s`.
+fn assess_take(
+    cfg: &AnalysisConfig,
+    beats: &[Beat],
+    (jumps, by_count): (&[f64], usize),
+    (bph, guessed): (u32, u32),
+    fits: &Fits,
+    heard: &Heard,
+    lead_s: Option<f64>,
+) -> crate::measure::Assessment {
+    let context = crate::measure::Context {
+        watch_heard: heard.no_watch.is_none(),
+        no_watch_reason: heard.no_watch.unwrap_or_default(),
+        bph_heard: (bph != guessed).then_some(guessed),
+        lift_known: cfg.lift_known,
+        clock_known: heard.usb_clock.is_some(),
+        beats: beats.len(),
+        expected: heard.expected,
+        clipped_fraction: heard.clipping.beat_fraction,
+        span_s: beats_span(beats),
+        listened_s: heard.listened_s,
+        breaks: crate::breaks::events(jumps, beats, bph),
+        sides_by_count: by_count,
+        beat_error_as_size: fits.turned && fits.overall.is_some(),
+        average_s: None,
+    };
+    let mut assessment = crate::measure::assess(
+        &fits.rate_windows,
+        &fits.clear.iter().collect::<Vec<_>>(),
+        &context,
+    );
+    if let Some(seconds) = lead_s {
+        crate::measure::add(
+            &mut assessment.caveats,
+            crate::measure::Caveat::LeadLeftOut { seconds },
+        );
+    }
+    assessment
+}
+
+/// The timing and amplitude fits of a take's beats, with its jumps as cuts.
+struct Fits {
+    /// The amplitude windows clear of the jumps.
+    clear: Vec<AmplitudeWindow>,
+    /// Rate and beat error over the whole take, fitted piece by piece.
+    overall: Option<TimingFit>,
+    /// Whether the beat error's sign turns between pieces.
+    turned: bool,
+    /// Each beat's timing residual.
+    residuals: Vec<f64>,
+    /// The rate windows from `from_s` on.
+    rate_windows: Vec<WindowFit>,
+}
+
+impl Fits {
+    /// Each rate window's rate.
+    fn rates(&self) -> Vec<f64> {
+        self.rate_windows
+            .iter()
+            .map(|w| w.fit.rate_s_per_day)
+            .collect()
+    }
+}
+
+/// The fits of `beats` at `bph` from `from_s` to `duration`.
+fn fit_take(
+    beats: &[Beat],
+    amplitude_windows: &[AmplitudeWindow],
+    jumps: &[f64],
+    bph: u32,
+    from_s: f64,
+    duration: f64,
+    cfg: &AnalysisConfig,
+) -> Fits {
+    // Where listening stopped and started again the beats jump, and no
+    // count of beats across the hole is known: rate and timing are fitted
+    // on each stretch between jumps, and no window spans one or takes in a
+    // stretch with no beats.
+    let jumps = jump_breaks(jumps);
+    let holes = crate::clean::Cuts::new(None, &jumps, &[]);
+    let cuts = holes.piece_cuts();
+    // The readings take only the amplitude windows clear of the jumps, as
+    // `session` does: the windows themselves are kept whole.
+    let clear: Vec<AmplitudeWindow> = holes
+        .amplitude_windows(amplitude_windows)
+        .into_iter()
+        .cloned()
+        .collect();
+    let overall = timing::fit_pieces(beats, bph, &cuts);
+    let turned = timing::sign_turns(beats, bph, &cuts);
+    let residuals =
+        timing::residuals_pieces(beats, &cuts).unwrap_or_else(|| vec![f64::NAN; beats.len()]);
+    let part = crate::session::window_part_s(amplitude_windows);
+    let rate_windows = holes.windows(
+        beats,
+        bph,
+        from_s,
+        duration,
+        cfg.rate_window_s,
+        cfg.rate_window_s / 2.0,
+        part,
+    );
+    Fits {
+        clear,
+        overall,
+        turned,
+        residuals,
+        rate_windows,
+    }
+}
+
+/// The time from the first beat to the last; 0 with none.
+fn beats_span(beats: &[Beat]) -> f64 {
+    match (beats.first(), beats.last()) {
+        (Some(a), Some(b)) => b.time - a.time,
+        _ => 0.0,
+    }
+}
+
+/// The take's beats and amplitude windows at `bph`, with any lead of noise
+/// before the watch left out, and where the watch starts if there was one.
+fn read_take(
+    audio: &Audio,
+    cfg: &AnalysisConfig,
+    bph: u32,
+) -> (crate::stream::BeatLog, Option<f64>) {
     // The beats and the amplitude windows come from the chunked stream,
     // the one beat pipeline every reading of a recording rests on (session,
     // long, series and regress read files through it).
@@ -257,55 +518,34 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     if let Some(t) = lead_s {
         log.keep_from(t);
     }
-    let from_s = lead_s.unwrap_or(0.0);
-    // Under 10 s the beats' averaged sound says whether a watch is heard.
-    let beat_sound = log.beat_sound(&log.beats, &cfg.amplitude);
-    let beats = log.beats;
-    let amplitude_windows = log.amplitude_windows;
-    // Where listening stopped and started again the beats jump, and no
-    // count of beats across the hole is known: rate and timing are fitted
-    // on each stretch between jumps, and no window spans one or takes in a
-    // stretch with no beats.
-    let jumps: Vec<crate::breaks::Break> = log
-        .jumps
+    (log, lead_s)
+}
+
+/// Each jump in the beats as a break of no width.
+fn jump_breaks(jumps: &[f64]) -> Vec<crate::breaks::Break> {
+    jumps
         .iter()
         .map(|&audio_s| crate::breaks::Break {
             audio_s,
             gap_s: 0.0,
         })
-        .collect();
-    let holes = crate::clean::Cuts::new(None, &jumps, &[]);
-    let cuts = holes.piece_cuts();
-    // The readings take only the amplitude windows clear of the jumps, as
-    // `session` does: the windows themselves are kept whole.
-    let clear: Vec<AmplitudeWindow> = holes
-        .amplitude_windows(&amplitude_windows)
-        .into_iter()
-        .cloned()
-        .collect();
-    let overall = timing::fit_pieces(&beats, bph, &cuts);
-    let turned = timing::sign_turns(&beats, bph, &cuts);
-    let residuals =
-        timing::residuals_pieces(&beats, &cuts).unwrap_or_else(|| vec![f64::NAN; beats.len()]);
-    let part = crate::session::window_part_s(&amplitude_windows);
-    let rate_windows = holes.windows(
-        &beats,
-        bph,
-        from_s,
-        audio.duration(),
-        cfg.rate_window_s,
-        cfg.rate_window_s / 2.0,
-        part,
-    );
-    let rates: Vec<f64> = rate_windows.iter().map(|w| w.fit.rate_s_per_day).collect();
+        .collect()
+}
 
+/// The periods found in the timing residuals and in the amplitude, in 1 s
+/// bins.
+fn periods(
+    beats: &[Beat],
+    residuals: &[f64],
+    clear: &[AmplitudeWindow],
+    bph: u32,
+    cfg: &AnalysisConfig,
+) -> (Vec<Component>, Vec<Component>) {
     // Periodicity: timing residuals and amplitude, in 1 s bins.
     let wheels = periodicity::standard_wheels(bph, cfg.escape_teeth);
-    let duration = audio.duration();
-    let listened_s = duration - from_s;
     let good: Vec<(f64, f64)> = beats
         .iter()
-        .zip(&residuals)
+        .zip(residuals)
         .filter(|(b, r)| b.is_good() && r.is_finite())
         .map(|(b, &r)| (b.time, r))
         .collect();
@@ -332,97 +572,12 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
             .collect(),
         y: clear.iter().filter_map(|w| w.mean()).collect(),
     };
+    (search(timing_series), search(amp_series))
+}
 
-    let jitter_us = crate::session::scatter_jitter_us(&rate_windows);
-    let se = |f: &dyn Fn(&AmplitudeWindow) -> Option<f64>| {
-        crate::confidence::amplitude_windows_se(clear.iter(), f)
-    };
-    let no_watch = crate::measure::no_watch_reason(jitter_us, bph, listened_s, beat_sound);
-    let watch_heard = no_watch.is_none();
-    let clipping = Clipping::measure(&audio.samples, fs, &beats);
-    let usb_clock = usbclock::measure(&audio.samples, audio.sample_rate);
-    let amplitude_se_deg = se(&|w| w.mean());
-    let expected = crate::beats::expected_beats(listened_s, bph);
-    let assessment = crate::measure::assess(
-        &rate_windows,
-        &clear.iter().collect::<Vec<_>>(),
-        &crate::measure::Context {
-            watch_heard,
-            no_watch_reason: no_watch.unwrap_or_default(),
-            bph_heard: (bph != guessed).then_some(guessed),
-            lift_known: cfg.lift_known,
-            clock_known: usb_clock.is_some(),
-            beats: beats.len(),
-            expected,
-            clipped_fraction: clipping.beat_fraction,
-            span_s: match (beats.first(), beats.last()) {
-                (Some(a), Some(b)) => b.time - a.time,
-                _ => 0.0,
-            },
-            listened_s,
-            breaks: crate::breaks::events(&log.jumps, &beats, bph),
-            sides_by_count: log.by_count.len(),
-            beat_error_as_size: turned && overall.is_some(),
-            average_s: None,
-        },
-    );
-    let doubts = assessment.doubts;
-    let confidence = assessment.confidence;
-    let mut caveats = assessment.caveats;
-    if let Some(seconds) = lead_s {
-        crate::measure::add(
-            &mut caveats,
-            crate::measure::Caveat::LeadLeftOut { seconds },
-        );
-    }
-    let shape = watch_heard.then(|| {
-        let beat_s = crate::timing::beat_period_s(overall.as_ref(), bph);
-        let r = crate::shape::analyze(&env, fs, &beats, beat_s, &Default::default());
-        crate::shape::Measures::of(&r, &clear)
-    });
-    let mut summary = Summary {
-        bph_set: cfg.bph,
-        duration_s: duration,
-        sample_rate: audio.sample_rate,
-        bph,
-        bph_heard: (bph != guessed).then_some(guessed),
-        beats_found: beats.len(),
-        beats_found_fraction: if expected > 0.0 {
-            beats.len() as f64 / expected
-        } else {
-            0.0
-        },
-        watch_heard,
-        overall,
-        beat_error_source: None,
-        beat_error_unlock_ms: timing::median_signed(
-            clear.iter().filter_map(|w| w.beat_error_unlock_ms),
-            turned,
-        ),
-        rate_p05: percentile(&rates, 0.05),
-        rate_p95: percentile(&rates, 0.95),
-        jitter_us,
-        timing_scatter_fraction: beats::timing_scatter_fraction(jitter_us, bph),
-        amplitude_deg: median_of(clear.iter().filter_map(|w| w.mean())),
-        amplitude_even_deg: median_of(clear.iter().filter_map(|w| w.even_deg)),
-        amplitude_odd_deg: median_of(clear.iter().filter_map(|w| w.odd_deg)),
-        amplitude_se_deg,
-        amplitude_even_se_deg: se(&|w| w.even_deg),
-        amplitude_odd_se_deg: se(&|w| w.odd_deg),
-        lift_deg: cfg.amplitude.lift_deg,
-        timing_periods: search(timing_series),
-        amplitude_periods: search(amp_series),
-        clipping,
-        usb_clock,
-        rate_s_per_day: overall.map(|f| f.rate_s_per_day),
-        rate_corrected_s_per_day: usb_clock.and_then(|c| {
-            overall.map(|f| crate::clockstore::correct_rate(f.rate_s_per_day, c.ppm))
-        }),
-        doubts,
-        confidence,
-        caveats,
-        shape,
-    };
+/// Withholds the readings where no watch is heard, and chooses the beat
+/// error shown, with its caveat.
+fn settle_beat_error(summary: &mut Summary) {
     if !summary.watch_heard {
         summary.withhold_readings();
     }
@@ -437,27 +592,13 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     {
         crate::measure::add(&mut summary.caveats, caveat);
     }
-    Analysis {
-        summary,
-        beats,
-        residuals,
-        rate_windows,
-        amplitude_windows,
-    }
 }
 
 /// Where the watch starts in `log` after a lead of noise, judged as a
 /// take's reading judges it ([`crate::session::lead_s`]), with the beats'
 /// jumps as its breaks.
 fn lead_of(log: &crate::stream::BeatLog, duration: f64) -> Option<f64> {
-    let jumps: Vec<crate::breaks::Break> = log
-        .jumps
-        .iter()
-        .map(|&audio_s| crate::breaks::Break {
-            audio_s,
-            gap_s: 0.0,
-        })
-        .collect();
+    let jumps = jump_breaks(&log.jumps);
     crate::session::lead_s(log, None, &jumps, &[], 0.0, duration)
 }
 
