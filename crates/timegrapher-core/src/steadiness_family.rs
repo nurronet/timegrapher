@@ -157,6 +157,35 @@ pub fn family_long(
     hold_to_family(long, &rep);
 }
 
+/// Mark whether the trend passed its test and which of the trend and the
+/// levels the headline names, so a detail row the headline leaves out
+/// can say so.
+pub(super) fn mark_named(s: &mut SeriesCheck, cfg: &Config) {
+    let significant = trend_holds(s, cfg);
+    let drifting = s.lead == super::Lead::Drifting;
+    let levels =
+        super::level_change(s, cfg).is_some() || (drifting && super::level_moves(s, cfg).is_some());
+    let bar = |x: f64, what: &str| {
+        (x < cfg.min_explained)
+            .then(|| format!("under the {:.0}% a {what} needs", cfg.min_explained * 100.0))
+    };
+    let other = || "not the headline's finding".to_string();
+    if let Some(t) = s.trend.as_mut() {
+        t.significant = significant;
+        t.named = drifting;
+        t.note = (!drifting).then(|| {
+            let p =
+                (!significant).then(|| format!("not significant, p {}", super::p_text(t.p_value)));
+            p.or_else(|| bar(t.explained.max(t.curve_explained), "trend"))
+                .unwrap_or_else(other)
+        });
+    }
+    if let Some(c) = s.changes.as_mut() {
+        c.named = levels;
+        c.note = (!levels).then(|| bar(c.explained, "level change").unwrap_or_else(other));
+    }
+}
+
 /// Whether the trend's own test clears `cfg.trend_alpha` (#659).
 pub(super) fn trend_holds(s: &SeriesCheck, cfg: &Config) -> bool {
     s.trend
@@ -216,6 +245,58 @@ mod tests {
         assert!(super::trend_p(&red, 0.05) > 100.0 * p);
         // Three readings and fewer leave nothing to test.
         assert_eq!(super::trend_p(&[1.0, 2.0, 3.0], 0.9), 1.0);
+    }
+
+    /// A trend or levels the headline leaves out say so, and a trend
+    /// says whether its test passed, so a detail row cannot read as a
+    /// finding the headline denies.
+    #[test]
+    fn a_dropped_trend_or_level_is_marked_unnamed() {
+        let mut z = crate::synth::Rng::new(3);
+        let run = |y: Vec<f64>, cfg: &Config| {
+            let g = Grid {
+                t0: 0.0,
+                step: 10.0,
+                y,
+            };
+            check_series(SeriesKind::Amplitude, g, None, None, None, &[], cfg)
+        };
+        let slide: Vec<f64> = (0..720)
+            .map(|i| 280.0 - 20.0 * i as f64 / 720.0 + 2.0 * z.normal())
+            .collect();
+        let on = run(slide.clone(), &Config::default());
+        let t = on.trend.as_ref().unwrap();
+        assert!(t.significant && t.named, "{}", on.headline);
+        // Holm dropping the trend sets its bar to 0.
+        let dropped = Config {
+            trend_alpha: 0.0,
+            ..Config::default()
+        };
+        let off = run(slide, &dropped);
+        let t = off.trend.as_ref().unwrap();
+        assert!(!t.significant && !t.named, "{}", off.headline);
+        assert!(t
+            .note
+            .as_deref()
+            .unwrap()
+            .starts_with("not significant, p "));
+        assert_eq!(on.trend.as_ref().unwrap().note, None);
+        let step: Vec<f64> = (0..720)
+            .map(|i| if i < 360 { 270.0 } else { 280.0 } + 2.0 * z.normal())
+            .collect();
+        let s = run(step.clone(), &Config::default());
+        assert!(s.changes.as_ref().unwrap().named, "{}", s.headline);
+        let bar = Config {
+            min_explained: 0.99,
+            ..Config::default()
+        };
+        let s = run(step, &bar);
+        let c = s.changes.as_ref().unwrap();
+        assert!(!c.named, "{}", s.headline);
+        assert_eq!(
+            c.note.as_deref(),
+            Some("under the 99% a level change needs")
+        );
     }
 
     /// Holm keeps the smallest p while each is under α over the tests

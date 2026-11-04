@@ -217,7 +217,7 @@ fn print_text(r: &Report, calibrated: bool) {
         println!("{label:<13}{line}");
     }
     for s in &r.series {
-        print_series(s, r.config.outlier_sigma);
+        print_series(s, &r.config);
     }
     if let Some(c) = &r.isochronism {
         println!();
@@ -312,7 +312,8 @@ fn independence_line(a: &timegrapher_core::steadiness::Autocorrelation) -> Strin
     )
 }
 
-fn print_series(s: &SeriesCheck, outlier_sigma: f64) {
+fn print_series(s: &SeriesCheck, cfg: &Config) {
+    let outlier_sigma = cfg.outlier_sigma;
     let name = s.series.name();
     println!();
     println!("{}", s.headline);
@@ -331,21 +332,37 @@ fn print_series(s: &SeriesCheck, outlier_sigma: f64) {
     if let Some(a) = &s.autocorrelation {
         println!("{}", independence_line(a));
     }
-    print_steadiness(s);
+    print_steadiness(s, cfg);
     if let Some(t) = &s.trend {
         println!(
-            "  {:<14} {:+.3} {}/h ({:.0}% explained)",
+            "  {:<14} {:+.3} {}/h ({:.0}% explained){}",
             "trend",
             t.per_hour,
             s.unit,
-            t.explained * 100.0
+            percent(t.explained, t.explained < cfg.min_explained),
+            note(&t.note)
         );
     }
     print_cycles(s);
 }
 
+/// A share as a whole percent, rounded down when it falls short of a bar
+/// so that 19.6% short of 20% does not print as 20%.
+fn percent(x: f64, short: bool) -> f64 {
+    if short {
+        (x * 100.0).floor()
+    } else {
+        x * 100.0
+    }
+}
+
+/// A detail row's note on why the headline leaves its finding out.
+fn note(n: &Option<String>) -> String {
+    n.as_ref().map_or(String::new(), |n| format!("; {n}"))
+}
+
 /// The Allan slope, the CUSUM and the stretches of one level.
-fn print_steadiness(s: &SeriesCheck) {
+fn print_steadiness(s: &SeriesCheck, cfg: &Config) {
     if let Some(a) = &s.allan {
         println!(
             "  {:<14} slope {} (−0.5 independent); up to {:.1}× the independent line; steadiest averaging {} s ({} {})",
@@ -371,11 +388,13 @@ fn print_steadiness(s: &SeriesCheck) {
         );
     }
     if let Some(c) = s.changes.as_ref().filter(|c| c.segments.len() > 1) {
+        let small = c.explained < cfg.min_explained;
         println!(
-            "  {:<14} {} stretches of one level, {:.0}% explained:",
+            "  {:<14} {} stretches of one level, {:.0}% explained{}:",
             "levels",
             c.segments.len(),
-            c.explained * 100.0
+            percent(c.explained, small),
+            note(&c.note)
         );
         for g in &c.segments {
             println!(
