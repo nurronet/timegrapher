@@ -869,6 +869,12 @@ fn a_mask_on_a_take_on_show_is_read_in_the_background() {
     let (w, _) = settled(&mut app);
     let before = app.trend.clone();
     app.mask(600.0, 700.0);
+    // Polling for sound reads none of them either.
+    app.poll();
+    assert_eq!(
+        app.trend, before,
+        "polling leaves the charts to the background"
+    );
     // The frame after the mask: the charts and the table are under way,
     // and the whole take waits for the charts, which say where its watch
     // was last heard; none is read here.
