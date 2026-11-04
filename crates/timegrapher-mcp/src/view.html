@@ -1904,7 +1904,8 @@ function distributionCards(d) {
 // ---- The Isochronism card (#741) -----------------------------------------
 //
 // The rate against the amplitude as the take runs, one dot per stretch of
-// time coloured by when, on the Cycle view's viridis, joined in time order.
+// time coloured by when, on the Cycle view's viridis, joined in time order
+// where core says they are next to each other.
 // The server sends core steady_views::walk_view: the points core merged,
 // each with its hover; nothing is merged or worded here.
 
@@ -1934,7 +1935,9 @@ function walkCard(w) {
     xName: `${W.amp_name} (${W.amp_unit})`, yName: `${W.rate_name}\n(${W.rate_unit})`,
     xTicks: () => x.ticks, yTicks: () => y.ticks,
     hlines: [{ y: 0, color: "--axis" }],
-    joins: [{ pts: dots.map((d) => [d.amplitude_deg, d.rate_s_per_day]), color: "--axis", width: 1 }],
+    // Joined only where core says the points are next to each other: a
+    // left-out stretch or a break lifts the pen.
+    joins: [{ pts: dots.flatMap((d, i) => i && !d.joined ? [[NaN, NaN], [d.amplitude_deg, d.rate_s_per_day]] : [[d.amplitude_deg, d.rate_s_per_day]]), color: "--axis", width: 1 }],
     dots: dots.map((d) => ({ pts: [[d.amplitude_deg, d.rate_s_per_day]], hovers: [d.hover], rgb: `rgb(${viridisRgb(d.when).join(",")})`, r: 3 })),
   });
   return `<div class="card"><h2>${esc(W.title)}</h2><p class="hint">${esc(W.hint)}</p>${chart}

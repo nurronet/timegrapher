@@ -415,7 +415,14 @@ pub struct WalkDot {
     pub amplitude_deg: f64,
     pub rate_s_per_day: f64,
     pub hover: String,
+    /// Whether the line joins it to the point before: only when that one
+    /// is within [`WALK_JOIN_BINS`] merged bins, so a left-out stretch or
+    /// a break is a gap in the line, never filled (Norm, #1083).
+    pub joined: bool,
 }
+
+/// How far apart, in merged bins, two points may be and still be joined.
+pub const WALK_JOIN_BINS: f64 = 1.5;
 
 /// The Isochronism card as data: the walk merged to its default width
 /// ([`walk::merged`], [`walk::default_merge`]), so every surface draws the
@@ -454,6 +461,7 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
                 hover += &format!(" · {} readings", p.readings);
             }
             WalkDot {
+                joined: false,
                 hours,
                 when: 0.0,
                 amplitude_deg: p.amplitude_deg,
@@ -464,6 +472,9 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
         .collect();
     if dots.len() < WALK_MIN_POINTS {
         return None;
+    }
+    for (d, pair) in dots.iter_mut().skip(1).zip(m.points.windows(2)) {
+        d.joined = pair[1].t_s - pair[0].t_s <= WALK_JOIN_BINS * m.bin_s;
     }
     let last_hours = dots.last().map_or(0.0, |d| d.hours);
     if last_hours > 0.0 {
@@ -1195,6 +1206,25 @@ mod tests {
         assert_eq!(v.dots[2].when, 1.0);
         assert!((v.dots[1].when - 12_600.0 / 137_000.0).abs() < 1e-12);
         assert!((v.last_hours - 137_000.0 / 3600.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_isochronism_line_breaks_where_a_stretch_was_left_out() {
+        // Bins at 150, 450 and 750 s, then none until 1650 s: a gap.
+        let w = walk_of(&[
+            (150.0, 300.0, 0.0, 30),
+            (450.0, 299.0, 0.1, 30),
+            (750.0, 298.0, 0.2, 30),
+            (1650.0, 295.0, 0.5, 30),
+            (1950.0, 294.0, 0.6, 30),
+        ]);
+        let joined: Vec<bool> = walk_view(&w)
+            .unwrap()
+            .dots
+            .iter()
+            .map(|d| d.joined)
+            .collect();
+        assert_eq!(joined, [false, true, true, false, true]);
     }
 
     #[test]

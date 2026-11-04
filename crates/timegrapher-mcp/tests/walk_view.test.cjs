@@ -33,9 +33,9 @@ vm.runInContext(["CHAR_W", "DASH", "MARKS"].map(constant).join("\n") + "\nlet cl
 const walk = {
   last_hours: 38, last_text: "38 h",
   dots: [
-    { hours: 0.04, when: 0.04 / 38, amplitude_deg: 301, rate_s_per_day: 0, hover: "0.0 h after start · 301° · 0.0 s/d" },
-    { hours: 3.5, when: 3.5 / 38, amplitude_deg: 272, rate_s_per_day: 4.1, hover: "3.5 h after start · 272° · +4.1 s/d" },
-    { hours: 38, when: 1, amplitude_deg: 211, rate_s_per_day: -2.3, hover: "38 h after start · 211° · -2.3 s/d · 6 readings" },
+    { hours: 0.04, when: 0.04 / 38, joined: false, amplitude_deg: 301, rate_s_per_day: 0, hover: "0.0 h after start · 301° · 0.0 s/d" },
+    { hours: 3.5, when: 3.5 / 38, joined: true, amplitude_deg: 272, rate_s_per_day: 4.1, hover: "3.5 h after start · 272° · +4.1 s/d" },
+    { hours: 38, when: 1, joined: true, amplitude_deg: 211, rate_s_per_day: -2.3, hover: "38 h after start · 211° · -2.3 s/d · 6 readings" },
   ],
 };
 
@@ -51,6 +51,17 @@ test("the joining line is at axis strength and under the dots", () => {
   const out = context.walkCard(walk);
   const join = out.indexOf('stroke="var(--axis)" stroke-width="1" stroke-linejoin="round"');
   assert.ok(join > 0 && join < out.indexOf("<circle"), out);
+});
+
+test("a gap core marks breaks the line into two runs, never joined across", () => {
+  const run = (w) => {
+    const out = context.walkCard(w);
+    const d = out.match(/<path d="([^"]*)" fill="none" stroke="var\(--axis\)"/)[1];
+    return (d.match(/M/g) || []).length;
+  };
+  assert.equal(run(walk), 1);
+  const gapped = { ...walk, dots: walk.dots.map((d, i) => (i === 2 ? { ...d, joined: false } : d)) };
+  assert.equal(run(gapped), 2);
 });
 
 test("the axes carry the strip's short names, the unit under the name", () => {
