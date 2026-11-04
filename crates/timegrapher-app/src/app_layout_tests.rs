@@ -1005,12 +1005,21 @@ fn a_finished_runs_pane_is_never_a_sliver() {
             app.panes.tiles.rect(tabs).unwrap().height()
         };
         assert!(strip + 1.0 >= MIN_PANE_H, "{w}: the strip {strip}");
-        // A tab bar over the pane's own need, its first chart readable.
-        assert!(tall + 1.0 >= need + 24.0, "{w}: {tall} for {need}");
-        // Where the window has room, grown to show the charts and table,
-        // but to no more than half: the Paper Strip keeps as much.
+        // A tab bar over the pane's own need, its charts readable; in a
+        // window too small for that, all the room the Paper Strip's least
+        // leaves.
+        assert!(
+            tall + 1.0 >= need + 24.0 || strip <= MIN_PANE_H + 1.0,
+            "{w}: {tall} for {need}, the strip {strip}"
+        );
+        // Where the window has room, grown to show the charts and table.
+        // Taller than the Paper Strip only as far as both its charts need
+        // (Peter, 4 Nov: room for both charts).
         assert!(h < 700.0 || tall > MIN_PANE_H + 40.0, "{w}: {tall}");
-        assert!(h < 700.0 || strip + 1.0 >= tall, "{w}: {strip} {tall}");
+        assert!(
+            h < 700.0 || tall <= (need + 24.0).max(strip) + 1.0,
+            "{w}: {strip} {tall} for {need}"
+        );
     }
 }
 

@@ -365,8 +365,9 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
     }
     area.show(ui, |ui| {
         // The charts take the height left after the hours' table (or a
-        // third of it, for a long table); in a short pane, all of it, the
-        // table under them. What doesn't fit scrolls.
+        // third of it, for a long table); when that leaves them short of a
+        // readable height, all of it, the table under them. What doesn't
+        // fit scrolls.
         let row_h = ui
             .text_style_height(&egui::TextStyle::Body)
             .max(ui.spacing().interact_size.y)
@@ -375,7 +376,7 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
         let room = viewport_h - 8.0 - 3.0 * gap;
         let table_h = ((hours.len() as f32 + 1.0) * row_h + 4.0).min(room / 3.0);
         let with_table = (room - table_h - gap) / 2.0;
-        let chart_h = if with_table >= CHART_MIN_H {
+        let chart_h = if with_table >= CHART_READ_H {
             with_table
         } else {
             ((room - gap) / 2.0).max(CHART_MIN_H)
@@ -397,16 +398,21 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
 /// The least height of each of the Power Reserve charts, points.
 const CHART_MIN_H: f32 = 56.0;
 
+/// The height each Power Reserve chart reads well at, points: its hours'
+/// labels and a plot that names a few values.
+const CHART_READ_H: f32 = 100.0;
+
 /// The least height the pane's run needs under its toolbar once it has
-/// charts: its line and the first chart at its least, the rest scrolling
-/// under it; none before then. No more, so the panes above keep theirs.
+/// charts: its line and both charts at a height that reads, the table
+/// scrolling under them; none before then. The Paper Strip above gives
+/// room for it, down to its own least.
 pub fn least_h(test: Option<&Test>) -> Option<f32> {
     let t = test?;
     let charts = match t.results.as_ref() {
         Some(r) => !r.hours.is_empty(),
         None => t.so_far.iter().any(|h| h.whole()),
     };
-    charts.then_some(22.0 + CHART_MIN_H + 12.0)
+    charts.then_some(22.0 + 2.0 * CHART_READ_H + 8.0 + 12.0)
 }
 
 /// A run stopped by hand after `hours` whole hours, for the tests.

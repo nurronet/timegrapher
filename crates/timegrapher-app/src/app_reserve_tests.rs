@@ -5,14 +5,14 @@ use super::tests::painted_text;
 use super::*;
 use timegrapher_core::synth::{generate, SynthConfig};
 
-/// A 46 h run in a 1000 x 700 window: the Power Reserve pane takes room
-/// enough to show both its charts whole, each naming 0 h on its hours'
-/// axis, the table scrolling under them. At 800 x 600 the Rate chart
-/// shows whole, the rest scrolling. The Rate chart's zero line reads
-/// "0 s/d", never "-0 s/d" (#991).
+/// A 46 h run in a 1000 x 700 or 800 x 600 window: the Power Reserve pane
+/// takes room enough to show both its charts whole, each naming 0 h on
+/// its hours' axis, the table scrolling under them. The Rate chart's zero
+/// line reads "0 s/d", never "-0 s/d" (#991). At 1000 x 700 the Rate
+/// chart names more than its zero line.
 #[test]
 fn a_long_runs_two_charts_show_whole_in_a_small_window() {
-    for (w, h, charts) in [(1000.0f32, 700.0f32, 2), (800.0, 600.0, 1)] {
+    for (w, h) in [(1000.0f32, 700.0f32), (800.0, 600.0)] {
         let mut app = TimegrapherApp::with_devices(Vec::new(), None);
         let mut r = reserve::finished_run(47).results.unwrap();
         r.run_s = 46.5 * 3600.0;
@@ -60,10 +60,18 @@ fn a_long_runs_two_charts_show_whole_in_a_small_window() {
             .collect();
         assert_eq!(
             shown.iter().filter(|t| *t == "0 h").count(),
-            charts,
+            2,
             "{w}: {shown:?}"
         );
         assert!(shown.iter().any(|t| t == "0 s/d"), "{w}: {shown:?}");
+        let rate_labels = shown
+            .iter()
+            .filter(|t| {
+                t.strip_suffix(" s/d")
+                    .is_some_and(|v| !v.contains('.') && v.parse::<i32>().is_ok())
+            })
+            .count();
+        assert!(w < 1000.0 || rate_labels >= 2, "{w}: {shown:?}");
         assert!(!shown.iter().any(|t| t.starts_with("-0")), "{w}: {shown:?}");
     }
 }
