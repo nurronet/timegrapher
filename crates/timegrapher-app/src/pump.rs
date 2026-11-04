@@ -72,6 +72,29 @@ impl Drop for Shell {
     }
 }
 
+std::thread_local! {
+    /// The parts of the frame being built and their times, for the log.
+    static PARTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Run `f`, the part `name` of the frame being built, noting its time for
+/// the frame log.
+pub(crate) fn timed<R>(name: &str, f: impl FnOnce() -> R) -> R {
+    let since = Instant::now();
+    let r = f();
+    part(name, since);
+    r
+}
+
+/// Note the part `name` of the frame being built, begun at `since`, for
+/// the frame log; nothing when it is off.
+pub(crate) fn part(name: &str, since: Instant) {
+    if frame_log() {
+        let took = since.elapsed();
+        PARTS.with(|p| p.borrow_mut().push(format!("{name} {took:?}")));
+    }
+}
+
 /// Whether every frame's time goes in the log: with
 /// `TIMEGRAPHER_FRAME_LOG` set, to see where a slow window spends it.
 fn frame_log() -> bool {
@@ -131,9 +154,11 @@ impl eframe::App for Shell {
         app.update(ctx, frame);
         drop(app);
         if frame_log() {
+            let parts: Vec<String> = PARTS.with(|p| p.borrow_mut().drain(..).collect());
             applog::info(&format!(
-                "frame: waited {waited:?} for the app, built in {:?}",
-                asked.elapsed() - waited
+                "frame: waited {waited:?} for the app, built in {:?}: {}",
+                asked.elapsed() - waited,
+                parts.join(", ")
             ));
         }
         if crate::pick::answer(&self.app, crate::pick::show) {

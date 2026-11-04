@@ -2203,8 +2203,9 @@ pub struct TimegrapherApp {
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
     /// `None` follows the newest beat; otherwise the time at the newest
-    /// edge of the strip. Only the strip (and the chart marker for it)
-    /// follows this: the readings and the other panes show the newest.
+    /// edge of the strip. The strip, the chart marker for it and the sound
+    /// panes (the Tick Tock Profile and the Scope) follow this; the
+    /// readings show the newest.
     strip_end: Option<f64>,
     panes: Tree<Pane>,
 
@@ -2271,9 +2272,7 @@ pub struct TimegrapherApp {
     /// seconds of this session, and one worked out from the file for a
     /// moment that history doesn't cover.
     sound_opts: profiles::Options,
-    /// The moment the profile pane shows, for its toolbar's right end.
-    sound_note: Option<String>,
-    sound_history: Vec<(f64, Profiles)>,
+    sound_history: Vec<(f64, scope_panes::Kept)>,
     /// The profiles worked out from the recording at a moment, at the
     /// settings revision they were read with.
     sound_at: Option<(f64, u64, Profiles)>,
@@ -2701,7 +2700,6 @@ impl TimegrapherApp {
             export: None,
             export_dir: None,
             sound_opts: profiles::Options::default(),
-            sound_note: None,
             sound_history: Vec::new(),
             sound_at: None,
             analysis_save: None,
@@ -3040,16 +3038,7 @@ impl TimegrapherApp {
             Pane::Strip => theme::pane_toolbar(ui, title, help::STRIP, |ui| {
                 self.strip_settings(ui);
             }),
-            Pane::Sound => {
-                let note = self.sound_note.clone();
-                theme::pane_toolbar_noted(ui, title, help::PROFILE, note.as_deref(), |ui| {
-                    self.profile_settings(ui);
-                })
-            }
-            Pane::Scope => theme::pane_toolbar(ui, title, help::SCOPE, |ui| {
-                scope::settings(ui, &mut self.scope_view);
-                self.export_button(ui, pane);
-            }),
+            Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
                 let mut info = self.steady_info;
                 let mut pin = |ui: &mut egui::Ui| {
@@ -3317,10 +3306,9 @@ impl TimegrapherApp {
             self.undrag(pane);
         }
         set_pane_visible(&mut self.panes.tiles, pane, true);
-        // A test's pane opens at its content's height, no less than a
-        // pane's least: the Paper Strip keeps the rest until dragged.
+        // A test's pane opens at its content's height, or its run's.
         if pane == Pane::PowerReserve && !was {
-            fit_row(&mut self.panes.tiles, pane, MIN_PANE_H);
+            self.fit_reserve_row();
         }
         let Some(id) = self.panes.tiles.find_pane(&pane) else {
             return;
@@ -3372,7 +3360,7 @@ impl TimegrapherApp {
         // bar, so the window never moves under the pointer.
         // The readings, and on them what a take needs, unless hidden.
         if self.show_readings {
-            let out = self.readouts(ui);
+            let out = crate::pump::timed("cards", || self.readouts(ui));
             self.card_controls(ui, &out);
             ui.add_space(theme::GAP - ui.spacing().item_spacing.y);
         }
@@ -4200,7 +4188,7 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
-        self.refresh_trend_shown(ctx);
+        crate::pump::timed("charts' readings", || self.refresh_trend_shown(ctx));
         // A test set up against another watch than the one picked now.
         self.find_full_wind();
         if let Some(wait) = self.full_wind_recheck(guided::unix_now()) {
@@ -4351,7 +4339,7 @@ impl eframe::App for TimegrapherApp {
             self.open_recording(&p, true);
         }
 
-        self.poll();
+        crate::pump::timed("poll", || self.poll());
 
         self.export_tick(ctx);
 
@@ -4386,7 +4374,7 @@ impl eframe::App for TimegrapherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::Quit);
         }
-        self.guided_tick(ctx);
+        crate::pump::timed("Positions Test", || self.guided_tick(ctx));
         self.reserve_tick(ctx);
         self.reserve_saved();
         self.panels(ctx);

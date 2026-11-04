@@ -133,6 +133,7 @@ impl egui_tiles::Behavior<Pane> for PaneBehavior<'_> {
             if self.app.too_short(ui, *pane) {
                 return;
             }
+            let (drawing, title) = (Instant::now(), pane.title());
             match pane {
                 Pane::Watch => self.app.watch_pane(ui),
                 Pane::Strip => self.app.strip_pane(ui),
@@ -151,6 +152,7 @@ impl egui_tiles::Behavior<Pane> for PaneBehavior<'_> {
                 Pane::Charts => self.app.charts_pane(ui),
                 _ => {}
             }
+            crate::pump::part(title, drawing);
         });
         if exporting {
             let shapes = ui.ctx().graphics(|g| {
