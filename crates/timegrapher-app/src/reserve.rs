@@ -383,7 +383,8 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
         };
         // Too short to stack them at a height that reads, but wide enough:
         // side by side, each the whole height.
-        let side = stacked < CHART_READ_H && ui.available_width() >= 2.0 * SIDE_MIN_W;
+        let side = stacked < CHART_READ_H
+            && ui.available_width() >= 2.0 * SIDE_MIN_W + ui.spacing().item_spacing.x;
         // Side by side, they fill the pane, the table wholly under them.
         let chart_h = if side {
             (viewport_h - 8.0).max(CHART_MIN_H)
@@ -617,52 +618,50 @@ fn one_chart(
     use egui_plot::{Line, Plot, PlotPoints};
     let pal = theme::pal(ui);
     let x = |h: &power_reserve::Hour| f64::from(h.hour) + h.span_s / 7200.0;
-    {
-        let colour = if name == "rate" {
-            pal.trace_rate
-        } else {
-            pal.trace_amplitude
-        };
-        let pts: Vec<[f64; 2]> = hours
-            .iter()
-            .filter_map(|h| get(h).map(|v| [x(h), v]))
-            .collect();
-        let mut grid = Grid::new(hour_marks, |g| theme::even_grid(g, 24.0, &[]));
-        if name == "rate" {
-            grid = grid.zero_y();
-        }
-        grid.on(Plot::new(format!("reserve {name}")))
-            .height(height)
-            .allow_drag(false)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .default_x_bounds(x_lo, x_hi)
-            .y_axis_min_width(gutter)
-            .x_axis_formatter(|m, _| format!("{} h", axis_number(m.value, m.step_size)))
-            // The point under the pointer in words: hours into the run and
-            // the hour's figure.
-            .label_formatter(move |name, v| {
-                if name.is_empty() {
-                    return String::new();
-                }
-                format!(
-                    "{} into the run\n{:.d$}{unit}",
-                    length_text((v.x * 3600.0).max(0.0)),
-                    v.y,
-                    d = usize::from(unit != "°")
-                )
-            })
-            // Never "-0 s/d" on the zero line.
-            .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
-            .show(ui, |p| {
-                grid.draw(p, pal);
-                p.line(
-                    Line::new(name, PlotPoints::from(pts))
-                        .color(colour)
-                        .width(strength::DATA_W),
-                );
-            });
+    let colour = if name == "rate" {
+        pal.trace_rate
+    } else {
+        pal.trace_amplitude
+    };
+    let pts: Vec<[f64; 2]> = hours
+        .iter()
+        .filter_map(|h| get(h).map(|v| [x(h), v]))
+        .collect();
+    let mut grid = Grid::new(hour_marks, |g| theme::even_grid(g, 24.0, &[]));
+    if name == "rate" {
+        grid = grid.zero_y();
     }
+    grid.on(Plot::new(format!("reserve {name}")))
+        .height(height)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .allow_scroll(false)
+        .default_x_bounds(x_lo, x_hi)
+        .y_axis_min_width(gutter)
+        .x_axis_formatter(|m, _| format!("{} h", axis_number(m.value, m.step_size)))
+        // The point under the pointer in words: hours into the run and
+        // the hour's figure.
+        .label_formatter(move |name, v| {
+            if name.is_empty() {
+                return String::new();
+            }
+            format!(
+                "{} into the run\n{:.d$}{unit}",
+                length_text((v.x * 3600.0).max(0.0)),
+                v.y,
+                d = usize::from(unit != "°")
+            )
+        })
+        // Never "-0 s/d" on the zero line.
+        .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
+        .show(ui, |p| {
+            grid.draw(p, pal);
+            p.line(
+                Line::new(name, PlotPoints::from(pts))
+                    .color(colour)
+                    .width(strength::DATA_W),
+            );
+        });
 }
 
 /// The dialog for saving the run as a CSV file, starting in `dir`.
