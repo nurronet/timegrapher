@@ -1503,3 +1503,28 @@ fn the_cusum_scales_by_the_rho_of_a_chosen_step() {
     );
     assert!(got - step > 1e-3 * step, "{got} against {step}");
 }
+
+/// Through the whole check, the rub scenario's slopes against the
+/// amplitude read its true coupling of 2.0 s/d per degree (#951): both
+/// are taken against the paired amplitude, not the medians the amplitude
+/// series shows, which read about 1.9.
+#[test]
+fn a_rubs_reported_slopes_read_its_true_coupling() {
+    let s = crate::scenarios::find("rub").unwrap();
+    let log = crate::scenarios::beat_log(&s, 1);
+    let lc = crate::longterm::LongConfig {
+        wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+        ..Default::default()
+    };
+    let long = crate::longrun::analyse(&log, None, &lc);
+    let r = check(&log, None, &long, &lc, &Config::default());
+    let x = r.rate_amplitude.unwrap();
+    let iso = r.isochronism.unwrap();
+    for (what, s) in [
+        ("rate against amplitude", x.s_per_day_per_deg),
+        ("isochronism", iso.s_per_day_per_deg),
+    ] {
+        let s = s.unwrap();
+        assert!((s - 2.0).abs() < 0.05, "{what}: {s}");
+    }
+}
