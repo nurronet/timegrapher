@@ -232,7 +232,7 @@ impl TimegrapherApp {
         let beats = r.map_or(0, |r| r.beats_used);
         // Over the whole take, once it is stopped: `session`'s reading of
         // it beside the last window's figure.
-        let whole = self.whole_take();
+        let whole = self.whole_take_shown(ui.ctx());
         let whole_breaks = whole.as_ref().map_or_else(String::new, whole_breaks_text);
         let mut slots = vec![(Slot::Position, cards[0].inner)];
         // Listen: its caption here, its buttons and Average Over in the

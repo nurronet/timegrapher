@@ -835,12 +835,15 @@ fn a_masked_stretch_leaves_the_readings_and_comes_back() {
     app.mask(35.0, 45.0);
     assert_eq!(app.masked, [(30.0, 45.0)], "joined");
     assert_eq!(app.live.as_ref().unwrap().masked(), app.masked);
+    // As the next frame reads them.
+    app.refresh_trend();
     assert_eq!(heard(&app), 0);
     assert_eq!(stretches(&app), 0);
     app.unmask_at(10.0);
     assert_eq!(app.masked.len(), 1, "nothing masked there");
     app.unmask_at(33.0);
     assert!(app.masked.is_empty());
+    app.refresh_trend();
     assert!(heard(&app) > 0);
     assert!(stretches(&app) > 0);
 }

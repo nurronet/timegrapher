@@ -26,6 +26,7 @@ use egui_tiles::{Linear, LinearDir, SimplificationOptions, TileId, Tiles, Tree, 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
+use take_reads::{FreeJob, FreeKey, TrendKey, WholeKey, WholeTake};
 use timegrapher_core::beats::STANDARD_BPH;
 use timegrapher_core::breaks::{GapWatch, Live};
 use timegrapher_core::capture::{self, Capture, Event, InputDevice, Level};
@@ -59,6 +60,7 @@ mod session_marks;
 mod settings_pane;
 mod steadiness_panes;
 mod take_io;
+mod take_reads;
 mod watches_pane;
 
 use dock::PaneBehavior;
@@ -2226,7 +2228,7 @@ pub struct TimegrapherApp {
     trend: Vec<TrendPoint>,
     /// What the readings in [`Self::trend`] were read on: the revision
     /// and Average Over.
-    trend_key: (Revision, u64),
+    trend_key: TrendKey,
     /// What the take on show's readings rest on.
     rev: Revision,
     /// The last [`Self::whole_take`] and what it was read from.
@@ -2236,6 +2238,10 @@ pub struct TimegrapherApp {
     /// The next table while listening, read in the background, and what
     /// it is read from.
     free_job: std::cell::RefCell<Option<FreeJob>>,
+    /// The whole take being read in the background for the window.
+    whole_job: std::cell::RefCell<Option<take_reads::Job<WholeKey, Option<WholeTake>>>>,
+    /// The charts' run of readings being read in the background.
+    trend_job: Option<take_reads::Job<TrendKey, Vec<TrendPoint>>>,
     level: Level,
     level_at: Instant,
     /// When the input last clipped.
@@ -2672,6 +2678,8 @@ impl TimegrapherApp {
             whole_take: Default::default(),
             free_table: Default::default(),
             free_job: Default::default(),
+            whole_job: Default::default(),
+            trend_job: None,
             level: Level::default(),
             level_at: Instant::now(),
             clipped_at: None,
@@ -2776,195 +2784,6 @@ impl TimegrapherApp {
             .rev()
             .find(|p| p.heard)
             .map_or(f64::INFINITY, |p| p.t)
-    }
-
-    /// The take in the position the watch is in now, once it is stopped:
-    /// its settled stretches, at whatever length session reads, read as
-    /// `timegrapher session` reads a recording (core
-    /// `session::measure_masked`), the time between them masked, and the
-    /// seconds they cover. A take opened from disk is read to its end, as
-    /// session reads it; one just listened to, to its last reading with a
-    /// watch heard.
-    fn whole_take(&self) -> Option<WholeTake> {
-        if self.running() {
-            return None;
-        }
-        let live = self.live.as_ref()?;
-        // To the take's end, as session reads it, not its last beat.
-        let opened = self.take_breaks.is_some();
-        let end = if opened {
-            live.duration_s()
-        } else {
-            self.last_heard_s().min(live.duration_s())
-        };
-        let spans: Vec<(f64, f64)> = self
-            .current_spans()
-            .into_iter()
-            .map(|(a, b)| (a.max(0.0), b.min(end)))
-            .filter(|(a, b)| a < b)
-            .collect();
-        let key: WholeKey = (
-            live.beats().len(),
-            spans.clone(),
-            self.masked.clone(),
-            self.rev,
-        );
-        if let Some((k, w)) = self.whole_take.borrow().as_ref() {
-            if *k == key {
-                return w.clone();
-            }
-        }
-        let read = || {
-            let span: f64 = spans.iter().map(|(a, b)| b - a).sum();
-            let (&(from, _), &(_, to)) = (spans.first()?, spans.last()?);
-            let mut log = steady::log_of(live)?;
-            let clock = self.reading_clock(log.duration_s);
-            // The cuts the app adds (a settling's end, a move, a mask's ends)
-            // at the reading's or a mask's edges change nothing it reads, and
-            // session has none there (#682).
-            let edge =
-                |j: f64| j <= from || j >= to || self.masked.iter().any(|m| j == m.0 || j == m.1);
-            log.jumps.retain(|&j| !edge(j));
-            let breaks = self.reading_breaks(&log);
-            // The time between the stretches, another position or its
-            // settling, is left out as a mask is.
-            let mut masked = self.masked.clone();
-            masked.extend(spans.windows(2).map(|w| (w[0].1, w[1].0)));
-            let mut m = timegrapher_core::session::measure_masked(
-                &log,
-                clock.as_ref(),
-                &breaks,
-                &masked,
-                from,
-                to,
-            );
-            m.take_doubts(self.lift_known(), self.take_unlisted);
-            Some(WholeTake { m, span })
-        };
-        let w = read();
-        *self.whole_take.borrow_mut() = Some((key, w.clone()));
-        w
-    }
-
-    /// The Positions Test table of the take on show or under way, when no
-    /// guided test is: each position's settled stretches read by core
-    /// `session::positions_table`. While listening it is read afresh every
-    /// second, in the background, the last table showing until the next is
-    /// ready; a take on show is read at once.
-    fn free_table(&self, ctx: &egui::Context) -> Option<guided::FreeTable> {
-        let stretches: Vec<(core_session::Position, f64, f64)> = guided::ORDER
-            .iter()
-            .filter_map(|&p| Some((p, core_session::Position::parse(p.code())?)))
-            .flat_map(|(p, sp)| {
-                self.session
-                    .settled_spans(self.position, p)
-                    .into_iter()
-                    .map(move |(a, b)| (sp, a, b))
-            })
-            .collect();
-        self.table_of(ctx, stretches)
-    }
-
-    /// The guided test's figures for the position being measured, so far:
-    /// its measuring up to now read as [`Self::free_table`] reads a
-    /// position, every second. None until it has 10 s.
-    fn guided_live(&self, ctx: &egui::Context) -> Option<guided::FreeCell> {
-        let t = self.guided.as_ref()?;
-        let now = self.live.as_ref()?.duration_s();
-        let &(from, to) = t.measured(now).get(t.stretches().len())?;
-        let p = core_session::Position::parse(t.position().code())?;
-        let table = self.table_of(ctx, vec![(p, from, to)])?;
-        let label = guided::position_label(p);
-        let row = table.rows.into_iter().find(|r| r.0 == label)?;
-        matches!(row.2, guided::FreeCell::Read(..)).then_some(row.2)
-    }
-
-    /// A Positions Test table of `stretches` (position, start, end), each
-    /// cut at the take's end so far: read afresh every second, in the
-    /// background, while listening; at once for a take on show.
-    fn table_of(
-        &self,
-        ctx: &egui::Context,
-        stretches: Vec<(core_session::Position, f64, f64)>,
-    ) -> Option<guided::FreeTable> {
-        let live = self.live.as_ref()?;
-        let latest = self.latest_s();
-        // A take on show reads to the end of its sound, as `timegrapher
-        // session` reads its last position.
-        let end = if self.running() {
-            (latest / FREE_TABLE_STEP_S).floor() * FREE_TABLE_STEP_S
-        } else {
-            latest.max(live.duration_s())
-        };
-        let stretches: Vec<(core_session::Position, f64, f64)> = stretches
-            .into_iter()
-            .map(|(p, a, b)| (p, a.max(0.0), b.min(end)))
-            .filter(|s| s.1 < s.2)
-            .collect();
-        let masked = core_session::masked_spans(
-            &self.masked.iter().map(|&(a, b)| [a, b]).collect::<Vec<_>>(),
-        );
-        let beats = if self.running() {
-            (end / FREE_TABLE_STEP_S) as usize
-        } else {
-            live.beats().len()
-        };
-        let key: FreeKey = (beats, stretches.clone(), masked.clone(), self.rev);
-        let mut job = self.free_job.borrow_mut();
-        // A table being read on what the readings rested on before is let go.
-        if job.as_ref().is_some_and(|j| j.key.3 != self.rev) {
-            *job = None;
-        }
-        if let Some(j) = job.as_ref() {
-            match j.rx.try_recv() {
-                Ok(t) => {
-                    *self.free_table.borrow_mut() = Some((j.key.clone(), t));
-                    *job = None;
-                }
-                Err(TryRecvError::Disconnected) => *job = None,
-                Err(TryRecvError::Empty) => {}
-            }
-        }
-        if let Some((k, t)) = self.free_table.borrow().as_ref() {
-            if *k == key || self.running() && job.is_some() {
-                return t.clone();
-            }
-        }
-        let (take_clock, opened, ppm) = (
-            self.take_clock.clone(),
-            self.take_breaks.clone(),
-            self.clock.as_ref().map(|c| c.ppm),
-        );
-        let read = move |log: BeatLog| {
-            let clock = reading_clock(take_clock.as_ref(), opened.is_some(), ppm, log.duration_s);
-            let breaks = steady::reading_breaks(opened.unwrap_or_default(), &log);
-            let t = core_session::positions_table(
-                &log,
-                clock.as_ref(),
-                &breaks,
-                &masked,
-                &stretches,
-                core_session::POSITION_MIN_S,
-            );
-            guided::free_table(&t)
-        };
-        let log = steady::log_of(live);
-        let shown = self.free_table.borrow().as_ref().map(|(_, t)| t.clone());
-        if let (true, Some(shown), Some(log)) = (self.running(), shown, log.clone()) {
-            // Listening, with a table on show: read the next one in the
-            // background and keep this one until it comes.
-            let (tx, rx) = std::sync::mpsc::channel();
-            let ctx = ctx.clone();
-            std::thread::spawn(move || {
-                let _ = tx.send(Some(read(log)));
-                ctx.request_repaint();
-            });
-            *job = Some(FreeJob { key, rx });
-            return shown;
-        }
-        let t = log.map(read);
-        *self.free_table.borrow_mut() = Some((key, t.clone()));
-        t
     }
 
     /// With Fit on, the strip's length is the session so far.
@@ -4450,7 +4269,7 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
-        self.refresh_trend();
+        self.refresh_trend_shown(ctx);
         // A test set up against another watch than the one picked now.
         self.find_full_wind();
         if let Some(wait) = self.full_wind_recheck(guided::unix_now()) {
@@ -4778,13 +4597,6 @@ fn no_regular_beat(r: &LiveReading) -> String {
     measure::no_watch_text(why, r.jitter_us, r.bph_set)
 }
 
-/// The Beat Error card's line under the whole take, when it is of sizes.
-/// What [`TimegrapherApp::whole_take`] was read from: the beats heard,
-/// the stretches, the masks and what the readings rest on.
-type WholeKey = (usize, Vec<(f64, f64)>, Vec<(f64, f64)>, Revision);
-
-/// What [`TimegrapherApp::free_table`] was read from: the beats heard,
-/// each position's settled stretches, the masks and the True Clock.
 /// A take's changes of position and the settling after each.
 type Positions = timegrapher_core::take::Positions<Position>;
 /// The positions shown, and those recorded under them where painting
@@ -4818,29 +4630,6 @@ fn entries_of(spans: &[(f64, f64, Position)], settles: &[(f64, f64)]) -> Entries
             )
         })
         .collect()
-}
-
-type FreeKey = (
-    usize,
-    Vec<(core_session::Position, f64, f64)>,
-    Vec<(f64, f64)>,
-    Revision,
-);
-
-/// How often the Positions Test table is read again while listening.
-const FREE_TABLE_STEP_S: f64 = 1.0;
-
-/// A Positions Test table being read in the background, and what from.
-struct FreeJob {
-    key: FreeKey,
-    rx: std::sync::mpsc::Receiver<Option<guided::FreeTable>>,
-}
-
-/// The whole take in one position, and the seconds it covers.
-#[derive(Clone)]
-struct WholeTake {
-    m: timegrapher_core::session::Measurement,
-    span: f64,
 }
 
 /// The breaks a whole take is read across, in the caveat's words: a
