@@ -131,7 +131,8 @@ fn a_take_read_with_its_jumps_alone_keeps_windows_across_its_pause() {
     for (n, first_s) in [90.03, 90.155, 90.4].into_iter().enumerate() {
         let (dir, path, text) = take_with_a_pause(&format!("app{n}"), first_s);
         let log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();
-        // The app's take clock: core clock::of_take, as app.rs reads it.
+        // The app's take clock as app.rs read it then: the log fitted for
+        // rates, with the files' breaks placed on it.
         let pairs = timegrapher_core::clock::parse_log(&text, log.sample_rate, 2).unwrap();
         let mut app_clock = ClockFit::for_rates(&pairs).unwrap();
         breaks::of_files_on_clock(&[path.as_path()], Some(&mut app_clock), log.sample_rate);

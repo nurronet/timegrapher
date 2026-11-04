@@ -632,6 +632,7 @@ fn strip_overlays_drawn(
     if on[1] {
         overlays.push(strip::Overlay {
             name: "Rate",
+            short: "Rate",
             unit: " s/d",
             color: pal.trace_rate,
             min_span: 4.0,
@@ -641,6 +642,7 @@ fn strip_overlays_drawn(
     if on[0] {
         overlays.push(strip::Overlay {
             name: "Amplitude",
+            short: "Amp.",
             unit: "°",
             color: pal.trace_amplitude,
             min_span: 10.0,
@@ -649,14 +651,16 @@ fn strip_overlays_drawn(
     }
     if on[2] {
         use core_session::BeatErrorSource::{Drop, Unlock};
-        for (name, pick, color) in [
+        for (name, short, pick, color) in [
             (
                 "Beat Error from the Unlock",
+                "B.E. U",
                 (|p: &TrendPoint| p.beat_error_from(Unlock)) as fn(&TrendPoint) -> Option<f64>,
                 pal.trace_beat_error,
             ),
             (
                 "Beat Error from the Drop",
+                "B.E. D",
                 (|p: &TrendPoint| p.beat_error_from(Drop)) as fn(&TrendPoint) -> Option<f64>,
                 pal.trace_beat_error.gamma_multiply(0.6),
             ),
@@ -669,6 +673,7 @@ fn strip_overlays_drawn(
             if points.iter().any(|p| p[1].is_finite()) {
                 overlays.push(strip::Overlay {
                     name,
+                    short,
                     unit: " ms",
                     color,
                     min_span: 0.2,

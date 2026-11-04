@@ -2131,7 +2131,15 @@ mod tests {
         .unwrap();
         let a = read_take(&dir, 0).unwrap().at_end.unwrap();
         assert_eq!(a.rate_s_per_day, Some(3.5));
-        let fit = crate::clock::of_take(&dir, "clock.csv", &[dir.join("audio-001.wav")]).unwrap();
+        let fit = crate::take::clock_of_files(
+            &dir,
+            Some("clock.csv"),
+            &[dir.join("audio-001.wav")],
+            None,
+            None,
+        )
+        .unwrap()
+        .unwrap();
         assert!((fit.ppm.abs() - 50.0).abs() < 0.5, "{}", fit.ppm);
         let want = crate::clockstore::correct_rate(3.5, fit.ppm);
         assert_eq!(a.rate_corrected_s_per_day, Some(want));
