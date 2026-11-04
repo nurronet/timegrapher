@@ -672,11 +672,11 @@ fn removing_all_masks_asks_first() {
     assert_eq!(app.masked.len(), 2, "nothing removed before the yes");
 }
 
-/// The moment the profile shows when the strip is moved back ("at
-/// 0:10") is at the right end of its toolbar, before the "?", clear of
-/// the controls; its slot is kept when it is empty, so nothing shifts.
+/// The moment the profile shows when the strip is moved back is said once,
+/// on the strip that sets it: not in the profile's toolbar, whose controls
+/// stand where they do at the newest beats (#1068).
 #[test]
-fn the_profiles_moment_is_at_the_toolbars_right_end() {
+fn the_profiles_toolbar_leaves_the_moment_to_the_strip() {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let mut app = super::tests::synthetic(20.0, 0.0);
@@ -698,30 +698,16 @@ fn the_profiles_moment_is_at_the_toolbars_right_end() {
     let live = drawn_with(&mut app);
     app.strip_end = Some(10.0);
     let drawn = drawn_with(&mut app);
-    let title = Pane::Sound.title();
-    let at = |k: &str| {
-        drawn
-            .iter()
-            .find(|(d, _)| d == &format!("{title}/{k}"))
-            .map(|d| d.1)
-            .unwrap_or_else(|| panic!("no {k}: {drawn:?}"))
-    };
-    let note = at("at 0:10");
-    assert!(note.right() > 1440.0 - 60.0, "{note:?}");
-    for (k, r) in &drawn {
-        if k.starts_with(&format!("{title}/")) && !k.ends_with("at 0:10") {
-            assert!(r.right() < note.left(), "{k} at {r:?} runs into the note");
-        }
-    }
-    assert!(at("dB Scale").width() < 30.0);
-    // At the newest beats the controls stand where they did.
-    let without = |d: &[(String, egui::Rect)]| -> Vec<(String, egui::Rect)> {
-        d.iter()
-            .filter(|(k, _)| !k.ends_with("at 0:10"))
-            .cloned()
-            .collect()
-    };
-    assert_eq!(without(&live), without(&drawn));
+    let moment = app.sound_moment().expect("moved back");
+    assert!(
+        drawn.iter().all(|(k, _)| !k.ends_with(&moment)),
+        "{drawn:?}"
+    );
+    assert_eq!(live, drawn);
+    assert_eq!(
+        app.moment_hover(),
+        Some(format!("{moment}, set by the Paper Strip."))
+    );
 }
 
 /// The Tick Tock Profile's plots take the pane's height at 1440 × 1000 in

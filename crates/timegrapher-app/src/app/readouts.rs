@@ -337,7 +337,7 @@ impl TimegrapherApp {
             unheard,
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
-            moment: self.card_moment(),
+            moment: self.moment_hover(),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -453,12 +453,6 @@ impl TimegrapherApp {
             Some(_) => self.reading_at_time(self.strip_end_s()),
             None => self.reading(),
         }
-    }
-
-    /// The moment the cards are read at, for their figures' hovers, when
-    /// it is not the newest: said once on the strip, which sets it.
-    pub(super) fn card_moment(&self) -> Option<String> {
-        Some(format!("{}, set by the Paper Strip.", self.sound_moment()?))
     }
 
     /// The figures the reading cards showed each whole second over the
