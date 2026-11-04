@@ -95,3 +95,12 @@ fn a_zero_line_off_the_plot_hides_no_grid_line() {
     let (_, across) = layout(frame, &[], &[40.0], Some(-500.0));
     assert_eq!(across, vec![40.0]);
 }
+
+#[test]
+fn the_axes_lie_inside_the_frame_the_plot_clips_to() {
+    let frame = Rect::from_min_max(pos2(10.0, 0.0), pos2(110.0, 100.0));
+    let (left, bottom) = axes(frame);
+    // A 1 pt line centred here is wholly inside the frame.
+    assert_eq!(left - 0.5, frame.left());
+    assert_eq!(bottom + 0.5, frame.bottom());
+}

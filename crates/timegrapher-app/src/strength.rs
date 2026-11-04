@@ -119,7 +119,15 @@ const BASE_SPACING: f32 = 8.0;
 
 /// Within this many points of an axis a grid line is not drawn, so the
 /// axis never doubles up or flickers as the range moves.
-const ON_AXIS: f32 = 0.5;
+const ON_AXIS: f32 = 1.0;
+
+/// Where the left and bottom axes go in a plot's `frame`: half a line in
+/// from its edges, so the plot's clip to its frame keeps the whole line
+/// (on the edge itself, half of it was cut and the frame covered the
+/// rest).
+fn axes(frame: egui::Rect) -> (f32, f32) {
+    (frame.left() + 0.5, frame.bottom() - 0.5)
+}
 
 /// The grid and the axes, as one item drawn under the plot's others.
 struct GridItem {
@@ -165,12 +173,13 @@ impl GridItem {
 /// lines across (`xs`) and down (`ys`), less any on an axis.
 fn layout(frame: egui::Rect, xs: &[f32], ys: &[f32], zero: Option<f32>) -> (Vec<f32>, Vec<f32>) {
     let clear = |v: f32, axes: &[f32]| axes.iter().all(|a| (v - a).abs() > ON_AXIS);
-    let mut across_axes = vec![frame.bottom()];
+    let (left, bottom) = axes(frame);
+    let mut across_axes = vec![bottom];
     across_axes.extend(zero.filter(|z| frame.y_range().contains(*z)));
     let down = xs
         .iter()
         .copied()
-        .filter(|&x| frame.x_range().contains(x) && clear(x, &[frame.left()]))
+        .filter(|&x| frame.x_range().contains(x) && clear(x, &[left]))
         .collect();
     let across = ys
         .iter()
@@ -197,8 +206,13 @@ impl PlotItem for GridItem {
         if let Some(z) = zero.filter(|z| f.y_range().contains(*z)) {
             shapes.push(seg(Pos2::new(f.left(), z), Pos2::new(f.right(), z), axis));
         }
-        shapes.push(seg(f.left_top(), f.left_bottom(), axis));
-        shapes.push(seg(f.left_bottom(), f.right_bottom(), axis));
+        let (left, bottom) = axes(f);
+        shapes.push(seg(Pos2::new(left, f.top()), Pos2::new(left, bottom), axis));
+        shapes.push(seg(
+            Pos2::new(left, bottom),
+            Pos2::new(f.right(), bottom),
+            axis,
+        ));
     }
 
     /// Nothing to point at: the grid has no values.
