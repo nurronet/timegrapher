@@ -89,6 +89,16 @@ readings[].measurement.confidence.beat_error
 readings[].measurement.confidence.beat_error.se
 readings[].measurement.confidence.rate
 readings[].measurement.confidence.rate.se
+readings[].measurement.coverage
+readings[].measurement.coverage.amplitude
+readings[].measurement.coverage.amplitude.windows_in_span
+readings[].measurement.coverage.amplitude.windows_used
+readings[].measurement.coverage.beat_error
+readings[].measurement.coverage.beat_error.windows_in_span
+readings[].measurement.coverage.beat_error.windows_used
+readings[].measurement.coverage.rate
+readings[].measurement.coverage.rate.windows_in_span
+readings[].measurement.coverage.rate.windows_used
 readings[].measurement.end_s
 readings[].measurement.jitter_us
 readings[].measurement.rate_p05

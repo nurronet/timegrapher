@@ -182,6 +182,11 @@ const POSITIONS = /*POSITIONS*/null;
 // The heading for a reading with no regular beat: core's measure::NO_WATCH_TITLE,
 // as the app writes it (#510).
 const NO_BEAT_TITLE = /*NO_BEAT_TITLE*/null;
+// Each figure's decimals with no ± to follow: core's library::base_digits
+// (rate 1, amplitude 0, beat error 2, jitter 0), filled in by the server.
+// A figure with a ± takes the decimals the server gives beside it
+// (library::figure_digits, #510 K3).
+const BASE_DIGITS = /*BASE_DIGITS*/null;
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
@@ -469,7 +474,7 @@ function stripCards(strip) {
   const over = (hint) => average ? `${hint}, ${average}` : hint;
   const cards = [];
   if (has("rate")) {
-    const clock = Number.isFinite(strip.clock_ppm) ? `${signed(strip.clock_ppm, 1)} ppm` : "";
+    const clock = Number.isFinite(strip.clock_ppm) ? `${signed(strip.clock_ppm, BASE_DIGITS.clock)} ppm` : "";
     cards.push(["Rate", over(`The rate over the whole recording, ${rateBasis(!!clock, clock)}`), lineChart({
       title: "Rate", time: true, yRange: range("rate"), unit: " s/d", decimals: 1,
       series: [{ name: average ? `Rate in seconds per day, ${average}` : "Rate in seconds per day", color: "--rate", points: strip.rate }],
@@ -582,9 +587,9 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   const o = doc.overall || {};
   const rate = analyzeRate(doc);
   const rateNote = [esc(rate.basis)];
-  if (Number.isFinite(doc.rate_p05)) rateNote.push(`Card-clock 90% of windows ${signed(doc.rate_p05, 1)} to ${signed(doc.rate_p95, 1)}`);
+  if (Number.isFinite(doc.rate_p05)) rateNote.push(`Card-clock 90% of windows ${signed(doc.rate_p05, BASE_DIGITS.rate_range)} to ${signed(doc.rate_p95, BASE_DIGITS.rate_range)}`);
   const html = head + readingTiles({
-    rate: rate.value, ratePm: pm.rate, rateNote: rateNote.join("<br>"),
+    rate: rate.value, ratePm: pm.rate, digits: pm.digits, rateNote: rateNote.join("<br>"),
     amplitude: doc.amplitude_deg, amplitudePm: pm.amplitude, even: doc.amplitude_even_deg, odd: doc.amplitude_odd_deg,
     unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms,
     beats: doc.beats_found, jitter: Number.isFinite(doc.jitter_us) ? doc.jitter_us : o.jitter_us,
@@ -597,16 +602,17 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // app's card. Both show the size only: which side is Tick can change
 // between runs of the same take, so a sign would mean nothing.
 function readingTiles(f) {
+  const d = { ...BASE_DIGITS, ...(f.digits || {}) };
   const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
   const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), 2)} ms` : ""}` : "from the drop";
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), d.beat_error)} ms` : ""}` : "from the drop";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
-    ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, 0)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, 0)}°` : "";
+    ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
-    ${tile("Rate", "--rate", signed(f.rate, 1), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
-    ${tile("Amplitude", "--amplitude", num(f.amplitude, 0), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
-    ${tile("Beat Error", "--beat-error", num(abs(be), 2), "milliseconds", beNote)}
-    ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, 0)} µs` : "")}
+    ${tile("Rate", "--rate", signed(f.rate, d.rate), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
+    ${tile("Amplitude", "--amplitude", num(f.amplitude, d.amplitude), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
+    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), "milliseconds", beNote)}
+    ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, d.jitter)} µs` : "")}
   </div>`;
 }
 
@@ -634,7 +640,7 @@ function takeTiles(readings, pms) {
     const head = `<p class="sub">${esc(label)}${span ? ` · ${esc(span)}` : ""} · as the take reads it</p>`;
     if (m.watch_heard === false) return head + `<div class="card notice"><b>${esc(NO_BEAT_TITLE)}</b></div>`;
     return head + readingTiles({
-      rate: m.rate_s_per_day, ratePm: pm.rate, rateNote: esc(rateBasis(m.calibrated === true)),
+      rate: m.rate_s_per_day, ratePm: pm.rate, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
       amplitude: m.amplitude_deg, amplitudePm: pm.amplitude, even: m.amplitude_even_deg, odd: m.amplitude_odd_deg,
       unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, beats: m.beats, jitter: m.jitter_us,
     });
@@ -1487,7 +1493,13 @@ function steadyStats(s) {
   const a = s.autocorrelation;
   if (a && Number.isFinite(a.p_value)) parts.push(`Ljung–Box p ${pText(a.p_value)}`);
   if (s.allan && Number.isFinite(s.allan.max_excess)) parts.push(`Allan up to ${num(s.allan.max_excess, 1)}× the independent line`);
-  if (s.trend && Number.isFinite(s.trend.per_hour)) parts.push(`trend ${s.trend.per_hour >= 0 ? "+" : ""}${num(s.trend.per_hour, 2)}${u} per hour`);
+  // A trend or a level split the headline leaves out says why, in core's
+  // words (Trend::note, Changes::note): not significant after Holm's
+  // correction, too small, or not the headline's finding.
+  const why = (n) => (n ? `, ${n}` : "");
+  if (s.trend && Number.isFinite(s.trend.per_hour)) parts.push(`trend ${s.trend.per_hour >= 0 ? "+" : ""}${num(s.trend.per_hour, 2)}${u} per hour${why(s.trend.note)}`);
+  const c = s.changes;
+  if (c && c.segments && c.segments.length > 1) parts.push(`${c.segments.length} stretches of one level${why(c.note)}`);
   return parts.join(" · ");
 }
 
@@ -1943,10 +1955,11 @@ function liveView(l) {
   const heard = r.beats_used > 0;
   const wait = "Listening…";
   const be = Number.isFinite(r.beat_error_unlock_ms) ? r.beat_error_unlock_ms : r.beat_error_ms;
+  const dg = { ...BASE_DIGITS, ...((l.pm || {}).digits || {}) };
   html += `<div class="tiles">
-    ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, 1) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
-    ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, 0) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
-    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), 2) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
+    ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, dg.rate) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
+    ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, dg.amplitude) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
+    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
     ${tile("Beats Heard", "", esc(d.beats_heard || 0), "", heard ? `${esc(r.beats_used)} in the last ${num(r.span_s, 0)} s` : wait)}
   </div>`;
   // Clipping, when core counts it, in the server's (core's) words (#808).
