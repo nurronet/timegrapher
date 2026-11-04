@@ -904,7 +904,8 @@ function xyChart(o) {
   // A y axis' name sits above its top tick, left of the plot: in the lane's
   // room when there is one (the lane's names stay over the plot), else in a
   // row of its own.
-  const nameRow = o.yName && !room ? 14 : 0;
+  const yNames = o.yName ? String(o.yName).split("\n") : [];
+  const nameRow = yNames.length && !room ? 14 * yNames.length : 0;
   const H = (o.height || 150) + room + nameRow, T = 4 + room + nameRow;
   const plotH = H - T - B;
   const [x0, x1] = o.x, y0 = o.y[0];
@@ -930,8 +931,10 @@ function xyChart(o) {
     if (t) ylabels += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   // The axis' name, lined up with its tick labels above the top one.
-  if (o.yName) ylabels += `<text x="${L - 5}" y="${T - 4}" text-anchor="end">${esc(o.yName)}</text>`;
+  yNames.forEach((t, i) => { ylabels += `<text x="${L - 5}" y="${T - 4 - 14 * (yNames.length - 1 - i)}" text-anchor="end">${esc(t)}</text>`; });
   g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
+  // The x axis' name in the corner under the y labels, clear of the first x label.
+  if (o.xName) g += `<text x="${L - 10}" y="${H - 5}" text-anchor="end">${esc(o.xName)}</text>`;
   for (const [v, t] of xt) {
     inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
@@ -962,19 +965,24 @@ function xyChart(o) {
     const [a, b] = [sx(r.x0), sx(r.x1)], [c, d] = [sy(r.y1), sy(r.y0)];
     inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"/>`;
   }
-  for (const d of o.dots || []) {
-    inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
-      .map(([x, y]) => `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${d.r}"/>`).join("")}</g>`;
-  }
-  for (const l of o.lines || []) {
+  const path = (l) => {
     let d = "", pen = false;
     for (const [x, y] of l.pts) {
       if (!Number.isFinite(x) || !Number.isFinite(y)) { pen = false; continue; }
       d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`;
       pen = true;
     }
-    inside += `<path d="${d}" fill="none" stroke="var(${l.color})" stroke-width="${l.width || 1.5}"${dash(l.dash)} stroke-linejoin="round"/>`;
+    return `<path d="${d}" fill="none" stroke="var(${l.color})" stroke-width="${l.width || 1.5}"${dash(l.dash)} stroke-linejoin="round"/>`;
+  };
+  // Lines that join dots go under them.
+  for (const l of o.joins || []) inside += path(l);
+  for (const d of o.dots || []) {
+    // A dot with a hover says it on its own.
+    inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.map((p, i) => [p, d.hovers && d.hovers[i]])
+      .filter(([[x, y]]) => Number.isFinite(x) && Number.isFinite(y))
+      .map(([[x, y], h]) => `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${d.r}">${h ? `<title>${esc(h)}</title>` : ""}</circle>`).join("")}</g>`;
   }
+  for (const l of o.lines || []) inside += path(l);
   for (const m of o.marks || []) {
     inside += `<circle cx="${sx(m.x)}" cy="${sy(m.y)}" r="3.5" fill="var(${m.color})"/>`;
   }
@@ -1659,6 +1667,10 @@ function viridisRgb(t) {
   const a = VIRIDIS[i], b = VIRIDIS[i + 1];
   return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
 }
+// A colour key's ramp: viridis from 0 to 1 as gradient stops.
+function viridisStops() {
+  return Array.from({ length: 9 }, (_, i) => `rgb(${viridisRgb(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
+}
 // timefreq::Scale::at: where size x falls, 0 to 1.
 function scaleAt(sc, x) {
   const t = sc.log
@@ -1753,14 +1765,13 @@ function mapChart(m, doc, log) {
   const k = mapPaints.length;
   const box = { left: sx(left), top: sy(top), width: sx(left + width) - sx(left), height: sy(bottom) - sy(top) };
   mapPaints.push({ m, sc, t0, dt, w });
-  const stops = Array.from({ length: 9 }, (_, i) => `rgb(${viridisRgb(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
   const keyHint = "The colour gives the size at each period and time; the brightest also stands for every size above it. Empty cells weren't read: a gap, a window with a reading missing, or the edges of a stretch, which the wavelet map can't reach.";
   return `<div class="chart" style="width:${W}px;height:${H}px">
     <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${m.method === "stft" ? "STFT Map" : "Wavelet Map"}">${g}</svg>
     <canvas class="map" data-map="${k}" width="${w}" height="${h}" style="left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px"></canvas>
     <svg class="map-layer" style="left:0;top:0" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${over}</svg>
   </div>
-  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${stops})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
+  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
   <p class="sub caption" data-map-read="${k}">Point at the map to read a cell.</p>`;
 }
 
@@ -1890,6 +1901,46 @@ function distributionCards(d) {
   }).join("");
 }
 
+// ---- The Isochronism card (#741) -----------------------------------------
+//
+// The rate against the amplitude as the take runs, one dot per stretch of
+// time coloured by when, on the Cycle view's viridis, joined in time order.
+// The server sends core steady_views::walk_view: the points core merged,
+// each with its hover; nothing is merged or worded here.
+
+// Core steady_views' walk words, put in by the server.
+const WALK_WORDS = /*WALK_WORDS*/null;
+
+// An axis from `lo` to `hi` about `px` long whose ends are ticks: steps of
+// 1, 2 and 5 at least `minPx` apart, the ends rounded out to a step.
+function roundAxis(lo, hi, px, minPx) {
+  if (!(hi > lo)) { lo -= 1; hi += 1; }
+  const { step } = gridFor(lo, hi, px, minPx);
+  const ends = [Math.floor(lo / step + 1e-9) * step, Math.ceil(hi / step - 1e-9) * step];
+  const ticks = [];
+  for (let k = Math.round(ends[0] / step); k * step <= ends[1] + step * 1e-9; k++) ticks.push([+(k * step).toFixed(10), axisLabel(k * step, step)]);
+  return { ends, ticks };
+}
+
+function walkCard(w) {
+  if (!w || !w.dots || !w.dots.length) return "";
+  const W = WALK_WORDS, dots = w.dots;
+  const amp = dots.map((d) => d.amplitude_deg), rate = dots.map((d) => d.rate_s_per_day);
+  // The plot's size less its axes, near enough to choose the steps by.
+  const x = roundAxis(Math.min(...amp), Math.max(...amp), chartWidth() - 70, 60);
+  const y = roundAxis(Math.min(...rate), Math.max(...rate), 150, 24);
+  const chart = xyChart({
+    title: W.title, x: x.ends, y: y.ends, height: 180,
+    xName: `${W.amp_name} (${W.amp_unit})`, yName: `${W.rate_name}\n(${W.rate_unit})`,
+    xTicks: () => x.ticks, yTicks: () => y.ticks,
+    hlines: [{ y: 0, color: "--axis" }],
+    joins: [{ pts: dots.map((d) => [d.amplitude_deg, d.rate_s_per_day]), color: "--axis", width: 1 }],
+    dots: dots.map((d) => ({ pts: [[d.amplitude_deg, d.rate_s_per_day]], hovers: [d.hover], rgb: `rgb(${viridisRgb(d.when).join(",")})`, r: 3 })),
+  });
+  return `<div class="card"><h2>${esc(W.title)}</h2><p class="hint">${esc(W.hint)}</p>${chart}
+    <div class="map-key"><span>0 h</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
+}
+
 function seriesView(doc, extra, limits, seriesLimits) {
   // The server sends what only the charts draw beside the document, and
   // each series' caveats in core's words.
@@ -1900,12 +1951,13 @@ function seriesView(doc, extra, limits, seriesLimits) {
     if (extra.period_span) doc.period_span = extra.period_span;
     if (extra.spectra) doc.spectra = extra.spectra;
     if (extra.maps) doc.time_frequency = extra.maps;
+    if (extra.walk) doc.walk_view = extra.walk;
     const all = (doc.distributions && doc.distributions.overall) || [];
     all.forEach((e, i) => { if (extra.points && extra.points[i]) e.points = extra.points[i]; });
   }
   const name = fileName(doc);
   const len = Number.isFinite(doc.duration_s) ? ` · ${timeLabel(doc.duration_s)}` : "";
-  return `<h1>Long Recording</h1><p class="sub">${esc(name)}${len}</p>${steadinessCard(doc)}${limits && limits.length ? limitsCard(limits) : ""}${distributionCards(doc.distributions)}`;
+  return `<h1>Long Recording</h1><p class="sub">${esc(name)}${len}</p>${steadinessCard(doc)}${walkCard(doc.walk_view)}${limits && limits.length ? limitsCard(limits) : ""}${distributionCards(doc.distributions)}`;
 }
 
 // ---- Live: a take as it is heard ------------------------------------------

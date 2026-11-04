@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 use serde_json::{json, Map, Value};
 use timegrapher_core::histogram::normal_quantile;
 use timegrapher_core::palette::{Palette, Rgb, DARK, LIGHT};
+use timegrapher_core::walk::{default_merge, merged, IsochronismWalk, WalkPoint};
 
 use crate::cli;
 
@@ -49,6 +50,7 @@ pub fn page() -> &'static str {
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
             .replace("/*REFERENCE_HOVER*/null", &reference_hover())
             .replace("/*SCORE_WORDS*/null", &score_words())
+            .replace("/*WALK_WORDS*/null", &walk_words())
             .replace(
                 "/*MARK_ROOM_PX*/null",
                 &timegrapher_core::period_ticks::MARK_ROOM_PX.to_string(),
@@ -80,6 +82,17 @@ fn score_words() -> String {
         "axis_hover": v::SCORE_AXIS_HOVER,
         "threshold_name": v::THRESHOLD_NAME,
         "threshold_hover": v::threshold_hover(timegrapher_core::longterm::LongConfig::default().false_alarm),
+    })
+    .to_string()
+}
+
+/// The Isochronism card's words from core, for the page's `WALK_WORDS`.
+fn walk_words() -> String {
+    use timegrapher_core::steady_views as v;
+    json!({
+        "title": v::WALK_TITLE, "hint": v::WALK_HINT, "since": v::WALK_SINCE,
+        "rate_name": v::WALK_RATE_NAME, "rate_unit": v::WALK_RATE_UNIT,
+        "amp_name": v::WALK_AMP_NAME, "amp_unit": v::WALK_AMP_UNIT,
     })
     .to_string()
 }
@@ -489,9 +502,53 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
             }
         }
     }
+    // The isochronism walk, every 5 min point, goes to the view merged to
+    // the card's width by core; the model reads its outline.
+    let walk = doc
+        .as_object_mut()
+        .and_then(|o| o.remove("walk"))
+        .and_then(|w| walk_of(&w));
+    if let Some(w) = &walk {
+        doc["walk"] = walk_outline(w);
+    }
+    let walk_view = walk
+        .as_ref()
+        .and_then(timegrapher_core::steady_views::walk_view);
     json!({
         "views": views, "period_span": period_span, "spectra": spectra, "points": points,
-        "maps": maps,
+        "maps": maps, "walk": walk_view,
+    })
+}
+
+/// The `walk` a `series` document carries, as core's walk.
+fn walk_of(v: &Value) -> Option<IsochronismWalk> {
+    let points = v["points"]
+        .as_array()?
+        .iter()
+        .map(|p| {
+            Some(WalkPoint {
+                t_s: p["t_s"].as_f64()?,
+                wind_h: p["wind_h"].as_f64()?,
+                rate_s_per_day: p["rate_s_per_day"].as_f64()?,
+                amplitude_deg: p["amplitude_deg"].as_f64()?,
+                readings: p["readings"].as_u64()? as usize,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(IsochronismWalk {
+        bin_s: v["bin_s"].as_f64()?,
+        points,
+    })
+}
+
+/// What the model reads of the walk: how many points, at what width, and
+/// the first and last at the card's width.
+fn walk_outline(w: &IsochronismWalk) -> Value {
+    let m = merged(w, default_merge(w));
+    json!({
+        "bin_s": w.bin_s, "points": w.points.len(),
+        "merged_bin_s": m.bin_s, "merged_points": m.points.len(),
+        "first": m.points.first(), "last": m.points.last(),
     })
 }
 
@@ -750,6 +807,28 @@ mod tests {
     }
 
     #[test]
+    fn the_walk_goes_to_the_view_as_core_merges_it_and_the_model_reads_its_outline() {
+        let points: Vec<Value> = (0..600)
+            .map(|i| {
+                let t = 150.0 + 300.0 * i as f64;
+                json!({ "t_s": t, "wind_h": t / 3600.0, "rate_s_per_day": i as f64 / 100.0,
+                    "amplitude_deg": 300.0 - i as f64 / 10.0, "readings": 30 })
+            })
+            .collect();
+        let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points } });
+        let charts = take_series_charts(&mut doc);
+        let dots = charts["walk"]["dots"].as_array().unwrap();
+        assert_eq!(dots.len(), 200);
+        assert_eq!(dots[0]["hover"], "0.1 h after start · 300° · 0.0 s/d");
+        assert_eq!(doc["walk"]["points"], 600);
+        assert_eq!(doc["walk"]["merged_points"], 200);
+        assert!(doc.to_string().len() < 1000, "{doc}");
+        // No walk, or too short a one: no card.
+        let mut none = json!({ "walk": null });
+        assert!(take_series_charts(&mut none)["walk"].is_null());
+    }
+
+    #[test]
     fn fft_support_remains_model_visible_when_arrays_move_to_charts() {
         let description = "FFT input: 128 of 256 grid samples available. With samples missing, each size is a sine fitted to the samples present (Lomb–Scargle); nothing is filled in.";
         for support in [
@@ -931,6 +1010,7 @@ mod tests {
         let hover = timegrapher_core::steady_views::reference_hover("1 min");
         assert!(page.contains(&format!("\"1 min\":\"{hover}\"")));
         assert!(!page.contains("/*SCORE_WORDS*/"));
+        assert!(!page.contains("/*WALK_WORDS*/"));
         let false_alarm = timegrapher_core::longterm::LongConfig::default().false_alarm;
         let hover = timegrapher_core::steady_views::threshold_hover(false_alarm);
         assert!(page.contains(&hover));
