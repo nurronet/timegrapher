@@ -239,21 +239,13 @@ fn with_limits(mut lines: Vec<String>, doc: &Value) -> Option<String> {
 /// A Power Reserve take's run, as the CLI's text gives it, with the stops
 /// on the way and the hours read.
 fn power_reserve(p: &Value) -> Option<String> {
+    use timegrapher_core::power_reserve::{sentence, Ending, Source};
     let run_s = p["run_s"].as_f64()?;
-    let ending: timegrapher_core::power_reserve::Ending =
-        serde_json::from_value(p["ending"].clone()).ok()?;
+    let ending: Ending = serde_json::from_value(p["ending"].clone()).ok()?;
+    let source: Source = serde_json::from_value(p["source"].clone()).unwrap_or_default();
     let position = position_name(p["position"].as_str().unwrap_or(""));
-    let mut s = format!(
-        "Power reserve: {} in {position}. {}.",
-        timegrapher_core::power_reserve::run_text(run_s),
-        ending.text()
-    );
-    // Read from a long take, not a test: said where it came from.
-    let source: timegrapher_core::power_reserve::Source =
-        serde_json::from_value(p["source"].clone()).unwrap_or_default();
-    if let Some(w) = source.text() {
-        s += &format!(" {w}.");
-    }
+    // As core words it: a long take's run is never a power reserve.
+    let mut s = sentence(run_s, ending, source, &position);
     let pauses = p["pauses"].as_array().map_or(0, |a| a.len()) as u64;
     if pauses > 0 {
         s += &format!(
@@ -699,7 +691,7 @@ mod tests {
         let s = lead(&doc, &Map::new()).unwrap();
         assert!(
             s.starts_with(
-                "Power reserve: 42 h 03 min in Dial Up (DU). The watch stopped. The \
+                "Power reserve 42 h 03 min in Dial Up (DU). The watch stopped. The \
                  beats stopped for 30 s or more and came back once on the way. Measured \
                  hour by hour: 3 hours in `hours`.\nReadings by position:"
             ),
@@ -710,7 +702,7 @@ mod tests {
         by_hand["power_reserve"]["pauses"] = json!([]);
         by_hand["power_reserve"]["hours"] = json!([]);
         assert!(lead(&by_hand, &Map::new()).unwrap().starts_with(
-            "Power reserve: 42 h 03 min in Dial Up (DU). Stopped by hand while the watch \
+            "Power reserve 42 h 03 min in Dial Up (DU). Stopped by hand while the watch \
              still ran.\nReadings"
         ));
         // A long take's run, read as one, says so.
@@ -718,8 +710,9 @@ mod tests {
         long["power_reserve"]["ending"] = json!("take_ended");
         long["power_reserve"]["source"] = json!("long_take");
         assert!(lead(&long, &Map::new()).unwrap().starts_with(
-            "Power reserve: 42 h 03 min in Dial Up (DU). The take ended while the watch \
-             still ran. Read from a long take, not a Power Reserve Test.\nReadings"
+            "Ran at least 42 h 03 min in Dial Up (DU) from the take's start. The take \
+             ended while the watch still ran. Read from a long take, not a Power Reserve \
+             Test.\nReadings"
         ));
         let mut plain = doc.clone();
         plain.as_object_mut().unwrap().remove("power_reserve");

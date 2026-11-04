@@ -332,6 +332,10 @@ fn a_long_take_shows_its_run_in_the_power_reserve_pane() {
     let text = reserve::results_text(r, "", ',');
     assert!(text.contains("Read from,\"Read from a long take, not a Power Reserve Test\""));
     assert!(!text.contains("Started (UTC)"), "no start known");
+    // A run from the take's start, never a power reserve.
+    assert!(text.contains("Ran from the take's start,at least 6 h 29 min"));
+    assert!(!text.contains("Power reserve,"));
+    assert_eq!(r.ran(), "Ran at least 6 h 29 min from the take's start");
 
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     app.show_log(

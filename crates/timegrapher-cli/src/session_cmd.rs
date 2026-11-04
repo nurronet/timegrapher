@@ -1113,16 +1113,7 @@ fn print_watch(s: &Session) {
         s.lift_text()
     );
     if let Some(p) = &s.power_reserve {
-        use timegrapher_core::power_reserve::run_text;
-        println!(
-            "Power reserve {} in {}. {}.{}",
-            run_text(p.run_s),
-            p.position,
-            p.ending.text(),
-            p.source
-                .text()
-                .map_or_else(String::new, |w| format!(" {w}."))
-        );
+        println!("{}", p.sentence(&p.position));
     }
 }
 

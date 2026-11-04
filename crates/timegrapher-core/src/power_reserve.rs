@@ -409,6 +409,65 @@ pub fn from_long_take(
     Some(r)
 }
 
+/// A run time in words ([`run_text`] of `run_s`), "at least" for a long
+/// take that ended before the watch stopped: "41 h 12 min", "at least
+/// 65 h 03 min".
+pub fn run_words(run_s: f64, ending: Ending, source: Source) -> String {
+    let run = run_text(run_s);
+    if source == Source::LongTake && ending == Ending::TakeEnded {
+        format!("at least {run}")
+    } else {
+        run
+    }
+}
+
+/// A run in sentences, with `position` as the surface names it, the same
+/// on every surface: "Power reserve 41 h 12 min in DU. The watch
+/// stopped." for a test. A long take, not known to start fully wound, has
+/// its run named a run from the take's start, never a power reserve, and
+/// says where it came from.
+pub fn sentence(run_s: f64, ending: Ending, source: Source, position: &str) -> String {
+    let run = run_words(run_s, ending, source);
+    match source.text() {
+        None => format!("Power reserve {run} in {position}. {}.", ending.text()),
+        Some(from) => format!(
+            "Ran {run} in {position} from the take's start. {}. {from}.",
+            ending.text()
+        ),
+    }
+}
+
+impl Results {
+    /// [`run_words`] of this run.
+    pub fn run_words(&self) -> String {
+        run_words(self.run_s, self.ending, self.source)
+    }
+
+    /// What the run time is, as a table's row names it: "Power reserve"
+    /// for a test; for a long take, not known to start fully wound, "Ran
+    /// from the take's start".
+    pub fn run_label(&self) -> &'static str {
+        match self.source {
+            Source::Test => "Power reserve",
+            Source::LongTake => "Ran from the take's start",
+        }
+    }
+
+    /// The run as a line begins: "Ran 41 h 12 min" for a test, "Ran at
+    /// least 65 h 03 min from the take's start" for a long take.
+    pub fn ran(&self) -> String {
+        match self.source {
+            Source::Test => format!("Ran {}", self.run_words()),
+            Source::LongTake => format!("Ran {} from the take's start", self.run_words()),
+        }
+    }
+
+    /// [`sentence`] of this run.
+    pub fn sentence(&self, position: &str) -> String {
+        sentence(self.run_s, self.ending, self.source, position)
+    }
+}
+
 /// A run in brief, as a take's listing gives it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Summary {
@@ -596,6 +655,43 @@ mod tests {
             Ending::TakeEnded.text(),
             "The take ended while the watch still ran"
         );
+    }
+
+    /// A long take's run is named a run from the take's start, "at least"
+    /// where the take ended first, and never a power reserve; a test's
+    /// reads as it did.
+    #[test]
+    fn only_a_test_names_its_run_a_power_reserve() {
+        let long = take_of(LONG_TAKE_S + 60.0, 0.0);
+        let mut r = from_long_take(&long, None, &[], &[], &["DU"], "", true).unwrap();
+        r.run_s = 65.0 * 3600.0 + 180.0;
+        assert_eq!(r.run_words(), "at least 65 h 03 min");
+        assert_eq!(r.ran(), "Ran at least 65 h 03 min from the take's start");
+        assert_eq!(r.run_label(), "Ran from the take's start");
+        assert_eq!(
+            r.sentence("DU"),
+            "Ran at least 65 h 03 min in DU from the take's start. The take ended while \
+             the watch still ran. Read from a long take, not a Power Reserve Test."
+        );
+        r.ending = Ending::Stopped;
+        assert_eq!(
+            r.sentence("DU"),
+            "Ran 65 h 03 min in DU from the take's start. The watch stopped. Read from a \
+             long take, not a Power Reserve Test."
+        );
+        r.source = Source::Test;
+        assert_eq!(r.ran(), "Ran 65 h 03 min");
+        assert_eq!(r.run_label(), "Power reserve");
+        assert_eq!(
+            r.sentence("DU"),
+            "Power reserve 65 h 03 min in DU. The watch stopped."
+        );
+        for surface in [r.sentence("DU"), r.ran()] {
+            assert!(!surface.contains("at least"));
+        }
+        r.source = Source::LongTake;
+        assert!(!r.sentence("DU").contains("Power reserve"));
+        assert!(!r.ran().contains("Power reserve"));
     }
 
     #[test]
