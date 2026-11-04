@@ -13,18 +13,20 @@ const VIRIDIS = JSON.parse(palette.match(/pub const VIRIDIS: \[\[u8; 3\]; 17\] =
 const ticksRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/period_ticks.rs"), "utf8");
 const PERIOD_TICKS = [...ticksRs.matchAll(/tick\(([\d.]+), "([^"]+)", (\d)\)/g)]
   .map(([, p, label, level]) => ({ period_s: +p, label, level: +level }));
+const MARK_ROOM_PX = +ticksRs.match(/pub const MARK_ROOM_PX: f64 = ([\d.]+);/)[1];
 function definition(name) {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
   if (!match) throw new Error(`Missing renderer ${name}`);
   return match[0];
 }
 const context = vm.createContext({
-  VIRIDIS, PERIOD_TICKS, mapPaints: [], mapsLog: false, showWheels: true, Uint8ClampedArray,
+  VIRIDIS, PERIOD_TICKS, MARK_ROOM_PX, mapPaints: [], mapsLog: false, showWheels: true, Uint8ClampedArray,
   steadyView: "periods", periodsLog: false, fftTiming: false,
   chartWidth: () => 600, logTicks: () => [], linTicks: () => [], fmtTime: (t) => `t${t}`, TIME_STEPS: [],
   plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "", CHAR_W: 6.6, secs: (t) => `${t} s`, wheelTitle: String,
 });
 assert.ok(html.includes("const VIRIDIS = /*VIRIDIS*/null;"), "the server fills the table in");
+assert.ok(html.includes("const MARK_ROOM_PX = /*MARK_ROOM_PX*/null;"), "the server fills the mark room in");
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const MARKS = .*$/m)[0] + "\n" + html.match(/^const WHEELS_HINT = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
   ["esc", "steadyNote", "steadyPlot", "steadySwitch", "periodTicks", "wheelMarks", "wheelLines", "wheelShort", "wheelRank", "wheelInk", "wheelWidth", "markOrder", "markStack", "markWidth", "markText", "laneRight", "sideWidth", "referenceLines", "viridisRgb", "scaleAt", "mapScale", "mapOf", "mapSlots", "mapNumber", "mapSize", "mapKeyTitle", "mapChart", "mapPixels", "mapCell"]
     .map(definition).join("\n") + "\nthis.mapPaints = mapPaints; this.WHEELS_HINT = WHEELS_HINT;", context);
@@ -93,10 +95,10 @@ test("period axes are marked as core's period_ticks marks them", () => {
   assert.equal(PERIOD_TICKS.length, 19, "every mark read from period_ticks.rs");
   assert.ok(html.includes("const PERIOD_TICKS = /*PERIOD_TICKS*/null;"), "the server fills the list in");
   const labels = (px) => context.periodTicks(Math.log10(4), Math.log10(60000), px).map(([, l]) => l).join(", ");
-  // period_ticks.rs's own test, at 64 px a mark: room for 20, 10 and 6.
-  assert.equal(labels(20 * 64), "5 s, 10 s, 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h, 2 h, 6 h, 12 h");
-  assert.equal(labels(10 * 64), "5 s, 10 s, 30 s, 1 min, 5 min, 10 min, 30 min, 1 h, 6 h, 12 h");
-  assert.equal(labels(6 * 64), "10 s, 1 min, 10 min, 1 h, 6 h");
+  // period_ticks.rs's own test, at MARK_ROOM_PX a mark: room for 20, 10 and 6.
+  assert.equal(labels(20 * MARK_ROOM_PX), "5 s, 10 s, 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h, 2 h, 6 h, 12 h");
+  assert.equal(labels(10 * MARK_ROOM_PX), "5 s, 10 s, 30 s, 1 min, 5 min, 10 min, 30 min, 1 h, 6 h, 12 h");
+  assert.equal(labels(6 * MARK_ROOM_PX), "10 s, 1 min, 10 min, 1 h, 6 h");
   // Each mark sits at its period, in log10 seconds.
   assert.deepEqual(plain(context.periodTicks(Math.log10(50), Math.log10(70), 640)), [[Math.log10(60), "1 min"]]);
 });

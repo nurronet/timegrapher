@@ -20,7 +20,7 @@ const context = vm.createContext({
   fileName: () => "take.flac", timeLabel: String, positionName: String,
   liveStrip: () => "", stripCards: () => "", trendStrip: () => "",
 });
-vm.runInContext(["esc", "num", "recordingView", "recordView"].map(definition).join("\n"), context);
+vm.runInContext(["chosenBeatError", "esc", "num", "recordingView", "recordView"].map(definition).join("\n"), context);
 // The session view's Positions table, with what it draws around the row stubbed.
 Object.assign(context, { ORDER: [], POSITIONS: null, tile: () => "", signed: String, abs: Math.abs, limitsCard: () => "", bars: () => "" });
 vm.runInContext(definition("sessionView"), context);

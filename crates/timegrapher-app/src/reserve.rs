@@ -365,8 +365,9 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
     }
     area.show(ui, |ui| {
         // The charts take the height left after the hours' table (or a
-        // third of it, for a long table); in a short pane, all of it, the
-        // table under them. What doesn't fit scrolls.
+        // third of it, for a long table); when that leaves them short of a
+        // readable height, all of it, the table under them. What doesn't
+        // fit scrolls.
         let row_h = ui
             .text_style_height(&egui::TextStyle::Body)
             .max(ui.spacing().interact_size.y)
@@ -375,10 +376,20 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
         let room = viewport_h - 8.0 - 3.0 * gap;
         let table_h = ((hours.len() as f32 + 1.0) * row_h + 4.0).min(room / 3.0);
         let with_table = (room - table_h - gap) / 2.0;
-        let chart_h = if with_table >= CHART_MIN_H {
+        let stacked = if with_table >= CHART_READ_H {
             with_table
         } else {
             ((room - gap) / 2.0).max(CHART_MIN_H)
+        };
+        // Too short to stack them at a height that reads, but wide enough:
+        // side by side, each the whole height.
+        let side = stacked < CHART_READ_H
+            && ui.available_width() >= 2.0 * SIDE_MIN_W + ui.spacing().item_spacing.x;
+        // Side by side, they fill the pane, the table wholly under them.
+        let chart_h = if side {
+            (viewport_h - 8.0).max(CHART_MIN_H)
+        } else {
+            stacked
         };
         // While it runs the charts gain a point as each hour is whole.
         let whole = if so_far {
@@ -387,7 +398,7 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
             hours.len()
         };
         if whole > 0 {
-            hour_chart(ui, &hours[..whole], chart_h);
+            hour_chart(ui, &hours[..whole], chart_h, side);
             ui.add_space(8.0);
         }
         hour_table(ui, hours);
@@ -397,16 +408,24 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
 /// The least height of each of the Power Reserve charts, points.
 const CHART_MIN_H: f32 = 56.0;
 
+/// The least width of each Power Reserve chart side by side, points.
+const SIDE_MIN_W: f32 = 360.0;
+
+/// The height each Power Reserve chart reads well at, points: its hours'
+/// labels and a plot that names a few values.
+const CHART_READ_H: f32 = 100.0;
+
 /// The least height the pane's run needs under its toolbar once it has
-/// charts: its line and the first chart at its least, the rest scrolling
-/// under it; none before then. No more, so the panes above keep theirs.
+/// charts: its line and both charts at a height that reads, the table
+/// scrolling under them; none before then. The Paper Strip above gives
+/// room for it, down to its own least.
 pub fn least_h(test: Option<&Test>) -> Option<f32> {
     let t = test?;
     let charts = match t.results.as_ref() {
         Some(r) => !r.hours.is_empty(),
         None => t.so_far.iter().any(|h| h.whole()),
     };
-    charts.then_some(22.0 + CHART_MIN_H + 12.0)
+    charts.then_some(22.0 + 2.0 * CHART_READ_H + 8.0 + 12.0)
 }
 
 /// A run stopped by hand after `hours` whole hours, for the tests.
@@ -564,63 +583,88 @@ fn run_end_h(hours: &[power_reserve::Hour]) -> f64 {
 }
 
 /// Rate and amplitude against hours since the first beat, one above the
-/// other on the same hours: both span 0 h to the run's end, on one width
-/// of value axis, so an hour sits at the same x in each.
-fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
-    use egui_plot::{Line, Plot, PlotPoints};
-    let pal = theme::pal(ui);
-    let x = |h: &power_reserve::Hour| f64::from(h.hour) + h.span_s / 7200.0;
+/// other on the same hours, or `side` by side in a short, wide pane: both
+/// span 0 h to the run's end, on one width of value axis, so an hour sits
+/// at the same x in each when stacked.
+fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32, side: bool) {
     let end = run_end_h(hours);
     // A 5% margin each side, as egui's own, the same in both, so 0 h
     // clears the value axis.
-    let pad = end * 0.05;
+    let x_range = (-end * 0.05, end * 1.05);
     let gutter = shared_gutter(ui, hours);
-    for (name, unit, get) in SERIES {
-        let colour = if name == "rate" {
-            pal.trace_rate
-        } else {
-            pal.trace_amplitude
-        };
-        let pts: Vec<[f64; 2]> = hours
-            .iter()
-            .filter_map(|h| get(h).map(|v| [x(h), v]))
-            .collect();
-        let mut grid = Grid::new(hour_marks, |g| theme::even_grid(g, 24.0, &[]));
-        if name == "rate" {
-            grid = grid.zero_y();
+    // Room at the right for half the last hour's label, which centres on
+    // the plot's edge, clear of the pane's scroll bar.
+    ui.set_max_width(ui.available_width() - 18.0);
+    if side {
+        ui.columns(2, |cols| {
+            for (col, series) in cols.iter_mut().zip(SERIES) {
+                one_chart(col, hours, series, height, x_range, gutter);
+            }
+        });
+    } else {
+        for series in SERIES {
+            one_chart(ui, hours, series, height, x_range, gutter);
         }
-        grid.on(Plot::new(format!("reserve {name}")))
-            .height(height)
-            .allow_drag(false)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .default_x_bounds(-pad, end + pad)
-            .y_axis_min_width(gutter)
-            .x_axis_formatter(|m, _| format!("{} h", axis_number(m.value, m.step_size)))
-            // The point under the pointer in words: hours into the run and
-            // the hour's figure.
-            .label_formatter(move |name, v| {
-                if name.is_empty() {
-                    return String::new();
-                }
-                format!(
-                    "{} into the run\n{:.d$}{unit}",
-                    length_text((v.x * 3600.0).max(0.0)),
-                    v.y,
-                    d = usize::from(unit != "°")
-                )
-            })
-            // Never "-0 s/d" on the zero line.
-            .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
-            .show(ui, |p| {
-                grid.draw(p, pal);
-                p.line(
-                    Line::new(name, PlotPoints::from(pts))
-                        .color(colour)
-                        .width(strength::DATA_W),
-                );
-            });
     }
+}
+
+/// One of the Power Reserve charts: `series` against hours since the first
+/// beat, `height` tall, over `x_range` hours, its value axis `gutter` wide.
+fn one_chart(
+    ui: &mut egui::Ui,
+    hours: &[power_reserve::Hour],
+    (name, unit, get): Series,
+    height: f32,
+    (x_lo, x_hi): (f64, f64),
+    gutter: f32,
+) {
+    use egui_plot::{Line, Plot, PlotPoints};
+    let pal = theme::pal(ui);
+    let x = |h: &power_reserve::Hour| f64::from(h.hour) + h.span_s / 7200.0;
+    let colour = if name == "rate" {
+        pal.trace_rate
+    } else {
+        pal.trace_amplitude
+    };
+    let pts: Vec<[f64; 2]> = hours
+        .iter()
+        .filter_map(|h| get(h).map(|v| [x(h), v]))
+        .collect();
+    let mut grid = Grid::new(hour_marks, |g| theme::even_grid(g, 24.0, &[]));
+    if name == "rate" {
+        grid = grid.zero_y();
+    }
+    grid.on(Plot::new(format!("reserve {name}")))
+        .height(height)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .allow_scroll(false)
+        .default_x_bounds(x_lo, x_hi)
+        .y_axis_min_width(gutter)
+        .x_axis_formatter(|m, _| format!("{} h", axis_number(m.value, m.step_size)))
+        // The point under the pointer in words: hours into the run and
+        // the hour's figure.
+        .label_formatter(move |name, v| {
+            if name.is_empty() {
+                return String::new();
+            }
+            format!(
+                "{} into the run\n{:.d$}{unit}",
+                length_text((v.x * 3600.0).max(0.0)),
+                v.y,
+                d = usize::from(unit != "°")
+            )
+        })
+        // Never "-0 s/d" on the zero line.
+        .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
+        .show(ui, |p| {
+            grid.draw(p, pal);
+            p.line(
+                Line::new(name, PlotPoints::from(pts))
+                    .color(colour)
+                    .width(strength::DATA_W),
+            );
+        });
 }
 
 /// The dialog for saving the run as a CSV file, starting in `dir`.
@@ -1132,7 +1176,8 @@ mod tests {
         let mut texts = Vec::new();
         for _ in 0..2 {
             let out = ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| hour_chart(ui, &r.hours, 110.0));
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| hour_chart(ui, &r.hours, 110.0, false));
             });
             texts = out
                 .shapes
@@ -1183,7 +1228,7 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| hour_chart(ui, &hours, 200.0));
+                egui::CentralPanel::default().show(ctx, |ui| hour_chart(ui, &hours, 200.0, false));
             });
             texts = out
                 .shapes

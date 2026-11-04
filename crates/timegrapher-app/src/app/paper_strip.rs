@@ -648,13 +648,34 @@ fn strip_overlays_drawn(
         });
     }
     if on[2] {
-        overlays.push(strip::Overlay {
-            name: "Beat Error",
-            unit: " ms",
-            color: pal.trace_beat_error,
-            min_span: 0.2,
-            points: series(trend_beat_error),
-        });
+        use core_session::BeatErrorSource::{Drop, Unlock};
+        for (name, pick, color) in [
+            (
+                "Beat Error from the Unlock",
+                (|p: &TrendPoint| p.beat_error_from(Unlock)) as fn(&TrendPoint) -> Option<f64>,
+                pal.trace_beat_error,
+            ),
+            (
+                "Beat Error from the Drop",
+                (|p: &TrendPoint| p.beat_error_from(Drop)) as fn(&TrendPoint) -> Option<f64>,
+                pal.trace_beat_error.gamma_multiply(0.6),
+            ),
+        ] {
+            let points: Vec<_> = trend
+                .iter()
+                .filter(|p| p.t >= from && p.t <= end)
+                .map(|p| [p.t, pick(p).unwrap_or(f64::NAN)])
+                .collect();
+            if points.iter().any(|p| p[1].is_finite()) {
+                overlays.push(strip::Overlay {
+                    name,
+                    unit: " ms",
+                    color,
+                    min_span: 0.2,
+                    points,
+                });
+            }
+        }
     }
     overlays
 }
@@ -678,4 +699,34 @@ fn numbered_candidates(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_beat_error_overlays_keep_sources_apart_and_preserve_holes() {
+        let trend: Vec<_> = (0..4)
+            .map(|i| TrendPoint {
+                t: i as f64,
+                rate_s_per_day: None,
+                amplitude_deg: None,
+                amplitude_even_deg: None,
+                amplitude_odd_deg: None,
+                beat_error_unlock_ms: (i != 1).then_some(0.2),
+                beat_error_ms: Some(0.8),
+                heard: true,
+            })
+            .collect();
+        let overlays = strip_overlays_drawn([false, false, true], &trend, 0.0, 3.0, &theme::DARK);
+        assert_eq!(overlays.len(), 2);
+        assert_eq!(overlays[0].name, "Beat Error from the Unlock");
+        assert_eq!(overlays[1].name, "Beat Error from the Drop");
+        assert_eq!(overlays[0].points.len(), 4);
+        assert!(overlays[0].points[1][1].is_nan());
+        assert_eq!(overlays[1].points[1], [1.0, 0.8]);
+        assert!(overlays[1].points[0][1].is_nan());
+        assert!(overlays[1].points[2][1].is_nan());
+    }
 }
