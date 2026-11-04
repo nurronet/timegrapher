@@ -94,6 +94,9 @@ pub struct Settings {
     pub setup_declined: bool,
     /// The readings' cards across the top shown.
     pub show_readings: bool,
+    /// The readings' cards pinned open in the layout, rather than the
+    /// strip that opens them over the panes on a click.
+    pub readings_pinned: bool,
     /// The library's folder when one was chosen in Settings; `None` is
     /// `~/Timegrapher Data`.
     pub library: Option<std::path::PathBuf>,
@@ -168,6 +171,7 @@ impl Default for Settings {
             mic_set_up: false,
             setup_declined: false,
             show_readings: true,
+            readings_pinned: true,
             library: None,
             settings_section: "general".into(),
             agc_on: Vec::new(),
