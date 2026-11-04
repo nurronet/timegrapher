@@ -606,7 +606,7 @@ enum Input {
 
 /// The window's two views: the Bench, one take in the readings and the
 /// panes, and Watches, the library of watches and their takes. They take
-/// turns filling the window between the mode row and the status bar.
+/// turns filling the window between the top row and the status bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum View {
     #[default]
@@ -1010,9 +1010,6 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
     }
     tree
 }
-
-/// The mode row's height, in both views.
-const MODE_ROW_H: f32 = 28.0;
 
 /// The readings cards' widths: Current Position, Listen and Calibre keep
 /// these while the three reading cards share the rest; on a narrower
@@ -3504,28 +3501,9 @@ impl TimegrapherApp {
         }
     }
 
-    /// The row under the menus: the Bench | Watches switch at the left, and
-    /// in Watches the view's toolbar after it. The same height in both, so
-    /// nothing below moves when the view changes.
-    fn mode_row(&mut self, ui: &mut egui::Ui) {
-        let size = Vec2::new(ui.available_width(), MODE_ROW_H);
-        let row = egui::Layout::left_to_right(egui::Align::Center);
-        ui.allocate_ui_with_layout(size, row, |ui| {
-            ui.set_min_size(size);
-            let mut view = self.view;
-            theme::segmented(ui, &mut view, &VIEWS);
-            self.view = view;
-            if self.view == View::Watches {
-                ui.add_space(theme::GAP);
-                ui.vertical(|ui| {
-                    self.pane_tools(ui, Pane::Watch);
-                });
-            }
-        });
-    }
-
     /// The Watches view: the watches and their takes, filling the window
-    /// below the mode row, as a card.
+    /// below the top row, as a card with its toolbar at the top, as a
+    /// pane's is.
     fn watches_view(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         let rect = ui.max_rect();
@@ -3533,6 +3511,7 @@ impl TimegrapherApp {
             .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
         let inner = rect.shrink2(Vec2::new(8.0, 6.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
+            self.pane_tools(ui, Pane::Watch);
             self.watch_pane(ui);
         });
     }
@@ -4381,15 +4360,6 @@ impl TimegrapherApp {
         egui::TopBottomPanel::top("menus")
             .frame(bar.inner_margin(egui::Margin::symmetric(10, 4)))
             .show(ctx, |ui| self.menu_bar(ui));
-        egui::TopBottomPanel::top("mode")
-            .exact_height(MODE_ROW_H + 4.0)
-            .frame(bar.inner_margin(egui::Margin {
-                left: 12,
-                right: 12,
-                top: 4,
-                bottom: 0,
-            }))
-            .show(ctx, |ui| self.mode_row(ui));
         egui::TopBottomPanel::bottom("status")
             .frame(bar.inner_margin(egui::Margin::symmetric(14, 5)))
             .show(ctx, |ui| self.status_bar(ui));

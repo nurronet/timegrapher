@@ -565,9 +565,11 @@ fn each_position_has_witschis_code_and_its_hour_up() {
 
 /// Every pane has one place in the icon bar's groups: the core panes
 /// with Watches first, Analysis (the charts, the distributions, the
-/// Steadiness views and Isochronism) and Tests. At 1000 points every
-/// icon fits; narrower, the largest group folds into a menu, and the
-/// Tests still show.
+/// Steadiness views and Isochronism) and Tests. At 1200 points every
+/// icon fits beside the menus and the Bench | Watches switch; at 1000
+/// and narrower, the largest group, Analysis, folds into a menu (the top
+/// of the window spec, #1000), and the Tests still show: as icons at
+/// 1000, folded too at 760.
 #[test]
 fn every_pane_has_one_place_in_the_icon_bar() {
     let mut all: Vec<Pane> = [&Pane::CORE[..], &Pane::ANALYSIS, &Pane::TESTS].concat();
@@ -581,22 +583,31 @@ fn every_pane_has_one_place_in_the_icon_bar() {
     assert_eq!(all.len(), Pane::ALL.len());
     let ctx = themed();
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
-    // At 1000 points every icon fits, with the Charts and
+    // At 1200 points every icon fits, with the Charts and
     // Distributions groups gone into Analysis.
-    let mid = window_texts(&mut app, &ctx, 1000.0);
+    let mid = window_texts(&mut app, &ctx, 1200.0);
     assert!(mid.iter().any(|t| t == "Analysis"), "{mid:?}");
     assert!(mid.iter().any(|t| t == "Tests"), "{mid:?}");
     // No group folded (the Watch line's ⏷ aside).
     let folded = |t: &String| t.contains('⏷') && !t.starts_with(NO_WATCH_SHORT);
     assert!(!mid.iter().any(folded), "{mid:?}");
-    let narrow = window_texts(&mut app, &ctx, 760.0);
-    assert!(
-        narrow
-            .iter()
-            .any(|t| t.starts_with("Analysis") && t.contains('⏷')),
-        "{narrow:?}"
-    );
-    assert!(narrow.iter().any(|t| t == "Tests"), "{narrow:?}");
+    for w in [1000.0, 760.0] {
+        let narrow = window_texts(&mut app, &ctx, w);
+        assert!(
+            narrow
+                .iter()
+                .any(|t| t.starts_with("Analysis") && t.contains('⏷')),
+            "{w}: {narrow:?}"
+        );
+        assert!(
+            narrow.iter().any(|t| t.starts_with("Tests")),
+            "{w}: {narrow:?}"
+        );
+    }
+    // At 1000 points the Tests keep their icons; at 760 they fold too.
+    let mut at = |w| window_texts(&mut app, &ctx, w);
+    assert!(at(1000.0).iter().any(|t| t == "Tests"));
+    assert!(at(760.0).iter().any(|t| t == "Tests ⏷"));
     let wide = window_texts(&mut app, &ctx, 2000.0);
     assert!(wide.iter().any(|t| t == "Analysis"), "{wide:?}");
 }
@@ -1081,4 +1092,64 @@ fn cmd_1_and_2_pick_the_view_and_the_digits_alone_the_position() {
     }
     press(&mut app, egui::Key::Num3, egui::Modifiers::NONE);
     assert_eq!(app.position, Position::ALL[2]);
+}
+
+/// The top of the window is one row (#1000): the menus, the Bench |
+/// Watches switch and the pane icons share it, and the readings start
+/// right under it. In Watches the view's toolbar is at the top of its
+/// card, under that row.
+#[test]
+fn the_menus_switch_and_icons_share_one_row() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let at = |app: &mut TimegrapherApp| {
+        let mut rects: Vec<(String, egui::Rect)> = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 800.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| app.panels(ctx));
+            rects = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_string(),
+                        t.galley.rect.translate(t.pos.to_vec2()),
+                    )),
+                    _ => None,
+                })
+                .collect();
+        }
+        rects
+    };
+    let find = |rects: &[(String, egui::Rect)], text: &str| {
+        rects
+            .iter()
+            .find(|(t, _)| t == text)
+            .map(|r| r.1)
+            .unwrap_or_else(|| panic!("{text}: {rects:?}"))
+    };
+    let bench = at(&mut app);
+    let file = find(&bench, "File");
+    for t in ["Bench", "Watches", "Analysis", "Tests"] {
+        let r = find(&bench, t);
+        assert!(
+            (r.center().y - file.center().y).abs() < 3.0,
+            "{t}: {r:?} {file:?}"
+        );
+    }
+    // The readings' titles sit just under the one row.
+    let listen = find(&bench, "Listen");
+    assert!(listen.top() < file.bottom() + 40.0, "{listen:?} {file:?}");
+    app.view = View::Watches;
+    let watches = at(&mut app);
+    let file = find(&watches, "File");
+    let sort = find(&watches, "Sort");
+    assert!(sort.top() > file.bottom(), "{sort:?} {file:?}");
+    assert!(sort.top() < file.bottom() + 40.0, "{sort:?} {file:?}");
 }
