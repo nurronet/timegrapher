@@ -1433,8 +1433,8 @@ function steadyPlot(s, view, doc) {
       // names are in the lane above the plot.
       const y = [yLo, yHi + Math.max(yHi - yLo, 0.5) * 0.05];
       const u = asRate ? " s/d" : sp.unit === "deg" ? "°" : " ms";
-      // steady.rs's size: decimals by magnitude.
-      const size = (v) => v.toFixed(v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3) + u;
+      // Core size text, shared with the map and checked by the parity fixture.
+      const size = (v) => mapNumber(v) + u;
       const peak = pts.reduce((a, q) => (q[1] > a[1] ? q : a), pts[0]);
       return `<p class="note">${esc(spectrumSupportText(sp))}</p>` + xyChart({
         title: "FFT", x, y,
@@ -1636,8 +1636,15 @@ function mapSlots(m) {
 }
 // A size on the map's scale, bare: "0.12", "3.1".
 function mapNumber(v) {
-  const d = v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3;
-  return v.toFixed(d);
+  const tiny = Number.isFinite(v) && v !== 0 && Math.abs(v) < 0.001;
+  const d = v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : tiny ? 1 - Math.floor(Math.log10(Math.abs(v))) : 3;
+  if (d <= 100) return v.toFixed(d);
+  // toFixed accepts at most 100 decimals; expand the same two significant
+  // figures for smaller finite values, including subnormals.
+  const [coefficient, exponent] = Math.abs(v).toExponential(1).split("e");
+  const digits = coefficient.replace(".", "");
+  const fraction = ("0".repeat(-Number(exponent) - 1) + digits).padEnd(d, "0");
+  return (v < 0 ? "-0." : "0.") + fraction;
 }
 // tfmap::size_text: "0.12 ms", "3.1°".
 function mapSize(m, v) {
