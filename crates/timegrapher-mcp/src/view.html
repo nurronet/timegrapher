@@ -48,11 +48,12 @@ svg.key { display: inline-block; }
 .side .sum { color: var(--text2); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 svg { display: block; max-width: 100%; height: auto; }
 svg text { fill: var(--text2); font-size: 11px; font-variant-numeric: tabular-nums; }
-svg .plot { fill: var(--card); stroke: var(--separator); stroke-width: 1; }
+/* Line Strength on Plots: grid, then axis (the left and bottom edges and a
+   zero line), then call-out (named and reference lines), then data. */
+svg .plot { fill: var(--card); }
 svg .grid { stroke: var(--grid); stroke-width: 1; }
-svg.faint .grid { stroke-opacity: 0.55; }
-svg .zero { stroke: var(--text3); stroke-width: 1; }
-svg .cursor { stroke: var(--text3); stroke-width: 1; }
+svg .axis, svg .zero { stroke: var(--axis); stroke-width: 1; }
+svg .cursor { stroke: var(--callout); stroke-width: 1.2; }
 .chart { position: relative; }
 .tip {
   position: absolute; pointer-events: none; background: var(--card); color: var(--text);
@@ -213,6 +214,8 @@ const TIME_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 
 // The app's line styles.
 // "dense" and "sparse" are egui's dotted_dense and dotted_loose: round dots
 // 5 and 10 px apart.
+// A call-out's width (strength::CALL_OUT_W).
+const CALL_OUT_W = 1.2;
 const DASH = { dashed: "4 3", dotted: "1.2 2.4", loose: "6 5", wheel: "4 4", dense: "0 5", sparse: "0 10" };
 
 // Charts are drawn at the width they are shown, so their text stays at its size.
@@ -263,14 +266,27 @@ function fmtTime(t) {
 
 let clipCount = 0;
 
-// The plot's background and the clip that keeps the marks inside it.
+// The plot's background, its left and bottom axes, and the clip that keeps
+// the marks inside it. No top or right edge is drawn.
 function plotArea(x, y, w, h) {
   const id = "clip" + (++clipCount);
   return {
     id,
     svg: `<defs><clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath></defs>
-      <rect class="plot" x="${x}" y="${y}" width="${w}" height="${h}" rx="3"/>`,
+      <rect class="plot" x="${x}" y="${y}" width="${w}" height="${h}"/>
+      <line class="axis" x1="${x}" x2="${x}" y1="${y}" y2="${y + h}"/><line class="axis" x1="${x}" x2="${x + w}" y1="${y + h}" y2="${y + h}"/>`,
   };
+}
+
+// A grid line down the plot at `x`, or none where it would fall on the left
+// axis, so the axis never doubles up as the range moves.
+function gridDown(x, L, T, plotH) {
+  return Math.abs(x - L) < 0.5 ? "" : `<line class="grid" x1="${x}" x2="${x}" y1="${T}" y2="${T + plotH}"/>`;
+}
+
+// A grid line across the plot at `y`, or none on the bottom axis.
+function gridAcross(y, L, plotW, bottom) {
+  return Math.abs(y - bottom) < 0.5 ? "" : `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${y}" y2="${y}"/>`;
 }
 
 function lineSample(s) {
@@ -309,18 +325,18 @@ function lineChart(o) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [v, t] of ylab) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const v of xg.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = o.time ? fmtTime(v) : axisLabel(v, xg.step, o.xUnit);
     // The first and last labels stay inside the chart.
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
   for (const h of o.hlines || []) {
-    inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="1"${h.dash ? ` stroke-dasharray="${DASH[h.dash]}"` : ""}/>`;
+    inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="${h.width || 1}"${h.dash ? ` stroke-dasharray="${DASH[h.dash]}"` : ""}/>`;
   }
   for (const s of o.series) {
     if (s.band && s.band.length) {
@@ -500,16 +516,18 @@ function profileCard(p, title, dropBeatError, facts) {
     const pts = (s.median || []).map((v, i) => [x(i), v]);
     const band = s.p10 && s.p90 ? s.p10.map((lo, i) => [x(i), lo, s.p90[i]]) : [];
     const marks = [];
-    for (const [label, at, c, w] of [["Unlock", s.unlock_ms, "--unlock", 1.5], ["Drop", s.drop_ms, "--drop", 1.5], ["Peak", s.peak_ms, "--peak", 1]]) {
-      if (Number.isFinite(at)) marks.push({ x: at + dx, color: c, width: w, label, group: 0 });
+    // Call-outs, one grey told apart by pattern: the edges solid, the
+    // sounds dotted (strength::Strength::CallOut).
+    for (const [label, at] of [["Unlock", s.unlock_ms], ["Drop", s.drop_ms], ["Peak", s.peak_ms]]) {
+      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--callout", width: CALL_OUT_W, label, group: 0 });
     }
     for (const [label, at] of [["1 Unlock", s.sound1_ms], ["2 Impulse", s.sound2_ms], ["3 Drop", s.sound3_ms]]) {
-      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--sound", width: 1.2, dash: "loose", label, group: 1 });
+      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--callout", width: CALL_OUT_W, dash: "dotted", label, group: 1 });
     }
     return `<div class="side"><span class="swatch dot" style="background:var(${color})"></span><b style="color:var(${color})">${k ? "Tock" : "Tick"}</b><span class="sum">${esc(profileSummary(facts, k))}</span></div>${lineChart({
       title: k ? "Tock" : "Tick", height: 130, hover: false, xUnit: " ms", xRange, yRange: [0, top * 1.08],
       series: [{ name: k ? "Tock" : "Tick", color, points: pts, band }],
-      hlines: Number.isFinite(s.floor) ? [{ y: s.floor, color: "--text3", dash: "dashed" }] : [],
+      hlines: Number.isFinite(s.floor) ? [{ y: s.floor, color: "--callout", width: CALL_OUT_W, dash: "dashed" }] : [],
       marks,
     })}`;
   };
@@ -689,7 +707,7 @@ function bars(rows, color, unit, decimals) {
   let g = area.svg, inside = "";
   const grid = gridFor(d0, d1, plotW, 70);
   for (const v of grid.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = axisLabel(v, grid.step, unit);
     const anchor = sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${T + plotH + 15}" text-anchor="${anchor}">${esc(t)}</text>`;
@@ -836,11 +854,11 @@ function xyChart(o) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [v, t] of yt) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const [v, t] of xt) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
@@ -931,7 +949,7 @@ function xyChart(o) {
     });
   }
   g += `<g clip-path="url(#${area.id})">${inside}</g>`;
-  return `<div class="chart"><svg${o.faint ? ` class="faint"` : ""} viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.title || "")}">${g}</svg></div>`;
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.title || "")}">${g}</svg></div>`;
 }
 
 // marks.rs: names on the lines a plot marks, by the app's one set of rules
@@ -1297,7 +1315,7 @@ function steadyPlot(s, view, doc) {
         notes.push({ x, y: near[1], text: secs(s.period.period_s) + (s.period.wheel ? `, ${wheelTitle(s.period.wheel)}` : "") });
       }
       return xyChart({
-        title: "Periods", x: span, y, faint: true,
+        title: "Periods", x: span, y,
         xTicks: periodTicks,
         yTicks: periodsLog ? (a, b) => logTicks(a, b, sig) : (a, b, h) => linTicks(a, b, h, 24, (y) => y.toFixed(0)),
         vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--text2", dash: "loose" }],
@@ -1390,7 +1408,7 @@ function steadyPlot(s, view, doc) {
       const size = (v) => v.toFixed(v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3) + u;
       const peak = pts.reduce((a, q) => (q[1] > a[1] ? q : a), pts[0]);
       return `<p class="note">${esc(spectrumSupportText(sp))}</p>` + xyChart({
-        title: "FFT", x, y, faint: true,
+        title: "FFT", x, y,
         xTicks: periodTicks,
         yTicks: (p, q) => logTicks(p, q, size),
         vlines: wheelMarks(doc, x), names: showWheels, lines: [{ pts, color, width: 1.5 }],
@@ -1623,11 +1641,11 @@ function mapChart(m, doc, log) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, grid = "";
   for (const [v, t] of yt) {
-    grid += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    grid += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const [v, t] of xt) {
-    grid += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    grid += `${gridDown(sx(v), L, T, plotH)}`;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
@@ -1745,18 +1763,18 @@ function probabilityChart(e, color, unit) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [z, t] of ylab) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(z)}" y2="${sy(z)}"/>`;
+    inside += `${gridAcross(sy(z), L, plotW, T + plotH)}`;
     g += `<text x="${L - 5}" y="${sy(z) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const v of xg.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = axisLabel(v, xg.step, unit);
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
   const line = e.normal_line;
   if (line && Number.isFinite(line.centre) && Number.isFinite(line.spread)) {
-    inside += `<line x1="${sx(line.centre - line.spread * zTop)}" y1="${sy(-zTop)}" x2="${sx(line.centre + line.spread * zTop)}" y2="${sy(zTop)}" stroke="var(--text3)" stroke-width="1" stroke-dasharray="${DASH.loose}"/>`;
+    inside += `<line x1="${sx(line.centre - line.spread * zTop)}" y1="${sy(-zTop)}" x2="${sx(line.centre + line.spread * zTop)}" y2="${sy(zTop)}" stroke="var(--callout)" stroke-width="${CALL_OUT_W}" stroke-dasharray="${DASH.loose}"/>`;
   }
   let dots = "";
   for (const [x, z] of pts) {
@@ -1879,7 +1897,7 @@ function liveStrip(d) {
   let g = area.svg, inside = "";
   const yg = gridFor(-half, half, plotH, 26);
   for (const v of yg.ticks) {
-    if (v > -half && v < half) inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    if (v > -half && v < half) inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     // The ends are left for "Early" and "Late".
     if (Math.min(sy(v) - T, T + plotH - sy(v)) > 14) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(axisLabel(v, yg.step, " ms"))}</text>`;
   }
@@ -1887,7 +1905,7 @@ function liveStrip(d) {
   const xg = gridFor(start, end, plotW, Math.min(90, plotW / 4), TIME_STEPS);
   for (const t of xg.ticks) {
     if (t < -1e-9) continue;
-    inside += `<line class="grid" x1="${sx(t)}" x2="${sx(t)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(t), L, T, plotH)}`;
     const label = fmtTime(t);
     const anchor = sx(t) - label.length * CHAR_W / 2 < L - 8 ? "start" : sx(t) + label.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(t)}" y="${H - 5}" text-anchor="${anchor}">${label}</text>`;
