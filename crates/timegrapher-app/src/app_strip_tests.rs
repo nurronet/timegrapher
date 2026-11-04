@@ -200,3 +200,42 @@ fn dragging_the_strip_looks_back_and_returns() {
     let now = app.strip_end.expect("looking back");
     assert!(((now - at) / 30.0 - 15.0 / 60.0).abs() < 1e-9, "{now}");
 }
+
+/// In an upright strip each overlay's axis is a row above it whose near
+/// end's number would sit under the axis's name: the number is left out,
+/// and hovering the row gives the scale end to end.
+#[test]
+fn hovering_an_overlay_axis_row_gives_its_range() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, false, false];
+    app.strip.horizontal = false;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        });
+        super::tests::painted_text(&out)
+    };
+    for _ in 0..3 {
+        pass(&mut app, Vec::new());
+    }
+    let drawn = pass(&mut app, Vec::new());
+    // The first switch in the settings is Amplitude.
+    assert!(drawn.contains("Amplitude (°)"), "{drawn}");
+    assert!(!drawn.contains("Amplitude: "), "no hover yet: {drawn}");
+    // The row: under the key's line, across the middle of the strip.
+    let over = egui::pos2(450.0, 30.0);
+    pass(&mut app, vec![egui::Event::PointerMoved(over)]);
+    let hovered = pass(&mut app, Vec::new());
+    let line = hovered
+        .lines()
+        .find(|l| l.starts_with("Amplitude: "))
+        .unwrap_or_else(|| panic!("{hovered}"));
+    assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
+}

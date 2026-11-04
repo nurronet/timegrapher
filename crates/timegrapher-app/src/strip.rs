@@ -1766,6 +1766,27 @@ impl Frame<'_> {
             ink,
         );
         painter.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], line);
+        // The near end's number would sit under the name, so it is left
+        // out; the row's hover gives both ends.
+        let row = Rect::from_min_max(Pos2::new(r.left(), top), Pos2::new(r.right(), y + 1.0));
+        let ctx = painter.ctx();
+        if ctx.pointer_hover_pos().is_some_and(|p| row.contains(p)) {
+            let range = format!(
+                "{}: {} to {} {}",
+                o.name,
+                axis_number(s.0, s.2),
+                axis_number(s.1, s.2),
+                o.unit.trim()
+            );
+            egui::Tooltip::always_open(
+                ctx.clone(),
+                painter.layer_id(),
+                egui::Id::new(("strip scale range", i)),
+                egui::PopupAnchor::Pointer,
+            )
+            .gap(12.0)
+            .show(|ui| ui.label(range));
+        }
         let mut taken = named;
         for v in ticks(s) {
             let x = self.scale_at(s, v);
