@@ -242,6 +242,7 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
             Ok(Event::Error(e)) => return Err(format!("the input failed: {e}")),
             // The fit needs every frame's arrival.
             Ok(Event::Lost(_)) => return Err(timegrapher_core::capture::LOST_TEXT.into()),
+            Ok(Event::Glitch) => return Err(timegrapher_core::capture::GLITCH_TEXT.into()),
             Ok(Event::End) => break,
             Err(_) => return Err("the input stopped delivering audio".into()),
         }
