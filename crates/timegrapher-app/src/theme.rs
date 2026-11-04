@@ -787,11 +787,13 @@ pub fn switch_row(ui: &mut Ui, label: &str, on: &mut bool, hint: &str) -> bool {
     ui.horizontal(|ui| {
         let l = ui.add(egui::Label::new(label).sense(Sense::click()));
         let flip_by_label = l.clicked();
-        l.on_hover_text(hint);
+        // A dimmed switch says why in its hover too.
+        l.on_hover_text(hint).on_disabled_hover_text(hint);
         let r = ui
             .with_layout(Layout::right_to_left(Align::Center), |ui| switch(ui, on))
             .inner
-            .on_hover_text(hint);
+            .on_hover_text(hint)
+            .on_disabled_hover_text(hint);
         if flip_by_label {
             *on = !*on;
         }
@@ -1780,7 +1782,7 @@ pub fn tool_switch_unless(
                 }
                 r.clicked()
             } else {
-                switch_row(ui, label, on, hint)
+                switch_row(ui, label, on, disabled.unwrap_or(hint))
             }
         })
         .inner
