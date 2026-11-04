@@ -1322,8 +1322,7 @@ fn noisy_amplitude(window_noise: f64, seed: u64) -> (Grid, Grid, Vec<f64>) {
             .collect(),
     };
     let n = 720;
-    let amp = rebin(&fine, 0.0, 10.0, n);
-    let noise = reading_noise(&fine, 0.0, 10.0, n);
+    let (amp, noise) = pairing_readings(&fine, &rebin(&fine, 0.0, 10.0, n));
     let rate = grid(
         (0..n)
             .map(|i| {
@@ -1341,18 +1340,24 @@ fn noisy_amplitude(window_noise: f64, seed: u64) -> (Grid, Grid, Vec<f64>) {
 }
 
 /// Noise in the amplitude readings shrinks a least-squares slope towards
-/// 0; read off each reading's own windows, it is undone, and the slope
-/// carries a ± that covers the truth (#651). Here the readings' noise of
-/// about 1.8° (the median of five windows) shrinks the plain slope by
-/// about a quarter.
+/// 0; read off the windows' scatter, it is undone, and the slope carries
+/// a ± that covers the truth (#651). Here the readings' noise of about
+/// 1.6° (five windows weighted as the rate's fit weights them) shrinks
+/// the plain slope by about a quarter.
 #[test]
 fn the_isochronism_slope_is_read_off_the_amplitudes_noise() {
     let (rate, amp, noise) = noisy_amplitude(3.35, 21);
-    // Each reading's noise is that of its five windows' median: their
-    // variance over five, times 1.434 (#656).
+    // Each reading's noise is that of its five windows weighted as the
+    // rate's fit weights them: their variance times the sum of the
+    // squared weights, about 0.232 (#951).
     let mean = noise.iter().sum::<f64>() / noise.len() as f64;
-    let want = 3.35f64.powi(2) / 5.0 * crate::dsp::median_variance_factor(5);
-    assert!((mean - want).abs() < 0.4, "{mean}");
+    let w2: f64 = (0..5)
+        .map(|k| {
+            crate::amplitude_slope::rate_fit_weight(k as f64 / 5.0, (k + 1) as f64 / 5.0).powi(2)
+        })
+        .sum();
+    let want = 3.35f64.powi(2) * w2;
+    assert!((mean - want).abs() < 0.3, "{mean} against {want}");
     let c = isochronism_curve(&rate, &amp, &noise, &Config::default()).unwrap();
     let (slope, se) = (
         c.s_per_day_per_deg.unwrap(),
