@@ -59,7 +59,7 @@
     },
     "crates/timegrapher-app/src/app/scope_panes.rs": {
      "bounds": 1,
-     "comparisons": 2,
+     "comparisons": 1,
      "constants": 0,
      "defaults": 1
     },
@@ -222,7 +222,7 @@
    },
    "total": {
     "bounds": 105,
-    "comparisons": 109,
+    "comparisons": 108,
     "constants": 54,
     "defaults": 2
    }
@@ -339,6 +339,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 4945
+  "crates/timegrapher-app/src/app.rs": 4934
  }
 }

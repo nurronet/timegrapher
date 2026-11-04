@@ -672,28 +672,32 @@ fn removing_all_masks_asks_first() {
     assert_eq!(app.masked.len(), 2, "nothing removed before the yes");
 }
 
-/// The moment the profile shows ("At 10:00") is at the right end of its
-/// toolbar, before the "?", clear of the controls.
+/// The moment the profile shows when the strip is moved back ("at
+/// 0:10") is at the right end of its toolbar, before the "?", clear of
+/// the controls; its slot is kept when it is empty, so nothing shifts.
 #[test]
 fn the_profiles_moment_is_at_the_toolbars_right_end() {
     let ctx = egui::Context::default();
     theme::install(&ctx);
-    let mut app = TimegrapherApp::with_devices(mac_devices(), None);
-    app.reset_session(48000, "syn".into());
-    app.sound_note = Some("At 10:00".into());
+    let mut app = super::tests::synthetic(20.0, 0.0);
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 700.0));
-    for _ in 0..3 {
-        let input = egui::RawInput {
-            screen_rect: Some(screen),
-            ..Default::default()
-        };
-        let _ = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                app.pane_tools(ui, Pane::Sound);
+    let drawn_with = |app: &mut TimegrapherApp| {
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.pane_tools(ui, Pane::Sound);
+                });
             });
-        });
-    }
-    let drawn = theme::tools_drawn_at(&ctx);
+        }
+        theme::tools_drawn_at(&ctx)
+    };
+    let live = drawn_with(&mut app);
+    app.strip_end = Some(10.0);
+    let drawn = drawn_with(&mut app);
     let title = Pane::Sound.title();
     let at = |k: &str| {
         drawn
@@ -702,14 +706,22 @@ fn the_profiles_moment_is_at_the_toolbars_right_end() {
             .map(|d| d.1)
             .unwrap_or_else(|| panic!("no {k}: {drawn:?}"))
     };
-    let note = at("At 10:00");
+    let note = at("at 0:10");
     assert!(note.right() > 1440.0 - 60.0, "{note:?}");
     for (k, r) in &drawn {
-        if k.starts_with(&format!("{title}/")) && !k.ends_with("At 10:00") {
+        if k.starts_with(&format!("{title}/")) && !k.ends_with("at 0:10") {
             assert!(r.right() < note.left(), "{k} at {r:?} runs into the note");
         }
     }
     assert!(at("dB Scale").width() < 30.0);
+    // At the newest beats the controls stand where they did.
+    let without = |d: &[(String, egui::Rect)]| -> Vec<(String, egui::Rect)> {
+        d.iter()
+            .filter(|(k, _)| !k.ends_with("at 0:10"))
+            .cloned()
+            .collect()
+    };
+    assert_eq!(without(&live), without(&drawn));
 }
 
 /// The Tick Tock Profile's plots take the pane's height at 1440 × 1000 in
