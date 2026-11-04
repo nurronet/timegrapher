@@ -6,6 +6,7 @@ beat_error_unlock_ms
 beats_found
 bph
 caveats
+caveats[].code
 clean_fraction
 clock
 duration_s

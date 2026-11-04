@@ -219,8 +219,14 @@ impl ResolvedTrain {
     /// The lift angle for long and series: `--lift`, else the calibre's,
     /// else the default.
     pub(crate) fn lift_deg(&self, flag: Option<f64>) -> f64 {
+        self.lift_given(flag).unwrap_or(take::DEFAULT_LIFT_DEG)
+    }
+
+    /// The lift angle `--lift` or the calibre gives, if either does: when
+    /// neither does, the lift is the default and the reading says so
+    /// (`lift_unknown`).
+    fn lift_given(&self, flag: Option<f64>) -> Option<f64> {
         flag.or(self.calibre.as_ref().and_then(|c| c.lift_angle_deg))
-            .unwrap_or(take::DEFAULT_LIFT_DEG)
     }
 
     /// What `lift_deg` fell back on, said as `analyze` says it, when
@@ -343,6 +349,7 @@ pub(crate) fn read(
     let resolved_train = train.resolve()?;
     let mut cfg = cfg.clone();
     cfg.analysis.amplitude.lift_deg = resolved_train.lift_deg(lift);
+    cfg.analysis.lift_known = resolved_train.lift_given(lift).is_some();
     let files = expand_dirs(files)?;
     let file = files.first().ok_or("no recording given")?.clone();
     let mut info = audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -602,7 +609,7 @@ pub fn run(
         Some(_) => longrun::analyse_on_clock(&log, clock.as_ref(), &breaks, &lc),
         None => longrun::analyse_with_breaks(&log, clock.as_ref(), &breaks, &lc),
     };
-    add_caveats(&mut rep, unlisted, positions, pauses_unseen);
+    add_caveats(&mut rep.caveats, cfg, unlisted, positions, pauses_unseen);
     // A take read in stretches is on its clock already.
     let clock = clock.filter(|_| stretches.is_none());
     // The cycles listed are the ones the Steadiness pane names (#659).
@@ -647,22 +654,25 @@ pub fn run(
     Ok(())
 }
 
-/// The caveats a take's reading carries beyond the analysis's own: breaks
-/// it could not list, positions, pauses the clock did not see.
-fn add_caveats(
-    rep: &mut LongReport,
+/// The caveats a take's reading carries beyond the analysis's own, for
+/// long and series alike: a lift angle that is the default, breaks it
+/// could not list, positions, pauses the clock did not see.
+pub(crate) fn add_caveats(
+    caveats: &mut Vec<timegrapher_core::measure::Caveat>,
+    cfg: &StreamConfig,
     unlisted: Option<timegrapher_core::breaks::Unlisted>,
     positions: Option<timegrapher_core::measure::Caveat>,
     pauses_unseen: Option<timegrapher_core::measure::Caveat>,
 ) {
+    use timegrapher_core::measure::{add, Caveat};
+    if !cfg.analysis.lift_known {
+        add(caveats, Caveat::LiftUnknown);
+    }
     if let Some(why) = unlisted {
-        timegrapher_core::measure::add(
-            &mut rep.caveats,
-            timegrapher_core::measure::Caveat::BreaksUnlisted { why },
-        );
+        add(caveats, Caveat::BreaksUnlisted { why });
     }
     for c in positions.into_iter().chain(pauses_unseen) {
-        timegrapher_core::measure::add(&mut rep.caveats, c);
+        add(caveats, c);
     }
 }
 

@@ -1,5 +1,6 @@
 //! `long` and `series` take the lift angle from `--lift`, else the
-//! calibre, else 52°, and say so on stderr when they fall back.
+//! calibre (or a take's session file), else 52°, and say so when they
+//! fall back: on stderr, and as `lift_unknown` in their JSON.
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -44,8 +45,18 @@ impl Fixture {
     }
     /// The lift angle `command` used, from its JSON settings, and its stderr.
     fn lift(&self, command: &str, extra: &[&str]) -> (f64, String) {
-        let wav = self.wav();
-        let out_dir = self.0.join(format!("out-{command}-{}", extra.join("-")));
+        let (lift, err, _) = self.lift_read(command, self.wav(), extra);
+        (lift, err)
+    }
+    /// As [`Fixture::lift`], of `input`, with whether the JSON carries
+    /// the `lift_unknown` caveat.
+    fn lift_read(&self, command: &str, input: PathBuf, extra: &[&str]) -> (f64, String, bool) {
+        let wav = input;
+        let out_dir = self.0.join(format!(
+            "out-{command}-{}-{}",
+            wav.file_name().unwrap().to_string_lossy(),
+            extra.join("-")
+        ));
         let mut args = vec![command, wav.to_str().unwrap(), "--json"];
         let out_dir = out_dir.to_str().unwrap().to_string();
         if command == "long" {
@@ -60,7 +71,26 @@ impl Fixture {
         );
         let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
         let lift = doc["input"]["settings"]["lift_deg"].as_f64().unwrap();
-        (lift, stderr(&out))
+        let unknown = doc["caveats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["code"] == "lift_unknown");
+        (lift, stderr(&out), unknown)
+    }
+    /// A take folder holding the fixture's recording, its session file
+    /// giving `lift` when there is one.
+    fn take(&self, name: &str, lift: Option<f64>) -> PathBuf {
+        let dir = self.0.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(self.wav(), dir.join("watch.wav")).unwrap();
+        let lift = lift.map_or(String::new(), |l| format!("lift = {l}\n"));
+        std::fs::write(
+            dir.join("session.toml"),
+            format!("{lift}\n[[recording]]\nfile = \"watch.wav\"\nposition = \"DU\"\n"),
+        )
+        .unwrap();
+        dir
     }
 }
 impl Drop for Fixture {
@@ -129,6 +159,32 @@ fn long_and_series_take_the_lift_from_the_flag_then_the_calibre_then_52() {
             err.contains("note: lift 52°, the default; calibre not set"),
             "{command}: {err}"
         );
+    }
+}
+
+/// The JSON says the lift is the default (`lift_unknown`, guard G8)
+/// whenever it is: with no lift given, or a calibre with none; never with
+/// `--lift`, a calibre's lift, or a take's session-file lift (#1019).
+#[test]
+fn long_and_series_json_say_when_the_lift_is_the_default() {
+    let f = Fixture::new();
+    let with = f.take("with-lift", Some(49.0));
+    let without = f.take("without-lift", None);
+    for command in ["long", "series"] {
+        let cases: [(PathBuf, &[&str], f64, bool); 6] = [
+            (f.wav(), &[], 52.0, true),
+            (f.wav(), &["--calibre", "Bench Unknown"], 52.0, true),
+            (f.wav(), &["--lift", "50"], 50.0, false),
+            (f.wav(), &["--calibre", "Bench 44"], 44.0, false),
+            (with.clone(), &[], 49.0, false),
+            (without.clone(), &[], 52.0, true),
+        ];
+        for (input, extra, want_lift, want_unknown) in cases {
+            let (lift, err, unknown) = f.lift_read(command, input.clone(), extra);
+            let case = format!("{command} {} {extra:?}", input.display());
+            assert_eq!(lift, want_lift, "{case}: {err}");
+            assert_eq!(unknown, want_unknown, "{case}: {err}");
+        }
     }
 }
 
