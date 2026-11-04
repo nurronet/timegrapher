@@ -96,7 +96,7 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         notch: Vec<f64>,
         /// High-pass corner, Hz.
-        #[arg(long, default_value_t = 1500.0)]
+        #[arg(long, default_value_t = timegrapher_core::dsp::DEFAULT_HIGHPASS_HZ)]
         highpass: f64,
         /// Escape wheel teeth, used to name periodic components (default:
         /// the calibre's, or 15).
@@ -137,13 +137,13 @@ enum Command {
         #[arg(long, value_parser = parse_bph)]
         bph: Option<u32>,
         /// Lift angle in degrees.
-        #[arg(long, default_value_t = 52.0, value_parser = parse_lift)]
+        #[arg(long, default_value_t = timegrapher_core::take::DEFAULT_LIFT_DEG, value_parser = parse_lift)]
         lift: f64,
         /// Comma-separated steady tones to notch out, Hz.
         #[arg(long, value_delimiter = ',')]
         notch: Vec<f64>,
         /// High-pass corner, Hz.
-        #[arg(long, default_value_t = 1500.0)]
+        #[arg(long, default_value_t = timegrapher_core::dsp::DEFAULT_HIGHPASS_HZ)]
         highpass: f64,
         /// Print the measurements as JSON instead of text.
         #[arg(long)]
@@ -168,13 +168,13 @@ enum Command {
         #[arg(long, value_parser = parse_bph)]
         bph: Option<u32>,
         /// Lift angle in degrees.
-        #[arg(long, default_value_t = 52.0, value_parser = parse_lift)]
+        #[arg(long, default_value_t = timegrapher_core::take::DEFAULT_LIFT_DEG, value_parser = parse_lift)]
         lift: f64,
         /// Comma-separated steady tones to notch out, Hz.
         #[arg(long, value_delimiter = ',')]
         notch: Vec<f64>,
         /// High-pass corner, Hz.
-        #[arg(long, default_value_t = 1500.0)]
+        #[arg(long, default_value_t = timegrapher_core::dsp::DEFAULT_HIGHPASS_HZ)]
         highpass: f64,
         /// Print the profiles (envelopes and marks) as JSON instead of text.
         #[arg(long)]
@@ -215,7 +215,7 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         notch: Vec<f64>,
         /// High-pass corner, Hz.
-        #[arg(long, default_value_t = 1500.0)]
+        #[arg(long, default_value_t = timegrapher_core::dsp::DEFAULT_HIGHPASS_HZ)]
         highpass: f64,
         /// The movement, to name periodic components after its wheels and
         /// take its lift angle from the table (e.g. "ETA 2824-2", "Rolex
@@ -265,7 +265,7 @@ enum Command {
         #[arg(long, value_delimiter = ',')]
         notch: Vec<f64>,
         /// High-pass corner, Hz.
-        #[arg(long, default_value_t = 1500.0)]
+        #[arg(long, default_value_t = timegrapher_core::dsp::DEFAULT_HIGHPASS_HZ)]
         highpass: f64,
         /// The movement, to name periodic components after its wheels and
         /// take its lift angle from the table (e.g. "ETA 2824-2", "Rolex
