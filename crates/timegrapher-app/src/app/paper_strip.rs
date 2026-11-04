@@ -633,7 +633,6 @@ fn strip_overlays_drawn(
         overlays.push(strip::Overlay {
             name: "Rate",
             unit: " s/d",
-            decimals: 1,
             color: pal.trace_rate,
             min_span: 4.0,
             points: series(|p| p.rate_s_per_day),
@@ -643,7 +642,6 @@ fn strip_overlays_drawn(
         overlays.push(strip::Overlay {
             name: "Amplitude",
             unit: "°",
-            decimals: 0,
             color: pal.trace_amplitude,
             min_span: 10.0,
             points: series(|p| p.amplitude_deg),
@@ -653,7 +651,6 @@ fn strip_overlays_drawn(
         overlays.push(strip::Overlay {
             name: "Beat Error",
             unit: " ms",
-            decimals: 2,
             color: pal.trace_beat_error,
             min_span: 0.2,
             points: series(trend_beat_error),
