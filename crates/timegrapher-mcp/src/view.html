@@ -304,6 +304,10 @@ function gridAcross(y, L, plotW, bottom) {
   return Math.abs(y - bottom) < 0.5 ? "" : `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${y}" y2="${y}"/>`;
 }
 
+// A reading with no neighbour either side is a dot this wide (radius, px),
+// plainly bigger than the 1.8 px line, so a lone newest reading shows.
+const LONE_DOT_R = 3;
+
 function lineSample(s) {
   return `<svg class="key" width="18" height="8" viewBox="0 0 18 8"><line x1="1" x2="17" y1="4" y2="4" stroke="var(${s.color})" stroke-width="${s.main === false ? 1.5 : 2}"${s.dash ? ` stroke-dasharray="${DASH[s.dash]}"` : ""}${s.opacity ? ` opacity="${s.opacity}"` : ""}/></svg>`;
 }
@@ -363,13 +367,16 @@ function lineChart(o) {
   for (const m of o.marks || []) {
     inside += `<line x1="${sx(m.x)}" x2="${sx(m.x)}" y1="${T}" y2="${T + plotH}" stroke="var(${m.color})" stroke-width="${m.width || 1.5}"${m.dash ? ` stroke-dasharray="${DASH[m.dash]}"` : ""}/>`;
   }
-  // Main lines last, so they are on top.
+  // Main lines last, so they are on top. Lone readings' dots go over them,
+  // in a clip as tall as the plot but a dot wider each side, so a dot on
+  // the first or newest reading shows whole.
+  let dots = "";
   for (const s of o.series.slice().sort((a, b) => (a.main !== false) - (b.main !== false))) {
     let d = "", pen = false;
     for (const [i, [x, y]] of s.points.entries()) {
       if (!Number.isFinite(y)) { pen = false; continue; }
       if (!pen && !Number.isFinite(s.points[i + 1]?.[1])) {
-        inside += `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="2" fill="var(${s.color})"${s.opacity ? ` opacity="${s.opacity}"` : ""}/>`;
+        dots += `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${LONE_DOT_R}" fill="var(${s.color})"${s.opacity ? ` opacity="${s.opacity}"` : ""}/>`;
       }
       d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`;
       pen = true;
@@ -377,6 +384,11 @@ function lineChart(o) {
     inside += `<path d="${d}" fill="none" stroke="var(${s.color})" stroke-width="${s.main === false ? 1.2 : 1.8}"${s.dash ? ` stroke-dasharray="${DASH[s.dash]}"` : ""}${s.opacity ? ` opacity="${s.opacity}"` : ""} stroke-linejoin="round"/>`;
   }
   g += `<g clip-path="url(#${area.id})">${inside}</g>`;
+  if (dots) {
+    const wide = `${area.id}d`;
+    g += `<defs><clipPath id="${wide}"><rect x="${L - LONE_DOT_R}" y="${T}" width="${plotW + 2 * LONE_DOT_R}" height="${plotH}"/></clipPath></defs>`;
+    g += `<g clip-path="url(#${wide})">${dots}</g>`;
+  }
   g += markLabels(o.marks || [], sx, L, L + plotW, T);
   const id = "c" + (++clipCount);
   charts.set(id, { o, sx, x0, x1, L, plotW, W, T, plotH });
