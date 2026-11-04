@@ -566,7 +566,7 @@ impl TimegrapherApp {
                 .strip_zoom_s
                 .filter(|&w| round_span(w) == was)
                 .unwrap_or(was);
-            let wish = (from * input.span_factor).min(take);
+            let wish = (from * input.span_factor).clamp(StripView::MIN_SPAN_S, take);
             self.strip_zoom_s = Some(wish);
             self.strip.set_span(round_span(wish).min(take));
             // Looking back, the time under the pointer stays under it;

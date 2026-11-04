@@ -247,6 +247,22 @@ fn a_zoom_leaves_a_round_length() {
     app.strip.set_span(8.0);
     app.apply_strip_input(zoom_in(0.8), app.strip_end_s());
     assert_eq!(app.strip.span_s, 6.0);
+    // Zoomed in far past the shortest length, a zoom back out starts
+    // from it, not from where the zooms in were heading.
+    for _ in 0..20 {
+        app.apply_strip_input(zoom_in(0.5), app.strip_end_s());
+    }
+    assert_eq!(app.strip.span_s, StripView::MIN_SPAN_S);
+    app.apply_strip_input(zoom_in(1.1), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.5), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
+    // Nor from below it when that still rounds to the shortest length.
+    app.strip.set_span(2.0);
+    app.apply_strip_input(zoom_in(0.76), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.3), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
 }
 
 /// Zooming the strip's time out stops at the take's length: past it is
