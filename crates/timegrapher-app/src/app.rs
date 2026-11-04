@@ -48,6 +48,8 @@ mod distributions;
 mod dock;
 mod library_folder;
 mod listen_card;
+#[cfg(target_os = "macos")]
+pub(crate) mod mac_menu;
 mod masks;
 mod menus;
 mod pane_export;
@@ -144,21 +146,6 @@ impl ClockTrack {
             self.fit = self.tracker.fit();
         }
     }
-}
-
-/// Settings…: Cmd+, on macOS, Ctrl+, elsewhere.
-fn settings_shortcut() -> egui::KeyboardShortcut {
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Comma)
-}
-
-/// Each view's key: Cmd+1 for the Bench, Cmd+2 for Watches (Ctrl off a
-/// Mac).
-fn view_shortcut(view: View) -> egui::KeyboardShortcut {
-    let key = match view {
-        View::Bench => egui::Key::Num1,
-        View::Watches => egui::Key::Num2,
-    };
-    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key)
 }
 
 /// The two views, as the mode switch and the View menu name them.
@@ -831,14 +818,6 @@ fn pane_icon(pane: Pane) -> theme::Icon {
         Pane::Charts => Icon::Charts,
         Pane::Distributions => Icon::Distributions,
     }
-}
-
-/// Save As: Ctrl+Shift+S, or Cmd+Shift+S on a Mac.
-fn save_as_shortcut() -> egui::KeyboardShortcut {
-    egui::KeyboardShortcut::new(
-        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-        egui::Key::S,
-    )
 }
 
 /// The Input Level's hover.
@@ -4181,17 +4160,6 @@ impl TimegrapherApp {
         egui::TopBottomPanel::bottom("status")
             .frame(bar.inner_margin(egui::Margin::symmetric(14, 5)))
             .show(ctx, |ui| self.status_bar(ui));
-        let command = |key| egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key);
-        // The File menu's shortcuts.
-        if ctx.input_mut(|i| i.consume_shortcut(&command(egui::Key::O))) {
-            self.open_from_menu(false);
-        }
-        // Save As first: Cmd+S would also take Cmd+Shift+S.
-        if ctx.input_mut(|i| i.consume_shortcut(&save_as_shortcut()))
-            && self.session.allows(Action::Save)
-        {
-            self.save_recording();
-        }
         // Esc puts the tool in hand down: the Position Brush or Mask.
         if (self.brush.is_some() || self.masking)
             && !egui::Popup::is_any_open(ctx)
@@ -4200,22 +4168,13 @@ impl TimegrapherApp {
             self.brush = None;
             self.masking = false;
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&command(egui::Key::S))) {
-            if self.marks_unsaved() {
-                self.save_marks();
-            } else if self.session.allows(Action::Save) {
-                self.save_again();
+        // The menus' shortcuts, Cmd+1 and Cmd+2 before the bare digits
+        // are read.
+        for c in menus::MenuCommand::WITH_KEYS {
+            let key = menus::menu_shortcut(c);
+            if key.is_some_and(|k| ctx.input_mut(|i| i.consume_shortcut(&k))) {
+                self.run_menu_command(ctx, c);
             }
-        }
-        if ctx.input_mut(|i| i.consume_shortcut(&command(egui::Key::Q))) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-        // Cmd+1 and Cmd+2 pick the view, before the bare digits are read.
-        if ctx.input_mut(|i| i.consume_shortcut(&view_shortcut(View::Bench))) {
-            self.view = View::Bench;
-        }
-        if ctx.input_mut(|i| i.consume_shortcut(&view_shortcut(View::Watches))) {
-            self.view = View::Watches;
         }
         // Keys 1 to 6, alone, put the watch in a position: never with a
         // modifier held, nor in the Watches view, nor while a field is
@@ -4250,9 +4209,6 @@ impl TimegrapherApp {
                     self.change_position(p);
                 }
             }
-        }
-        if ctx.input_mut(|i| i.consume_shortcut(&settings_shortcut())) {
-            self.open_settings(self.settings_last);
         }
         egui::CentralPanel::default()
             .frame(bar.inner_margin(egui::Margin {

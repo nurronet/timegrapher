@@ -1153,3 +1153,33 @@ fn the_menus_switch_and_icons_share_one_row() {
     assert!(sort.top() > file.bottom(), "{sort:?} {file:?}");
     assert!(sort.top() < file.bottom() + 40.0, "{sort:?} {file:?}");
 }
+
+/// A menu item and its shortcut run one command, in either menu bar:
+/// Cmd+, opens Settings as Settings… does, and a dimmed item does
+/// nothing, from its shortcut or chosen.
+#[test]
+fn a_menu_item_and_its_shortcut_run_one_command() {
+    use super::menus::MenuCommand;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let ctx = themed();
+    let _ = ctx.run(screen(), |ctx| app.panels(ctx));
+    assert_eq!(app.settings_tab, None);
+    let _ = ctx.run(
+        key_frame(egui::Key::Comma, egui::Modifiers::COMMAND),
+        |ctx| app.panels(ctx),
+    );
+    assert!(app.settings_tab.is_some());
+    // Nothing is masked: Remove All Masks… is dimmed and asks nothing.
+    assert!(!app.menu_enabled(MenuCommand::RemoveMasks));
+    app.run_menu_command(&ctx, MenuCommand::RemoveMasks);
+    assert!(!app.remove_masks_asked);
+    // Panes are the Bench's: in Watches their items are dimmed.
+    app.view = View::Watches;
+    let shown = app.show_readings;
+    app.run_menu_command(&ctx, MenuCommand::Readings);
+    assert_eq!(app.show_readings, shown);
+    app.view = View::Bench;
+    app.run_menu_command(&ctx, MenuCommand::Readings);
+    assert_eq!(app.show_readings, !shown);
+    assert_eq!(app.menu_checked(MenuCommand::Readings), !shown);
+}
