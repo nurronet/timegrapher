@@ -55,6 +55,19 @@ pub struct Readings {
     pub y_range: Option<[f64; 2]>,
 }
 
+/// Keep at most `MAX_READINGS` finite points on the original grid's stride.
+/// Missing values are discarded after striding, so they never shift later points.
+/// Returns the stride and the kept time/value pairs, in time order.
+pub fn thin_readings(g: &Grid) -> (usize, Vec<[f64; 2]>) {
+    let stride = g.y.len().div_ceil(MAX_READINGS).max(1);
+    let points = (0..g.y.len())
+        .step_by(stride)
+        .filter(|&j| g.y[j].is_finite())
+        .map(|j| [g.time(j), g.y[j]])
+        .collect();
+    (stride, points)
+}
+
 /// The period search: how strongly the series repeats at each period.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SearchView {
@@ -397,12 +410,9 @@ pub fn views(
         .map(|i| {
             let g = &grids[i];
             let n = g.y.len();
-            let stride = n.div_ceil(MAX_READINGS).max(1);
-            let (t_s, values): (Vec<f64>, Vec<f64>) = (0..n)
-                .step_by(stride)
-                .filter(|&j| g.y[j].is_finite())
-                .map(|j| (g.time(j), g.y[j]))
-                .unzip();
+            let (stride, points) = thin_readings(g);
+            let (t_s, values): (Vec<f64>, Vec<f64>) =
+                points.into_iter().map(|[t, v]| (t, v)).unzip();
             let search = searches[i]
                 .as_ref()
                 .filter(|s| !s.period_s.is_empty())
@@ -445,6 +455,48 @@ pub fn views(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn thinning_long_readings_keeps_the_original_grid_stride() {
+        let mut g = super::Grid {
+            t0: 7.0,
+            step: 2.0,
+            y: (0..super::MAX_READINGS * 2 + 1).map(|i| i as f64).collect(),
+        };
+        g.y[3] = f64::NAN;
+        g.y[6] = f64::INFINITY;
+        g.y[7] = f64::NEG_INFINITY;
+        let (stride, points) = super::thin_readings(&g);
+        assert_eq!(stride, 3);
+        assert_eq!(points.len(), 1999);
+        assert!(points.len() <= super::MAX_READINGS);
+        assert_eq!(points.first(), Some(&[g.time(0), 0.0]));
+        assert_eq!(points.last(), Some(&[g.time(6000), 6000.0]));
+        assert!(points.iter().all(|p| p[1].is_finite()));
+        let expected: Vec<_> = (0..=6000)
+            .step_by(3)
+            .filter(|&i| i != 3 && i != 6)
+            .map(|i| [g.time(i), i as f64])
+            .collect();
+        assert_eq!(points, expected);
+    }
+
+    #[test]
+    fn thinning_short_readings_keeps_all_finite_points() {
+        let g = super::Grid {
+            t0: 7.0,
+            step: 2.0,
+            y: vec![1.0, f64::NAN, 3.0, f64::NEG_INFINITY, 5.0],
+        };
+        let (stride, points) = super::thin_readings(&g);
+        assert_eq!(stride, 1);
+        assert_eq!(
+            points,
+            vec![[g.time(0), 1.0], [g.time(2), 3.0], [g.time(4), 5.0]]
+        );
+        let empty = super::Grid { y: vec![], ..g };
+        assert_eq!(super::thin_readings(&empty), (1, vec![]));
+    }
+
     use super::*;
     use crate::live::{LiveAnalyzer, LiveConfig};
     use crate::longrun;

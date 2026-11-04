@@ -19,7 +19,7 @@ use timegrapher_core::library::length_text;
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::{Fold, Grid, LongConfig, Search};
-use timegrapher_core::period_ticks::{period_tick_label, period_ticks};
+use timegrapher_core::period_ticks::{self, period_tick_label, period_ticks};
 use timegrapher_core::periodicity::{default_wheels, reference_lines, Wheel};
 use timegrapher_core::steadiness::{self, Config, Report, SeriesCheck, SeriesKind};
 use timegrapher_core::steady_views::{self, FoldFrom};
@@ -471,7 +471,7 @@ fn sig(v: f64) -> String {
 /// Grid lines for a period axis drawn in log10 seconds, `width` points
 /// wide: at the times core's `period_ticks` names, as many as have room.
 pub fn period_grid(width: f32) -> impl Fn(GridInput) -> Vec<GridMark> {
-    let room = (width / 64.0).max(2.0) as usize;
+    let room = (width / period_ticks::MARK_ROOM_PX as f32).max(2.0) as usize;
     move |input| {
         let (lo, hi) = input.bounds;
         period_ticks(10f64.powf(lo), 10f64.powf(hi), room)
@@ -970,13 +970,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         ..
     } = r;
     let g = &s.grids[i];
-    let n = g.y.len();
-    let stride = n.div_ceil(steady_views::MAX_READINGS).max(1);
-    let pts: Vec<[f64; 2]> = (0..n)
-        .step_by(stride)
-        .filter(|&j| g.y[j].is_finite())
-        .map(|j| [g.time(j), g.y[j]])
-        .collect();
+    let (_, pts) = steady_views::thin_readings(g);
     let range = spread(&pts);
     let grid = value_grid(k);
     let mut plot = grid
