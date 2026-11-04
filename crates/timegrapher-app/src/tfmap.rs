@@ -182,8 +182,7 @@ pub fn draw(
     let bottom = m.period_s.last().map_or(0.0, |p| p.log10()) - half;
     let left = t0 - dt / 2.0;
     let width = dt * w as f64;
-    let key_h = KEY_H;
-    let plot_h = (ui.available_height() - key_h).max(40.0);
+    let plot_h = (ui.available_height() - KEY_H).max(40.0);
     // The wheels' lines, named in a narrow lane right of the map; a
     // wheel's ×2 isn't marked on a map.
     let lines: Vec<WheelLine> = wheel_lines(wheels, (bottom, top))
@@ -212,6 +211,7 @@ pub fn draw(
         .default_x_bounds(0.0f64.min(left), x_hi)
         .default_y_bounds(bottom, top)
         .show(ui, |p| {
+            grid.draw_under(p, pal);
             p.image(
                 PlotImage::new(
                     "map",
