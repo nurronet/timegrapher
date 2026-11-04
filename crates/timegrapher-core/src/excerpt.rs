@@ -134,40 +134,27 @@ pub fn write_flac(path: &Path, pcm: &Pcm) -> Result<(), AudioError> {
 
 /// The bytes of a FLAC file holding `pcm`, checked by decoding them again.
 pub fn encode_flac(pcm: &Pcm) -> Result<Vec<u8>, AudioError> {
-    use flacenc::component::BitRepr;
-    use flacenc::error::Verify;
-    let ch = pcm.channels as usize;
-    let bps = pcm.bits_per_sample as usize;
-    let unsupported = |what: String| Err(AudioError::Unsupported(what));
-    if !(4..=24).contains(&bps) {
-        return unsupported(format!("{bps}-bit samples"));
+    let format = crate::flac::Format {
+        sample_rate: pcm.sample_rate,
+        channels: pcm.channels,
+        bits_per_sample: pcm.bits_per_sample,
+    };
+    if pcm.channels == 0 || !pcm.samples.len().is_multiple_of(pcm.channels as usize) {
+        return Err(AudioError::Unsupported(format!(
+            "{} channels of {}-bit samples",
+            pcm.channels, pcm.bits_per_sample
+        )));
     }
-    if !(1..=8).contains(&ch) || !pcm.samples.len().is_multiple_of(ch) {
-        return unsupported(format!("{ch} channels of {bps}-bit samples"));
-    }
-    if !(1..=655_350).contains(&pcm.sample_rate) {
-        return unsupported(format!("sample rate {}", pcm.sample_rate));
-    }
+    let mut out = std::io::Cursor::new(Vec::new());
+    let mut rest = pcm.samples.as_slice();
+    crate::flac::encode(format, &mut out, |buf, most| {
+        let (now, later) = rest.split_at(most.min(rest.len()));
+        buf.extend_from_slice(now);
+        rest = later;
+        Ok(())
+    })?;
     let failed = |e: String| AudioError::Unsupported(format!("FLAC encoder: {e}"));
-    let cfg = flacenc::config::Encoder::default()
-        .into_verified()
-        .map_err(|(_, e)| failed(format!("{e:?}")))?;
-    let src =
-        flacenc::source::MemSource::from_samples(&pcm.samples, ch, bps, pcm.sample_rate as usize);
-    let mut stream = flacenc::encode_with_fixed_block_size(&cfg, src, cfg.block_size)
-        .map_err(|e| failed(format!("{e:?}")))?;
-    // flacenc counts a short last block in the minimum block size, which
-    // can then be under 16, and claxon (rightly) refuses such a stream. A
-    // fixed-block stream names its block size as both, as `flac` writes it.
-    stream
-        .stream_info_mut()
-        .set_block_sizes(cfg.block_size, cfg.block_size)
-        .map_err(|e| failed(format!("{e:?}")))?;
-    let mut sink = flacenc::bitsink::ByteSink::new();
-    stream
-        .write(&mut sink)
-        .map_err(|e| failed(format!("{e:?}")))?;
-    let bytes = sink.as_slice().to_vec();
+    let bytes = out.into_inner();
     if !decodes_to(&bytes, pcm) {
         return Err(failed("the stream does not decode to its samples".into()));
     }
