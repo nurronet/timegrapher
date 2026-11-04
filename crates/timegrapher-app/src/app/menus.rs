@@ -3,8 +3,9 @@
 use super::*;
 
 impl TimegrapherApp {
-    /// The menus across the very top, File, Edit, View and Help, and beside
-    /// them an icon for each pane that shows or hides it.
+    /// The one row across the very top: the menus, File, Edit, View,
+    /// Watches and Help; the Bench | Watches switch; and an icon for each
+    /// pane that shows or hides it, then the Settings gear.
     pub(super) fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| self.file_menu(ui));
@@ -12,9 +13,15 @@ impl TimegrapherApp {
             ui.menu_button("View", |ui| self.view_menu(ui));
             ui.menu_button("Watches", |ui| self.watches_menu(ui));
             ui.menu_button("Help", |ui| self.help_menu(ui));
+            ui.add_space(6.0);
+            ui.separator();
+            let mut view = self.view;
+            theme::segmented(ui, &mut view, &VIEWS);
+            self.view = view;
+            ui.add_space(6.0);
+            ui.separator();
             // The pane icons are the Bench's: in Watches they hide and
             // leave their room, so the gear stays where it is.
-            ui.add_space(16.0);
             self.pane_icons(ui, self.view == View::Bench);
         });
     }
