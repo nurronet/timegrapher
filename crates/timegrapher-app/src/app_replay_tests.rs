@@ -436,9 +436,10 @@ fn replay_readouts_and_rebuilt_trends_respect_imported_settling() {
 }
 
 /// The reading cards follow the strip: moved back, Amplitude reads over
-/// Average Over ending at the strip's newest edge and its title says the
-/// moment; moved back to the newest beats, the live reading again
-/// (Play Head, rule 9).
+/// Average Over ending at the strip's newest edge. The moment is said
+/// once, on the strip, which sets it, and in the figures' hovers, not in
+/// the card titles. Moved back to the newest beats, the live reading
+/// again (Play Head, rule 9).
 #[test]
 fn the_cards_read_at_the_strips_newest_edge() {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
@@ -455,8 +456,7 @@ fn the_cards_read_at_the_strips_newest_edge() {
         live.push(b);
     }
     app.poll();
-    // The sound panes say the moment too: out of the way, so what says it
-    // here is the cards.
+    // The sound panes still say the moment too (#1068): out of the way.
     for p in [Pane::Sound, Pane::Scope] {
         set_pane_visible(&mut app.panes.tiles, p, false);
     }
@@ -480,13 +480,13 @@ fn the_cards_read_at_the_strips_newest_edge() {
     assert_eq!(spark.last().map(|p| p.t), Some(back.time_s));
     frames(&mut app, &ctx, 2);
     let text = painted_text(&ctx.run(screen(), |ctx| app.panels(ctx)));
-    // Each card's title says it, before its caption.
-    for caption in ["Rate", "Amplitude", "Beat Error"] {
-        assert!(
-            text.contains(&format!("{moment}\n{caption}")),
-            "{caption}: {text}"
-        );
-    }
+    // Once, on the strip; the cards' hovers say where it was set.
+    assert_eq!(text.matches(&moment).count(), 1, "{moment}: {text}");
+    assert!(text.contains(&format!("{moment}, double-click")), "{text}");
+    assert_eq!(
+        app.card_moment(),
+        Some(format!("{moment}, set by the Paper Strip."))
+    );
     // Back to the newest beats: live again.
     app.strip_end = None;
     assert_eq!(amp(&app), Some(live_amp));
