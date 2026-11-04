@@ -493,6 +493,11 @@ pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
+/// Rate and timing-scatter fits use ten seconds to collect enough beats.
+const RATE_WINDOW_S: f64 = 10.0;
+/// Half-window spacing keeps the existing overlapping rate-reading grid.
+const RATE_WINDOW_STEP_S: f64 = 5.0;
+
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
 pub fn scatter_windows(
@@ -503,7 +508,15 @@ pub fn scatter_windows(
     to_s: f64,
     part_s: f64,
 ) -> Vec<WindowFit> {
-    holes.windows(beats, bph, from_s, to_s, 10.0, 5.0, part_s)
+    holes.windows(
+        beats,
+        bph,
+        from_s,
+        to_s,
+        RATE_WINDOW_S,
+        RATE_WINDOW_STEP_S,
+        part_s,
+    )
 }
 
 /// The timing scatter a stretch is judged on for whether a watch is
@@ -2144,9 +2157,14 @@ fn reading_coverage(
 ) -> crate::confidence::FigureCoverage {
     use crate::confidence::{Coverage, FigureCoverage};
     let rate_total = beats.first().map_or(0, |b| {
-        crate::clean::nominal_windows(b.time, holes.true_time(to), 10.0, 5.0)
-            .filter(|&(a, b)| holes.clear(a, b))
-            .count()
+        crate::clean::nominal_windows(
+            b.time,
+            holes.true_time(to),
+            RATE_WINDOW_S,
+            RATE_WINDOW_STEP_S,
+        )
+        .filter(|&(a, b)| holes.clear(a, b))
+        .count()
     });
     let part = window_part_s(&log.amplitude_windows);
     let amp_total = crate::clean::nominal_windows(0.0, log.duration_s, part, part)
@@ -2239,6 +2257,14 @@ mod reading_coverage_tests {
         let m = measure(&log, None, 0.0, 60.0);
         assert_eq!(m.coverage.amplitude.windows_used, 30);
         assert_eq!(m.coverage.amplitude.windows_in_span, 30);
+        assert_eq!(
+            m.coverage.rate.windows_used,
+            m.coverage.rate.windows_in_span
+        );
+        assert_eq!(
+            m.coverage.beat_error.windows_used,
+            m.coverage.beat_error.windows_in_span
+        );
         assert!(m.confidence.unwrap().amplitude.se.is_some());
         assert!(!m
             .caveats
