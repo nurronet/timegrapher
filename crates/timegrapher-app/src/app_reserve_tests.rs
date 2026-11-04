@@ -76,6 +76,108 @@ fn a_long_runs_two_charts_show_whole_in_a_small_window() {
     }
 }
 
+/// The text drawn whole inside its clip and the window, below the Power
+/// Reserve pane's run line: the pane's charts and what shows of its table.
+fn under_run_line(out: &egui::FullOutput, screen: egui::Rect) -> Vec<String> {
+    let shown: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => {
+                let r = t.galley.rect.translate(t.pos.to_vec2());
+                let clip = c.clip_rect.intersect(screen);
+                clip.contains_rect(r)
+                    .then(|| (t.galley.text().to_string(), r))
+            }
+            _ => None,
+        })
+        .collect();
+    let line = shown
+        .iter()
+        .find(|t| t.0.starts_with("Ran "))
+        .map_or(f32::INFINITY, |t| t.1.bottom());
+    shown
+        .into_iter()
+        .filter(|t| t.1.top() >= line)
+        .map(|t| t.0)
+        .collect()
+}
+
+/// How many of `shown` are whole-number axis labels in `unit`.
+fn axis_labels(shown: &[String], unit: &str) -> usize {
+    shown
+        .iter()
+        .filter(|t| {
+            t.strip_suffix(unit)
+                .is_some_and(|v| v.parse::<i32>().is_ok())
+        })
+        .count()
+}
+
+/// A 46 h run's take opened with its sound, as from the command line, in
+/// a 1000 x 700 window: the Paper Strip shows the sound's beats and keeps
+/// its least, and the Power Reserve pane still shows both charts whole,
+/// each naming at least two values and 0 h (#991, the #1043 walkthrough).
+#[test]
+fn a_long_runs_charts_read_with_its_take_open_in_a_small_window() {
+    let dir = std::env::temp_dir().join(format!("tg-app-run-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("take.wav");
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 60.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&path, &audio).unwrap();
+    let mut r = reserve::finished_run(47).results.unwrap();
+    r.run_s = 46.5 * 3600.0;
+    for hr in &mut r.hours {
+        let x = f64::from(hr.hour);
+        hr.rate_s_per_day = Some(2.0 - 0.004 * x * x);
+        hr.amplitude_deg = Some(295.0 - 2.1 * x);
+    }
+    std::fs::write(dir.join(power_reserve::FILE), r.to_json()).unwrap();
+    let ctx = super::tests::themed();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1000.0, 700.0));
+    let pass = |app: &mut TimegrapherApp| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    for _ in 0..3 {
+        pass(&mut app);
+    }
+    app.start_batch(&path);
+    let t = std::time::Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(app.live.is_some(), "{:?}", app.message);
+    assert!(app.reserve.is_some(), "{:?}", app.message);
+    let mut out = None;
+    for _ in 0..6 {
+        out = Some(pass(&mut app));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    if let Ok(d) = std::env::var("SHOT_DIR") {
+        let o = out.as_ref().unwrap();
+        let svg = crate::export::svg(&o.shapes, screen, ctx.style().visuals.window_fill);
+        std::fs::write(format!("{d}/open-1000.svg"), svg).unwrap();
+    }
+    let shown = under_run_line(out.as_ref().unwrap(), screen);
+    assert_eq!(shown.iter().filter(|t| *t == "0 h").count(), 2, "{shown:?}");
+    assert!(axis_labels(&shown, " s/d") >= 2, "{shown:?}");
+    assert!(axis_labels(&shown, "°") >= 2, "{shown:?}");
+}
+
 /// Quick Listen asks before unsaved sound goes, then shows Unsorted
 /// and listens with no watch picked; Stop keeps nothing, Save… saves
 /// the take into Unsorted, which the list shows at its top, and File
