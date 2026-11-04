@@ -762,18 +762,19 @@ impl TimegrapherApp {
             self.file_path = k.dir.display().to_string();
             self.open_recording(&k.dir, true);
         } else if move_to {
-            if let Some(parent) = rfd::FileDialog::new()
-                .set_title("Move the Unsaved Sound Into a Folder")
-                .pick_folder()
-            {
-                match move_kept(&k.dir, &parent) {
+            let d = rfd::FileDialog::new().set_title("Move the Unsaved Sound Into a Folder");
+            let dir = k.dir.clone();
+            self.pick(Picker::one(
+                d,
+                Pick::Folder,
+                move |a, parent| match move_kept(&dir, &parent) {
                     Ok(to) => {
-                        self.kept.remove(0);
-                        self.info_msg(format!("Moved the unsaved sound to {}.", to.display()));
+                        a.kept.retain(|k| k.dir != dir);
+                        a.info_msg(format!("Moved the unsaved sound to {}.", to.display()));
                     }
-                    Err(e) => self.error(e),
-                }
-            }
+                    Err(e) => a.error(e),
+                },
+            ));
         } else if delete {
             self.kept_delete_ask = Some(k.dir.clone());
         } else if later {

@@ -324,22 +324,6 @@ impl TimegrapherApp {
         }
     }
 
-    /// Open a recording, or a folder of segments, chosen in a dialog.
-    pub(super) fn open_from_menu(&mut self, folder: bool) {
-        let picked = if folder {
-            self.open_folder_dialog()
-        } else {
-            self.open_file_dialog()
-        };
-        if let Some(p) = picked {
-            self.input = Input::File;
-            match self.open_ask_for(&p) {
-                Some(a) => self.open_ask = Some(a),
-                None => self.open_recording(&p, true),
-            }
-        }
-    }
-
     /// The question Open asks for `path`, when there are watches to add it
     /// to and it isn't in them already. None means open it straight away
     /// (a recording that can't be read says why when opened).
