@@ -45,30 +45,91 @@ pub struct SeriesViews {
 pub struct Readings {
     /// Length of each reading, seconds.
     pub step_s: f64,
-    /// Readings in the take, and how many were skipped between those kept
-    /// (1 keeps all).
+    /// Readings in the take, and how long each drawn point's chunk of
+    /// them spans, seconds, on average ([`chunk_s`]).
     pub n: usize,
-    pub stride: usize,
-    /// Middle of each kept reading, seconds, and its value; only readings
-    /// with a value.
+    pub chunk_s: f64,
+    /// One point for each chunk of readings ([`thin_readings`]), with a
+    /// value: the middle of its readings' times, seconds; their mean; the
+    /// lowest and the highest; and how many readings it stands for (1
+    /// keeps every reading as it is).
     pub t_s: Vec<f64>,
     pub values: Vec<f64>,
-    /// The value scale they are drawn on ([`crate::chart_scale::spread`]),
-    /// null with fewer than two.
+    pub lo: Vec<f64>,
+    pub hi: Vec<f64>,
+    pub counts: Vec<usize>,
+    /// The value scale they are drawn on ([`readings_range`]), null with
+    /// fewer than two.
     pub y_range: Option<[f64; 2]>,
 }
 
-/// Keep at most `MAX_READINGS` finite points on the original grid's stride.
-/// Missing values are discarded after striding, so they never shift later points.
-/// Returns the stride and the kept time/value pairs, in time order.
-pub fn thin_readings(g: &Grid) -> (usize, Vec<[f64; 2]>) {
-    let stride = g.y.len().div_ceil(MAX_READINGS).max(1);
-    let points = (0..g.y.len())
-        .step_by(stride)
-        .filter(|&j| g.y[j].is_finite())
-        .map(|j| [g.time(j), g.y[j]])
-        .collect();
-    (stride, points)
+/// A chunk of readings as it is drawn: the mean time of its readings with
+/// a value, their mean, lowest and highest, and how many there are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drawn {
+    pub t: f64,
+    pub mean: f64,
+    pub lo: f64,
+    pub hi: f64,
+    pub count: usize,
+}
+
+/// Whether [`thin_readings`] drew any chunk of more than one reading, so
+/// the series is drawn as bands.
+pub fn banded(drawn: &[Drawn]) -> bool {
+    drawn.iter().any(|d| d.count > 1)
+}
+
+/// The value scale drawn readings are drawn on
+/// ([`crate::chart_scale::spread`]): of their values, or of the bands'
+/// lowest and highest readings once they are [`banded`].
+pub fn readings_range(drawn: &[Drawn]) -> Option<(f64, f64)> {
+    let ends: Vec<f64> = if banded(drawn) {
+        drawn.iter().flat_map(|d| [d.lo, d.hi]).collect()
+    } else {
+        drawn.iter().map(|d| d.mean).collect()
+    };
+    chart_scale::spread(&ends)
+}
+
+/// How long a chunk of [`thin_readings`] spans, seconds, on average: a
+/// reading's length while the series is within [`MAX_READINGS`].
+pub fn chunk_s(g: &Grid) -> f64 {
+    g.step * (g.y.len() as f64 / MAX_READINGS as f64).max(1.0)
+}
+
+/// A series' readings as they are drawn, at most [`MAX_READINGS`]
+/// points: the readings cut into near-equal chunks by core's chunk rule
+/// (chunk `i` starts at reading ⌊i·n/max⌋, as a fold's raster is
+/// thinned, #512), each drawn as the band from its lowest reading to its
+/// highest with its mean, so every reading stays in the picture. Picking
+/// every k-th reading instead would alias a cycle near a multiple of k
+/// readings away (#1034). A chunk with no reading with a value is left
+/// out, never filled; a series within the limit is drawn as it is, one
+/// reading a point.
+pub fn thin_readings(g: &Grid) -> Vec<Drawn> {
+    longterm::chunks(g.y.len(), MAX_READINGS)
+        .into_iter()
+        .filter_map(|[a, b]| {
+            let finite: Vec<usize> = (a..b).filter(|&j| g.y[j].is_finite()).collect();
+            let count = finite.len();
+            let mean = crate::dsp::mean_of(finite.iter().map(|&j| g.y[j]))?;
+            let t = crate::dsp::mean_of(finite.iter().map(|&j| g.time(j)))?;
+            let (lo, hi) = finite
+                .iter()
+                .map(|&j| g.y[j])
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                    (l.min(v), h.max(v))
+                });
+            Some(Drawn {
+                t,
+                mean,
+                lo,
+                hi,
+                count,
+            })
+        })
+        .collect()
 }
 
 /// The period search: how strongly the series repeats at each period.
@@ -413,9 +474,9 @@ pub fn views(
         .map(|i| {
             let g = &grids[i];
             let n = g.y.len();
-            let (stride, points) = thin_readings(g);
-            let (t_s, values): (Vec<f64>, Vec<f64>) =
-                points.into_iter().map(|[t, v]| (t, v)).unzip();
+            let drawn = thin_readings(g);
+            let pick = |f: fn(&Drawn) -> f64| drawn.iter().map(f).collect::<Vec<f64>>();
+            let (values, lo, hi) = (pick(|d| d.mean), pick(|d| d.lo), pick(|d| d.hi));
             let search = searches[i]
                 .as_ref()
                 .filter(|s| !s.period_s.is_empty())
@@ -443,10 +504,13 @@ pub fn views(
                 readings: Readings {
                     step_s: g.step,
                     n,
-                    stride,
-                    y_range: chart_scale::spread(&values).map(|(a, b)| [a, b]),
-                    t_s,
+                    chunk_s: chunk_s(g),
+                    y_range: readings_range(&drawn).map(|(a, b)| [a, b]),
+                    t_s: pick(|d| d.t),
                     values,
+                    counts: drawn.iter().map(|d| d.count).collect(),
+                    lo,
+                    hi,
                 },
                 search,
                 fold,
@@ -462,7 +526,7 @@ pub fn views(
 #[cfg(test)]
 mod tests {
     #[test]
-    fn thinning_long_readings_keeps_the_original_grid_stride() {
+    fn thinning_long_readings_bands_every_reading_by_chunk() {
         let mut g = super::Grid {
             t0: 7.0,
             step: 2.0,
@@ -471,19 +535,41 @@ mod tests {
         g.y[3] = f64::NAN;
         g.y[6] = f64::INFINITY;
         g.y[7] = f64::NEG_INFINITY;
-        let (stride, points) = super::thin_readings(&g);
-        assert_eq!(stride, 3);
-        assert_eq!(points.len(), 1999);
-        assert!(points.len() <= super::MAX_READINGS);
-        assert_eq!(points.first(), Some(&[g.time(0), 0.0]));
-        assert_eq!(points.last(), Some(&[g.time(6000), 6000.0]));
-        assert!(points.iter().all(|p| p[1].is_finite()));
-        let expected: Vec<_> = (0..=6000)
-            .step_by(3)
-            .filter(|&i| i != 3 && i != 6)
-            .map(|i| [g.time(i), i as f64])
+        // A chunk of nothing but missing readings is left out: chunk 3
+        // (readings 6 and 7) and chunk 1500 (readings 3000 and 3001).
+        for j in 3000..3002 {
+            g.y[j] = f64::NAN;
+        }
+        let drawn = super::thin_readings(&g);
+        let n = g.y.len();
+        let finite = g.y.iter().filter(|v| v.is_finite()).count();
+        assert_eq!(drawn.iter().map(|d| d.count).sum::<usize>(), finite);
+        assert_eq!(drawn.len(), super::MAX_READINGS - 2);
+        // Chunk i holds readings ⌊i·n/max⌋ to ⌊(i+1)·n/max⌋, as core's
+        // chunk rule cuts them.
+        let expected: Vec<super::Drawn> = (0..super::MAX_READINGS)
+            .filter_map(|i| {
+                let (a, b) = (
+                    i * n / super::MAX_READINGS,
+                    (i + 1) * n / super::MAX_READINGS,
+                );
+                let js: Vec<usize> = (a..b).filter(|&j| g.y[j].is_finite()).collect();
+                let k = js.len() as f64;
+                (!js.is_empty()).then(|| super::Drawn {
+                    t: js.iter().map(|&j| g.time(j)).sum::<f64>() / k,
+                    mean: js.iter().map(|&j| g.y[j]).sum::<f64>() / k,
+                    lo: g.y[js[0]],
+                    hi: g.y[*js.last().unwrap()],
+                    count: js.len(),
+                })
+            })
             .collect();
-        assert_eq!(points, expected);
+        assert_eq!(drawn.len(), expected.len());
+        for (d, e) in drawn.iter().zip(&expected) {
+            assert!((d.t - e.t).abs() < 1e-9 && (d.mean - e.mean).abs() < 1e-9);
+            assert_eq!((d.lo, d.hi, d.count), (e.lo, e.hi, e.count));
+        }
+        assert_eq!(drawn.last().map(|d| d.hi), Some(6000.0));
     }
 
     #[test]
@@ -493,14 +579,59 @@ mod tests {
             step: 2.0,
             y: vec![1.0, f64::NAN, 3.0, f64::NEG_INFINITY, 5.0],
         };
-        let (stride, points) = super::thin_readings(&g);
-        assert_eq!(stride, 1);
-        assert_eq!(
-            points,
-            vec![[g.time(0), 1.0], [g.time(2), 3.0], [g.time(4), 5.0]]
-        );
+        let one = |j: usize| super::Drawn {
+            t: g.time(j),
+            mean: g.y[j],
+            lo: g.y[j],
+            hi: g.y[j],
+            count: 1,
+        };
+        assert_eq!(super::thin_readings(&g), vec![one(0), one(2), one(4)]);
         let empty = super::Grid { y: vec![], ..g };
-        assert_eq!(super::thin_readings(&empty), (1, vec![]));
+        assert_eq!(super::thin_readings(&empty), vec![]);
+    }
+
+    /// A 60 s cycle in a 65 h take's 10 s readings: picking every k-th
+    /// reading can land on one phase of it each time and draw a flat
+    /// line; the chunks' bands keep its swing in every point, while their
+    /// means stay on the level (#1034).
+    #[test]
+    fn a_long_takes_minute_cycle_shows_in_the_drawn_bands() {
+        let n = 65 * 360;
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut noise = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64 - 0.5
+        };
+        let g = super::Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: (0..n)
+                .map(|i| {
+                    let t = i as f64 * 10.0 + 5.0;
+                    3.0 * (std::f64::consts::TAU * t / 60.0 + 0.4).sin() + 0.2 * noise()
+                })
+                .collect(),
+        };
+        // Picking every 6th reading, a minute apart, lands on one phase of
+        // the cycle each time: its swing is gone.
+        let picked: Vec<f64> = g.y.iter().step_by(6).copied().collect();
+        let range = |v: &[f64]| {
+            v.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b))
+                - v.iter().fold(f64::INFINITY, |a, &b| a.min(b))
+        };
+        assert!(range(&picked) < 1.0, "{}", range(&picked));
+        let drawn = super::thin_readings(&g);
+        assert!(drawn.len() <= super::MAX_READINGS);
+        assert_eq!(drawn.iter().map(|d| d.count).sum::<usize>(), n);
+        let mut widths: Vec<f64> = drawn.iter().map(|d| d.hi - d.lo).collect();
+        widths.sort_by(f64::total_cmp);
+        // Six readings make a turn: every chunk of seven or more spans
+        // most of the 6 s/d swing.
+        assert!(widths[0] > 4.0, "{}", widths[0]);
+        assert!(drawn.iter().all(|d| d.mean.abs() < 1.0));
     }
 
     use super::*;
@@ -765,7 +896,7 @@ mod tests {
             .expect("rate readings");
         let v = views(&log, &report, &paused, &lc, 10.0);
         let r = &v.series[0].readings;
-        assert_eq!(r.stride, 1);
+        assert!(r.counts.iter().all(|&c| c == 1), "none thinned");
         assert_eq!(r.t_s.len(), tests.n);
         let median = crate::dsp::median(&mut r.values.clone());
         assert!(
@@ -847,7 +978,12 @@ mod tests {
 
         // Readings: 10 s rate readings and 2 s windows, none thinned.
         let r = &v.series[0].readings;
-        assert_eq!((r.step_s, r.stride), (10.0, 1));
+        // None thinned: each point a reading, as it is.
+        let as_is = (vec![1; r.values.len()], r.values.clone(), r.values.clone());
+        assert_eq!(
+            (r.step_s, (r.counts.clone(), r.lo.clone(), r.hi.clone())),
+            (10.0, as_is)
+        );
         assert!((55..=60).contains(&r.t_s.len()), "{}", r.t_s.len());
         assert_eq!(r.t_s.len(), r.values.len());
         assert!(r.t_s.windows(2).all(|w| w[0] < w[1]));

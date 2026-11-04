@@ -515,7 +515,7 @@ pub struct Thinned {
 
 /// `[first, end)` of each of at most `max` near-equal, contiguous chunks
 /// of `n`: chunk `i` starts at ⌊i·n/max⌋. One a chunk when `n` ≤ `max`.
-fn chunks(n: usize, max: usize) -> Vec<[usize; 2]> {
+pub(crate) fn chunks(n: usize, max: usize) -> Vec<[usize; 2]> {
     if n <= max || max == 0 {
         return (0..n).map(|i| [i, i + 1]).collect();
     }
