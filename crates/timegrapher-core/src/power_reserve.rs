@@ -989,6 +989,8 @@ mod tests {
         assert_eq!(hour(3600.0, 3500.0).read_share(), Some(3500.0 / 3600.0));
         // Within a second of the hour: the whole of it.
         assert_eq!(hour(3600.0, 3600.5).read_share(), Some(1.0));
+        // Past the second's slack: none.
+        assert_eq!(hour(3600.0, 3602.0).read_share(), None);
         assert_eq!(hour(1800.0, 3500.0).read_share(), None);
         assert_eq!(hour(3600.0, -10.0).read_share(), None);
         assert_eq!(hour(0.0, 10.0).read_share(), None);
