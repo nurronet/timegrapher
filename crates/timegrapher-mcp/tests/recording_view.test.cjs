@@ -139,6 +139,7 @@ test("each figure takes the decimals the server gives with its ±", () => {
   doc.take = undefined;
   doc.amplitude_deg = 269.63;
   doc.beat_error_unlock_ms = 0.4123;
+  doc.overall.beat_error_ms = 0.9123;
   const value = (markup, label) => markup.match(new RegExp(`${label}</div>\\s*<div class="value">([^<°]+)`))[1];
   const based = render(doc);
   assert.equal(value(based, "Rate"), `+${(9).toFixed(BASE_DIGITS.rate)}`);
@@ -152,6 +153,8 @@ test("each figure takes the decimals the server gives with its ±", () => {
   // The beat error's ± is shown beside it, as the text the agent reads.
   assert.equal(value(fine, "Beat Error"), "0.412");
   assert.ok(fine.includes("± 0.004 milliseconds"), fine);
+  // That ± is the unlock's, so the drop beside it keeps core's base.
+  assert.ok(fine.includes(`from the drop ${(0.9123).toFixed(BASE_DIGITS.beat_error)} ms`), fine);
   // A take's readings each take their own.
   const take = context.recordingView(listed([reading("DU", 5), reading("DD", -3)]), null, null, null,
     { readings: [{ rate: "0.04", digits: { rate: 2 } }, { rate: "1.5" }] });

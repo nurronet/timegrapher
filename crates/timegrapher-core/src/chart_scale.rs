@@ -83,6 +83,8 @@ pub fn axis_number(v: f64, step: f64) -> String {
 
 /// 1, 2 or 5 times a power of ten, at least `x` (above 0): the step
 /// every grid and axis rounds to, so there is one rule for round numbers.
+/// The MCP view's `roundStep`, which can't call Rust, is held to the same
+/// fixture.
 pub fn round_step(x: f64) -> f64 {
     let p = 10f64.powf(x.log10().floor());
     [1.0, 2.0, 5.0, 10.0]
@@ -152,15 +154,13 @@ mod tests {
 
     #[test]
     fn a_round_step_is_one_two_or_five_times_a_power_of_ten() {
-        for (x, step) in [
-            (0.3, 0.5),
-            (1.0, 1.0),
-            (1.01, 2.0),
-            (14.0, 20.0),
-            (0.05, 0.05),
-            (7.0, 10.0),
-        ] {
-            assert!((round_step(x) - step).abs() < 1e-12, "{x}");
+        // The MCP view's roundStep reads the same cases (round_steps.test.cjs).
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/round_steps.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let (x, step) = (c["x"].as_f64().unwrap(), c["step"].as_f64().unwrap());
+            assert!((round_step(x) - step).abs() < step * 1e-9, "{x}");
         }
     }
 
