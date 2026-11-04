@@ -293,7 +293,7 @@
      "bounds": 3,
      "comparisons": 2,
      "constants": 6,
-     "defaults": 1
+     "defaults": 0
     },
     "crates/timegrapher-cli/src/synth_cmd.rs": {
      "bounds": 0,

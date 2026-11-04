@@ -1,7 +1,8 @@
 //! The readouts and the status bar: the figures shown, the clocks behind them, the status line and notices, and what shows when nothing is open.
 
 use super::*;
-use timegrapher_core::library::pm_text;
+use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm};
+use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
 
 /// What the reading cards draw from.
 struct CardCtx<'a> {
@@ -305,7 +306,7 @@ impl TimegrapherApp {
         let rate = r.and_then(|r| r.rate_s_per_day);
         let rate_facts = reading_limits("Rate", caveats, lift_now, beats);
         card_title(ui, rows.title, "Rate", &help::RATE, &rate_facts, None);
-        let unit = match pm.and_then(|e| pm_text(e, 1)) {
+        let unit = match pm.and_then(|e| pm_text(e, base::RATE)) {
             Some(t) => format!("± {t} s/d"),
             None => "s/d".to_string(),
         };
@@ -313,16 +314,13 @@ impl TimegrapherApp {
         let mut behind = r.map_or_else(String::new, |r| self.beats_behind(r));
         if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.rate_s_per_day?))) {
             let se = w.m.confidence.and_then(|c| c.rate.se);
-            let pm = se
-                .and_then(|e| pm_text(e, 1))
-                .map_or_else(String::new, |t| format!(" ± {t}"));
-            let spread =
-                w.m.rate_p05
-                    .zip(w.m.rate_p95)
-                    .map(|(a, b)| format!("10 s rates {a:+.1} to {b:+.1} s/d").replace('-', "−"));
+            let spread = w.m.rate_p05.zip(w.m.rate_p95).map(|(a, b)| {
+                let at = |x| signed_text(x, base::RATE_RANGE);
+                format!("10 s rates {} to {} s/d", at(a), at(b)).replace('-', "−")
+            });
             behind += &whole_text(
                 &c.whole_breaks,
-                format!("{v:+.1}{pm} s/d").replace('-', "−"),
+                format!("{} s/d", with_pm(v, se, base::RATE, true)).replace('-', "−"),
                 spread,
                 w.span,
             );
@@ -370,7 +368,7 @@ impl TimegrapherApp {
         figure_row(
             ui,
             rows.figure,
-            rate.map(|v| format!("{v:+.1}")).as_deref(),
+            rate.map(|v| figure(v, pm, base::RATE, true)).as_deref(),
             &unit,
             status.as_ref(),
             behind.trim_start(),
@@ -419,11 +417,11 @@ impl TimegrapherApp {
         let amp = r.and_then(|r| r.amplitude_deg);
         let facts = reading_limits("Amplitude", caveats, lift_now, beats);
         card_title(ui, rows.title, "Amplitude", help::AMPLITUDE, &facts, None);
-        // Whole degrees: a live reading's ± is about a degree, so a
-        // decimal would claim more than the beats can say.
-        let unit = r
-            .and_then(|r| r.amplitude_error_deg)
-            .and_then(|e| pm_text(e, 0))
+        // Whole degrees, unless the ± is under a degree: a decimal only
+        // where the beats can say it (decimals follow the ±, #510 K3).
+        let amp_pm = r.and_then(|r| r.amplitude_error_deg);
+        let unit = amp_pm
+            .and_then(|e| pm_text(e, base::AMPLITUDE))
             .map_or_else(String::new, |t| format!("± {t}°"));
         let mut behind = String::new();
         if let Some(&LiveReading {
@@ -432,18 +430,21 @@ impl TimegrapherApp {
             ..
         }) = r
         {
-            behind = format!("Tick {a:.0}°, Tock {b:.0}°: each side's own amplitude.");
+            let deg = |x| fixed_text(x, base::AMPLITUDE);
+            behind = format!(
+                "Tick {}°, Tock {}°: each side's own amplitude.",
+                deg(a),
+                deg(b)
+            );
         }
         if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.amplitude_deg?))) {
             let se = w.m.confidence.and_then(|c| c.amplitude.se);
-            let pm = se
-                .and_then(|e| pm_text(e, 0))
-                .map_or_else(String::new, |t| format!(" ± {t}"));
-            let spread =
-                w.m.amplitude_p05
-                    .zip(w.m.amplitude_p95)
-                    .map(|(a, b)| format!("2 s windows {a:.0}° to {b:.0}°"));
-            behind += &whole_text(&c.whole_breaks, format!("{v:.0}{pm}°"), spread, w.span);
+            let spread = w.m.amplitude_p05.zip(w.m.amplitude_p95).map(|(a, b)| {
+                let deg = |x| fixed_text(x, base::AMPLITUDE);
+                format!("2 s windows {}° to {}°", deg(a), deg(b))
+            });
+            let text = format!("{}°", with_pm(v, se, base::AMPLITUDE, false));
+            behind += &whole_text(&c.whole_breaks, text, spread, w.span);
         }
         behind += &format!(
             " Worked out with a lift angle of {}°, on the Calibre card.",
@@ -452,7 +453,8 @@ impl TimegrapherApp {
         figure_row(
             ui,
             rows.figure,
-            amp.map(|v| format!("{v:.0}°")).as_deref(),
+            amp.map(|v| format!("{}°", figure(v, amp_pm, base::AMPLITUDE, false)))
+                .as_deref(),
             &unit,
             unheard.as_ref(),
             behind.trim_start(),
@@ -480,10 +482,8 @@ impl TimegrapherApp {
             &reading_limits("Beat Error", caveats, lift_now, beats),
             None,
         );
-        let unit = match be_pm
-            .filter(|_| unlock.is_some())
-            .and_then(|e| pm_text(e, 2))
-        {
+        let be_pm = be_pm.filter(|_| unlock.is_some());
+        let unit = match be_pm.and_then(|e| pm_text(e, base::BEAT_ERROR)) {
             Some(t) => format!("± {t} ms"),
             None => "ms".to_string(),
         };
@@ -491,18 +491,16 @@ impl TimegrapherApp {
         let mut from = match (unlock, drop) {
             (Some(_), Some(d)) => format!(
                 "From the unlock, the usual reading, as tg shows it: quote this one. \
-                 From the drop, a second opinion: {:.2} ms.",
-                d.abs()
+                 From the drop, a second opinion: {} ms.",
+                fixed_text(d.abs(), base::BEAT_ERROR)
             ),
             (None, Some(_)) => "From the drop: the unlock couldn't be timed.".into(),
             _ => "From the unlock, the usual reading, as tg shows it.".into(),
         };
         if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.beat_error()?))) {
             let se = w.m.confidence.and_then(|c| c.beat_error.se);
-            let pm = se
-                .and_then(|e| pm_text(e, 2))
-                .map_or_else(String::new, |t| format!(" ± {t}"));
-            from += &whole_text(&c.whole_breaks, format!("{v:.2}{pm} ms"), None, w.span);
+            let text = format!("{} ms", with_pm(v, se, base::BEAT_ERROR, false));
+            from += &whole_text(&c.whole_breaks, text, None, w.span);
             if w.m.caveats.contains(&Caveat::BeatErrorAsSize) {
                 from += &format!(
                     " The {WHOLE_AS_SIZES}, so the sizes either side are combined \
@@ -514,7 +512,7 @@ impl TimegrapherApp {
             ui,
             rows.figure,
             core_session::beat_error_size(unlock, drop)
-                .map(|v| format!("{v:.2}"))
+                .map(|v| figure(v, be_pm, base::BEAT_ERROR, false))
                 .as_deref(),
             &unit,
             unheard.as_ref(),

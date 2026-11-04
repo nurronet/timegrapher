@@ -234,16 +234,20 @@ function chartWidth() {
   return Math.max(300, (document.getElementById("root").clientWidth || 640) - 24);
 }
 
+// 1, 2 or 5 times a power of ten, at least `x` (above 0): core
+// chart_scale::round_step held to the same fixture (round_steps.test.cjs).
+function roundStep(x) {
+  const p = Math.pow(10, Math.floor(Math.log10(x)));
+  return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= x * (1 - 1e-9)) || 10 * p;
+}
+
 // Grid values at least `minPx` apart, on steps of 1, 2 and 5 (or the ladder's).
 function gridFor(lo, hi, px, minPx, ladder) {
   if (!(hi > lo)) return { step: 1, ticks: [] };
   const want = (hi - lo) / Math.max(1, px / minPx);
   let step;
   if (ladder) step = ladder.find((s) => s >= want) || ladder[ladder.length - 1];
-  else {
-    const p = Math.pow(10, Math.floor(Math.log10(want)));
-    step = [1, 2, 5, 10].map((m) => m * p).find((s) => s >= want * (1 - 1e-9));
-  }
+  else step = roundStep(want);
   const ticks = [];
   for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
   return { step, ticks };
@@ -601,11 +605,12 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // headline beat error is the unlock's, with the drop's beside it, as on the
 // app's card. Both show the size only: which side is Tick can change
 // between runs of the same take, so a sign would mean nothing.
+// The ± is the unlock's, so the drop's figure keeps core's base decimals.
 function readingTiles(f) {
   const d = { ...BASE_DIGITS, ...(f.digits || {}) };
   const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
   const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), d.beat_error)} ms` : ""}` : "from the drop";
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : "from the drop";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
     ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
