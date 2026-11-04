@@ -306,10 +306,6 @@ fn weighted_mean_se(inside: &[&LineWindow], wsum: f64) -> f64 {
 /// enough, and over the turns in each [`TURN_BAND_DEG`] of the amplitude
 /// `amp` read over the turn. `None` when the period is under four
 /// readings or fewer than [`MIN_TURNS`] turns are read.
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn turns(
     g: &Grid,
     amp: &Grid,
@@ -325,6 +321,40 @@ pub fn turns(
     let bins = (per_turn.floor() as usize).min(MAX_BINS);
     // Turns on the watch's time from zero, so every series and every take
     // of the same watch cut its turns at the same place.
+    let rows = turn_rows(g, amp, p, bins);
+    let shape = |rows: &[&Vec<f64>], from: Option<f64>| turn_shape(rows, from, bins);
+    let all = shape(&rows.iter().map(|r| &r.1).collect::<Vec<_>>(), None)?;
+    let mut bands: Vec<f64> = rows
+        .iter()
+        .map(|r| (r.0 / TURN_BAND_DEG).floor() * TURN_BAND_DEG)
+        .collect();
+    bands.sort_by(|a, b| a.total_cmp(b));
+    bands.dedup();
+    let by_amplitude = bands
+        .into_iter()
+        .filter_map(|from| {
+            let inside: Vec<&Vec<f64>> = rows
+                .iter()
+                .filter(|r| (r.0 / TURN_BAND_DEG).floor() * TURN_BAND_DEG == from)
+                .map(|r| &r.1)
+                .collect();
+            shape(&inside, Some(from))
+        })
+        .collect();
+    Some(WheelTurns {
+        wheel: wheel.name.clone(),
+        period_s: p,
+        series,
+        unit,
+        bins,
+        all,
+        by_amplitude,
+    })
+}
+
+/// Each whole turn of `p` seconds in `g` read well enough, as its mean
+/// amplitude from `amp` and its mean value in each of `bins` phase bins.
+fn turn_rows(g: &Grid, amp: &Grid, p: f64, bins: usize) -> Vec<(f64, Vec<f64>)> {
     let first = (g.t0 / p).ceil() as i64;
     let last = ((g.t0 + g.y.len() as f64 * g.step) / p).floor() as i64;
     let mut rows: Vec<(f64, Vec<f64>)> = Vec::new();
@@ -354,72 +384,50 @@ pub fn turns(
         let row: Vec<f64> = sum.iter().zip(&n).map(|(s, &c)| s / c as f64).collect();
         rows.push((amplitude, row));
     }
-    let shape = |rows: &[&Vec<f64>], from: Option<f64>| -> Option<TurnShape> {
-        let k = rows.len();
-        if k < MIN_TURNS {
-            return None;
-        }
-        // Each turn less its own mean, so a turn's level does not count.
-        let centred: Vec<Vec<f64>> = rows
-            .iter()
-            .map(|r| {
-                let m = r.iter().sum::<f64>() / r.len() as f64;
-                r.iter().map(|v| v - m).collect()
-            })
-            .collect();
-        let profile: Vec<f64> = (0..bins)
-            .map(|j| centred.iter().map(|r| r[j]).sum::<f64>() / k as f64)
-            .collect();
-        let se = (0..bins)
-            .map(|j| {
-                let v = centred
-                    .iter()
-                    .map(|r| (r[j] - profile[j]).powi(2))
-                    .sum::<f64>()
-                    / (k - 1) as f64;
-                (v / k as f64).sqrt()
-            })
-            .collect();
-        let (lo, hi) = profile
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &v| {
-                (a.min(v), b.max(v))
-            });
-        Some(TurnShape {
-            from_deg: from,
-            to_deg: from.map(|f| f + TURN_BAND_DEG),
-            turns: k,
-            profile,
-            se,
-            peak_to_peak: hi - lo,
-        })
-    };
-    let all = shape(&rows.iter().map(|r| &r.1).collect::<Vec<_>>(), None)?;
-    let mut bands: Vec<f64> = rows
+    rows
+}
+
+/// The mean shape of the turns `rows` in `bins` phase bins, each turn less
+/// its own mean, for the amplitude band from `from` degrees (all turns
+/// with none); none under [`MIN_TURNS`] turns.
+fn turn_shape(rows: &[&Vec<f64>], from: Option<f64>, bins: usize) -> Option<TurnShape> {
+    let k = rows.len();
+    if k < MIN_TURNS {
+        return None;
+    }
+    // Each turn less its own mean, so a turn's level does not count.
+    let centred: Vec<Vec<f64>> = rows
         .iter()
-        .map(|r| (r.0 / TURN_BAND_DEG).floor() * TURN_BAND_DEG)
-        .collect();
-    bands.sort_by(|a, b| a.total_cmp(b));
-    bands.dedup();
-    let by_amplitude = bands
-        .into_iter()
-        .filter_map(|from| {
-            let inside: Vec<&Vec<f64>> = rows
-                .iter()
-                .filter(|r| (r.0 / TURN_BAND_DEG).floor() * TURN_BAND_DEG == from)
-                .map(|r| &r.1)
-                .collect();
-            shape(&inside, Some(from))
+        .map(|r| {
+            let m = r.iter().sum::<f64>() / r.len() as f64;
+            r.iter().map(|v| v - m).collect()
         })
         .collect();
-    Some(WheelTurns {
-        wheel: wheel.name.clone(),
-        period_s: p,
-        series,
-        unit,
-        bins,
-        all,
-        by_amplitude,
+    let profile: Vec<f64> = (0..bins)
+        .map(|j| centred.iter().map(|r| r[j]).sum::<f64>() / k as f64)
+        .collect();
+    let se = (0..bins)
+        .map(|j| {
+            let v = centred
+                .iter()
+                .map(|r| (r[j] - profile[j]).powi(2))
+                .sum::<f64>()
+                / (k - 1) as f64;
+            (v / k as f64).sqrt()
+        })
+        .collect();
+    let (lo, hi) = profile
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &v| {
+            (a.min(v), b.max(v))
+        });
+    Some(TurnShape {
+        from_deg: from,
+        to_deg: from.map(|f| f + TURN_BAND_DEG),
+        turns: k,
+        profile,
+        se,
+        peak_to_peak: hi - lo,
     })
 }
 

@@ -65,6 +65,7 @@ use dock::PaneBehavior;
 use pane_export::PaneExport;
 use pane_room::keep_room;
 use session_marks::save_marks_to_take;
+use take_io::Opened;
 
 /// The A and B sides' sounds.
 type Profiles = [Option<TickProfile>; 2];
@@ -1776,20 +1777,6 @@ fn trend_beat_error(p: &TrendPoint) -> Option<f64> {
 /// Where each position began, seconds, and the position, oldest first.
 type Stretches = Vec<(f64, Position)>;
 
-/// A take opened by core's `take::open_entry`, for the window: its beats,
-/// clock and breaks, and for a take kept as its analysis alone, the Tick
-/// Tock profiles it kept.
-#[derive(Debug)]
-struct Opened {
-    log: BeatLog,
-    clock: Option<timegrapher_core::clock::ClockFit>,
-    /// Where the clock came from, in core's words.
-    clock_source: Option<String>,
-    breaks: Vec<timegrapher_core::breaks::Break>,
-    unlisted: Option<timegrapher_core::breaks::Unlisted>,
-    profiles: Option<Vec<analysis_take::StretchProfiles>>,
-}
-
 struct Batch {
     rx: std::sync::mpsc::Receiver<Result<Option<Opened>, String>>,
     progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -2754,8 +2741,19 @@ impl TimegrapherApp {
     /// Work the charts out again over the whole session, for a new
     /// averaging time or lift angle.
     fn rebuild_trend(&mut self) {
+        let points = self
+            .live
+            .as_ref()
+            .map_or_else(Vec::new, |l| l.trend(self.average_s));
+        self.put_trend(points);
+    }
+
+    /// The charts from the engine's readings at the averaging time,
+    /// `points`, read here or off the window's thread.
+    fn put_trend(&mut self, mut points: Vec<TrendPoint>) {
         self.strip_points = None;
-        self.trend = self.context_trend(self.average_s);
+        points.retain(|p| self.session.replay_reading_allowed(p.t));
+        self.trend = points;
         self.trend_key = (self.rev, self.average_s.to_bits());
     }
 
@@ -2765,15 +2763,6 @@ impl TimegrapherApp {
         if self.trend_key != (self.rev, self.average_s.to_bits()) {
             self.rebuild_trend();
         }
-    }
-
-    fn context_trend(&self, seconds: f64) -> Vec<TrendPoint> {
-        let mut points = self
-            .live
-            .as_ref()
-            .map_or_else(Vec::new, |l| l.trend(seconds));
-        points.retain(|p| self.session.replay_reading_allowed(p.t));
-        points
     }
 
     fn latest_s(&self) -> f64 {
@@ -4110,63 +4099,6 @@ fn take_entry(
     let (base, m, mut entry) = timegrapher_core::take::whole_entry(path, listed.as_ref())?;
     entry.masked.clear();
     Ok((base, m, entry))
-}
-
-/// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`
-/// on a thread of its own, sending what it read to `tx`: `progress` holds
-/// the seconds of sound read (for a take kept as its analysis alone, its
-/// length `kept_s` once read) and setting `cancel` stops it, sending
-/// nothing.
-fn open_in_background(
-    opening: (PathBuf, Manifest, RecordingEntry),
-    settings: timegrapher_core::take::EntrySettings,
-    tx: std::sync::mpsc::Sender<Result<Option<Opened>, String>>,
-    progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    kept_s: Option<f64>,
-) {
-    use std::sync::atomic::Ordering::Relaxed;
-    use timegrapher_core::take;
-    std::thread::spawn(move || {
-        let (base, m, e) = opening;
-        // A cancel unwinds out of the analysis from its progress report
-        // (resume_unwind runs no panic hook, so nothing is printed).
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            take::open_entry(
-                &base,
-                &m,
-                &e,
-                &settings,
-                take::usb,
-                |first| take::correction_for(&m, first, None, None),
-                |s, _| {
-                    progress.store(s.to_bits(), Relaxed);
-                    if cancel.load(Relaxed) {
-                        std::panic::resume_unwind(Box::new(Cancelled));
-                    }
-                },
-            )
-        }));
-        match r {
-            Ok(r) => {
-                if let Some(s) = kept_s {
-                    progress.store(s.to_bits(), Relaxed);
-                }
-                let _ = tx.send(r.map(|o| {
-                    Some(Opened {
-                        log: o.log,
-                        clock: o.clock,
-                        clock_source: o.clock_source,
-                        breaks: o.breaks,
-                        unlisted: o.unlisted,
-                        profiles: o.kept.map(|k| k.profiles),
-                    })
-                }));
-            }
-            Err(e) if e.is::<Cancelled>() => {}
-            Err(e) => std::panic::resume_unwind(e),
-        }
-    });
 }
 
 /// Where a bug report starts: the repository's bug form.
