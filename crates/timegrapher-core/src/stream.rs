@@ -151,20 +151,22 @@ struct State {
 }
 
 impl State {
-    /// Analyse `x`, which starts at sample `x0`, keeping the beats whose
-    /// time falls in `[core_a, core_b)` (seconds).
-    fn chunk(&mut self, x: &[f32], x0: usize, core_a: f64, core_b: f64) {
+    /// Analyse chunk `c`, keeping the beats whose time falls in its own
+    /// stretch. Its envelope and clipped samples, which depend on its
+    /// sound alone, were found beforehand ([`Prepared::prepare`]), so that
+    /// many chunks can have them found at once; the rest carries on from
+    /// the chunk before, in order.
+    fn chunk(&mut self, c: &Prepared) {
+        let (x, x0, core_a, core_b, env) = (&c.x[..], c.x0, c.core_a, c.core_b, &c.env[..]);
         let fs = self.fs;
-        let a = &self.cfg.analysis;
-        let env = envelope(x, fs, &a.envelope);
         let (local, heard_first) = match &self.template {
             Some(t) => {
-                let (b, level) = beats::detect_after(&env, fs, self.bph, t, self.level);
+                let (b, level) = beats::detect_after(env, fs, self.bph, t, self.level);
                 self.level = level;
                 (b, false)
             }
             None => {
-                let Some(found) = self.first_beats(&env) else {
+                let Some(found) = self.first_beats(env) else {
                     return;
                 };
                 found
@@ -221,7 +223,7 @@ impl State {
                 }
             }
             self.beats.push(Beat { time: t, ..b });
-            if let Some(w) = profile::snippet(&env, fs, b.time) {
+            if let Some(w) = profile::snippet(env, fs, b.time) {
                 if t < SNIPPETS_KEPT_S && b.is_good() {
                     self.snippets.push((t, w.to_vec()));
                 }
@@ -232,16 +234,9 @@ impl State {
                 swap_sides_from(j - off, &mut numbered, &mut []);
             }
         }
-        self.count_clipping(x, off, core_a, core_b, kept_from);
+        self.count_clipping(&c.clipped, off, core_a, core_b, kept_from);
 
-        self.amplitude_chunk(
-            &env,
-            &numbered,
-            off,
-            off + x.len() as f64 / fs,
-            core_b,
-            beat,
-        );
+        self.amplitude_chunk(env, &numbered, off, off + x.len() as f64 / fs, core_b, beat);
     }
 
     /// The beats of a chunk before a watch has been heard, and whether the
@@ -289,11 +284,17 @@ impl State {
     }
 
     /// Clipping, counted on this chunk's own stretch: its clipped samples
-    /// in `[core_a, core_b)`, and which beats kept from `kept_from` on
-    /// clipped.
-    fn count_clipping(&mut self, x: &[f32], off: f64, core_a: f64, core_b: f64, kept_from: usize) {
+    /// (`idx`, the chunk's clipped sample indices) in `[core_a, core_b)`,
+    /// and which beats kept from `kept_from` on clipped.
+    fn count_clipping(
+        &mut self,
+        idx: &[usize],
+        off: f64,
+        core_a: f64,
+        core_b: f64,
+        kept_from: usize,
+    ) {
         let fs = self.fs;
-        let idx = crate::diagnose::clipped_indices(x, crate::analysis::CLIP_LEVEL);
         if !idx.is_empty() {
             let at = |i: usize| off + i as f64 / fs;
             self.clipped_samples += idx
@@ -377,7 +378,7 @@ pub fn analyze_file(
 pub fn analyze_files(
     paths: &[&Path],
     cfg: &StreamConfig,
-    mut progress: impl FnMut(f64),
+    progress: impl FnMut(f64),
 ) -> Result<BeatLog, AudioError> {
     let Some(first) = paths.first() else {
         return Err(AudioError::Unsupported("no files given".into()));
@@ -395,32 +396,136 @@ pub fn analyze_files(
             )));
         }
     }
-    let mut c = Chunker::new(info.sample_rate, cfg);
-    for path in paths {
-        audio::stream(path, 1 << 16, |block| {
-            c.push(block);
-            progress(c.next as f64 / c.st.fs);
-        })?;
-    }
-    progress(c.total as f64 / c.st.fs);
-    Ok(c.finish())
+    analyze_fed(
+        info.sample_rate,
+        cfg,
+        prepare_threads(),
+        |push| {
+            for path in paths {
+                audio::stream(path, 1 << 16, &mut *push)?;
+            }
+            Ok(())
+        },
+        progress,
+    )
 }
 
 /// Analyse a recording held in memory into a beat log, chunk by chunk
 /// exactly as [`analyze_files`] reads a file, so that a reading of a file
 /// and of the same audio in memory rest on the same beats.
 pub fn analyze_samples(samples: &[f32], sample_rate: u32, cfg: &StreamConfig) -> BeatLog {
-    let mut c = Chunker::new(sample_rate, cfg);
-    for block in samples.chunks(1 << 16) {
-        c.push(block);
-    }
-    c.finish()
+    let fed = |push: &mut dyn FnMut(&[f32])| {
+        samples.chunks(1 << 16).for_each(&mut *push);
+        Ok(())
+    };
+    analyze_fed(sample_rate, cfg, prepare_threads(), fed, |_| {})
+        .expect("sound held in memory reads without error")
 }
 
-/// The chunked reading of one recording: audio goes in in blocks of any
-/// size, beats come out on a fixed grid of chunks.
-struct Chunker {
-    st: State,
+/// Threads to prepare chunks on: every core but one, which the decoding
+/// and the in-order analysis keep busy.
+fn prepare_threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1).max(1))
+}
+
+/// Chunks cut and waiting to be prepared, and prepared and waiting to be
+/// analysed, for each preparing thread: enough to keep every thread busy,
+/// few enough to hold little (a 48 s chunk at 48 kHz, with its
+/// envelope, is about 18 MB).
+const QUEUED_PER_THREAD: usize = 2;
+
+/// The sound `feed` passes to the function it is given, read as one
+/// recording, in three stages that run at once: the sound is cut into
+/// chunks on one thread, each chunk's envelope and clipping are found on
+/// `threads` threads ([`Prepared::prepare`]), and the chunks are analysed
+/// in order on this one ([`State::chunk`]), which calls `progress` with
+/// the seconds read so far. Each chunk and its analysis are the same
+/// whatever the number of threads, so the log is too.
+fn analyze_fed(
+    sample_rate: u32,
+    cfg: &StreamConfig,
+    threads: usize,
+    feed: impl FnOnce(&mut dyn FnMut(&[f32])) -> Result<(), AudioError> + Send,
+    mut progress: impl FnMut(f64),
+) -> Result<BeatLog, AudioError> {
+    use std::sync::mpsc::sync_channel;
+    let threads = threads.max(1);
+    let fs = sample_rate as f64;
+    let mut st = State::new(sample_rate, cfg);
+    let env_cfg = &cfg.analysis.envelope;
+    let queued = QUEUED_PER_THREAD * threads;
+    let (cut_tx, cut_rx) = sync_channel::<(usize, Prepared)>(queued);
+    let (done_tx, done_rx) = sync_channel::<(usize, Prepared)>(queued);
+    let cut_rx = std::sync::Mutex::new(cut_rx);
+    let total = std::thread::scope(|sc| {
+        let cutter = sc.spawn(move || {
+            let mut c = Cutter::new(fs, cfg);
+            let mut n = 0;
+            // The analysis stopped (it never does early): nothing more is
+            // wanted.
+            let mut send = |p: Prepared| {
+                let _ = cut_tx.send((n, p));
+                n += 1;
+            };
+            feed(&mut |block| c.push(block, &mut send))?;
+            Ok::<usize, AudioError>(c.finish(&mut send))
+        });
+        for _ in 0..threads {
+            let (rx, tx) = (&cut_rx, done_tx.clone());
+            sc.spawn(move || loop {
+                let next = rx.lock().expect("a preparing thread panicked").recv();
+                let Ok((i, mut c)) = next else { break };
+                c.prepare(fs, env_cfg);
+                if tx.send((i, c)).is_err() {
+                    break;
+                }
+            });
+        }
+        drop(done_tx);
+        // In the order cut, whatever order they are prepared in.
+        let mut ready = std::collections::BTreeMap::new();
+        let mut next = 0;
+        for (i, c) in done_rx {
+            ready.insert(i, c);
+            while let Some(c) = ready.remove(&next) {
+                st.chunk(&c);
+                next += 1;
+                progress(c.core_b.min(c.x0 as f64 / fs + c.x.len() as f64 / fs));
+            }
+        }
+        cutter.join().expect("the cutting thread panicked")
+    })?;
+    progress(total as f64 / fs);
+    Ok(st.finish(sample_rate, total))
+}
+
+/// One chunk of the recording with what its sound alone gives: its
+/// envelope and its clipped samples. Chunks are prepared several at a
+/// time, each on a thread of its own, and analysed in order after
+/// ([`State::chunk`]).
+struct Prepared {
+    /// The chunk's sound, margins included, starting at sample `x0`.
+    x: Vec<f32>,
+    x0: usize,
+    /// Its own stretch, seconds.
+    core_a: f64,
+    core_b: f64,
+    env: Vec<f32>,
+    /// Indices into `x` of its clipped samples.
+    clipped: Vec<usize>,
+}
+
+impl Prepared {
+    fn prepare(&mut self, fs: f64, cfg: &crate::dsp::EnvelopeConfig) {
+        self.env = envelope(&self.x, fs, cfg);
+        self.clipped = crate::diagnose::clipped_indices(&self.x, crate::analysis::CLIP_LEVEL);
+    }
+}
+
+/// Cuts sound passed in blocks of any size into chunks on a fixed grid:
+/// each chunk's own stretch with a margin on either side.
+struct Cutter {
+    fs: f64,
     core: usize,
     margin: usize,
     /// `buf` holds samples from absolute index `buf0`; the next chunk's own
@@ -429,52 +534,43 @@ struct Chunker {
     buf0: usize,
     next: usize,
     total: usize,
-    sample_rate: u32,
 }
 
-impl Chunker {
-    fn new(sample_rate: u32, cfg: &StreamConfig) -> Self {
-        let fs = sample_rate as f64;
-        Chunker {
-            st: State {
-                fs,
-                cfg: cfg.clone(),
-                template: None,
-                level: None,
-                sides: beats::SideCheck::default(),
-                jumps: Vec::new(),
-                bph: cfg.analysis.bph.unwrap_or(0),
-                beats: Vec::new(),
-                amp: Vec::new(),
-                next_amp_s: 0.0,
-                clipped_beats: Vec::new(),
-                clipped_samples: 0,
-                snippets: Vec::new(),
-            },
+impl Cutter {
+    fn new(fs: f64, cfg: &StreamConfig) -> Self {
+        Cutter {
+            fs,
             core: (cfg.chunk_s * fs).round() as usize,
             margin: (cfg.margin_s * fs).round() as usize,
             buf: Vec::new(),
             buf0: 0,
             next: 0,
             total: 0,
-            sample_rate,
         }
     }
 
-    fn push(&mut self, block: &[f32]) {
+    fn chunk(&self, from: usize, to: usize, core_b: f64) -> Prepared {
+        Prepared {
+            x: self.buf[from - self.buf0..to - self.buf0].to_vec(),
+            x0: from,
+            core_a: self.next as f64 / self.fs,
+            core_b,
+            env: Vec::new(),
+            clipped: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, block: &[f32], out: &mut impl FnMut(Prepared)) {
         let (core, margin) = (self.core, self.margin);
         self.buf.extend_from_slice(block);
         self.total += block.len();
         while self.buf0 + self.buf.len() >= self.next + core + margin {
             let from = self.next.saturating_sub(margin);
-            let x = &self.buf[from - self.buf0..self.next + core + margin - self.buf0];
-            let fs = self.st.fs;
-            self.st.chunk(
-                x,
+            out(self.chunk(
                 from,
-                self.next as f64 / fs,
-                (self.next + core) as f64 / fs,
-            );
+                self.next + core + margin,
+                (self.next + core) as f64 / self.fs,
+            ));
             self.next += core;
             let keep_from = self.next.saturating_sub(margin);
             self.buf.drain(..keep_from - self.buf0);
@@ -482,31 +578,55 @@ impl Chunker {
         }
     }
 
-    fn finish(mut self) -> BeatLog {
-        let fs = self.st.fs;
+    /// The last chunk, if any sound is left, running to the end; the
+    /// samples read in all.
+    fn finish(self, out: &mut impl FnMut(Prepared)) -> usize {
         if self.total > self.next {
             let from = self.next.saturating_sub(self.margin);
-            let x = &self.buf[from - self.buf0..];
-            self.st.chunk(x, from, self.next as f64 / fs, f64::INFINITY);
+            out(self.chunk(from, self.buf0 + self.buf.len(), f64::INFINITY));
         }
-        let st = self.st;
+        self.total
+    }
+}
+
+impl State {
+    fn new(sample_rate: u32, cfg: &StreamConfig) -> Self {
+        State {
+            fs: sample_rate as f64,
+            cfg: cfg.clone(),
+            template: None,
+            level: None,
+            sides: beats::SideCheck::default(),
+            jumps: Vec::new(),
+            bph: cfg.analysis.bph.unwrap_or(0),
+            beats: Vec::new(),
+            amp: Vec::new(),
+            next_amp_s: 0.0,
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            snippets: Vec::new(),
+        }
+    }
+
+    /// The log of a recording of `total` samples, every chunk analysed.
+    fn finish(self, sample_rate: u32, total: usize) -> BeatLog {
         BeatLog {
-            sample_rate: self.sample_rate,
-            duration_s: self.total as f64 / fs,
-            bph: st.bph,
-            lift_deg: st.cfg.analysis.amplitude.lift_deg,
-            beats: st.beats,
+            sample_rate,
+            duration_s: total as f64 / self.fs,
+            bph: self.bph,
+            lift_deg: self.cfg.analysis.amplitude.lift_deg,
+            beats: self.beats,
             amplitude_windows: {
-                let mut amp = st.amp;
+                let mut amp = self.amp;
                 amplitude::reject_side_outliers(&mut amp, amplitude::OUTLIER_SPAN_S);
                 amp
             },
-            clipped_beats: st.clipped_beats,
-            clipped_samples: st.clipped_samples,
-            by_count: crate::breaks::by_count(st.jumps.iter().copied(), st.sides.sided()),
-            jumps: st.jumps,
-            sided: st.sides.sided().to_vec(),
-            snippets: st.snippets,
+            clipped_beats: self.clipped_beats,
+            clipped_samples: self.clipped_samples,
+            by_count: crate::breaks::by_count(self.jumps.iter().copied(), self.sides.sided()),
+            jumps: self.jumps,
+            sided: self.sides.sided().to_vec(),
+            snippets: self.snippets,
         }
     }
 }
@@ -515,6 +635,85 @@ impl Chunker {
 mod tests {
     use super::*;
     use crate::synth::{generate, SynthConfig};
+
+    /// The chunks' envelopes and clipping found on several threads give
+    /// the same log, to the bit, as one thread does: on
+    /// a take with a dropout (a jump in the beats), a quiet stretch and
+    /// clipped beats, read as one recording in uneven blocks.
+    #[test]
+    fn preparing_chunks_on_several_threads_changes_nothing() {
+        let mut a = generate(
+            &SynthConfig {
+                duration_s: 600.0,
+                ..Default::default()
+            },
+            |t| 270.0 + 10.0 * (t / 90.0).sin(),
+            |_| 0.3,
+        );
+        let fs = a.sample_rate as f64;
+        for (i, v) in a.samples.iter_mut().enumerate() {
+            let t = i as f64 / fs;
+            if (300.0..320.0).contains(&t) {
+                *v *= 0.1;
+            } else if (400.0..420.0).contains(&t) {
+                *v = (*v * 40.0).clamp(-1.0, 1.0);
+            }
+        }
+        // 3.3 s of listening lost: the beats jump there.
+        let cut = (200.0 * fs) as usize;
+        a.samples.drain(cut..cut + (3.3 * fs) as usize);
+        let read = |threads: usize| {
+            let fed = |push: &mut dyn FnMut(&[f32])| {
+                // Uneven blocks, as no decoder gives them.
+                a.samples.chunks(40_009).for_each(&mut *push);
+                Ok(())
+            };
+            analyze_fed(
+                a.sample_rate,
+                &StreamConfig::default(),
+                threads,
+                fed,
+                |_| {},
+            )
+            .unwrap()
+        };
+        let one = read(1);
+        assert!(!one.jumps.is_empty(), "no jump");
+        assert!(!one.clipped_beats.is_empty(), "no clipping");
+        for threads in [2, 5] {
+            let many = read(threads);
+            let bits = |log: &BeatLog| {
+                let beats: Vec<_> = log
+                    .beats
+                    .iter()
+                    .map(|b| (b.time.to_bits(), b.index, b.quality.to_bits()))
+                    .collect();
+                let amp: Vec<String> = log
+                    .amplitude_windows
+                    .iter()
+                    .map(|w| format!("{w:?}"))
+                    .collect();
+                let snips: Vec<_> = log
+                    .snippets
+                    .iter()
+                    .map(|s| (s.0.to_bits(), s.1.clone()))
+                    .collect();
+                (
+                    beats,
+                    amp,
+                    log.clipped_beats.clone(),
+                    log.clipped_samples,
+                    log.jumps.clone(),
+                    log.sided.clone(),
+                    log.by_count.clone(),
+                    snips,
+                    log.bph,
+                    log.duration_s.to_bits(),
+                )
+            };
+            assert!(bits(&one) == bits(&many), "{threads} threads");
+        }
+    }
 
     /// The envelope windows kept are the good beats' in the first
     /// SNIPPETS_KEPT_S: none for the faint beats of a quiet stretch
