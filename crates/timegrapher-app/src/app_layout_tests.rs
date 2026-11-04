@@ -639,6 +639,50 @@ fn the_strip_direction_is_down_or_across_in_words() {
     assert!(at("Mask") < at("Direction"), "{keys:?}");
 }
 
+/// The strip's Width and Length fields show their widest values whole,
+/// unit and all: Alt and the wheel leaves widths such as ±128.4 ms.
+#[test]
+fn the_width_and_length_fields_show_their_units_whole() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut app = TimegrapherApp::with_devices(mac_devices(), None);
+    app.reset_session(48000, "syn".into());
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 700.0));
+    for (width, length) in [(888.8, 8888.0), (58.8, 35_999.0)] {
+        app.strip.set_half_width(width);
+        app.strip.set_span(length);
+        let mut out = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            out = Some(ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.pane_tools(ui, Pane::Strip);
+                });
+            }));
+        }
+        let out = out.unwrap();
+        for want in [width_label(width), span_label(length)] {
+            let (t, clip) = out
+                .shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.text() == want => Some((t, c.clip_rect)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{want} not drawn: {}", tests::painted_text(&out)));
+            let right = t.pos.x + t.galley.rect.right();
+            assert!(
+                right <= clip.right(),
+                "{want} cut at {} of {right}",
+                clip.right()
+            );
+        }
+    }
+}
+
 /// Edit ▸ Remove All Masks asks before it brings every masked stretch
 /// back: the masks stay while the question is up.
 #[test]
