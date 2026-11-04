@@ -326,6 +326,7 @@ impl TimegrapherApp {
                 ),
             }
         };
+        let moment = self.moment_hover();
         let rows: Vec<scope::Row> = specs
             .iter()
             .zip(&picks)
@@ -339,8 +340,9 @@ impl TimegrapherApp {
                         })
                     })
                     .collect();
+                let side = profiles[usize::from(!even)].as_ref();
                 let marks = if view.zoom.marks() {
-                    scope_marks(profiles[usize::from(!even)].as_ref(), pal)
+                    scope_marks(side, pal, moment.as_deref())
                 } else {
                     Vec::new()
                 };
@@ -356,10 +358,7 @@ impl TimegrapherApp {
             ui.label(RichText::new(n).small().color(pal.text_tertiary));
         }
         let rate = audio.as_ref().map_or(fs, |a| a.2);
-        let drawn = scope::draw(ui, &rows, view.zoom, beat_s, rate);
-        if let Some(m) = self.moment_hover() {
-            drawn.on_hover_text(m);
-        }
+        scope::draw(ui, &rows, view.zoom, beat_s, rate);
     }
 
     /// The sound from `lo` to `hi` s from the recording read in the
@@ -559,8 +558,12 @@ fn scope_known(
 }
 
 /// The Unlock and Drop marks from the Tick Tock Profile nearest the moment
-/// shown.
-fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope::Mark> {
+/// shown; their hovers start with `moment` when the strip is moved back.
+fn scope_marks(
+    profile: Option<&TickProfile>,
+    pal: &theme::Palette,
+    moment: Option<&str>,
+) -> Vec<scope::Mark> {
     let mut marks = Vec::new();
     let Some(p) = profile else {
         return marks;
@@ -570,6 +573,7 @@ fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope
             ms,
             color: pal.unlock,
             name: "Unlock",
+            moment: moment.map(str::to_string),
         });
     }
     if let Some(ms) = p.drop_ms {
@@ -577,6 +581,7 @@ fn scope_marks(profile: Option<&TickProfile>, pal: &theme::Palette) -> Vec<scope
             ms,
             color: pal.drop,
             name: "Drop",
+            moment: moment.map(str::to_string),
         });
     }
     marks

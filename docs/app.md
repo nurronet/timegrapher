@@ -911,7 +911,8 @@ before, usually Peak beside Drop, is left to its line's hover); the
 sounds keep their dots, and hovering one names it. Stacked, the one
 time axis is under Tock. With the strip moved back, the moment shown
 is said on the strip; the facts box's hover starts with it ("at 10:00,
-set by the Paper Strip."), as the Scope's does. The noise floor is a flat
+set by the Paper Strip."), as the Scope's Unlock and Drop marks' hovers
+do. The noise floor is a flat
 dashed line. The Tick tock
 profile card switches the edges and the sounds on and off, switches
 **dB Scale** (lit: decibels below the loudest point; off: linear)
