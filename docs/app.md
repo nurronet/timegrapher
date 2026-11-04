@@ -711,14 +711,19 @@ the run time in true time (through the input's clock as measured
 while listening, else its stored correction), then, scrolling in the rest
 of the pane, the rate and amplitude against hours since the first beat, and a table
 of each hour (the last as long as is left): its rate, median amplitude
-and beat error from the unlock, each measured as `timegrapher session`
+and beat error from the unlock (from the drop in an hour where the unlock
+isn't found), each measured as `timegrapher session`
 measures a stretch (core `session::measure_masked`), and how much of it
 its whole 10 s readings cover (core `clean`). The table starts at the
 charts' plot edge, their value labels alone in the margin to its left, is
 no wider than the plots (scrolling sideways when it would be), and gives
 the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
-Read (%), the figures right-aligned. **Save as CSV…** and
-**Copy** give the watch, the run and the table. The take
+Read (%), the figures right-aligned and written by core `figure_text`.
+Scrolled down, the titles stay at the pane's top. A beat error from the
+drop, or with no source recorded, is drawn dimmed, and every beat error's
+hover names its source (core `session::beat_error_source_label`).
+**Save as CSV…** and **Copy** give the watch, the run and the table, with
+a "Beat error from" column (unlock, drop or not recorded). The take
 is kept in the picked watch's history, named by its local start time and
 "Power Reserve", with
 `power-reserve.json` beside the standard files; with Analysis Only it is
