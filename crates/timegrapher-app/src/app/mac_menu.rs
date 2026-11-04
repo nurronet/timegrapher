@@ -20,9 +20,20 @@ use std::sync::mpsc;
 /// main thread, where there is no menu bar, so they keep the window's.
 static WANTED: AtomicBool = AtomicBool::new(false);
 
-/// Ask for the menus in the menu bar at the top of the screen.
+/// Ask for the menus in the menu bar at the top of the screen. Also
+/// turns off macOS's window tabs before the window opens: the app has one
+/// window, and with tabs allowed macOS adds Show Tab Bar to the View
+/// menu, which gives the window a second title bar.
 pub(crate) fn want() {
     WANTED.store(true, Ordering::Relaxed);
+    // SAFETY: a class method of NSWindow, taking a BOOL and returning
+    // nothing, called on the main thread before any window exists.
+    unsafe {
+        let _: () = objc2::msg_send![
+            objc2::class!(NSWindow),
+            setAllowsAutomaticWindowTabbing: false
+        ];
+    }
 }
 
 /// An item that runs a command: plain, or ticked when on.

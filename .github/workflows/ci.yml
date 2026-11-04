@@ -157,12 +157,21 @@ jobs:
           filter: blob:none
       # A pull request may not put a file back to an older version on main
       # unless its body names the revert (`Reverts #N`); .github/ci/reverts.py.
-      # Seconds. GitHub does not re-run CI when only the body is edited.
+      # Seconds. The body is read live, so a re-run after adding the line
+      # sees it (a re-run reuses the event, whose body is the old one); if
+      # the API can't be reached, the event's body is used.
       - name: Silent reverts
         if: github.event_name == 'pull_request'
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 .github/ci/reverts.py HEAD^1 HEAD
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}
+          EVENT_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if ! body="$(gh api "$PR_URL" --jq '.body // ""')"; then
+            echo "Could not read the PR body live; using the event's."
+            body="$EVENT_BODY"
+          fi
+          PR_BODY="$body" python3 .github/ci/reverts.py HEAD^1 HEAD
       - uses: actions/setup-node@v7
         with:
           node-version: '24.22.1'

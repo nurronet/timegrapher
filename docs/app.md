@@ -1165,8 +1165,8 @@ strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
 anywhere over a chart, a vertical line marks that moment and a box lists
 every line's value there. Their time axes move together:
-the mouse wheel zooms time around the pointer, Ctrl and the wheel zooms
-the vertical scale, dragging pans, and a double click fits the whole
+the mouse wheel zooms time around the pointer, dragging pans it, and the
+vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
 Once a chart has been panned or zoomed a **Follow Live** button
 (**Show Whole Session** for a recording) appears on it and does the same,
