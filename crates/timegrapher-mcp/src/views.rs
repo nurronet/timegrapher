@@ -102,7 +102,6 @@ fn variables(p: &Palette) -> String {
         ("rate", p.trace_rate.css()),
         ("amplitude", p.trace_amplitude.css()),
         ("beat-error", p.trace_beat_error.css()),
-        ("wheel", p.wheel.css()),
         // Line Strength on Plots, as in the app: the grid and the axes are
         // the text colour at their own opacities, call-outs one grey.
         ("grid", rgba(p.text, p.grid_opacity)),
@@ -764,14 +763,9 @@ mod tests {
         for c in [LIGHT.trace_rate, DARK.trace_rate, LIGHT.tick, DARK.tock] {
             assert!(page.contains(&c.css()), "{}", c.css());
         }
-        // The wheels' own colour and the call-out grey, in both themes.
-        for (name, c) in [
-            ("wheel", LIGHT.wheel),
-            ("wheel", DARK.wheel),
-            ("callout", LIGHT.callout),
-            ("callout", DARK.callout),
-        ] {
-            let line = format!("--{name}: {};", c.css());
+        // The call-out grey, in both themes.
+        for c in [LIGHT.callout, DARK.callout] {
+            let line = format!("--callout: {};", c.css());
             assert!(page.contains(&line), "{line}");
         }
         // The grid and the axes at the palette's own opacities.

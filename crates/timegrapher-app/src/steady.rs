@@ -1641,8 +1641,8 @@ pub struct Opts {
 
 /// What Wheel Periods does, for its hint.
 pub const WHEELS_HINT: &str = "Mark the period each of the calibre's wheels turns in, in \
-     a grey dotted line named above the plot, and half of it fainter, where a wheel that is off centre \
-     shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
+     a grey dotted line named above the plot, and half of it more loosely dotted, where a \
+     wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
      one hour are marked in grey instead: periods alone, named after no wheel.";
 
 /// The wheels to mark: `None` when the marks are off.

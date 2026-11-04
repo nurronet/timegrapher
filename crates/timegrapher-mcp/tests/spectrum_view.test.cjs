@@ -14,7 +14,7 @@ const context = vm.createContext({
   fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], periodsLog: false, wheelTitle: String,
   xyChart: (chart) => { context.last = JSON.parse(JSON.stringify(chart)); return "<svg data-test='FFT'></svg>"; },
 });
-vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" +
+vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
   ["esc", "spectrumOf", "steadyNote", "steadyPlot"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
 function render(support, timing = true) {
   context.fftTiming = timing;

@@ -216,6 +216,9 @@ const TIME_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 
 // 5 and 10 px apart.
 // A call-out's width (strength::CALL_OUT_W).
 const CALL_OUT_W = 1.2;
+// How strongly the cycle plot's boxes are drawn: the shape's colour at this
+// opacity, so the shape stays on top (steady::BOX_OPACITY).
+const BOX_OPACITY = 0.6;
 const DASH = { dashed: "4 3", dotted: "1.2 2.4", loose: "6 5", wheel: "4 4", dense: "0 5", sparse: "0 10" };
 
 // Charts are drawn at the width they are shown, so their text stays at its size.
@@ -829,7 +832,7 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
 //   notes: [{x, y, text, above}] beside a point; beside: [{x, y, text}], a
 //   marked point's note in the nearest clear space (marks::beside), the y
 //   range kept tall enough for it (noteRoom); corner: {text, top}, a line
-//   per "\n"; rects: [{x0, x1, y0, y1, color}] outlined; a dot set's rgb
+//   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined; a dot set's rgb
 //   overrides its color
 function xyChart(o) {
   const W = chartWidth(), B = 20, R = 6;
@@ -881,7 +884,7 @@ function xyChart(o) {
   }
   for (const r of o.rects || []) {
     const [a, b] = [sx(r.x0), sx(r.x1)], [c, d] = [sy(r.y1), sy(r.y0)];
-    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})" stroke-width="1"/>`;
+    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"/>`;
   }
   for (const d of o.dots || []) {
     inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
@@ -1227,21 +1230,19 @@ function wheelLines(doc, span) {
   return out.filter(inside);
 }
 // steady::WheelLine::rank and ink: a wheel's name is strong, a ×2's or a
-// reference's faint; a wheel's line is the wheels' grey, a ×2's fainter, a
-// reference's the tertiary grey.
+// reference's faint; every line is a call-out, so the call-out grey, and
+// its pattern tells a wheel, a ×2 and a reference apart.
 function wheelRank(l) { return l.turn === "wheel" ? "strong" : "faint"; }
-function wheelInk(l) {
-  return l.turn === "reference" ? { ink: "--text3" } : l.turn === "twice" ? { ink: "--wheel", opacity: 0.6 } : { ink: "--wheel" };
-}
+function wheelInk() { return { ink: "--callout" }; }
 
-// steady::wheel_marks: the lines down a period plot, under its trace: a
-// wheel's dotted, a ×2's looser and fainter, a reference's solid; named
+// steady::wheel_marks: the lines down a period plot, under its trace, all
+// call-outs: a wheel's dotted, a ×2's looser, a reference's solid; named
 // above the plot by the lane rules.
 function wheelMarks(doc, span) {
   return wheelLines(doc, span).map((l) => {
-    const { ink, opacity } = wheelInk(l);
-    const style = l.turn === "wheel" ? { width: 2, dash: "dense" } : l.turn === "twice" ? { width: 1.25, dash: "sparse" } : { width: 1.25 };
-    return { x: l.x, color: ink, opacity, ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
+    const { ink } = wheelInk(l);
+    const style = l.turn === "wheel" ? { dash: "dense" } : l.turn === "twice" ? { dash: "sparse" } : {};
+    return { x: l.x, color: ink, width: CALL_OUT_W, ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
   });
 }
 
@@ -1318,7 +1319,7 @@ function steadyPlot(s, view, doc) {
         title: "Periods", x: span, y,
         xTicks: periodTicks,
         yTicks: periodsLog ? (a, b) => logTicks(a, b, sig) : (a, b, h) => linTicks(a, b, h, 24, (y) => y.toFixed(0)),
-        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--text2", dash: "loose" }],
+        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes, noteRoom: true,
       });
     }
@@ -1340,7 +1341,7 @@ function steadyPlot(s, view, doc) {
       const [lo, hi] = f.y_range || [0, 1];
       // Each phase's middle half, over every cycle folded (core's columns).
       const boxW = 0.3 * f.period_s / bins;
-      const rects = (f.columns || []).map((q, b) => q && { x0: at(b) - boxW, x1: at(b) + boxW, y0: q[0], y1: q[2], color: "--text3" }).filter(Boolean);
+      const rects = (f.columns || []).map((q, b) => q && { x0: at(b) - boxW, x1: at(b) + boxW, y0: q[0], y1: q[2], color, opacity: BOX_OPACITY, width: 1.5 }).filter(Boolean);
       const n = f.cycles || rows;
       let label;
       if (f.from === "own") {
@@ -1380,7 +1381,7 @@ function steadyPlot(s, view, doc) {
         title: "Autocorrelation", x: [0, xHi], y: [lo - 0.05, 1.35],
         xTicks: (p, q, w) => linTicks(p, q, w, Math.min(80, w / 4), (t) => lagText(t), TIME_STEPS),
         yTicks: (p, q, h) => linTicks(p, q, h, 24, (y, st) => stepText(y, st)),
-        hlines: [{ y: 0, color: "--text3" }, { y: a.band, color: "--text2", dash: "loose" }, { y: -a.band, color: "--text2", dash: "loose" }],
+        hlines: [{ y: 0, color: "--axis" }, { y: a.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { y: -a.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes,
         corner: Number.isFinite(a.p_value) ? { text: `Ljung–Box p = ${pText(a.p_value)}`, top: true } : null,
       });
@@ -1444,7 +1445,7 @@ function steadyPlot(s, view, doc) {
         title: "Allan Deviation", x, y,
         xTicks: periodTicks,
         yTicks: (p, q) => logTicks(p, q, (d) => sig(d) + unit),
-        lines: [{ pts: white, color: "--text2", width: 1, dash: "loose" }, { pts: dev, color, width: 1.5 }],
+        lines: [{ pts: white, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { pts: dev, color, width: 1.5 }],
         dots: [{ pts: dev, color, r: 2 }], notes,
       });
     }
@@ -1462,7 +1463,7 @@ function steadyPlot(s, view, doc) {
         title: "CUSUM", x: [Math.min(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[0]))], y: [-m, m],
         xTicks: (p, q, w) => linTicks(p, q, w, Math.min(80, w / 4), (t) => fmtTime(t), TIME_STEPS),
         yTicks: (p, q, h) => linTicks(p, q, h, 24, (y, st) => stepText(y, st)),
-        hlines: [{ y: 0, color: "--text3" }, { y: c.band, color: "--text2", dash: "loose" }, { y: -c.band, color: "--text2", dash: "loose" }],
+        hlines: [{ y: 0, color: "--axis" }, { y: c.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { y: -c.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, notes,
       });
     }
@@ -1537,7 +1538,7 @@ function steadySwitch() {
 const INFO_HINT = "Info: what this view shows, and each reading's findings and statistics, in full.";
 
 // steady::WHEELS_HINT.
-const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a grey dotted line named above the plot, and half of it fainter, where a wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and one hour are marked in grey instead: periods alone, named after no wheel.";
+const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a grey dotted line named above the plot, and half of it more loosely dotted, where a wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and one hour are marked in grey instead: periods alone, named after no wheel.";
 
 function wireSteadiness(root) {
   for (const b of root.querySelectorAll("button[data-steady]")) {
@@ -1639,23 +1640,23 @@ function mapChart(m, doc, log) {
   const sx = (x) => L + (x - x0) / (x1 - x0) * plotW;
   const sy = (y) => T + (top - y) / (top - bottom) * plotH;
   const area = plotArea(L, T, plotW, plotH);
-  let g = area.svg, grid = "";
+  // The map fills the plot, so no grid is drawn and its axes go over it,
+  // below (strength::Grid::draw_axes).
+  let g = area.svg;
   for (const [v, t] of yt) {
-    grid += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const [v, t] of xt) {
-    grid += `${gridDown(sx(v), L, T, plotH)}`;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
-  g += `<g clip-path="url(#${area.id})">${grid}</g>`;
   // tfmap::wheel_rows: the wheels' turns across the map, dotted; their
   // names are in the lane beside it, so nothing else is drawn over the
   // colour.
-  let over = "";
+  // The map fills the plot, so its axes are drawn over it.
+  let over = `<path class="axis" fill="none" d="M${L} ${T}V${T + plotH}H${L + plotW}"/>`;
   for (const l of lines) {
-    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="1.25"${l.opacity ? ` stroke-opacity="${l.opacity}"` : ""} stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
+    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="${CALL_OUT_W}" stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
   }
   over += laneRight(lines.map((l) => ({ ...l, y: sy(l.x) })), L + plotW, T, T + plotH);
   const k = mapPaints.length;

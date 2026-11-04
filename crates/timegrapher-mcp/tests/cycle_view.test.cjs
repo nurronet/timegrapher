@@ -19,7 +19,7 @@ const context = vm.createContext({
   plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "",
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const TIME_BANDS = .*$/m)[0] + "\n" +
-  html.match(/^const DASH = .*$/m)[0] + "\n" +
+  html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
   ["esc", "axisLabel", "stepText", "viridisRgb", "steadyNote", "steadyPlot", "xyChart"].map(definition).join("\n") +
   "\nthis.realChart = xyChart;", context);
 const plain = (v) => JSON.parse(JSON.stringify(v));
