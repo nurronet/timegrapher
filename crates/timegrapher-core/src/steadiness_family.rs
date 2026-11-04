@@ -201,12 +201,6 @@ pub(super) fn level_holds(s: &SeriesCheck, cfg: &Config) -> bool {
         .is_some_and(|c| c.p_value < cfg.level_alpha)
 }
 
-/// The CUSUM's p that the level never moves: the Kolmogorov tail of its
-/// largest |S|, S scaled by the readings' long-run σ (#647, #917).
-pub(super) fn walk_p(s: &[f64]) -> f64 {
-    crate::cusum::kolmogorov_tail(s.iter().fold(0.0, |m: f64, v| m.max(v.abs())))
-}
-
 /// Why a test that `bar` held to did not pass: its own bar, or (a bar
 /// of 0) Holm's correction dropping it after its own bar kept it.
 fn not_significant(p: f64, bar: f64, what: &str) -> String {

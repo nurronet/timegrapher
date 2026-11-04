@@ -1144,7 +1144,7 @@ pub fn check_series(
             block_sigma: bs,
             long_run_sigma: lr,
             explained: explained(y, &fitted),
-            p_value: walk.as_ref().map_or(1.0, |w| family::walk_p(&w.1)),
+            p_value: walk.as_ref().map_or(1.0, |w| crate::cusum::walk_p(&w.1)),
             segments: segs,
             named: false,
             note: None,
