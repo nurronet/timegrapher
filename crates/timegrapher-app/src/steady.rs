@@ -8,6 +8,7 @@
 //! while it grows, and the pane shows the latest answer.
 
 use crate::marks::{self, Rank};
+use crate::strength::{self, Strength, DATA_W};
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use egui_plot::{
@@ -511,6 +512,31 @@ fn db_grid(input: GridInput) -> Vec<GridMark> {
         .collect()
 }
 
+/// Grid lines for a time axis, about 80 points apart at round times.
+pub fn time_grid(input: GridInput) -> Vec<GridMark> {
+    theme::even_grid(input, 80.0, &theme::TIME_STEPS)
+}
+
+/// Grid lines for a value axis, about 24 points apart.
+fn even_grid(input: GridInput) -> Vec<GridMark> {
+    theme::even_grid(input, 24.0, &[])
+}
+
+/// The grid of a series' readings over time: rate and beat error have a
+/// zero line (0 s/d, 0 ms), amplitude none.
+fn value_grid(k: SeriesKind) -> strength::Grid {
+    let grid = strength::Grid::new(time_grid, even_grid);
+    if k == SeriesKind::Amplitude {
+        grid
+    } else {
+        grid.zero_y()
+    }
+}
+
+/// How strongly the cycle plot's boxes are drawn: the shape's colour at
+/// this opacity, so the shape stays on top.
+const BOX_OPACITY: f32 = 0.6;
+
 /// A level in dB as an axis or a key gives it: "0 dB", "−10 dB".
 pub fn db_label(v: f64) -> String {
     format!("{:.0} dB", v + 0.0).replace('-', "−")
@@ -855,15 +881,11 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
     }
     let k = c.series;
     let colour = series_colour(k, pal);
-    let weak = pal.text_tertiary;
     let id = ("steadiness", i, view);
     // The plot's width inside its value axis, for the time labels at the
     // right edge.
     let plot_w = f64::from(ui.available_width() - 64.0);
     let base = Plot::new(id)
-        // Grid lines reach full strength only this far apart, so at the
-        // usual spacing they are faint.
-        .grid_spacing(8.0..=1200.0)
         .allow_scroll(false)
         .allow_zoom(false)
         .allow_drag(false)
@@ -874,7 +896,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         .show_y(false)
         .y_axis_min_width(64.0)
         .height(ui.available_height().max(40.0));
-    let dashed = LineStyle::Dashed { length: 6.0 };
+    let dashed = strength::dashed();
     let r = Row {
         s,
         i,
@@ -883,7 +905,6 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         opts,
         k,
         colour,
-        weak,
         id,
         plot_w,
         base,
@@ -911,7 +932,6 @@ struct Row<'a> {
     opts: Opts,
     k: SeriesKind,
     colour: Color32,
-    weak: Color32,
     id: (&'static str, usize, View),
     plot_w: f64,
     base: Plot<'static>,
@@ -942,10 +962,10 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         .map(|j| [g.time(j), g.y[j]])
         .collect();
     let range = spread(&pts);
-    let mut plot = base
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+    let grid = value_grid(k);
+    let mut plot = grid
+        .on(base)
         .x_axis_formatter(clear_of_edge(plot_w, length_text))
-        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size));
     if let Some((lo, hi)) = range {
         plot = plot.default_y_bounds(lo, hi);
@@ -953,6 +973,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     // What a dot is, and how many are drawn, as Charts' key.
     let key = format!("{} ({})", kind_of(g.step), pts.len());
     let resp = plot.show(ui, |p| {
+        grid.draw(p, pal);
         p.points(Points::new("readings", pts).color(colour).radius(1.4_f32));
         if let Some(ch) = &c.changes {
             if ch.segments.len() > 1 {
@@ -970,12 +991,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         }
         if let Some(levels) = state_levels(c.two_state.as_ref()) {
             for v in levels {
-                p.hline(
-                    HLine::new("state", v)
-                        .color(pal.text)
-                        .style(dashed)
-                        .width(1.0_f32),
-                );
+                p.hline(call_out(HLine::new("state", v), dashed, pal));
             }
         }
     });
@@ -1070,32 +1086,32 @@ fn periods_plot(ui: &mut egui::Ui, r: Row<'_>) {
         top
     };
     let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-    let mut plot = base
+    let periods = period_grid(ui.available_width());
+    let grid = if db {
+        strength::Grid::new(periods, db_grid)
+    } else {
+        strength::Grid::new(periods, even_grid)
+    };
+    let plot = grid
+        .on(base)
         .height(ui.available_height().max(40.0))
-        .x_grid_spacer(period_grid(ui.available_width()))
         .x_axis_formatter(clear_of_edge(plot_w, period_label))
         .default_x_bounds(x_lo, x_hi)
         .default_y_bounds(y_lo, top);
-    plot = if db {
-        plot.y_grid_spacer(db_grid)
-            .y_axis_formatter(|m, _| db_label(m.value))
+    let plot = if db {
+        plot.y_axis_formatter(|m, _| db_label(m.value))
     } else {
-        plot.y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
-            .y_axis_formatter(|m, _| plain(m.value, m.step_size))
+        plot.y_axis_formatter(|m, _| plain(m.value, m.step_size))
     };
     let resp = plot.show(ui, |p| {
+        grid.draw(p, pal);
         wheel_marks(p, &lines, pal);
-        p.hline(
-            HLine::new("threshold", threshold)
-                .color(pal.text_secondary)
-                .style(dashed)
-                .width(1.0_f32),
-        );
+        p.hline(call_out(HLine::new("threshold", threshold), dashed, pal));
         // Over the lines, under the trace.
         if let Some(n) = &names {
             n.inside(p, &lines, &pts, fill);
         }
-        p.line(Line::new("score", pts.clone()).color(colour).width(1.5_f32));
+        p.line(Line::new("score", pts.clone()).color(colour).width(DATA_W));
         if let Some((at, _)) = &found {
             p.points(Points::new("peak", vec![*at]).color(colour).radius(3.5_f32));
         }
@@ -1167,7 +1183,6 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
         c,
         k,
         colour,
-        weak,
         plot_w,
         base,
         pal,
@@ -1203,10 +1218,10 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
         .map(|(b, v)| [x(b), *v])
         .collect();
     let range = steady_views::fold_range(f);
-    let mut plot = base
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+    let grid = value_grid(k);
+    let mut plot = grid
+        .on(base)
         .x_axis_formatter(clear_of_edge(plot_w, lag_text))
-        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size))
         .default_x_bounds(0.0, f.period_s);
     if let Some((lo, hi)) = range {
@@ -1217,7 +1232,11 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
     // axis or runs past the plot's edges.
     ui.add(egui::Label::new(RichText::new(label).small().color(pal.text_secondary)).wrap());
     let plot = plot.height(ui.available_height().max(40.0));
+    // The boxes are drawn from the readings, so they are data: the
+    // shape's colour, lighter, so the shape stays on top.
+    let box_c = colour.gamma_multiply(BOX_OPACITY);
     plot.show(ui, |p| {
+        grid.draw(p, pal);
         for (band, pts) in by_time.into_iter().enumerate() {
             if pts.is_empty() {
                 continue;
@@ -1239,7 +1258,7 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
             p.polygon(
                 Polygon::new("middle half", vec![[l, q1], [r, q1], [r, q3], [l, q3]])
                     .fill_color(Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::new(1.0_f32, weak)),
+                    .stroke(egui::Stroke::new(DATA_W, box_c)),
             );
         }
         p.line(Line::new("shape", shape).color(colour).width(2.0_f32));
@@ -1253,7 +1272,6 @@ fn autocorrelation_plot(ui: &mut egui::Ui, r: Row<'_>) {
         c,
         view,
         colour,
-        weak,
         plot_w,
         base,
         dashed,
@@ -1275,25 +1293,20 @@ fn autocorrelation_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let short = note_short(ui, &None, (i, view));
     let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
     let ljung = format!("Ljung–Box p = {} ", steadiness::p_text(a.p_value));
-    let resp = base
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+    let grid = strength::Grid::new(time_grid, even_grid).zero_y();
+    let resp = grid
+        .on(base)
         .x_axis_formatter(clear_of_edge(plot_w, lag_text))
-        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(|m, _| plain(m.value, m.step_size))
         .default_x_bounds(0.0, x_hi)
         // Room above the curve for the Ljung–Box note.
         .default_y_bounds(lo - 0.05, 1.35)
         .show(ui, |p| {
-            p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
+            grid.draw(p, pal);
             for b in [a.band, -a.band] {
-                p.hline(
-                    HLine::new("band", b)
-                        .color(pal.text_secondary)
-                        .style(dashed)
-                        .width(1.0_f32),
-                );
+                p.hline(call_out(HLine::new("band", b), dashed, pal));
             }
-            p.line(Line::new("r", pts.clone()).color(colour).width(1.5_f32));
+            p.line(Line::new("r", pts.clone()).color(colour).width(DATA_W));
             if let (Some(l), Some(r)) = (a.repeat_lag_s, a.repeat_r) {
                 p.points(
                     Points::new("repeat", vec![[l, r]])
@@ -1345,17 +1358,18 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
     };
     let dev = both(&a.deviation);
     let white = both(&a.white);
-    base.x_grid_spacer(period_grid(ui.available_width()))
+    let grid = strength::Grid::new(period_grid(ui.available_width()), log_grid);
+    grid.on(base)
         .x_axis_formatter(clear_of_edge(plot_w, period_label))
-        .y_grid_spacer(log_grid)
         .y_axis_formatter(move |m, r| log_label(m, r, |v| unit_sig(k, v)))
         .show(ui, |p| {
+            grid.draw(p, pal);
             let last = white.last().copied();
             p.line(
                 Line::new("independent", white)
-                    .color(pal.text_secondary)
+                    .color(pal.callout)
                     .style(dashed)
-                    .width(1.0_f32),
+                    .width(strength::CALL_OUT_W),
             );
             // Name the dashed line where it ends.
             if let Some(at) = last {
@@ -1370,7 +1384,7 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
             p.line(
                 Line::new("deviation", dev.clone())
                     .color(colour)
-                    .width(1.5_f32),
+                    .width(DATA_W),
             );
             p.points(
                 Points::new("deviation points", dev)
@@ -1397,7 +1411,6 @@ fn cusum_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let Row {
         c,
         colour,
-        weak,
         plot_w,
         base,
         dashed,
@@ -1415,22 +1428,17 @@ fn cusum_plot(ui: &mut egui::Ui, r: Row<'_>) {
         .map(|(t, v)| [*t, *v])
         .collect();
     let m = pts.iter().map(|p| p[1].abs()).fold(1.6, f64::max) * 1.1;
-    base.x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
+    let grid = strength::Grid::new(time_grid, even_grid).zero_y();
+    grid.on(base)
         .x_axis_formatter(clear_of_edge(plot_w, length_text))
-        .y_grid_spacer(|g| theme::even_grid(g, 24.0, &[]))
         .y_axis_formatter(|m, _| plain(m.value, m.step_size))
         .default_y_bounds(-m, m)
         .show(ui, |p| {
-            p.hline(HLine::new("zero", 0.0).color(weak).width(1.0_f32));
+            grid.draw(p, pal);
             for b in [cu.band, -cu.band] {
-                p.hline(
-                    HLine::new("95%", b)
-                        .color(pal.text_secondary)
-                        .style(dashed)
-                        .width(1.0_f32),
-                );
+                p.hline(call_out(HLine::new("95%", b), dashed, pal));
             }
-            p.line(Line::new("cusum", pts.clone()).color(colour).width(1.5_f32));
+            p.line(Line::new("cusum", pts.clone()).color(colour).width(DATA_W));
             if cu.shift {
                 let y = cu.at;
                 p.points(
@@ -1591,20 +1599,21 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
     } else {
         top
     };
-    let resp = base
+    let grid = strength::Grid::new(period_grid(ui.available_width()), log_grid);
+    let resp = grid
+        .on(base)
         .height(ui.available_height().max(40.0))
-        .x_grid_spacer(period_grid(ui.available_width()))
         .x_axis_formatter(clear_of_edge(plot_w, period_label))
-        .y_grid_spacer(log_grid)
         .y_axis_formatter(move |m, r| log_label(m, r, size))
         .default_x_bounds(x_lo, x_hi)
         .default_y_bounds(y_lo, top)
         .show(ui, |p| {
+            grid.draw(p, pal);
             wheel_marks(p, &lines, pal);
             if let Some(n) = &names {
                 n.inside(p, &lines, &tops, fill);
             }
-            p.line(Line::new("spectrum", pts).color(colour).width(1.5_f32));
+            p.line(Line::new("spectrum", pts).color(colour).width(DATA_W));
             if let Some((at, _)) = &tallest {
                 p.points(
                     Points::new("tallest", vec![*at])
@@ -1641,8 +1650,8 @@ pub struct Opts {
 
 /// What Wheel Periods does, for its hint.
 pub const WHEELS_HINT: &str = "Mark the period each of the calibre's wheels turns in, in \
-     a grey dotted line named above the plot, and half of it fainter, where a wheel that is off centre \
-     shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
+     a grey dotted line named above the plot, and half of it more loosely dotted, where a \
+     wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and \
      one hour are marked in grey instead: periods alone, named after no wheel.";
 
 /// The wheels to mark: `None` when the marks are off.
@@ -1679,13 +1688,19 @@ impl WheelLine {
         }
     }
 
-    /// Its line's colour: the wheels' grey, a ×2 fainter, a reference in
-    /// the tertiary grey.
+    /// Its line's colour: every one is a call-out, so the call-out grey;
+    /// its pattern tells a wheel, a ×2 and a reference apart.
     pub fn ink(&self, pal: &theme::Palette) -> Color32 {
-        match self.turn {
-            Turn::Wheel => pal.wheel,
-            Turn::Twice => pal.wheel.gamma_multiply(0.6),
-            Turn::Reference => pal.text_tertiary,
+        strength::colour(Strength::CallOut, pal)
+    }
+
+    /// Its line's width: a wheel's a full call-out, a ×2 or a reference
+    /// a fainter one.
+    pub fn width(&self) -> f32 {
+        if self.turn == Turn::Wheel {
+            strength::CALL_OUT_W
+        } else {
+            strength::FAINT_CALL_OUT_W
         }
     }
 }
@@ -1741,18 +1756,27 @@ pub(crate) fn wheel_lines(wheels: Option<&[Wheel]>, (x_lo, x_hi): (f64, f64)) ->
     out
 }
 
-/// The lines in the plot, under its trace: a wheel's dotted, a ×2's
-/// looser and fainter, a reference's solid. Their names are drawn by
+/// The lines in the plot, under its trace, all call-outs: a wheel's
+/// dotted, a ×2's looser, a reference period's solid (a named mark). Their names are drawn by
 /// [`wheel_names`].
 fn wheel_marks(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::Palette) {
     for l in lines {
-        let v = VLine::new(l.name.clone(), l.x).color(l.ink(pal));
+        let v = VLine::new(l.name.clone(), l.x)
+            .color(l.ink(pal))
+            .width(l.width());
         p.vline(match l.turn {
-            Turn::Wheel => v.style(LineStyle::dotted_dense()).width(2.0_f32),
-            Turn::Twice => v.style(LineStyle::dotted_loose()).width(1.25_f32),
-            Turn::Reference => v.width(1.25_f32),
+            Turn::Wheel => v.style(LineStyle::dotted_dense()),
+            Turn::Twice => v.style(LineStyle::dotted_loose()),
+            Turn::Reference => v,
         });
     }
+}
+
+/// A reference or fitted line across a plot (a threshold, a band, a
+/// state level): a call-out, dashed.
+fn call_out(h: HLine, dashed: LineStyle, pal: &theme::Palette) -> HLine {
+    let s = strength::stroke(Strength::CallOut, pal);
+    h.color(s.color).width(s.width).style(dashed)
 }
 
 /// The room a plot's x axis takes under it, points: near enough to tell

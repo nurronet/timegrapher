@@ -524,7 +524,7 @@ fn wheel_periods_marks_the_wheels_in_their_colour_or_the_reference_periods() {
         ];
     let ctx = egui::Context::default();
     theme::install(&ctx);
-    let wheel = theme::palette(ctx.style().visuals.dark_mode).wheel;
+    let wheel = theme::palette(ctx.style().visuals.dark_mode).callout;
     let drawn = |state: &Steadiness, wheels: bool| {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -560,8 +560,9 @@ fn wheel_periods_marks_the_wheels_in_their_colour_or_the_reference_periods() {
     };
     let named =
         |texts: &[(String, Color32)], name: &str| texts.iter().filter(|(t, _)| t == name).count();
-    // The wheel's grey is the faint text colour, which the plot uses
-    // too: the wheel's line and name add to what is drawn in it.
+    // The wheel's grey is the call-out grey, which the plot's other
+    // call-outs use too: the wheel's line and name add to what is drawn
+    // in it.
     let in_wheel = |shapes: &str| shapes.matches(&format!("{wheel:?}")).count();
     let (on, shapes_on) = drawn(&state, true);
     assert_eq!(named(&on, "Fourth Wheel"), 1, "{on:?}");
@@ -1243,4 +1244,22 @@ fn a_few_wild_readings_leave_the_scale_alone() {
         .collect();
     let (lo, hi) = spread(&two).unwrap();
     assert!(lo < 10.0 && hi > 30.0, "{lo} to {hi}");
+}
+
+/// A wheel's line is a full call-out; a ×2 or a reference period is a
+/// fainter one, in the same grey.
+#[test]
+fn a_wheels_twice_and_a_reference_are_fainter_call_outs() {
+    let line = |turn| WheelLine {
+        x: 1.0,
+        turn,
+        name: String::new(),
+        short: String::new(),
+        hover: String::new(),
+    };
+    assert_eq!(line(Turn::Wheel).width(), crate::strength::CALL_OUT_W);
+    assert_eq!(line(Turn::Twice).width(), 1.0);
+    assert_eq!(line(Turn::Reference).width(), 1.0);
+    let pal = &theme::DARK;
+    assert_eq!(line(Turn::Twice).ink(pal), line(Turn::Wheel).ink(pal));
 }

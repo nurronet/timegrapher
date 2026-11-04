@@ -15,6 +15,7 @@ use crate::theme;
 use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use timegrapher_core::beats::Beat;
+use timegrapher_core::chart_scale::axis_number;
 use timegrapher_core::library::length_text;
 use timegrapher_core::power_reserve::{self, Ending, Heard, Results};
 
@@ -524,8 +525,7 @@ fn hour_chart(ui: &mut egui::Ui, hours: &[power_reserve::Hour], height: f32) {
             .allow_scroll(false)
             .include_x(0.0)
             .include_x(last)
-            // Plus zero: never "-0 h".
-            .x_axis_formatter(|m, _| format!("{:.0} h", m.value + 0.0))
+            .x_axis_formatter(|m, _| format!("{} h", axis_number(m.value, m.step_size)))
             // The point under the pointer in words: hours into the run and
             // the hour's figure.
             .label_formatter(move |name, v| {

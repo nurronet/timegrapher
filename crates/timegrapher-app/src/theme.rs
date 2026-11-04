@@ -50,8 +50,6 @@ pub struct Palette {
     pub peak: Color32,
     /// The three sounds on the tick tock profile.
     pub sound: Color32,
-    /// A calibre's wheels, where their turns are marked on a period axis.
-    pub wheel: Color32,
     /// The lines on a plot by strength: see [`crate::strength`].
     pub grid_opacity: f32,
     pub axis_opacity: f32,
@@ -120,11 +118,10 @@ const fn from_core(p: &core_palette::Palette, track: [f32; 3]) -> Palette {
         positions: c(p.positions),
         bad: c(p.bad),
         live: c(p.live),
-        unlock: c(p.unlock),
-        drop: c(p.drop),
-        peak: c(p.peak),
-        sound: c(p.sound),
-        wheel: c(p.wheel),
+        unlock: c(p.callout),
+        drop: c(p.callout),
+        peak: c(p.callout),
+        sound: c(p.callout),
         grid_opacity: p.grid_opacity,
         axis_opacity: p.axis_opacity,
         callout: c(p.callout),

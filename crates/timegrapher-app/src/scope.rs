@@ -9,9 +9,11 @@
 //! sound that changes from beat to beat shows as a blur.
 
 use crate::marks::{self, Rank};
+use crate::strength::{self, Zero};
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use timegrapher_core::beats::Beat;
+use timegrapher_core::chart_scale::axis_number;
 use timegrapher_core::filter::highpass4;
 
 /// How much of each beat is drawn.
@@ -176,7 +178,7 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
     let (before, _) = zoom.window(beat_s);
     let span = zoom.span_ms(beat_s);
     let x_of = |ms: f64| plot.left() + ((ms + before * 1000.0) / span) as f32 * plot.width();
-    time_axis(&painter, plot, pal, zoom, beat_s, x_of);
+    let grid = time_axis(&painter, plot, pal, zoom, beat_s, x_of);
     let n = rows.len().max(1);
     let gap = 6.0;
     // With the marks on, each row keeps a lane of one row of names above
@@ -201,10 +203,9 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
             row.color,
         );
         let mid = r.center().y;
-        painter.line_segment(
-            [egui::pos2(r.left(), mid), egui::pos2(r.right(), mid)],
-            egui::Stroke::new(1.0_f32, pal.separator),
-        );
+        // Each row its own plot: the time grid, its silence (the middle)
+        // as a zero line, and its left and bottom axes.
+        strength::paint(&painter, r, (&grid, &[]), Zero::Across(mid), pal);
         // The edges, solid and under the trace, as on the Profile.
         let edges: Vec<(f32, &Mark)> = row
             .marks
@@ -215,7 +216,7 @@ pub fn draw(ui: &mut egui::Ui, rows: &[Row], zoom: Zoom, beat_s: f64, fs: f64) {
         for (x, m) in &edges {
             painter.line_segment(
                 [egui::pos2(*x, r.top()), egui::pos2(*x, r.bottom())],
-                egui::Stroke::new(1.0_f32, m.color),
+                egui::Stroke::new(strength::CALL_OUT_W, m.color),
             );
         }
         let top = row
@@ -279,7 +280,8 @@ fn lane_names(ui: &mut egui::Ui, r: egui::Rect, edges: &[(f32, &Mark)], id: egui
     marks::lane_above_one(ui, r, &named, id);
 }
 
-/// The grid and the time axis under the rows, in ms from the drop.
+/// The time axis under the rows, in ms from the drop; and where its grid
+/// lines fall across, in points, for each row to draw.
 fn time_axis(
     painter: &egui::Painter,
     plot: egui::Rect,
@@ -287,27 +289,21 @@ fn time_axis(
     zoom: Zoom,
     beat_s: f64,
     x_of: impl Fn(f64) -> f32,
-) {
+) -> Vec<f32> {
+    let mut lines = Vec::new();
     let (before, _) = zoom.window(beat_s);
     let span = zoom.span_ms(beat_s);
     let step = zoom.step_ms(beat_s);
     let mut ms = -(before * 1000.0 / step).floor() * step + 0.0;
     while ms <= span - before * 1000.0 + 1e-9 {
         let x = x_of(ms);
-        painter.line_segment(
-            [egui::pos2(x, plot.top()), egui::pos2(x, plot.bottom())],
-            egui::Stroke::new(1.0_f32, pal.separator),
-        );
-        // Room left at the right for the unit; no "-0".
+        lines.push(x);
+        // Room left at the right for the unit.
         if x < plot.right() - 22.0 {
             painter.text(
                 egui::pos2(x, plot.bottom() + 3.0),
                 egui::Align2::CENTER_TOP,
-                if step < 1.0 {
-                    format!("{:.1}", ms + 0.0)
-                } else {
-                    format!("{:.0}", ms + 0.0)
-                },
+                axis_number(ms, step),
                 egui::FontId::proportional(11.0),
                 pal.text_tertiary,
             );
@@ -321,6 +317,7 @@ fn time_axis(
         egui::FontId::proportional(11.0),
         pal.text_tertiary,
     );
+    lines
 }
 
 /// Each column's highest point over every trace in the row `r`, for

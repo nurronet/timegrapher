@@ -2173,9 +2173,11 @@ impl TimegrapherApp {
                     if let Some((_, opened)) = carried {
                         self.opened_positions = opened;
                     }
-                    // A take with no sound shows the profiles it kept.
+                    // A take with no sound shows the profiles it kept,
+                    // thinned as listening thins them (#483).
                     if let Some(k) = profiles {
                         self.sound_history = k.into_iter().map(|p| (p.end_s, p.sides)).collect();
+                        scope_panes::thin_sound(&mut self.sound_history);
                     }
                 }
                 Ok(None) => {}
