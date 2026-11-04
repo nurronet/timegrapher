@@ -540,6 +540,10 @@ macro_rules! dim_key {
     };
 }
 
+/// The key's words, for the Positions Test table too: the two tables
+/// show the same fact the same way (#1076).
+pub const DIM_KEY: &str = dim_key!();
+
 /// An hour whose beat error is dimmed: not from the unlock.
 fn dimmed(h: &power_reserve::Hour) -> bool {
     h.beat_error_source != Some(BeatErrorSource::Unlock)

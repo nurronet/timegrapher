@@ -998,6 +998,14 @@ fn table_grid(
     let pal = theme::pal(ui);
     const FROM: &str = "From Average, s/d";
     let from_w = FIGURE_W.max(head_w(ui, FROM));
+    // The dimming's key over the table, as the Power Reserve table's.
+    if t.beat_error_dimmed.iter().any(|d| *d) {
+        ui.label(RichText::new(crate::reserve::DIM_KEY).color(pal.text_secondary));
+    }
+    let be_hint = format!(
+        "As a size, from the unlock, or from the drop where the unlock isn't found. {}",
+        crate::reserve::DIM_KEY
+    );
     egui::Grid::new(id)
         .num_columns(5)
         .spacing(Vec2::new(16.0, 5.0))
@@ -1015,7 +1023,7 @@ fn table_grid(
                     "Amplitude, °",
                     "The balance's swing, from the lift angle set",
                 ),
-                ("Beat Error, ms", "From the unlock, as a size"),
+                ("Beat Error, ms", be_hint.as_str()),
             ] {
                 column_head(ui, FIGURE_W, h, hint);
             }
@@ -1028,7 +1036,12 @@ fn table_grid(
                         right(ui, signed(*rate, 1), false, pal.text);
                         right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
                         right(ui, plain(*amp, 0), false, pal.text);
-                        right(ui, plain(*be, 2), false, pal.text).on_hover_text(
+                        let be_ink = if t.beat_error_dimmed.get(i).copied().unwrap_or(false) {
+                            pal.text_secondary
+                        } else {
+                            pal.text
+                        };
+                        right(ui, plain(*be, 2), false, be_ink).on_hover_text(
                             t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
                         );
                     }
@@ -1431,6 +1444,9 @@ pub type Row = (String, Option<f64>, Option<f64>, Option<f64>, Option<f64>);
 pub struct Table {
     pub rows: Vec<Row>,
     pub beat_error_hovers: Vec<String>,
+    /// Each position's beat error dimmed: not from the unlock (from the
+    /// drop, or its source not recorded), as in the Power Reserve table.
+    pub beat_error_dimmed: Vec<bool>,
     pub beat_error_summary: String,
     pub mean_rate: Option<f64>,
     pub mean_amplitude: Option<f64>,
@@ -1541,6 +1557,10 @@ fn table_of(figures: &[SourcedFigures], mut notes: Vec<String>) -> Table {
         beat_error_hovers: figures
             .iter()
             .map(|f| session::beat_error_source_label(f.4).into())
+            .collect(),
+        beat_error_dimmed: figures
+            .iter()
+            .map(|f| f.4 != Some(session::BeatErrorSource::Unlock))
             .collect(),
         beat_error_summary,
         rows: figures
@@ -2808,6 +2828,7 @@ mod tests {
     fn the_table_is_written_for_a_spreadsheet() {
         let t = Table {
             beat_error_hovers: Vec::new(),
+            beat_error_dimmed: Vec::new(),
             beat_error_summary: String::new(),
             rows: vec![
                 (
@@ -2864,6 +2885,8 @@ mod tests {
         assert_eq!(t.notes.len(), 1);
         assert_eq!(t.beat_error_hovers[0], "Beat Error from the Unlock");
         assert_eq!(t.beat_error_hovers[1], "Beat Error from the Drop");
+        // Dimmed as the Power Reserve table dims it (#1076).
+        assert_eq!(t.beat_error_dimmed, vec![false, true, false]);
         assert!(t.beat_error_summary.contains("mean of 2 of 3 positions"));
         assert_eq!(t.notes[0], t.beat_error_summary);
     }
