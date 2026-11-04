@@ -244,8 +244,8 @@ pub const CHARTS: &[&str] = &[
     "The hare, the swing and the seesaw in the toolbar show or hide the Rate, Amplitude \
      and Beat Error charts; the charts shown share the pane's height, and at least one \
      stays on.",
-    "Mouse: the wheel zooms time around the pointer, Ctrl and the wheel the vertical \
-     scale, dragging pans, and a double-click fits the whole session again (and \
+    "Mouse: the wheel zooms time around the pointer, dragging pans it, and a \
+     double-click fits the whole session again (and \
      follows new beats while listening). Clicking a moment shows it on the strip and \
      in the readings.",
 ];
