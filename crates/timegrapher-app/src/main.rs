@@ -38,6 +38,7 @@ mod settings;
 mod settings_window;
 mod span;
 mod steady;
+mod strength;
 mod strip;
 mod tfmap;
 mod theme;
