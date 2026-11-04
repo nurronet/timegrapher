@@ -336,6 +336,27 @@ fn a_long_take_shows_its_run_in_the_power_reserve_pane() {
     assert!(text.contains("Ran from the take's start,at least 6 h 29 min"));
     assert!(!text.contains("Power reserve,"));
     assert_eq!(r.ran(), "Ran at least 6 h 29 min from the take's start");
+    // Its pane, shown later, grows to show the charts and table, as an
+    // opened run's take does: never a sliver.
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(1000.0, 700.0));
+    let mut pass = |app: &mut TimegrapherApp| {
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| app.panels(ctx));
+        }
+    };
+    pass(&mut app);
+    app.reveal_pane(Pane::PowerReserve);
+    pass(&mut app);
+    let id = app.panes.tiles.find_pane(&Pane::PowerReserve).unwrap();
+    let tabs = app.panes.tiles.parent_of(id).unwrap();
+    let tall = app.panes.tiles.rect(tabs).unwrap().height();
+    assert!(tall > MIN_PANE_H + 40.0, "{tall}");
 
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     app.show_log(
