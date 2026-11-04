@@ -25,8 +25,8 @@ const context = vm.createContext({
   plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "", CHAR_W: 6.6, secs: (t) => `${t} s`, wheelTitle: String,
 });
 assert.ok(html.includes("const VIRIDIS = /*VIRIDIS*/null;"), "the server fills the table in");
-vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const MARKS = .*$/m)[0] + "\n" + html.match(/^const WHEELS_HINT = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
-  ["esc", "steadyNote", "steadyPlot", "steadySwitch", "periodTicks", "wheelMarks", "wheelLines", "wheelShort", "wheelRank", "wheelInk", "markOrder", "markStack", "markWidth", "markText", "laneRight", "sideWidth", "referenceLines", "viridisRgb", "scaleAt", "mapScale", "mapOf", "mapSlots", "mapNumber", "mapSize", "mapKeyTitle", "mapChart", "mapPixels", "mapCell"]
+vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const MARKS = .*$/m)[0] + "\n" + html.match(/^const WHEELS_HINT = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
+  ["esc", "steadyNote", "steadyPlot", "steadySwitch", "periodTicks", "wheelMarks", "wheelLines", "wheelShort", "wheelRank", "wheelInk", "wheelWidth", "markOrder", "markStack", "markWidth", "markText", "laneRight", "sideWidth", "referenceLines", "viridisRgb", "scaleAt", "mapScale", "mapOf", "mapSlots", "mapNumber", "mapSize", "mapKeyTitle", "mapChart", "mapPixels", "mapCell"]
     .map(definition).join("\n") + "\nthis.mapPaints = mapPaints; this.WHEELS_HINT = WHEELS_HINT;", context);
 
 // Values made in the renderer's context, as plain ones.
@@ -101,13 +101,13 @@ test("period axes are marked as core's period_ticks marks them", () => {
   assert.deepEqual(plain(context.periodTicks(Math.log10(50), Math.log10(70), 640)), [[Math.log10(60), "1 min"]]);
 });
 
-test("wheels are marked in call-out grey dots, else 1 min and 1 h solid in the same grey, and Wheel Periods turns them off", () => {
+test("wheels are marked in call-out grey dots, else 1 min and 1 h solid and fainter in the same grey, and Wheel Periods turns them off", () => {
   const plainDoc = { input: { settings: { named_wheels: [], reference_lines: [
     { label: "1 min", period_s: 60 }, { label: "1 h", period_s: 3600 }] } } };
   context.showWheels = true;
   assert.deepEqual(plain(context.wheelMarks(plainDoc, [0, 5])), [
-    { x: Math.log10(60), color: "--callout", width: 1.2, name: "1 min", rank: "faint", ink: "--callout", hover: "1 min" },
-    { x: Math.log10(3600), color: "--callout", width: 1.2, name: "1 h", rank: "faint", ink: "--callout", hover: "1 h" },
+    { x: Math.log10(60), color: "--callout", width: 1, name: "1 min", rank: "faint", ink: "--callout", hover: "1 min" },
+    { x: Math.log10(3600), color: "--callout", width: 1, name: "1 h", rank: "faint", ink: "--callout", hover: "1 h" },
   ]);
   // Only those inside the axis.
   assert.equal(context.wheelMarks(plainDoc, [0, 3]).length, 1);
@@ -116,7 +116,7 @@ test("wheels are marked in call-out grey dots, else 1 min and 1 h solid in the s
   const named = { input: { settings: { named_wheels: [{ name: "fourth wheel", period_s: 60 }], reference_lines: [] } } };
   assert.deepEqual(plain(context.wheelMarks(named, [0, 5])), [
     { x: Math.log10(60), color: "--callout", width: 1.2, dash: "dense", name: "fourth wheel", rank: "strong", ink: "--callout", hover: "fourth wheel: 60 s" },
-    { x: Math.log10(30), color: "--callout", width: 1.2, dash: "sparse", name: "fourth wheel ×2", rank: "faint", ink: "--callout", hover: "fourth wheel ×2: 30 s" },
+    { x: Math.log10(30), color: "--callout", width: 1, dash: "sparse", name: "fourth wheel ×2", rank: "faint", ink: "--callout", hover: "fourth wheel ×2: 30 s" },
   ]);
   // On a map (1 to 100 s here), a dotted row at each one inside its
   // periods, named by its short name in the lane right of the map, joined

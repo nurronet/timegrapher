@@ -216,6 +216,9 @@ const TIME_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 
 // 5 and 10 px apart.
 // A call-out's width (strength::CALL_OUT_W).
 const CALL_OUT_W = 1.2;
+// A fainter call-out's width, a ×2's or a reference period's
+// (strength::FAINT_CALL_OUT_W).
+const FAINT_CALL_OUT_W = 1;
 // How strongly the cycle plot's boxes are drawn: the shape's colour at this
 // opacity, so the shape stays on top (steady::BOX_OPACITY).
 const BOX_OPACITY = 0.6;
@@ -1234,6 +1237,9 @@ function wheelLines(doc, span) {
 // its pattern tells a wheel, a ×2 and a reference apart.
 function wheelRank(l) { return l.turn === "wheel" ? "strong" : "faint"; }
 function wheelInk() { return { ink: "--callout" }; }
+// steady::WheelLine::width: a wheel's a full call-out, a ×2 or a reference
+// a fainter one.
+function wheelWidth(l) { return l.turn === "wheel" ? CALL_OUT_W : FAINT_CALL_OUT_W; }
 
 // steady::wheel_marks: the lines down a period plot, under its trace, all
 // call-outs: a wheel's dotted, a ×2's looser, a reference's solid; named
@@ -1242,7 +1248,7 @@ function wheelMarks(doc, span) {
   return wheelLines(doc, span).map((l) => {
     const { ink } = wheelInk(l);
     const style = l.turn === "wheel" ? { dash: "dense" } : l.turn === "twice" ? { dash: "sparse" } : {};
-    return { x: l.x, color: ink, width: CALL_OUT_W, ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
+    return { x: l.x, color: ink, width: wheelWidth(l), ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
   });
 }
 
@@ -1287,7 +1293,7 @@ function steadyPlot(s, view, doc) {
         yTicks: (a, b, h) => linTicks(a, b, h, 24, (y, st) => stepText(y, st, unit)),
         dots: [{ pts, color, r: 1.4 }], key: { color, text: dotKey(r, pts.length) },
         lines: segs.map((g) => ({ pts: [[g.start_s, g.mean], [g.end_s, g.mean]], color: "--text", width: 1.8 })),
-        hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--text", dash: "loose" })) : [],
+        hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--callout", width: CALL_OUT_W, dash: "loose" })) : [],
       });
     }
     case "periods": {
@@ -1656,7 +1662,7 @@ function mapChart(m, doc, log) {
   // The map fills the plot, so its axes are drawn over it.
   let over = `<path class="axis" fill="none" d="M${L} ${T}V${T + plotH}H${L + plotW}"/>`;
   for (const l of lines) {
-    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="${CALL_OUT_W}" stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
+    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="${wheelWidth(l)}" stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
   }
   over += laneRight(lines.map((l) => ({ ...l, y: sy(l.x) })), L + plotW, T, T + plotH);
   const k = mapPaints.length;

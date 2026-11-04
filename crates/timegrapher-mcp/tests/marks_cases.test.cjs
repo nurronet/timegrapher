@@ -84,7 +84,7 @@ test("a plot keeps a note's room above its highest point as the app's does", () 
 const line = (x, name, rank, extra = {}) => ({ x: Math.log10(x), color: "--callout", width: 1.2, dash: "dense", name, rank, ink: "--callout", hover: `${name}: ${x} s`, ...extra });
 const plot = (o) => context.xyChart({
   x: [0, 3], y: [0, 1], xTicks: () => [], yTicks: () => [[0, "0"]], lines: [{ pts: [[0, 0.5], [3, 0.5]], color: "--rate" }],
-  vlines: [line(60, "Fourth Wheel", "strong"), line(30, "Fourth Wheel ×2", "faint", { dash: "sparse" })], ...o,
+  vlines: [line(60, "Fourth Wheel", "strong"), line(30, "Fourth Wheel ×2", "faint", { width: 1, dash: "sparse" })], ...o,
 });
 
 test("a plot's lines are dotted and named above it, joined by a stroke of their colour", () => {
@@ -95,7 +95,7 @@ test("a plot's lines are dotted and named above it, joined by a stroke of their 
   assert.match(svg, new RegExp(`<rect class="plot" x="[\\d.]+" y="${4 + LANE + LANE_GAP}"`));
   // Dotted: round dots, 5 px apart for a wheel, 10 for its ×2.
   assert.match(svg, /stroke="var\(--callout\)" stroke-width="1.2" stroke-dasharray="0 5" stroke-linecap="round"/);
-  assert.match(svg, /stroke="var\(--callout\)" stroke-width="1.2" stroke-dasharray="0 10" stroke-linecap="round"/);
+  assert.match(svg, /stroke="var\(--callout\)" stroke-width="1" stroke-dasharray="0 10" stroke-linecap="round"/);
   // Outside the plot's clip: each name over a patch of the card's colour,
   // the wheel's strong, the ×2's faint, each with its hover.
   const outside = svg.split("clip-path")[0];
