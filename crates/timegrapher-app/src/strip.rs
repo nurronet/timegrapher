@@ -11,6 +11,7 @@
 //! lie on its side, time running left to right with the newest beats on the
 //! right and early beats towards the top.
 
+use crate::strength::{self, Zero};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 use timegrapher_core::beats::Beat;
 use timegrapher_core::breaks::Break;
@@ -992,9 +993,10 @@ pub fn draw_strip(
     };
     let mut input = StripInput::default();
     let drags = f.pointer(ui, &resp, &mut input);
-    let step = f.paint_ms_grid();
-    f.paint_time_grid();
+    let (step, ms_lines) = f.paint_ms_grid();
+    let time_lines = f.paint_time_grid();
     f.paint_layers(&drags);
+    f.paint_grid(&ms_lines, &time_lines);
     f.paint_key();
     f.paint_scales(&overlays);
     let Some(anchor) = anchor else {
@@ -1364,13 +1366,14 @@ impl Frame<'_> {
         drags.reshaping = reshaping;
     }
 
-    /// The grid along the strip, every line alike: a nice step of ms,
-    /// labelled on the ms axis, with "Early" and "Late" at its ends. The
-    /// step.
-    fn paint_ms_grid(&self) -> f64 {
+    /// The labels of the grid along the strip: a nice step of ms, on the
+    /// ms axis, with "Early" and "Late" at its ends. The step, and where
+    /// its lines fall across the strip, in points ([`Frame::paint_grid`]
+    /// draws them).
+    fn paint_ms_grid(&self) -> (f64, Vec<f32>) {
         let (painter, g, r, font) = (&self.painter, &self.g, self.g.r, &self.font);
         let (half, horizontal) = (g.half, g.horizontal);
-        let grid = Stroke::new(1.0_f32, self.vis.widgets.noninteractive.bg_stroke.color);
+        let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
         let step = nice_step(half / 4.0);
         // On a strip too short for its labels to stand apart, only "Early"
@@ -1386,10 +1389,8 @@ impl Frame<'_> {
         let mut k = (-half / step).ceil() as i64;
         while (k as f64) * step < half + 1e-9 {
             let ms = k as f64 * step;
-            let (a, b) = (g.pos(ms, g.end), g.pos(ms, self.oldest));
-            if (k as f64) * step > -half + 1e-9 {
-                painter.line_segment([a, b], grid);
-            }
+            let a = g.pos(ms, g.end);
+            lines.push(if horizontal { a.y } else { a.x });
             // Labels, leaving the ends for "Early" and "Late".
             let (at, align, room) = if horizontal {
                 (
@@ -1430,14 +1431,15 @@ impl Frame<'_> {
             painter.text(early_at, early_align, "Early", font.clone(), text);
             painter.text(late_at, late_align, "Late", font.clone(), text);
         }
-        step
+        (step, lines)
     }
 
-    /// Time lines across the strip at whole seconds, minutes or hours,
-    /// about 90 points apart, labelled on the time axis.
-    fn paint_time_grid(&self) {
+    /// The labels of the time lines across the strip, at whole seconds,
+    /// minutes or hours about 90 points apart, on the time axis; and where
+    /// the lines fall along the strip, in points.
+    fn paint_time_grid(&self) -> Vec<f32> {
         let (painter, g, r) = (&self.painter, &self.g, self.g.r);
-        let grid = Stroke::new(1.0_f32, self.vis.widgets.noninteractive.bg_stroke.color);
+        let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
         let along_px = if g.horizontal { r.width() } else { r.height() } as f64;
         let want = g.span * 90.0 / along_px.max(1.0);
@@ -1449,8 +1451,8 @@ impl Frame<'_> {
         let mut t = (g.end / tstep).floor() * tstep;
         // Nothing before the session started.
         while t > self.oldest && t >= -1e-9 {
-            let (a, b) = (g.pos(-g.half, t), g.pos(g.half, t));
-            painter.line_segment([a, b], grid);
+            let a = g.pos(-g.half, t);
+            lines.push(if g.horizontal { a.x } else { a.y });
             let (at, align) = if g.horizontal {
                 (Pos2::new(a.x, r.bottom() + 2.0), Align2::CENTER_TOP)
             } else {
@@ -1459,6 +1461,22 @@ impl Frame<'_> {
             painter.text(at, align, length_text(t), self.font.clone(), text);
             t -= tstep;
         }
+        lines
+    }
+
+    /// The grid at `ms` and `time` (from [`Frame::paint_ms_grid`] and
+    /// [`Frame::paint_time_grid`]), 0 ms as a zero line and the left and
+    /// bottom axes: at the strengths every plot draws them, over the wash
+    /// so they keep their strength on it.
+    fn paint_grid(&self, ms: &[f32], time: &[f32]) {
+        let g = &self.g;
+        let zero = g.pos(0.0, g.end);
+        let (lines, zero) = if g.horizontal {
+            ((time, ms), Zero::Across(zero.y))
+        } else {
+            ((ms, time), Zero::Down(zero.x))
+        };
+        strength::paint(&self.painter, g.r, lines, zero, self.pal);
     }
 
     /// Behind the beats: the test's phases or the track's wash, the
