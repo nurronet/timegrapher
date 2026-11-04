@@ -213,6 +213,16 @@ impl Hour {
     pub fn whole(&self) -> bool {
         self.span_s >= 3599.0
     }
+
+    /// How much of the hour its whole 10 s readings cover, 0 to 1, or
+    /// none when its figures can't be an hour's: no length, a negative
+    /// read, or more read than the hour and a second's slack. [`hours`]
+    /// never writes those, but a `power-reserve.json` from elsewhere might,
+    /// and a made-up 100% or 0% would read as measured (Norm, #1084).
+    pub fn read_share(&self) -> Option<f64> {
+        (self.span_s > 0.0 && self.read_s >= 0.0 && self.read_s <= self.span_s + 1.0)
+            .then(|| (self.read_s / self.span_s).min(1.0))
+    }
 }
 
 /// A run's results, as `power-reserve.json` keeps them.
@@ -960,5 +970,29 @@ mod tests {
         assert!(hour(3600.0).whole());
         assert!(hour(3599.4).whole());
         assert!(!hour(3598.0).whole());
+    }
+
+    /// An hour's share read is between none and the whole hour, and an
+    /// hour whose figures can't be an hour's has none to give.
+    #[test]
+    fn an_hours_share_read_is_between_none_and_all() {
+        let hour = |span_s: f64, read_s: f64| Hour {
+            hour: 0,
+            span_s,
+            rate_s_per_day: None,
+            amplitude_deg: None,
+            beat_error_ms: None,
+            beat_error_source: None,
+            caveats: Vec::new(),
+            read_s,
+        };
+        assert_eq!(hour(3600.0, 3500.0).read_share(), Some(3500.0 / 3600.0));
+        // Within a second of the hour: the whole of it.
+        assert_eq!(hour(3600.0, 3600.5).read_share(), Some(1.0));
+        // Past the second's slack: none.
+        assert_eq!(hour(3600.0, 3602.0).read_share(), None);
+        assert_eq!(hour(1800.0, 3500.0).read_share(), None);
+        assert_eq!(hour(3600.0, -10.0).read_share(), None);
+        assert_eq!(hour(0.0, 10.0).read_share(), None);
     }
 }

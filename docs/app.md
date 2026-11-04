@@ -721,7 +721,7 @@ the units in its titles: Rate (s/d), Amplitude (°), Beat Error (ms) and
 Read (%), the figures right-aligned and written by core `figure_text`.
 Scrolled down, the titles stay at the pane's top. A beat error from the
 drop, or with no source recorded, is drawn dimmed, with the key "Grey
-beat errors: from the drop, or source not recorded." under the table, and
+beat errors: from the drop, or source not recorded." over the table (and in the Beat Error title's hover), and
 every beat error's hover names its source (core
 `session::beat_error_source_label`).
 **Save as CSV…** and **Copy** give the watch, the run and the table, with
@@ -1037,11 +1037,11 @@ beat (its last 80 hours when it is longer):
   before, unless they were changed by hand meanwhile.
 
 On the strip, the mouse wheel or a trackpad swipe either way (with Shift
-too) looks back through the session (live or not), as dragging along the
+too) moves along the session (live or not), as dragging along the
 time axis does, and back at the newest beat it is live again. Cmd on the
-Mac, or Ctrl elsewhere, and the wheel (or a pinch) changes the length about
-the time under the pointer, which stays where it is; Alt and the wheel
-changes the width. Dragging across slides the trace, and a double
+Mac, or Ctrl elsewhere, and the wheel (or a pinch) changes the length, out
+to no more than the take: live, the newest beat stays at the edge; looking
+back, the time under the pointer stays where it is; Alt (Option on a Mac) and the wheel changes the width. Dragging across slides the trace, and a double
 click returns to the newest beats and centres them. **Auto-Centre** (a
 pushpin on a dashed line, lit while on) keeps
 the newest beats on the centre line all the time, so the older ones slide
@@ -1187,8 +1187,10 @@ strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
 anywhere over a chart, a vertical line marks that moment and a box lists
 every line's value there. Their time axes move together:
-the mouse wheel, a swipe or dragging pans time, Cmd or Ctrl and the wheel
-(or a pinch) zooms it around the pointer, and the
+the mouse wheel, a swipe or dragging pans time, never past the take's
+first or last reading, Cmd or Ctrl and the wheel (or a pinch) zooms it
+around the pointer, and zoomed out to the whole take it shows the whole
+session again; the
 vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
 Once a chart has been panned or zoomed a **Follow Live** button

@@ -58,7 +58,7 @@ test("the Readings view's key says what a dot is and how many are drawn", () => 
 });
 
 test("the Long Recording view says what limits its readings, as the analyze and session views do", () => {
-  const c = vm.createContext({ steadinessCard: () => "<steady/>", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
+  const c = vm.createContext({ steadinessCard: () => "<steady/>", walkCard: () => "", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext(["esc", "limitsCard", "seriesView"].map(definition).join("\n"), c);
   const limits = [{ where: null, text: "The beat error's sign differs either side of a cut in the stretch, so it is given as a size." }];
   const html = c.seriesView({ duration_s: 60 }, null, limits);
@@ -69,7 +69,7 @@ test("the Long Recording view says what limits its readings, as the analyze and 
 test("a series' own caveat shows once, on that series, in the server's words", () => {
   const c = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
     periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false, steadyPlot: () => "<svg/>",
-    distributionCards: () => "", fileName: () => "a.wav", timeLabel: String });
+    distributionCards: () => "", walkCard: () => "", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
     ...["esc", "num", "pText", "steadyStats", "steadySwitch", "dotKey", "ordinal", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.

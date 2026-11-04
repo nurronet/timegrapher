@@ -51,14 +51,16 @@ pub fn walk(rate: &Grid, amp: &Grid, wind_h: f64) -> Option<IsochronismWalk> {
     let points: Vec<WalkPoint> = (0..n)
         .step_by(per_bin)
         .filter_map(|i0| {
-            let both: Vec<(f64, f64)> = (i0..(i0 + per_bin).min(n))
+            let end = (i0 + per_bin).min(n);
+            let both: Vec<(f64, f64)> = (i0..end)
                 .map(|i| (rate.y[i], amp.y[i]))
                 .filter(|(r, a)| r.is_finite() && a.is_finite())
                 .collect();
             if 2 * both.len() < per_bin {
                 return None;
             }
-            let t_s = rate.t0 + (i0 as f64 + per_bin as f64 / 2.0) * rate.step;
+            // The middle of what the bin holds: the take's last bin can end early.
+            let t_s = rate.t0 + (i0 + end) as f64 / 2.0 * rate.step;
             Some(WalkPoint {
                 t_s,
                 wind_h: wind_h + t_s / 3600.0,
@@ -172,6 +174,17 @@ mod tests {
         assert!(ts.contains(&750.0) && !ts.contains(&1050.0));
         assert_eq!(w.points[1].readings, 29);
         assert_eq!(w.points[2].readings, 15);
+    }
+
+    #[test]
+    fn a_last_bin_cut_short_sits_at_its_own_middle() {
+        let (mut rate, mut amp) = run_down(1.0);
+        rate.y.extend(vec![0.0; 20]);
+        amp.y.extend(vec![200.0; 20]);
+        let w = walk(&rate, &amp, 0.0).unwrap();
+        let last = w.points.last().unwrap();
+        assert_eq!((w.points.len(), last.t_s, last.readings), (13, 3700.0, 20));
+        assert_eq!(w.points[11].t_s, 3450.0);
     }
 
     #[test]

@@ -19,7 +19,7 @@ function constant(name) {
   return match[0];
 }
 const context = vm.createContext({ document: { getElementById: () => ({ clientWidth: 624 }) } });
-vm.runInContext(["CHAR_W", "DASH", "MARKS"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
+vm.runInContext(["CHAR_W", "DASH", "MARKS", "NAME_CLEAR"].map(constant).join("\n") + "\nlet clipCount = 0;\n" +
   ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "xyChart", "markOrder", "markPlace", "markPlaceRow", "markInside", "markStack", "besideSpots", "crosses", "besidePlace", "roomAbove", "markWidth", "markText", "laneAbove", "namesInside", "sideWidth", "laneRight"]
     .map(definition).join("\n") + "\nthis.MARKS = MARKS;", context);
 
