@@ -200,10 +200,10 @@ pub const STRIP: &[&str] = &[
      above the strip (or beside it when the strip lies across). Seeing amplitude beside \
      the dots shows at once whether a wobble in the rate comes with a change in \
      amplitude.",
-    "Mouse: the wheel changes the length about the time under the pointer, Shift or Ctrl and the \
-     wheel (or a pinch) the width; \
-     drag along the time to look back, drag across to slide the trace; double-click \
-     for the newest beats, centred.",
+    "Mouse: the wheel or a swipe looks back along the time, as dragging along it does; \
+     Cmd or Ctrl and the wheel (or a pinch) changes the length about the time under the \
+     pointer, and Alt and the wheel the width. Drag across to slide the trace; \
+     double-click for the newest beats, centred.",
     "Mask leaves stretches out of the readings, such as a bump of the stand: with it \
      on, drag along the strip over the beats to mask them (the pointer is a cross), \
      drag a masked stretch's edge to move it (a two-way arrow at the edge), drag with the right button to look back, and click a masked stretch to \
@@ -244,7 +244,8 @@ pub const CHARTS: &[&str] = &[
     "The hare, the swing and the seesaw in the toolbar show or hide the Rate, Amplitude \
      and Beat Error charts; the charts shown share the pane's height, and at least one \
      stays on.",
-    "Mouse: the wheel zooms time around the pointer, dragging pans it, and a \
+    "Mouse: the wheel, a swipe or dragging pans time, Cmd or Ctrl and the wheel (or a \
+     pinch) zooms it around the pointer, and a \
      double-click fits the whole session again (and \
      follows new beats while listening). Clicking a moment shows it on the strip and \
      in the readings.",
