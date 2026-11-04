@@ -1750,11 +1750,6 @@ fn strip_step(span_s: f64) -> f64 {
 /// A reading of a chart over time: core's trend reading.
 type TrendPoint = timegrapher_core::live::TrendReading;
 
-/// A trend reading's beat error as core reads one (`beat_error_signed`).
-fn trend_beat_error(p: &TrendPoint) -> Option<f64> {
-    core_session::beat_error_signed(p.beat_error_unlock_ms, p.beat_error_ms)
-}
-
 /// Where each position began, seconds, and the position, oldest first.
 type Stretches = Vec<(f64, Position)>;
 

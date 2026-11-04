@@ -27,7 +27,7 @@ const context = vm.createContext({
   stripCards: () => "", limitsCard: (l) => (l && l.length ? "<limits>" : ""),
   profileCard: (p, title, dropBeatError) => `<profile drop="${dropBeatError}">`,
 });
-vm.runInContext(["esc", "num", "signed", "abs", "tile", "rateBasis", "recordingView", "readingTiles", "recordingCards", "takeTiles"]
+vm.runInContext(["chosenBeatError", "esc", "num", "signed", "abs", "tile", "rateBasis", "recordingView", "readingTiles", "recordingCards", "takeTiles"]
   .map(n => definition(n)).concat(definition("analyzeRate", true)).join("\n"), context);
 
 function render(doc) { return context.recordingView(doc, null, null); }
@@ -76,11 +76,11 @@ test("corrected headline identifies raw percentile basis and escapes the source"
 // A file its take lists: the whole file read alone says +9.0 s/d, the take's
 // settled stretch +5.0, as `session` reads it.
 function listed(readings) {
-  return { overall: { rate_s_per_day: 9, beat_error_ms: 0.9 }, amplitude_deg: 250, beat_error_unlock_ms: 0.8,
+  return { overall: { rate_s_per_day: 9, beat_error_ms: 0.9 }, amplitude_deg: 250, beat_error_unlock_ms: 0.8, beat_error_source: "unlock",
     beats_found: 1000, watch_heard: true, take: { session_file: "session.toml", readings } };
 }
 const reading = (position, rate, extra = {}) => ({ position, label: ".", shape: { from_s: 20 },
-  measurement: { rate_s_per_day: rate, amplitude_deg: 280, beat_error_ms: 0.4, beat_error_unlock_ms: 0.3,
+  measurement: { rate_s_per_day: rate, amplitude_deg: 280, beat_error_ms: 0.4, beat_error_unlock_ms: 0.3, beat_error_source: "unlock",
     beats: 800, start_s: 20, end_s: 120, watch_heard: true, calibrated: true, confidence: { rate: { se: 0.2 } } }, ...extra });
 
 test("a file its take lists shows the take's reading, not the whole file's", () => {

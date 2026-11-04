@@ -13,7 +13,7 @@ use crate::app::Position;
 use crate::theme;
 use eframe::egui::{self, RichText, Vec2};
 use timegrapher_core::clock::ClockFit;
-use timegrapher_core::session::{self, Figures, Measurement, Reading};
+use timegrapher_core::session::{self, Measurement, Reading, SourcedFigures};
 use timegrapher_core::stream::BeatLog;
 
 /// The file a finished test just after winding is saved to, from the
@@ -59,6 +59,9 @@ pub struct KeptRow {
     pub amplitude_deg: Option<f64>,
     /// A size, from the unlock where found, ms.
     pub beat_error_ms: Option<f64>,
+    /// Older saved rows retain an unknown source.
+    #[serde(default)]
+    pub beat_error_source: Option<session::BeatErrorSource>,
 }
 
 pub fn unix_now() -> f64 {
@@ -294,6 +297,7 @@ impl Test {
                     rate_s_per_day: r.measurement.rate_s_per_day,
                     amplitude_deg: r.measurement.amplitude_deg,
                     beat_error_ms: r.measurement.beat_error(),
+                    beat_error_source: r.measurement.beat_error_source,
                 })
                 .collect(),
         })
@@ -891,12 +895,18 @@ fn heading(ui: &mut egui::Ui, text: &str, hint: &str) {
 
 /// A figure at the right of a cell of its own width, so the tables'
 /// columns line up and their stripes end with the last column.
-fn right(ui: &mut egui::Ui, text: String, strong: bool, color: egui::Color32) {
-    right_in(ui, FIGURE_W, text, strong, color);
+fn right(ui: &mut egui::Ui, text: String, strong: bool, color: egui::Color32) -> egui::Response {
+    right_in(ui, FIGURE_W, text, strong, color)
 }
 
 /// [`right`] in a cell `w` wide.
-fn right_in(ui: &mut egui::Ui, w: f32, text: String, strong: bool, color: egui::Color32) {
+fn right_in(
+    ui: &mut egui::Ui,
+    w: f32,
+    text: String,
+    strong: bool,
+    color: egui::Color32,
+) -> egui::Response {
     let size = Vec2::new(w, ui.spacing().interact_size.y);
     ui.allocate_ui_with_layout(
         size,
@@ -904,9 +914,10 @@ fn right_in(ui: &mut egui::Ui, w: f32, text: String, strong: bool, color: egui::
         |ui| {
             ui.set_min_size(size);
             let t = RichText::new(text).color(color);
-            ui.label(if strong { t.strong() } else { t });
+            ui.label(if strong { t.strong() } else { t })
         },
-    );
+    )
+    .inner
 }
 
 /// The position column's heading, at the left, as wide as the longest
@@ -1017,7 +1028,9 @@ fn table_grid(
                         right(ui, signed(*rate, 1), false, pal.text);
                         right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
                         right(ui, plain(*amp, 0), false, pal.text);
-                        right(ui, plain(*be, 2), false, pal.text);
+                        right(ui, plain(*be, 2), false, pal.text).on_hover_text(
+                            t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
+                        );
                     }
                     None => {
                         let label = position_label(
@@ -1057,7 +1070,8 @@ fn table_grid(
                 right(ui, signed(t.mean_rate, 1), true, pal.text);
                 ui.label("");
                 right(ui, plain(t.mean_amplitude, 0), true, pal.text);
-                right(ui, plain(t.mean_beat_error, 2), true, pal.text);
+                right(ui, plain(t.mean_beat_error, 2), true, pal.text)
+                    .on_hover_text(&t.beat_error_summary);
                 ui.end_row();
             }
             if t.rows.len() >= 2 {
@@ -1069,6 +1083,11 @@ fn table_grid(
                 ui.end_row();
             }
         });
+    table_notes(ui, t);
+}
+
+fn table_notes(ui: &mut egui::Ui, t: &Table) {
+    let pal = theme::pal(ui);
     if t.dvh_rate.is_some() || t.dvh_amplitude.is_some() {
         ui.label(
             RichText::new(format!(
@@ -1411,6 +1430,8 @@ pub type Row = (String, Option<f64>, Option<f64>, Option<f64>, Option<f64>);
 /// rate less the mean, amplitude and beat error (a size), then the means.
 pub struct Table {
     pub rows: Vec<Row>,
+    pub beat_error_hovers: Vec<String>,
+    pub beat_error_summary: String,
     pub mean_rate: Option<f64>,
     pub mean_amplitude: Option<f64>,
     pub mean_beat_error: Option<f64>,
@@ -1471,7 +1492,7 @@ fn caveat_condition(label: &str, c: &timegrapher_core::measure::Caveat) -> Optio
 /// The table from the readings, with the figures `timegrapher session`
 /// prints for the same stretches and its position names.
 pub fn table(readings: &[Reading]) -> Table {
-    let figures: Vec<Figures> = readings
+    let figures: Vec<SourcedFigures> = readings
         .iter()
         .map(|r| {
             let m = &r.measurement;
@@ -1480,6 +1501,7 @@ pub fn table(readings: &[Reading]) -> Table {
                 m.rate_s_per_day,
                 m.amplitude_deg,
                 m.beat_error(),
+                m.beat_error_source,
             )
         })
         .collect();
@@ -1492,7 +1514,7 @@ pub fn table(readings: &[Reading]) -> Table {
 
 /// The table of an earlier test's saved results.
 pub fn kept_table(full: &FullWind) -> Table {
-    let figures: Vec<Figures> = full
+    let figures: Vec<SourcedFigures> = full
         .positions
         .iter()
         .filter_map(|k| {
@@ -1501,21 +1523,29 @@ pub fn kept_table(full: &FullWind) -> Table {
                 k.rate_s_per_day,
                 k.amplitude_deg,
                 k.beat_error_ms,
+                k.beat_error_source,
             ))
         })
         .collect();
     table_of(&figures, Vec::new())
 }
 
-/// The table's summary lines are core `session::indices`, the values
+/// The table's summary lines are core `session::sourced_indices`, the values
 /// `timegrapher session` gives for the same readings (repeat readings of
 /// a position averaged first).
-fn table_of(figures: &[Figures], notes: Vec<String>) -> Table {
-    let ix = session::indices(0.0, figures);
+fn table_of(figures: &[SourcedFigures], mut notes: Vec<String>) -> Table {
+    let ix = session::sourced_indices(0.0, figures);
+    let beat_error_summary = ix.beat_error_summary();
+    notes.push(beat_error_summary.clone());
     Table {
+        beat_error_hovers: figures
+            .iter()
+            .map(|f| session::beat_error_source_label(f.4).into())
+            .collect(),
+        beat_error_summary,
         rows: figures
             .iter()
-            .map(|&(p, rate, amp, be)| {
+            .map(|&(p, rate, amp, be, _)| {
                 (
                     position_label(p),
                     rate,
@@ -1743,8 +1773,13 @@ pub fn comparison(full: &FullWind, hours: f64, readings: &[Reading]) -> Option<C
             let mut measurement = template.measurement.clone();
             measurement.rate_s_per_day = k.rate_s_per_day;
             measurement.amplitude_deg = k.amplitude_deg;
-            measurement.beat_error_unlock_ms = k.beat_error_ms;
-            measurement.beat_error_ms = k.beat_error_ms;
+            measurement.beat_error_source = k.beat_error_source;
+            measurement.beat_error_unlock_ms = k
+                .beat_error_ms
+                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Unlock));
+            measurement.beat_error_ms = k
+                .beat_error_ms
+                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Drop));
             Some(Reading {
                 label: position_label(position),
                 position,
@@ -2035,6 +2070,7 @@ mod tests {
                     rate_s_per_day: Some(1.0),
                     amplitude_deg: None,
                     beat_error_ms: None,
+                    beat_error_source: None,
                 }],
             };
             std::fs::write(take.join(RESULTS_FILE), f.to_json()).unwrap();
@@ -2062,6 +2098,7 @@ mod tests {
             rate_s_per_day: Some(1.0),
             amplitude_deg: None,
             beat_error_ms: None,
+            beat_error_source: None,
         };
         let mut f = FullWind {
             format: RESULTS_FORMAT.into(),
@@ -2669,19 +2706,84 @@ mod tests {
         assert_eq!(t.measured(s + sm + m + 30.0), [(s + sm, s + sm + m)]);
     }
 
+    #[test]
+    fn unknown_saved_sources_stay_visible_but_do_not_enter_the_table_mean() {
+        let t = table_of(
+            &[
+                (
+                    session::Position::CH,
+                    Some(2.0),
+                    Some(280.0),
+                    Some(0.4),
+                    None,
+                ),
+                (
+                    session::Position::CB,
+                    Some(4.0),
+                    Some(260.0),
+                    Some(0.8),
+                    None,
+                ),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(t.rows[0].4, Some(0.4));
+        assert_eq!(t.rows[1].4, Some(0.8));
+        assert_eq!(t.mean_beat_error, None);
+        assert_eq!(t.largest_beat_error, None);
+        assert_eq!(t.mean_rate, Some(3.0));
+        assert_eq!(t.mean_amplitude, Some(270.0));
+        assert!(t.notes.iter().any(|n| n.contains("source not recorded")));
+        assert!(t.notes.iter().any(|n| n.contains("leaves out 2 readings")));
+    }
+
+    #[test]
+    fn saved_beat_error_rows_keep_values_without_guessing_old_sources() {
+        let old =
+            r#"{"position":"DU","rate_s_per_day":1.0,"amplitude_deg":270.0,"beat_error_ms":0.8}"#;
+        let mut row: KeptRow = serde_json::from_str(old).unwrap();
+        assert_eq!(row.beat_error_ms, Some(0.8));
+        assert_eq!(row.beat_error_source, None);
+        assert_eq!(
+            serde_json::to_value(&row).unwrap()["beat_error_source"],
+            serde_json::Value::Null
+        );
+        row.beat_error_source = Some(session::BeatErrorSource::Drop);
+        let saved = serde_json::to_string(&row).unwrap();
+        assert_eq!(serde_json::from_str::<KeptRow>(&saved).unwrap(), row);
+    }
+
     /// The table's means and differences are `session`'s: a position read
     /// twice counts once, its readings averaged, as core
-    /// `session::indices` takes it.
+    /// `session::sourced_indices` takes it.
     #[test]
     fn the_table_summary_is_the_session_values() {
         use session::Position as P;
-        let figures: Vec<Figures> = vec![
-            (P::CH, Some(10.0), Some(280.0), Some(0.2)),
-            (P::CH, Some(20.0), Some(290.0), Some(0.4)),
-            (P::H3, Some(0.0), Some(250.0), Some(0.1)),
+        let figures: Vec<SourcedFigures> = vec![
+            (
+                P::CH,
+                Some(10.0),
+                Some(280.0),
+                Some(0.2),
+                Some(session::BeatErrorSource::Unlock),
+            ),
+            (
+                P::CH,
+                Some(20.0),
+                Some(290.0),
+                Some(0.4),
+                Some(session::BeatErrorSource::Unlock),
+            ),
+            (
+                P::H3,
+                Some(0.0),
+                Some(250.0),
+                Some(0.1),
+                Some(session::BeatErrorSource::Unlock),
+            ),
         ];
         let t = table_of(&figures, Vec::new());
-        let ix = session::indices(0.0, &figures);
+        let ix = session::sourced_indices(0.0, &figures);
         // Dial Up averages to 15 s/d before the mean and the difference.
         assert_eq!(t.mean_rate, Some(7.5));
         assert_eq!(t.largest_difference, Some(15.0));
@@ -2705,6 +2807,8 @@ mod tests {
     #[test]
     fn the_table_is_written_for_a_spreadsheet() {
         let t = Table {
+            beat_error_hovers: Vec::new(),
+            beat_error_summary: String::new(),
             rows: vec![
                 (
                     "Dial Up (DU)".into(),
@@ -2745,5 +2849,22 @@ mod tests {
             .unwrap()
             .starts_with("Crown Up (CU, 3H)\t\t"));
         assert!(!csv.contains('−') && !tsv.contains('"'));
+    }
+    #[test]
+    fn position_sources_live_in_cell_hovers_with_one_summary() {
+        use session::{BeatErrorSource as S, Position as P};
+        let t = table_of(
+            &[
+                (P::CH, Some(1.0), Some(270.0), Some(0.2), Some(S::Unlock)),
+                (P::CB, Some(2.0), Some(280.0), Some(0.8), Some(S::Drop)),
+                (P::H3, Some(3.0), Some(290.0), Some(0.4), Some(S::Unlock)),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(t.notes.len(), 1);
+        assert_eq!(t.beat_error_hovers[0], "Beat Error from the Unlock");
+        assert_eq!(t.beat_error_hovers[1], "Beat Error from the Drop");
+        assert!(t.beat_error_summary.contains("mean of 2 of 3 positions"));
+        assert_eq!(t.notes[0], t.beat_error_summary);
     }
 }

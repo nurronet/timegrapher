@@ -120,9 +120,17 @@ pub fn limits(doc: &Value) -> Vec<Value> {
             .map(|text| json!({ "where": null, "text": text }))
             .collect();
     }
-    // A live reading carries no caveats; its clipping is said when core
-    // counts it (`Clipping::noted_fraction`), in core's words (#808).
+    // Current live readings carry core's caveats. Older feeds only supplied
+    // clipping, so retain that fallback when the array is absent.
     if schema.starts_with("timegrapher.live/") {
+        let reading = &doc["reading"];
+        if let Some(caveats) = reading["caveats"].as_array() {
+            return caveats
+                .iter()
+                .filter_map(|c| say(c, reading, reading["bph_set"].as_f64()))
+                .map(|text| json!({ "where": null, "text": text }))
+                .collect();
+        }
         return doc["reading"]["clipped_fraction"]
             .as_f64()
             .filter(|&f| timegrapher_core::analysis::Clipping::noted_fraction(f))
@@ -202,6 +210,21 @@ pub fn notes(doc: &Value) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_limits_use_the_readings_core_caveats_once() {
+        let caveat = timegrapher_core::measure::Caveat::BeatErrorFromDrop;
+        let doc = serde_json::json!({"schema": "timegrapher.live/1", "reading": {
+            "beat_error_source": "drop", "clipped_fraction": 0.5,
+            "caveats": [caveat]
+        }});
+        assert_eq!(
+            super::limits(&doc),
+            vec![serde_json::json!({
+                "where": null, "text": caveat.long(None).unwrap()
+            })]
+        );
+    }
+
     use super::*;
 
     #[test]

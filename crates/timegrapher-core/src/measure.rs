@@ -243,6 +243,8 @@ pub enum Caveat {
     BeatErrorAsSize,
     /// The unlock was not found; the selected beat error comes from the drop.
     BeatErrorFromDrop,
+    /// Saved readings of unknown event were excluded from a pooled figure.
+    BeatErrorUnknownSource { readings: usize },
     /// Only readings from the selected event entered the beat-error statistic.
     BeatErrorSourceReadings {
         source: crate::session::BeatErrorSource,
@@ -293,6 +295,9 @@ impl Caveat {
                 used,
                 readings,
             } => format!("beat error from the {source} in {used} of {readings} readings"),
+            Caveat::BeatErrorUnknownSource { readings } => {
+                format!("{readings} beat-error readings with no recorded source left out")
+            }
             Caveat::BeatErrorFromDrop => "beat error from the drop".to_string(),
             Caveat::SetRateDisagrees { heard } => format!("{heard} bph heard"),
             Caveat::ShortSpan { span_s } => format!("{span_s:.0} s of beats"),
@@ -340,6 +345,8 @@ impl Caveat {
                 format!("The {reading} was read from {windows_used} of {windows_in_span} windows in the kept time."),
             Caveat::BeatErrorSourceReadings { source, used, readings } =>
                 format!("The beat error uses the {source} in {used} of {readings} readings; readings from the other event were left out."),
+            Caveat::BeatErrorUnknownSource { readings } =>
+                format!("The beat-error aggregate leaves out {readings} readings whose source was not recorded."),
             Caveat::BeatErrorFromDrop => {
                 "The unlock was not found; the beat error is measured from the drop.".to_string()
             }
@@ -486,6 +493,7 @@ impl Caveat {
             Caveat::LeadLeftOut { .. } => 15,
             Caveat::BeatErrorFromDrop => 16,
             Caveat::BeatErrorSourceReadings { .. } => 18,
+            Caveat::BeatErrorUnknownSource { .. } => 19,
             Caveat::ReadingWindows { .. } => 17,
             Caveat::PeriodMayBeNoise { .. } => 19,
         }

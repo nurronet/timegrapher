@@ -94,6 +94,8 @@ pub struct LiveReading {
     /// windows, ms. Positive means Tick comes late; each take starts
     /// positive ([`crate::beats::SideCheck`]).
     pub beat_error_unlock_ms: Option<f64>,
+    /// Source of the displayed unlock-else-drop beat error; absent when withheld.
+    pub beat_error_source: Option<crate::session::BeatErrorSource>,
     pub amplitude_deg: Option<f64>,
     /// Roughly how far `amplitude_deg` could be off from the scatter of
     /// the 2 s windows alone, as `confidence::standard_error` gives it for a
@@ -977,6 +979,14 @@ impl LiveAnalyzer {
         let clipped_fraction = st.clipped_fraction();
         let assessment = self.assess_at(&st, &wins, bph, no_watch, end_s, average_s);
         let mut caveats = assessment.caveats;
+        let beat_error_ms = sided(fit.map(|f| f.beat_error_ms));
+        let beat_error_unlock_ms = sided(figures.beat_error_unlock_ms);
+        let beat_error_source =
+            crate::session::chosen_beat_error(beat_error_unlock_ms, beat_error_ms)
+                .map(|(_, source)| source);
+        if let Some(caveat) = beat_error_source.and_then(crate::session::BeatErrorSource::caveat) {
+            measure::add(&mut caveats, caveat);
+        }
         if masked_s > 0.0 {
             measure::add(&mut caveats, Caveat::Masked { seconds: masked_s });
         }
@@ -990,8 +1000,9 @@ impl LiveAnalyzer {
                     crate::clockstore::correct_rate(v, Self::clock_ppm(c, from, end_s))
                 })
             }),
-            beat_error_ms: sided(fit.map(|f| f.beat_error_ms)),
-            beat_error_unlock_ms: sided(figures.beat_error_unlock_ms),
+            beat_error_ms,
+            beat_error_unlock_ms,
+            beat_error_source,
             amplitude_deg: heard(figures.amplitude_deg),
             amplitude_error_deg: heard(amplitude_error_deg),
             amplitude_even_deg: sided(figures.amplitude_even_deg),
@@ -1325,7 +1336,37 @@ pub struct TrendReading {
     pub heard: bool,
 }
 
+/// Keep non-overlapping readings in time order, at least one averaging time apart.
+/// The microsecond tolerance preserves the grid boundary despite floating rounding.
+pub fn spaced_readings<T>(readings: impl IntoIterator<Item = (f64, T)>, every_s: f64) -> Vec<T> {
+    const TIME_EPS_S: f64 = 1e-6;
+    let mut last = f64::NEG_INFINITY;
+    readings
+        .into_iter()
+        .filter_map(|(t, value)| {
+            if t >= last + every_s - TIME_EPS_S {
+                last = t;
+                Some(value)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 impl TrendReading {
+    /// The displayed beat error and its source, using the direct-reading rule.
+    pub fn beat_error(&self) -> Option<(f64, crate::session::BeatErrorSource)> {
+        crate::session::chosen_beat_error(self.beat_error_unlock_ms, self.beat_error_ms)
+    }
+
+    /// One source's displayed readings, leaving the other source as holes.
+    pub fn beat_error_from(&self, source: crate::session::BeatErrorSource) -> Option<f64> {
+        self.beat_error()
+            .filter(|(_, s)| *s == source)
+            .map(|(v, _)| v)
+    }
+
     /// The trend's reading at `t` from the live reading there.
     pub fn of(t: f64, r: &LiveReading) -> Self {
         if !r.whole {
@@ -1741,6 +1782,57 @@ mod tests {
             by_count: Vec::new(),
             snippets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn trend_source_lines_never_take_the_other_sources_readings() {
+        use crate::session::BeatErrorSource::{Drop, Unlock};
+        let r = LiveAnalyzer::from_log(viewer_phase_log(10.0, 10.0), LiveConfig::default())
+            .reading_at(50.0, 20.0);
+        let mut point = TrendReading::of(50.0, &r);
+        point.beat_error_unlock_ms = Some(0.2);
+        point.beat_error_ms = Some(0.8);
+        assert_eq!(point.beat_error_from(Unlock), Some(0.2));
+        assert_eq!(point.beat_error_from(Drop), None);
+        point.beat_error_unlock_ms = None;
+        assert_eq!(point.beat_error_from(Unlock), None);
+        assert_eq!(point.beat_error_from(Drop), Some(0.8));
+    }
+
+    #[test]
+    fn live_beat_error_names_its_source_and_only_drop_has_the_caveat() {
+        use crate::session::BeatErrorSource;
+        let mut log = viewer_phase_log(10.0, 10.0);
+        log.amplitude_windows = (0..30)
+            .map(|i| AmplitudeWindow {
+                start_s: i as f64 * 2.0,
+                end_s: (i + 1) as f64 * 2.0,
+                even_deg: Some(270.0),
+                odd_deg: Some(270.0),
+                beat_error_ms: Some(0.8),
+                beat_error_unlock_ms: Some(0.2),
+                even_unlock_ms: None,
+                odd_unlock_ms: None,
+                even_drop_ms: None,
+                odd_drop_ms: None,
+            })
+            .collect();
+        let mut live = LiveAnalyzer::from_log(log, LiveConfig::default());
+        let unlock = live.reading_at(50.0, 20.0);
+        assert_eq!(unlock.beat_error_source, Some(BeatErrorSource::Unlock));
+        assert_eq!(unlock.beat_error_unlock_ms, Some(0.2));
+        assert!(!unlock.caveats.contains(&Caveat::BeatErrorFromDrop));
+        for w in &mut live.amp {
+            w.beat_error_unlock_ms = None;
+        }
+        let drop = live.reading_at(50.0, 20.0);
+        assert_eq!(drop.beat_error_source, Some(BeatErrorSource::Drop));
+        assert_eq!(drop.beat_error_ms, unlock.beat_error_ms);
+        assert!(drop.caveats.contains(&Caveat::BeatErrorFromDrop));
+        assert_eq!(drop.beat_error_unlock_error_ms, None);
+        let empty = LiveAnalyzer::new(48000, LiveConfig::default()).reading(20.0);
+        assert_eq!(empty.beat_error_source, None);
+        assert!(!empty.caveats.contains(&Caveat::BeatErrorFromDrop));
     }
 
     /// A take's clock that drifts corrects each reading by its error over

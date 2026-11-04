@@ -278,7 +278,7 @@ fn joined(points: &[[f64; 2]], from_s: f64, to_s: f64) -> Vec<([f64; 2], [f64; 2
     (lo.max(1)..hi)
         .filter(|&i| !gap_before(points, i))
         .map(|i| (points[i - 1], points[i]))
-        .filter(|(a, _)| a[0] >= from_s)
+        .filter(|(a, b)| a[0] >= from_s && a[1].is_finite() && b[1].is_finite())
         .collect()
 }
 
@@ -1968,6 +1968,12 @@ pub fn fmt_time_fine(t: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_overlay_readings_break_the_line_even_without_a_time_gap() {
+        let points = [[0.0, 0.2], [1.0, f64::NAN], [2.0, 0.3], [3.0, 0.4]];
+        assert_eq!(joined(&points, 0.0, 3.0), vec![(points[2], points[3])]);
+    }
 
     #[test]
     fn readings_further_apart_than_the_gap_are_not_joined() {
