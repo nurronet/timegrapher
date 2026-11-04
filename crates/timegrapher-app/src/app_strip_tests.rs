@@ -302,7 +302,7 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
     }
     let drawn = pass(&mut app, Vec::new());
     // The first switch in the settings is Amplitude.
-    assert!(drawn.contains("Amplitude (°)"), "{drawn}");
+    assert!(drawn.contains("Amp. (°)"), "{drawn}");
     assert!(!drawn.contains("Amplitude: "), "no hover yet: {drawn}");
     // The row: under the key's line, across the middle of the strip.
     let over = egui::pos2(450.0, 30.0);
@@ -313,4 +313,51 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
         .find(|l| l.starts_with("Amplitude: "))
         .unwrap_or_else(|| panic!("{hovered}"));
     assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
+}
+
+/// Lying across, an overlay's axis is a column right of the strip under
+/// its short name, its unit on the line under that, and nothing at its
+/// foot; hovering the name gives it in full. The column is as wide as
+/// its widest text, narrower than the full name would need.
+#[test]
+fn an_overlay_axis_column_says_its_short_name_over_its_unit() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, false, false];
+    app.strip.horizontal = true;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        })
+    };
+    for _ in 0..3 {
+        pass(&mut app, Vec::new());
+    }
+    let out = pass(&mut app, Vec::new());
+    let at = |words: &str| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == words => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+    };
+    let name = at("Amp.").expect("the short name");
+    let unit = at("(°)").expect("the unit");
+    assert!(unit.top() >= name.bottom() - 1.0, "{name:?} {unit:?}");
+    assert!((unit.left() - name.left()).abs() < 0.5, "one column");
+    assert!(at("°").is_none(), "no unit at the foot");
+    let drawn = super::tests::painted_text(&out);
+    assert!(!drawn.contains("Amplitude"), "{drawn}");
+    // The column ends at the pane's right, narrower than a 58 pt one.
+    assert!(screen.right() - name.left() < 58.0, "{name:?}");
+    pass(&mut app, vec![egui::Event::PointerMoved(name.center())]);
+    let hovered = super::tests::painted_text(&pass(&mut app, Vec::new()));
+    assert!(hovered.contains("Amplitude (°)"), "{hovered}");
 }
