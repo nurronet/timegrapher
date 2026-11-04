@@ -6,6 +6,7 @@ use std::fmt::Write;
 use timegrapher_core::longrun::LongReport;
 use timegrapher_core::longterm::{Component, Search};
 use timegrapher_core::periodicity::Wheel;
+use timegrapher_core::{chart_scale, period_ticks};
 
 const W: f64 = 760.0;
 const H: f64 = 220.0;
@@ -20,33 +21,19 @@ fn esc(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// About five round tick values covering `lo..hi`.
-fn ticks(lo: f64, hi: f64) -> Vec<f64> {
-    let span = (hi - lo).max(1e-12);
-    let raw = span / 5.0;
-    let mag = 10f64.powf(raw.log10().floor());
-    let step = [1.0, 2.0, 2.5, 5.0, 10.0]
-        .iter()
-        .map(|m| m * mag)
-        .find(|&s| s >= raw)
-        .unwrap_or(10.0 * mag);
+/// About five round tick values covering `lo..hi`, labelled: core's
+/// round step (`chart_scale::round_step`), written as every axis writes a
+/// value of that step (`chart_scale::axis_number`).
+fn ticks(lo: f64, hi: f64) -> Vec<(f64, String)> {
+    let step = chart_scale::round_step((hi - lo).max(1e-12) / 5.0);
     let mut v = Vec::new();
-    let mut t = (lo / step).ceil() * step;
-    while t <= hi + 1e-9 * span {
-        v.push(t);
-        t += step;
+    let mut k = (lo / step - 1e-9).ceil();
+    while k * step <= hi + 1e-9 * step {
+        let t = k * step;
+        v.push((t, chart_scale::axis_number(t, step)));
+        k += 1.0;
     }
     v
-}
-
-fn fmt_tick(v: f64) -> String {
-    if v.abs() >= 100.0 || v == v.round() {
-        format!("{v:.0}")
-    } else if (v * 10.0).round() == v * 10.0 {
-        format!("{v:.1}")
-    } else {
-        format!("{v:.2}")
-    }
 }
 
 struct Axis {
@@ -75,7 +62,7 @@ impl Axis {
     /// A value axis on core's chart scale (`chart_scale::data_range`): every
     /// point of the lines, padded as the app's charts over time are.
     fn of_values(values: &[f64]) -> Axis {
-        let (lo, hi) = timegrapher_core::chart_scale::data_range(values).unwrap_or((0.0, 1.0));
+        let (lo, hi) = chart_scale::data_range(values).unwrap_or((0.0, 1.0));
         Axis { lo, hi, log: false }
     }
     fn frac(&self, v: f64) -> f64 {
@@ -91,22 +78,18 @@ impl Axis {
     fn y(&self, v: f64) -> f64 {
         H - MB - self.frac(v) * (H - MT - MB)
     }
-    fn ticks(&self) -> Vec<f64> {
+    /// The ticks and their labels. A log axis is one of periods, marked
+    /// at the times core's `period_ticks` names, as many as the plot has
+    /// room for, as the app's and the MCP view's period axes are.
+    fn ticks(&self) -> Vec<(f64, String)> {
         if !self.log {
             return ticks(self.lo, self.hi);
         }
-        let mut v = Vec::new();
-        let mut d = 10f64.powf(self.lo.log10().floor());
-        while d <= self.hi {
-            for m in [1.0, 2.0, 5.0] {
-                let t = d * m;
-                if t >= self.lo && t <= self.hi {
-                    v.push(t);
-                }
-            }
-            d *= 10.0;
-        }
-        v
+        let room = ((W - ML - MR) / period_ticks::MARK_ROOM_PX).max(2.0) as usize;
+        period_ticks::period_ticks(self.lo, self.hi, room)
+            .into_iter()
+            .map(|t| (t.period_s, t.label.to_string()))
+            .collect()
     }
 }
 
@@ -147,7 +130,7 @@ fn chart(
 
 /// The chart's grid, ticks, axes and their labels.
 fn axes(s: &mut String, xa: &Axis, ya: &Axis, xlabel: &str, ylabel: &str) {
-    for t in ya.ticks() {
+    for (t, label) in ya.ticks() {
         let y = ya.y(t);
         let _ = write!(
             s,
@@ -155,10 +138,10 @@ fn axes(s: &mut String, xa: &Axis, ya: &Axis, xlabel: &str, ylabel: &str) {
             W - MR,
             ML - 6.0,
             y + 4.0,
-            fmt_tick(t)
+            label
         );
     }
-    for t in xa.ticks() {
+    for (t, label) in xa.ticks() {
         let x = xa.x(t);
         let _ = write!(
             s,
@@ -166,7 +149,7 @@ fn axes(s: &mut String, xa: &Axis, ya: &Axis, xlabel: &str, ylabel: &str) {
             H - MB,
             H - MB + 4.0,
             H - MB + 17.0,
-            fmt_tick(t)
+            label
         );
     }
     let _ = write!(
@@ -366,7 +349,7 @@ fn search_chart(s: &Search, wheels: &[Wheel]) -> String {
     chart(
         &xa,
         &ya,
-        "period (s, log scale)",
+        "period (log scale)",
         "score (-log10 p)",
         &[Line {
             pts,

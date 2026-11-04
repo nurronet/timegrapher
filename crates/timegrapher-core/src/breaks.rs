@@ -71,6 +71,24 @@ pub enum Live {
     /// queue full ([`crate::capture::Event::Lost`]): a break as
     /// [`Live::Break`] is, however short, told apart only to say why.
     Dropped(f64),
+    /// The end of sound culled after a [`Live::Break`]: a break with no
+    /// time lost. The blocks between the two came late, all together,
+    /// after the gap (an input waking from a suspend brings the sound it
+    /// held from before), so the sound truly jumps at their end, not
+    /// where the break was found. A break at each end leaves them a piece
+    /// of their own, read across by nothing ([`GapWatch`]).
+    Cut,
+}
+
+impl Live {
+    /// The seconds lost before the next block: a break's gap, and none at
+    /// a block or a [`Live::Cut`].
+    pub fn lost_s(&self) -> f64 {
+        match self {
+            Live::Break(gap) | Live::Dropped(gap) => *gap,
+            Live::Block(_) | Live::Cut => 0.0,
+        }
+    }
 }
 
 /// How long a stretch of sound the input dropped was ([`Live::Dropped`]),
@@ -106,7 +124,10 @@ pub const HOLD_S: f64 = 5.0;
 /// break: the backlog after it brings the offset back. Blocks after a
 /// rise are held back until then, so a break is known before the block
 /// after it is written, and [`crate::recorder::Recorder::sound_lost`]
-/// lists it with the same gap.
+/// lists it with the same gap. When the first late block rose more than
+/// the gap, the blocks that cover the excess are a backlog of sound from
+/// before the gap that came late with it; they are let through and
+/// culled with a [`Live::Cut`] at their end, so no stretch holds the jump.
 #[derive(Debug)]
 pub struct GapWatch {
     rate: f64,
@@ -201,14 +222,33 @@ impl GapWatch {
         let step = held[0].1 - line;
         let offs: Vec<f64> = held.iter().map(|h| h.1).collect();
         let kept = held_step(line, &offs[offs.len().saturating_sub(HELD_ENTRIES)..]);
+        let mut rest = held.into_iter().peekable();
         if let Some(gap) = kept_gap(step, kept) {
             out.push(Live::Break(gap));
             // The recorder logs the first block after a break.
             self.line = None;
+            // What the first late block rose by beyond the gap is sound
+            // from before the gap that came late after it: with it, the
+            // backlog.
+            let first_end = rest.peek().expect("a held block").2;
+            let backlog = step - gap;
+            let rate = self.rate;
+            let backlog_end = first_end + backlog;
+            let mut culled = false;
+            while let Some((b, off, end_s)) = rest.next_if(|h| {
+                backlog > 1e-6 && h.2 - h.0.samples.len() as f64 / rate < backlog_end - 1e-6
+            }) {
+                self.let_through(b, off, end_s, out);
+                culled = true;
+            }
+            if culled {
+                out.push(Live::Cut);
+                self.line = None;
+            }
+        } else {
+            let (first, off, end_s) = rest.next().expect("a held block");
+            self.let_through(first, off, end_s, out);
         }
-        let mut rest = held.into_iter();
-        let (first, off, end_s) = rest.next().expect("a held block");
-        self.let_through(first, off, end_s, out);
         for (b, off, end_s) in rest {
             self.take(b, off, end_s, out);
         }
@@ -610,6 +650,7 @@ mod tests {
                     }
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
+                    Live::Cut => found.push((blocks, -1.0)),
                 }
             }
             assert_eq!(blocks, 200);
@@ -784,6 +825,7 @@ mod tests {
                         Live::Block(b) => out_at.push((b.samples[0] as usize, k)),
                         Live::Break(g) => found.push((out_at.len(), g)),
                         Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
+                        Live::Cut => panic!("no backlog, but a cut"),
                     }
                 }
             }
@@ -857,6 +899,7 @@ mod tests {
                     }
                     Live::Break(g) => found.push((blocks, g)),
                     Live::Dropped(g) => dropped.push((blocks, g)),
+                    Live::Cut => panic!("no backlog, but a cut"),
                 }
             }
             assert_eq!(blocks, 100);

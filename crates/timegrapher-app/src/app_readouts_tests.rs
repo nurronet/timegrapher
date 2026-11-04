@@ -373,7 +373,7 @@ fn the_profiles_marks_keep_off_the_names() {
         }
     }
     app.sound_opts.side_by_side = true;
-    let (_, rings, bars, facts) = run(&mut app, 1440.0, 820.0);
+    let (_, rings, bars, facts) = run(&mut app, 1440.0, 788.0);
     let plots: Vec<egui::Rect> = (0..2usize)
         .filter_map(|k| {
             ctx.data(|d| d.get_temp::<(egui::Rect, egui::Rect)>(egui::Id::new(("profile plot", k))))
@@ -404,7 +404,7 @@ fn the_profiles_marks_keep_off_the_names() {
             p.median[n - n / 4..].fill(0.9 * top);
         }
     }
-    let (_, _, _, facts) = run(&mut app, 1440.0, 820.0);
+    let (_, _, _, facts) = run(&mut app, 1440.0, 788.0);
     assert!(
         facts
             .iter()

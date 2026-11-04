@@ -5,6 +5,69 @@ use super::tests::painted_text;
 use super::*;
 use timegrapher_core::synth::{generate, SynthConfig};
 
+/// A 46 h run in a 1000 x 700 window: the Power Reserve pane takes room
+/// enough to show both its charts whole, each naming 0 h on its hours'
+/// axis, the table scrolling under them. At 800 x 600 the Rate chart
+/// shows whole, the rest scrolling. The Rate chart's zero line reads
+/// "0 s/d", never "-0 s/d" (#991).
+#[test]
+fn a_long_runs_two_charts_show_whole_in_a_small_window() {
+    for (w, h, charts) in [(1000.0f32, 700.0f32, 2), (800.0, 600.0, 1)] {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let mut r = reserve::finished_run(47).results.unwrap();
+        r.run_s = 46.5 * 3600.0;
+        for hr in &mut r.hours {
+            let x = f64::from(hr.hour);
+            hr.rate_s_per_day = Some(2.0 - 0.004 * x * x);
+            hr.amplitude_deg = Some(295.0 - 2.1 * x);
+        }
+        let ctx = super::tests::themed();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h));
+        let pass = |app: &mut TimegrapherApp| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            ctx.run(input, |ctx| app.panels(ctx))
+        };
+        for _ in 0..3 {
+            pass(&mut app);
+        }
+        // The run's take opened, as from the Watches view.
+        let dir = std::env::temp_dir().join(format!("tg-app-small-{}-{w}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(power_reserve::FILE), r.to_json()).unwrap();
+        app.load_reserve(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut out = None;
+        for _ in 0..4 {
+            out = Some(pass(&mut app));
+        }
+        // The text shown: inside its clip and the window.
+        let shown: Vec<String> = out
+            .unwrap()
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => {
+                    let r = t.galley.rect.translate(t.pos.to_vec2());
+                    let clip = c.clip_rect.intersect(screen);
+                    (clip.contains_rect(r)).then(|| t.galley.text().to_string())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            shown.iter().filter(|t| *t == "0 h").count(),
+            charts,
+            "{w}: {shown:?}"
+        );
+        assert!(shown.iter().any(|t| t == "0 s/d"), "{w}: {shown:?}");
+        assert!(!shown.iter().any(|t| t.starts_with("-0")), "{w}: {shown:?}");
+    }
+}
+
 /// Quick Listen asks before unsaved sound goes, then shows Unsorted
 /// and listens with no watch picked; Stop keeps nothing, Save… saves
 /// the take into Unsorted, which the list shows at its top, and File

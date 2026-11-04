@@ -25,11 +25,11 @@ It gathers the rulings made so far (readings cards, the UX survey, Settings styl
 
 ![The window's areas](window.png)
 
-The window has two rows at the top, then the cards, the panes and the status bar:
+The window has one row at the top, then the cards, the panes and the status bar (#1000; the picture was drawn when there were two rows):
 
-- **(1) Menu bar and icon bar, one row.** The pane icons belong to the Bench: in the Watches view they are hidden and their space stays empty. The Settings gear stays, in the same place, in both views. The pane icons are grouped as: Readings, Paper Strip, Tick Tock Profile, Scope; then "Analysis" (12 panes); then "Tests" (2 panes); then Settings. The View menu lists the panes in the same order.
-- **(2) The mode row.** The **Bench | Watches** switch sits at its left ([App Structure](app-structure.md), section 3). After a separator comes the current view's own toolbar: on the Bench, nothing for now; in the Watches view, New Watch…, search, Sort and List Shows. The row is always there and always one control high, so the cards never move when the view changes.
-- **(3) Readings cards.** Six cards of fixed height (134 pt) at every width, left to right: Position, Calibre, Listen, Rate, Amplitude, Beat Error. See section 10.
+- **(1) The top row.** On Windows and Linux it starts with the menus; on the Mac the menus are in the system menu bar, with the Timegrapher menu (About, Settings… ⌘,, Hide, Quit). Then come the **Bench | Watches** switch ([App Structure](app-structure.md), section 3), the pane icons, Tests and the Settings gear, each group set off by a separator. Below about 1080 pt the Analysis icons fold into one **Analysis ▾** pop-up. The pane icons belong to the Bench: in the Watches view they are hidden and their space stays empty. The Settings gear stays, in the same place, in both views. The pane icons are grouped as: Readings, Paper Strip, Tick Tock Profile, Scope; then "Analysis" (12 panes); then "Tests" (2 panes); then Settings. The View menu lists the panes in the same order.
+- **(2) No second row.** A view's own toolbar sits at the top of its card, as a pane's toolbar does: in the Watches view, New Watch…, search, Sort and List Shows. Nothing below the top row moves when the view changes.
+- **(3) Readings cards.** Six cards of fixed height (134 pt) at every width, left to right: Position, Calibre, Listen, Rate, Amplitude, Beat Error. See section 10. They can also collapse to the 44 pt **Compact Readings** strip, which shows the facts and ▶. A click opens the full cards over the panes, and the pin keeps them open in the layout (#1000).
 - **(4) Panes.** The user places them, and the arrangement is remembered between sessions. Showing a pane brings it to the front where it is. (Fixed layouts by task, Live, Positions and Analysis, were drafted and are parked.)
 - **(5) Status bar.** It is one line, always the same height:
   - at the left, the state (Listening, Opened, Not Started) and the engine's latest message;
@@ -399,7 +399,7 @@ The same page following the rules:
 
 This addendum shows the guide's rules at work on one real part of the app: Watches. It keeps everything a user can do there today, and each change cites the section it comes from.
 
-Watches is a view of its own, filling the window ([App Structure](app-structure.md), section 4). The mock-ups are drawn as the view, cropped to its top left. At full width the list keeps its width, and the watch and its takes table take the rest. "Toolbar" below means the view's toolbar, on the mode row (section 2).
+Watches is a view of its own, filling the window ([App Structure](app-structure.md), section 4). The mock-ups are drawn as the view, cropped to its top left. At full width the list keeps its width, and the watch and its takes table take the rest. "Toolbar" below means the view's toolbar, at the top of the Watches card (section 2).
 
 ### Today
 
