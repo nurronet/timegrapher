@@ -3,10 +3,6 @@ use crate::theme;
 use eframe::egui::{pos2, Rect};
 use std::path::Path;
 
-/// The plots not yet drawn through [`Grid`]: Steadiness's views and its
-/// maps, which come next ("Line Strength on Plots", part 2).
-const NOT_YET: [&str; 2] = ["steady.rs", "tfmap.rs"];
-
 /// Every source file of the app but the tests, with its text.
 fn sources() -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -30,7 +26,7 @@ fn no_plot_draws_the_library_grid() {
     // A plot's marks are set only through a Grid, which turns the
     // library's grid off, and every plot is put on one.
     for (name, text) in sources() {
-        if name == "strength.rs" || NOT_YET.contains(&name.as_str()) {
+        if name == "strength.rs" {
             continue;
         }
         for call in [
@@ -81,7 +77,7 @@ fn a_grid_line_on_an_axis_is_not_drawn() {
         frame,
         &[10.0, 10.3, 50.0, 120.0],
         &[0.0, 50.0, 70.2, 99.8],
-        Some(70.0),
+        Zero::Across(70.0),
     );
     // On the left axis, or off the plot: gone.
     assert_eq!(down, vec![50.0]);
@@ -92,7 +88,7 @@ fn a_grid_line_on_an_axis_is_not_drawn() {
 #[test]
 fn a_zero_line_off_the_plot_hides_no_grid_line() {
     let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(100.0, 100.0));
-    let (_, across) = layout(frame, &[], &[40.0], Some(-500.0));
+    let (_, across) = layout(frame, &[], &[40.0], Zero::Across(-500.0));
     assert_eq!(across, vec![40.0]);
 }
 
@@ -103,4 +99,31 @@ fn the_axes_lie_inside_the_frame_the_plot_clips_to() {
     // A 1 pt line centred here is wholly inside the frame.
     assert_eq!(left - 0.5, frame.left());
     assert_eq!(bottom + 0.5, frame.bottom());
+}
+
+#[test]
+fn a_zero_line_down_hides_the_grid_line_on_it() {
+    let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(100.0, 100.0));
+    let (down, across) = layout(frame, &[30.0, 50.3, 70.0], &[40.0], Zero::Down(50.0));
+    assert_eq!(down, vec![30.0, 70.0]);
+    assert_eq!(across, vec![40.0]);
+}
+
+#[test]
+fn a_plot_by_hand_draws_its_axes_and_zero_in_the_axis_grey() {
+    let frame = Rect::from_min_max(pos2(0.0, 0.0), pos2(100.0, 100.0));
+    let (g, a) = (Color32::RED, Color32::BLUE);
+    let shapes = lines(frame, (&[30.0], &[40.0]), Zero::Down(60.0), (g, a), true);
+    let strokes: Vec<Color32> = shapes
+        .iter()
+        .filter_map(|s| match s {
+            Shape::LineSegment { stroke, .. } => Some(stroke.color),
+            _ => None,
+        })
+        .collect();
+    // Two grid lines; the zero line and the two axes.
+    assert_eq!(strokes, vec![g, g, a, a, a]);
+    // Axes alone: no grid.
+    let bare = lines(frame, (&[30.0], &[40.0]), Zero::None, (g, a), false);
+    assert_eq!(bare.len(), 2);
 }

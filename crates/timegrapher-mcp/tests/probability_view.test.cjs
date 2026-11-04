@@ -22,7 +22,7 @@ const MARKS = [["0.1%", -3.090232], ["1%", -2.326348], ["5%", -1.644854], ["10%"
   ["50%", 0], ["75%", 0.67449], ["90%", 1.281552], ["95%", 1.644854], ["99%", 2.326348], ["99.9%", 3.090232]];
 const context = vm.createContext({
   PROBABILITY_MARKS: MARKS, chartWidth: () => 600, CHAR_W: 6.6, DASH: { loose: "2 3" },
-  plotArea: () => ({ id: "c", svg: "" }), axisLabel: (v) => String(v), gridFor: () => ({ ticks: [], step: 1 }),
+  plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "", axisLabel: (v) => String(v), gridFor: () => ({ ticks: [], step: 1 }),
   esc: String,
 });
 vm.runInContext(definition("probabilityChart"), context);

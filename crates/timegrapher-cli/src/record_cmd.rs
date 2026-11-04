@@ -1056,8 +1056,8 @@ fn print_report(r: &Report) {
 fn say_break(gap: f64, dropped: bool) {
     if dropped {
         eprintln!(
-            "  {:.0} ms of sound was lost (the input's queue filled); left out as a break",
-            gap * 1000.0
+            "  {} of sound was lost (the input's queue filled); left out as a break",
+            timegrapher_core::breaks::lost_text(gap)
         );
     } else {
         eprintln!("  the sound stopped for {gap:.1} s (the computer slept?); left out as a break");

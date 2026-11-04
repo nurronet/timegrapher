@@ -182,8 +182,7 @@ pub fn draw(
     let bottom = m.period_s.last().map_or(0.0, |p| p.log10()) - half;
     let left = t0 - dt / 2.0;
     let width = dt * w as f64;
-    let key_h = KEY_H;
-    let plot_h = (ui.available_height() - key_h).max(40.0);
+    let plot_h = (ui.available_height() - KEY_H).max(40.0);
     // The wheels' lines, named in a narrow lane right of the map; a
     // wheel's ×2 isn't marked on a map.
     let lines: Vec<WheelLine> = wheel_lines(wheels, (bottom, top))
@@ -195,10 +194,11 @@ pub fn draw(
     let plot_w = (ui.available_width() - side).max(80.0);
     let x_hi = upto_s.max(left + width);
     let plot_w64 = plot_w as f64;
-    let resp = base
+    let grid = map_grid(plot_h);
+    let resp = grid
+        .on(base)
         .height(plot_h)
         .width(plot_w)
-        .x_grid_spacer(|g| theme::even_grid(g, 80.0, &theme::TIME_STEPS))
         .x_axis_formatter(move |g, r| {
             // A mark too near the right edge for its label to show whole
             // goes unlabelled, rather than cut to "10:0".
@@ -207,11 +207,11 @@ pub fn draw(
             }
             time_label(g.value)
         })
-        .y_grid_spacer(crate::steady::period_grid(plot_h))
         .y_axis_formatter(|g, _| crate::steady::period_label(g.value))
         .default_x_bounds(0.0f64.min(left), x_hi)
         .default_y_bounds(bottom, top)
         .show(ui, |p| {
+            grid.draw_under(p, pal);
             p.image(
                 PlotImage::new(
                     "map",
@@ -222,6 +222,8 @@ pub fn draw(
                 .highlight(false),
             );
             wheel_rows(p, &lines, pal);
+            // The map fills the plot, so only its axes are drawn, over it.
+            grid.draw_axes(p, pal);
             p.pointer_coordinate().and_then(|at| cell(m, at.x, at.y))
         });
     let t = resp.transform;
@@ -252,6 +254,11 @@ pub fn draw(
     key_row(ui, m, scale, pal);
 }
 
+/// A map's grid: time across, period up, `plot_h` points tall.
+fn map_grid(plot_h: f32) -> crate::strength::Grid {
+    crate::strength::Grid::new(crate::steady::time_grid, crate::steady::period_grid(plot_h))
+}
+
 /// The wheels' turns across the map, dotted; their names are in the lane
 /// beside it ([`marks::lane_right`]), so nothing else is drawn over the
 /// colour.
@@ -261,7 +268,7 @@ fn wheel_rows(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::P
             egui_plot::HLine::new(l.name.clone(), l.x)
                 .color(l.ink(pal))
                 .style(LineStyle::dotted_dense())
-                .width(1.25_f32),
+                .width(l.width()),
         );
     }
 }

@@ -26,10 +26,9 @@ pub const BASELINE_SCHEMA: &str = "timegrapher.regress-baseline/1";
 pub const BASELINE: &str = "regress-baseline.json";
 /// The regression harness's own thresholds, chosen by the project for a
 /// developer check that watch owners never see: no corpus take reads a
-/// median amplitude above 330° where the unlock was found in at least 60%
+/// median amplitude above 330° where amplitude was measured in at least 60%
 /// of its windows, so one that does points at the amplitude measurement.
 const AMPLITUDE_HIGH_DEG: f64 = 330.0;
-const UNLOCK_FOUND_SHARE: f64 = 0.6;
 
 /// How far a value may move away from tg before the check fails.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -209,7 +208,7 @@ pub struct Outcome {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub smoke: Vec<crate::corpus::Smoke>,
     /// Readings whose median amplitude is over [`AMPLITUDE_HIGH_DEG`],
-    /// with the unlock found in at least [`UNLOCK_FOUND_SHARE`] of their windows, as
+    /// with amplitude measured in at least core’s required share of kept windows, as
     /// "take #reading". No corpus take should: fails.
     pub amplitude_high: Vec<String>,
 }
@@ -735,8 +734,9 @@ pub fn run(o: &Options) -> Result<bool, String> {
                 Ok(result) => {
                     let r = &result.reading;
                     let m = &r.measurement;
-                    let unlock_found = !m.unlock_coverage.is_some_and(|c| c < UNLOCK_FOUND_SHARE);
-                    if unlock_found && m.amplitude_deg.is_some_and(|a| a > AMPLITUDE_HIGH_DEG) {
+                    let amplitude_covered = !m.coverage.amplitude.is_thin();
+                    if amplitude_covered && m.amplitude_deg.is_some_and(|a| a > AMPLITUDE_HIGH_DEG)
+                    {
                         amplitude_high.push(format!("{take} #{}", i + 1));
                     }
                     let mut values = Values::of(r);

@@ -73,6 +73,22 @@ pub enum Live {
     Dropped(f64),
 }
 
+/// How long a stretch of sound the input dropped was ([`Live::Dropped`]),
+/// as the app and `record` both say it: "<1 ms" for under half a
+/// millisecond, whole milliseconds under a second, whole seconds under two
+/// minutes, and `4:05` or `1:30:00` from then on.
+pub fn lost_text(gap_s: f64) -> String {
+    if gap_s < 0.0005 {
+        "<1 ms".to_string()
+    } else if gap_s < 0.9995 {
+        format!("{} ms", (gap_s * 1000.0).round() as u64)
+    } else if gap_s < 119.5 {
+        format!("{} s", gap_s.round() as u64)
+    } else {
+        crate::library::length_text(gap_s)
+    }
+}
+
 /// Audio seconds after a rise in a live input's offset that are held back
 /// before judging it, or the rise itself when it is shorter: longer than
 /// an input's own buffer, so when the input was only late, its backlog has
@@ -850,6 +866,25 @@ mod tests {
             assert_eq!(dropped.len(), 1, "{lost}: {dropped:?}");
             assert_eq!(dropped[0].0, 50);
             assert!((dropped[0].1 - late).abs() < 1e-9, "{lost}: {dropped:?}");
+        }
+    }
+
+    #[test]
+    fn a_lost_stretch_reads_in_the_unit_that_fits_it() {
+        for (gap, want) in [
+            (0.0, "<1 ms"),
+            (0.0004, "<1 ms"),
+            (0.0005, "1 ms"),
+            (0.03, "30 ms"),
+            (0.999, "999 ms"),
+            (0.9996, "1 s"),
+            (1.365, "1 s"),
+            (119.4, "119 s"),
+            (119.5, "2:00"),
+            (245.0, "4:05"),
+            (5400.0, "1:30:00"),
+        ] {
+            assert_eq!(lost_text(gap), want, "{gap}");
         }
     }
 }

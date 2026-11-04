@@ -16,10 +16,10 @@ function definition(name) {
 const context = vm.createContext({
   VIRIDIS, secs: (t) => `${t} s`, wheelTitle: String, linTicks: () => [], lagText: String, TIME_STEPS: [],
   chartWidth: () => 600, CHAR_W: 6.6,
-  plotArea: () => ({ id: "c", svg: "" }),
+  plotArea: () => ({ id: "c", svg: "" }), gridDown: () => "", gridAcross: () => "",
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const TIME_BANDS = .*$/m)[0] + "\n" +
-  html.match(/^const DASH = .*$/m)[0] + "\n" +
+  html.match(/^const DASH = .*$/m)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
   ["esc", "axisLabel", "stepText", "viridisRgb", "steadyNote", "steadyPlot", "xyChart"].map(definition).join("\n") +
   "\nthis.realChart = xyChart;", context);
 const plain = (v) => JSON.parse(JSON.stringify(v));

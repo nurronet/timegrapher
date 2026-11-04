@@ -2173,9 +2173,11 @@ impl TimegrapherApp {
                     if let Some((_, opened)) = carried {
                         self.opened_positions = opened;
                     }
-                    // A take with no sound shows the profiles it kept.
+                    // A take with no sound shows the profiles it kept,
+                    // thinned as listening thins them (#483).
                     if let Some(k) = profiles {
                         self.sound_history = k.into_iter().map(|p| (p.end_s, p.sides)).collect();
+                        scope_panes::thin_sound(&mut self.sound_history);
                     }
                 }
                 Ok(None) => {}
@@ -2484,16 +2486,10 @@ fn open_in_background(
 /// input dropped (#483), or a jump in its timestamps.
 fn break_text(gap: f64, dropped: bool) -> String {
     if dropped {
-        // A drop can be a few milliseconds.
-        let lost = if gap < 1.0 {
-            format!("{:.0} ms", gap * 1000.0)
-        } else {
-            fields::duration(gap.round())
-        };
+        let lost = timegrapher_core::breaks::lost_text(gap);
         format!(
-            "{lost} of sound was lost: the app fell behind and the input's \
-             queue filled. The lost sound is left out of the take as a \
-             break, and listening carries on."
+            "{lost} of sound was lost while the app was busy. It is left \
+             out as a break."
         )
     } else {
         format!(

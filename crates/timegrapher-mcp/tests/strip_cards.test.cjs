@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { BASE_DIGITS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 const definition = (name) => {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
@@ -13,6 +14,7 @@ const definition = (name) => {
 };
 const charts = [];
 const context = vm.createContext({
+  BASE_DIGITS,
   num: (v, d) => v.toFixed(d),
   signed: (v, d) => (v >= 0 ? "+" : "") + v.toFixed(d),
   lineChart: (c) => { charts.push(JSON.parse(JSON.stringify(c))); return "<svg/>"; },
@@ -50,7 +52,7 @@ test("a line lifts where a reading has no figure, as the app leaves a cut empty"
   const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
   const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
   vm.runInContext(["DASH", "TIME_STEPS", "charts"].map(constant).join("\n") + "\n" +
-    ["plotArea", "lineSample", "lineChart", "nearest", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   const svg = real.lineChart({
     title: "Rate", time: true, yRange: [4, 5], unit: " s/d", decimals: 1,
     series: [{ name: "Rate", color: "--rate", points: [[1, 4.5], [2, 4.6], [3, null], [6, 4.7], [7, 4.8]] }],

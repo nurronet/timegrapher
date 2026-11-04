@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { BASE_DIGITS } = require("./core_digits.cjs");
 
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML ||
   path.join(__dirname, "../src/view.html"), "utf8");
@@ -21,7 +22,7 @@ function definition(name, optional = false) {
 const NO_BEAT_TITLE = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/measure.rs"), "utf8")
   .match(/pub const NO_WATCH_TITLE: &str = "([^"]+)";/)[1];
 const context = vm.createContext({
-  NO_BEAT_TITLE,
+  NO_BEAT_TITLE, BASE_DIGITS,
   fileName: () => "test.wav", timeLabel: String, positionName: (p) => `name of ${p}`,
   stripCards: () => "", limitsCard: (l) => (l && l.length ? "<limits>" : ""),
   profileCard: (p, title, dropBeatError) => `<profile drop="${dropBeatError}">`,
@@ -67,7 +68,7 @@ test("corrected headline identifies raw percentile basis and escapes the source"
   doc.rate_p95 = 8;
   const markup = render(doc);
   assert.equal(rateValue(markup), 7);
-  assert.ok(markup.includes("Card-clock 90% of windows +5.0 to +8.0"));
+  assert.ok(markup.includes("Card-clock 90% of windows +5 to +8"), "whole s/d, the guide's base for p05 to p95");
   assert.ok(markup.includes("&lt;img"));
   assert.ok(!markup.includes("<img"));
 });
@@ -128,6 +129,31 @@ test("the tiles show the server's ± text, and none without it", () => {
   const take = context.recordingView(listed([reading("DU", 5), reading("DD", -3)]), null, null, null,
     { readings: [{ rate: "0.2", amplitude: null }, { rate: "1.5", amplitude: "3" }] });
   assert.ok(take.includes("± 0.2 seconds per day") && take.includes("± 1.5 seconds per day") && take.includes("± 3°"), take);
+});
+
+// Decimals follow the ± (#510 K3): each figure is written to the decimals
+// the server gives beside its ± (core's library::figure_digits), and to
+// core's base without them.
+test("each figure takes the decimals the server gives with its ±", () => {
+  const doc = listed(undefined);
+  doc.take = undefined;
+  doc.amplitude_deg = 269.63;
+  doc.beat_error_unlock_ms = 0.4123;
+  const value = (markup, label) => markup.match(new RegExp(`${label}</div>\\s*<div class="value">([^<°]+)`))[1];
+  const based = render(doc);
+  assert.equal(value(based, "Rate"), `+${(9).toFixed(BASE_DIGITS.rate)}`);
+  assert.equal(value(based, "Amplitude"), (269.63).toFixed(BASE_DIGITS.amplitude));
+  assert.equal(value(based, "Beat Error"), (0.4123).toFixed(BASE_DIGITS.beat_error));
+  const pm = { rate: "0.007", amplitude: "0.4", digits: { rate: 3, amplitude: 1, beat_error: 2 } };
+  const fine = context.recordingView(doc, null, null, null, pm);
+  assert.equal(value(fine, "Rate"), "+9.000");
+  assert.ok(fine.includes("± 0.007 seconds per day"), fine);
+  assert.equal(value(fine, "Amplitude"), "269.6");
+  // A take's readings each take their own.
+  const take = context.recordingView(listed([reading("DU", 5), reading("DD", -3)]), null, null, null,
+    { readings: [{ rate: "0.04", digits: { rate: 2 } }, { rate: "1.5" }] });
+  const rates = [...take.matchAll(/Rate<\/div>\s*<div class="value">([^<]+)/g)].map((m) => m[1]);
+  assert.deepEqual(rates, ["+5.00", (-3).toFixed(BASE_DIGITS.rate)]);
 });
 
 // Whether clipping is worth saying is core's call (Clipping::noted, the

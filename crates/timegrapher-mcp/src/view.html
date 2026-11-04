@@ -48,11 +48,12 @@ svg.key { display: inline-block; }
 .side .sum { color: var(--text2); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 svg { display: block; max-width: 100%; height: auto; }
 svg text { fill: var(--text2); font-size: 11px; font-variant-numeric: tabular-nums; }
-svg .plot { fill: var(--card); stroke: var(--separator); stroke-width: 1; }
+/* Line Strength on Plots: grid, then axis (the left and bottom edges and a
+   zero line), then call-out (named and reference lines), then data. */
+svg .plot { fill: var(--card); }
 svg .grid { stroke: var(--grid); stroke-width: 1; }
-svg.faint .grid { stroke-opacity: 0.55; }
-svg .zero { stroke: var(--text3); stroke-width: 1; }
-svg .cursor { stroke: var(--text3); stroke-width: 1; }
+svg .axis, svg .zero { stroke: var(--axis); stroke-width: 1; }
+svg .cursor { stroke: var(--callout); stroke-width: 1.2; }
 .chart { position: relative; }
 .tip {
   position: absolute; pointer-events: none; background: var(--card); color: var(--text);
@@ -181,6 +182,11 @@ const POSITIONS = /*POSITIONS*/null;
 // The heading for a reading with no regular beat: core's measure::NO_WATCH_TITLE,
 // as the app writes it (#510).
 const NO_BEAT_TITLE = /*NO_BEAT_TITLE*/null;
+// Each figure's decimals with no ± to follow: core's library::base_digits
+// (rate 1, amplitude 0, beat error 2, jitter 0), filled in by the server.
+// A figure with a ± takes the decimals the server gives beside it
+// (library::figure_digits, #510 K3).
+const BASE_DIGITS = /*BASE_DIGITS*/null;
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
@@ -213,6 +219,14 @@ const TIME_STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 
 // The app's line styles.
 // "dense" and "sparse" are egui's dotted_dense and dotted_loose: round dots
 // 5 and 10 px apart.
+// A call-out's width (strength::CALL_OUT_W).
+const CALL_OUT_W = 1.2;
+// A fainter call-out's width, a ×2's or a reference period's
+// (strength::FAINT_CALL_OUT_W).
+const FAINT_CALL_OUT_W = 1;
+// How strongly the cycle plot's boxes are drawn: the shape's colour at this
+// opacity, so the shape stays on top (steady::BOX_OPACITY).
+const BOX_OPACITY = 0.6;
 const DASH = { dashed: "4 3", dotted: "1.2 2.4", loose: "6 5", wheel: "4 4", dense: "0 5", sparse: "0 10" };
 
 // Charts are drawn at the width they are shown, so their text stays at its size.
@@ -263,14 +277,27 @@ function fmtTime(t) {
 
 let clipCount = 0;
 
-// The plot's background and the clip that keeps the marks inside it.
+// The plot's background, its left and bottom axes, and the clip that keeps
+// the marks inside it. No top or right edge is drawn.
 function plotArea(x, y, w, h) {
   const id = "clip" + (++clipCount);
   return {
     id,
     svg: `<defs><clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath></defs>
-      <rect class="plot" x="${x}" y="${y}" width="${w}" height="${h}" rx="3"/>`,
+      <rect class="plot" x="${x}" y="${y}" width="${w}" height="${h}"/>
+      <line class="axis" x1="${x}" x2="${x}" y1="${y}" y2="${y + h}"/><line class="axis" x1="${x}" x2="${x + w}" y1="${y + h}" y2="${y + h}"/>`,
   };
+}
+
+// A grid line down the plot at `x`, or none where it would fall on the left
+// axis, so the axis never doubles up as the range moves.
+function gridDown(x, L, T, plotH) {
+  return Math.abs(x - L) < 0.5 ? "" : `<line class="grid" x1="${x}" x2="${x}" y1="${T}" y2="${T + plotH}"/>`;
+}
+
+// A grid line across the plot at `y`, or none on the bottom axis.
+function gridAcross(y, L, plotW, bottom) {
+  return Math.abs(y - bottom) < 0.5 ? "" : `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${y}" y2="${y}"/>`;
 }
 
 function lineSample(s) {
@@ -309,18 +336,18 @@ function lineChart(o) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [v, t] of ylab) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const v of xg.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = o.time ? fmtTime(v) : axisLabel(v, xg.step, o.xUnit);
     // The first and last labels stay inside the chart.
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
   for (const h of o.hlines || []) {
-    inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="1"${h.dash ? ` stroke-dasharray="${DASH[h.dash]}"` : ""}/>`;
+    inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="${h.width || 1}"${h.dash ? ` stroke-dasharray="${DASH[h.dash]}"` : ""}/>`;
   }
   for (const s of o.series) {
     if (s.band && s.band.length) {
@@ -447,7 +474,7 @@ function stripCards(strip) {
   const over = (hint) => average ? `${hint}, ${average}` : hint;
   const cards = [];
   if (has("rate")) {
-    const clock = Number.isFinite(strip.clock_ppm) ? `${signed(strip.clock_ppm, 1)} ppm` : "";
+    const clock = Number.isFinite(strip.clock_ppm) ? `${signed(strip.clock_ppm, BASE_DIGITS.clock)} ppm` : "";
     cards.push(["Rate", over(`The rate over the whole recording, ${rateBasis(!!clock, clock)}`), lineChart({
       title: "Rate", time: true, yRange: range("rate"), unit: " s/d", decimals: 1,
       series: [{ name: average ? `Rate in seconds per day, ${average}` : "Rate in seconds per day", color: "--rate", points: strip.rate }],
@@ -500,16 +527,18 @@ function profileCard(p, title, dropBeatError, facts) {
     const pts = (s.median || []).map((v, i) => [x(i), v]);
     const band = s.p10 && s.p90 ? s.p10.map((lo, i) => [x(i), lo, s.p90[i]]) : [];
     const marks = [];
-    for (const [label, at, c, w] of [["Unlock", s.unlock_ms, "--unlock", 1.5], ["Drop", s.drop_ms, "--drop", 1.5], ["Peak", s.peak_ms, "--peak", 1]]) {
-      if (Number.isFinite(at)) marks.push({ x: at + dx, color: c, width: w, label, group: 0 });
+    // Call-outs, one grey told apart by pattern: the edges solid, the
+    // sounds dotted (strength::Strength::CallOut).
+    for (const [label, at] of [["Unlock", s.unlock_ms], ["Drop", s.drop_ms], ["Peak", s.peak_ms]]) {
+      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--callout", width: CALL_OUT_W, label, group: 0 });
     }
     for (const [label, at] of [["1 Unlock", s.sound1_ms], ["2 Impulse", s.sound2_ms], ["3 Drop", s.sound3_ms]]) {
-      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--sound", width: 1.2, dash: "loose", label, group: 1 });
+      if (Number.isFinite(at)) marks.push({ x: at + dx, color: "--callout", width: CALL_OUT_W, dash: "dotted", label, group: 1 });
     }
     return `<div class="side"><span class="swatch dot" style="background:var(${color})"></span><b style="color:var(${color})">${k ? "Tock" : "Tick"}</b><span class="sum">${esc(profileSummary(facts, k))}</span></div>${lineChart({
       title: k ? "Tock" : "Tick", height: 130, hover: false, xUnit: " ms", xRange, yRange: [0, top * 1.08],
       series: [{ name: k ? "Tock" : "Tick", color, points: pts, band }],
-      hlines: Number.isFinite(s.floor) ? [{ y: s.floor, color: "--text3", dash: "dashed" }] : [],
+      hlines: Number.isFinite(s.floor) ? [{ y: s.floor, color: "--callout", width: CALL_OUT_W, dash: "dashed" }] : [],
       marks,
     })}`;
   };
@@ -558,9 +587,9 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   const o = doc.overall || {};
   const rate = analyzeRate(doc);
   const rateNote = [esc(rate.basis)];
-  if (Number.isFinite(doc.rate_p05)) rateNote.push(`Card-clock 90% of windows ${signed(doc.rate_p05, 1)} to ${signed(doc.rate_p95, 1)}`);
+  if (Number.isFinite(doc.rate_p05)) rateNote.push(`Card-clock 90% of windows ${signed(doc.rate_p05, BASE_DIGITS.rate_range)} to ${signed(doc.rate_p95, BASE_DIGITS.rate_range)}`);
   const html = head + readingTiles({
-    rate: rate.value, ratePm: pm.rate, rateNote: rateNote.join("<br>"),
+    rate: rate.value, ratePm: pm.rate, digits: pm.digits, rateNote: rateNote.join("<br>"),
     amplitude: doc.amplitude_deg, amplitudePm: pm.amplitude, even: doc.amplitude_even_deg, odd: doc.amplitude_odd_deg,
     unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms,
     beats: doc.beats_found, jitter: Number.isFinite(doc.jitter_us) ? doc.jitter_us : o.jitter_us,
@@ -573,16 +602,17 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // app's card. Both show the size only: which side is Tick can change
 // between runs of the same take, so a sign would mean nothing.
 function readingTiles(f) {
+  const d = { ...BASE_DIGITS, ...(f.digits || {}) };
   const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
   const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), 2)} ms` : ""}` : "from the drop";
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), d.beat_error)} ms` : ""}` : "from the drop";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
-    ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, 0)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, 0)}°` : "";
+    ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
-    ${tile("Rate", "--rate", signed(f.rate, 1), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
-    ${tile("Amplitude", "--amplitude", num(f.amplitude, 0), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
-    ${tile("Beat Error", "--beat-error", num(abs(be), 2), "milliseconds", beNote)}
-    ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, 0)} µs` : "")}
+    ${tile("Rate", "--rate", signed(f.rate, d.rate), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
+    ${tile("Amplitude", "--amplitude", num(f.amplitude, d.amplitude), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
+    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), "milliseconds", beNote)}
+    ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, d.jitter)} µs` : "")}
   </div>`;
 }
 
@@ -610,7 +640,7 @@ function takeTiles(readings, pms) {
     const head = `<p class="sub">${esc(label)}${span ? ` · ${esc(span)}` : ""} · as the take reads it</p>`;
     if (m.watch_heard === false) return head + `<div class="card notice"><b>${esc(NO_BEAT_TITLE)}</b></div>`;
     return head + readingTiles({
-      rate: m.rate_s_per_day, ratePm: pm.rate, rateNote: esc(rateBasis(m.calibrated === true)),
+      rate: m.rate_s_per_day, ratePm: pm.rate, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
       amplitude: m.amplitude_deg, amplitudePm: pm.amplitude, even: m.amplitude_even_deg, odd: m.amplitude_odd_deg,
       unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, beats: m.beats, jitter: m.jitter_us,
     });
@@ -689,7 +719,7 @@ function bars(rows, color, unit, decimals) {
   let g = area.svg, inside = "";
   const grid = gridFor(d0, d1, plotW, 70);
   for (const v of grid.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = axisLabel(v, grid.step, unit);
     const anchor = sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${T + plotH + 15}" text-anchor="${anchor}">${esc(t)}</text>`;
@@ -811,7 +841,7 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
 //   notes: [{x, y, text, above}] beside a point; beside: [{x, y, text}], a
 //   marked point's note in the nearest clear space (marks::beside), the y
 //   range kept tall enough for it (noteRoom); corner: {text, top}, a line
-//   per "\n"; rects: [{x0, x1, y0, y1, color}] outlined; a dot set's rgb
+//   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined; a dot set's rgb
 //   overrides its color
 function xyChart(o) {
   const W = chartWidth(), B = 20, R = 6;
@@ -836,11 +866,11 @@ function xyChart(o) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [v, t] of yt) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const [v, t] of xt) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
@@ -863,7 +893,7 @@ function xyChart(o) {
   }
   for (const r of o.rects || []) {
     const [a, b] = [sx(r.x0), sx(r.x1)], [c, d] = [sy(r.y1), sy(r.y0)];
-    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})" stroke-width="1"/>`;
+    inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"/>`;
   }
   for (const d of o.dots || []) {
     inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
@@ -931,7 +961,7 @@ function xyChart(o) {
     });
   }
   g += `<g clip-path="url(#${area.id})">${inside}</g>`;
-  return `<div class="chart"><svg${o.faint ? ` class="faint"` : ""} viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.title || "")}">${g}</svg></div>`;
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.title || "")}">${g}</svg></div>`;
 }
 
 // marks.rs: names on the lines a plot marks, by the app's one set of rules
@@ -1209,21 +1239,22 @@ function wheelLines(doc, span) {
   return out.filter(inside);
 }
 // steady::WheelLine::rank and ink: a wheel's name is strong, a ×2's or a
-// reference's faint; a wheel's line is the wheels' grey, a ×2's fainter, a
-// reference's the tertiary grey.
+// reference's faint; every line is a call-out, so the call-out grey, and
+// its pattern tells a wheel, a ×2 and a reference apart.
 function wheelRank(l) { return l.turn === "wheel" ? "strong" : "faint"; }
-function wheelInk(l) {
-  return l.turn === "reference" ? { ink: "--text3" } : l.turn === "twice" ? { ink: "--wheel", opacity: 0.6 } : { ink: "--wheel" };
-}
+function wheelInk() { return { ink: "--callout" }; }
+// steady::WheelLine::width: a wheel's a full call-out, a ×2 or a reference
+// a fainter one.
+function wheelWidth(l) { return l.turn === "wheel" ? CALL_OUT_W : FAINT_CALL_OUT_W; }
 
-// steady::wheel_marks: the lines down a period plot, under its trace: a
-// wheel's dotted, a ×2's looser and fainter, a reference's solid; named
+// steady::wheel_marks: the lines down a period plot, under its trace, all
+// call-outs: a wheel's dotted, a ×2's looser, a reference's solid; named
 // above the plot by the lane rules.
 function wheelMarks(doc, span) {
   return wheelLines(doc, span).map((l) => {
-    const { ink, opacity } = wheelInk(l);
-    const style = l.turn === "wheel" ? { width: 2, dash: "dense" } : l.turn === "twice" ? { width: 1.25, dash: "sparse" } : { width: 1.25 };
-    return { x: l.x, color: ink, opacity, ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
+    const { ink } = wheelInk(l);
+    const style = l.turn === "wheel" ? { dash: "dense" } : l.turn === "twice" ? { dash: "sparse" } : {};
+    return { x: l.x, color: ink, width: wheelWidth(l), ...style, name: l.name, rank: wheelRank(l), ink, hover: l.hover };
   });
 }
 
@@ -1268,7 +1299,7 @@ function steadyPlot(s, view, doc) {
         yTicks: (a, b, h) => linTicks(a, b, h, 24, (y, st) => stepText(y, st, unit)),
         dots: [{ pts, color, r: 1.4 }], key: { color, text: dotKey(r, pts.length) },
         lines: segs.map((g) => ({ pts: [[g.start_s, g.mean], [g.end_s, g.mean]], color: "--text", width: 1.8 })),
-        hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--text", dash: "loose" })) : [],
+        hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--callout", width: CALL_OUT_W, dash: "loose" })) : [],
       });
     }
     case "periods": {
@@ -1297,10 +1328,10 @@ function steadyPlot(s, view, doc) {
         notes.push({ x, y: near[1], text: secs(s.period.period_s) + (s.period.wheel ? `, ${wheelTitle(s.period.wheel)}` : "") });
       }
       return xyChart({
-        title: "Periods", x: span, y, faint: true,
+        title: "Periods", x: span, y,
         xTicks: periodTicks,
         yTicks: periodsLog ? (a, b) => logTicks(a, b, sig) : (a, b, h) => linTicks(a, b, h, 24, (y) => y.toFixed(0)),
-        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--text2", dash: "loose" }],
+        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes, noteRoom: true,
       });
     }
@@ -1322,7 +1353,7 @@ function steadyPlot(s, view, doc) {
       const [lo, hi] = f.y_range || [0, 1];
       // Each phase's middle half, over every cycle folded (core's columns).
       const boxW = 0.3 * f.period_s / bins;
-      const rects = (f.columns || []).map((q, b) => q && { x0: at(b) - boxW, x1: at(b) + boxW, y0: q[0], y1: q[2], color: "--text3" }).filter(Boolean);
+      const rects = (f.columns || []).map((q, b) => q && { x0: at(b) - boxW, x1: at(b) + boxW, y0: q[0], y1: q[2], color, opacity: BOX_OPACITY, width: 1.5 }).filter(Boolean);
       const n = f.cycles || rows;
       let label;
       if (f.from === "own") {
@@ -1362,7 +1393,7 @@ function steadyPlot(s, view, doc) {
         title: "Autocorrelation", x: [0, xHi], y: [lo - 0.05, 1.35],
         xTicks: (p, q, w) => linTicks(p, q, w, Math.min(80, w / 4), (t) => lagText(t), TIME_STEPS),
         yTicks: (p, q, h) => linTicks(p, q, h, 24, (y, st) => stepText(y, st)),
-        hlines: [{ y: 0, color: "--text3" }, { y: a.band, color: "--text2", dash: "loose" }, { y: -a.band, color: "--text2", dash: "loose" }],
+        hlines: [{ y: 0, color: "--axis" }, { y: a.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { y: -a.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes,
         corner: Number.isFinite(a.p_value) ? { text: `Ljung–Box p = ${pText(a.p_value)}`, top: true } : null,
       });
@@ -1390,7 +1421,7 @@ function steadyPlot(s, view, doc) {
       const size = (v) => v.toFixed(v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3) + u;
       const peak = pts.reduce((a, q) => (q[1] > a[1] ? q : a), pts[0]);
       return `<p class="note">${esc(spectrumSupportText(sp))}</p>` + xyChart({
-        title: "FFT", x, y, faint: true,
+        title: "FFT", x, y,
         xTicks: periodTicks,
         yTicks: (p, q) => logTicks(p, q, size),
         vlines: wheelMarks(doc, x), names: showWheels, lines: [{ pts, color, width: 1.5 }],
@@ -1426,7 +1457,7 @@ function steadyPlot(s, view, doc) {
         title: "Allan Deviation", x, y,
         xTicks: periodTicks,
         yTicks: (p, q) => logTicks(p, q, (d) => sig(d) + unit),
-        lines: [{ pts: white, color: "--text2", width: 1, dash: "loose" }, { pts: dev, color, width: 1.5 }],
+        lines: [{ pts: white, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { pts: dev, color, width: 1.5 }],
         dots: [{ pts: dev, color, r: 2 }], notes,
       });
     }
@@ -1444,7 +1475,7 @@ function steadyPlot(s, view, doc) {
         title: "CUSUM", x: [Math.min(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[0]))], y: [-m, m],
         xTicks: (p, q, w) => linTicks(p, q, w, Math.min(80, w / 4), (t) => fmtTime(t), TIME_STEPS),
         yTicks: (p, q, h) => linTicks(p, q, h, 24, (y, st) => stepText(y, st)),
-        hlines: [{ y: 0, color: "--text3" }, { y: c.band, color: "--text2", dash: "loose" }, { y: -c.band, color: "--text2", dash: "loose" }],
+        hlines: [{ y: 0, color: "--axis" }, { y: c.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }, { y: -c.band, color: "--callout", width: CALL_OUT_W, dash: "loose" }],
         lines: [{ pts, color, width: 1.5 }], marks, notes,
       });
     }
@@ -1462,7 +1493,13 @@ function steadyStats(s) {
   const a = s.autocorrelation;
   if (a && Number.isFinite(a.p_value)) parts.push(`Ljung–Box p ${pText(a.p_value)}`);
   if (s.allan && Number.isFinite(s.allan.max_excess)) parts.push(`Allan up to ${num(s.allan.max_excess, 1)}× the independent line`);
-  if (s.trend && Number.isFinite(s.trend.per_hour)) parts.push(`trend ${s.trend.per_hour >= 0 ? "+" : ""}${num(s.trend.per_hour, 2)}${u} per hour`);
+  // A trend or a level split the headline leaves out says why, in core's
+  // words (Trend::note, Changes::note): not significant after Holm's
+  // correction, too small, or not the headline's finding.
+  const why = (n) => (n ? `, ${n}` : "");
+  if (s.trend && Number.isFinite(s.trend.per_hour)) parts.push(`trend ${s.trend.per_hour >= 0 ? "+" : ""}${num(s.trend.per_hour, 2)}${u} per hour${why(s.trend.note)}`);
+  const c = s.changes;
+  if (c && c.segments && c.segments.length > 1) parts.push(`${c.segments.length} stretches of one level${why(c.note)}`);
   return parts.join(" · ");
 }
 
@@ -1519,7 +1556,7 @@ function steadySwitch() {
 const INFO_HINT = "Info: what this view shows, and each reading's findings and statistics, in full.";
 
 // steady::WHEELS_HINT.
-const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a grey dotted line named above the plot, and half of it fainter, where a wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and one hour are marked in grey instead: periods alone, named after no wheel.";
+const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a grey dotted line named above the plot, and half of it more loosely dotted, where a wheel that is off centre shows twice a turn. With no calibre picked, or none of its wheels known, one minute and one hour are marked in grey instead: periods alone, named after no wheel.";
 
 function wireSteadiness(root) {
   for (const b of root.querySelectorAll("button[data-steady]")) {
@@ -1621,23 +1658,23 @@ function mapChart(m, doc, log) {
   const sx = (x) => L + (x - x0) / (x1 - x0) * plotW;
   const sy = (y) => T + (top - y) / (top - bottom) * plotH;
   const area = plotArea(L, T, plotW, plotH);
-  let g = area.svg, grid = "";
+  // The map fills the plot, so no grid is drawn and its axes go over it,
+  // below (strength::Grid::draw_axes).
+  let g = area.svg;
   for (const [v, t] of yt) {
-    grid += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
     if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const [v, t] of xt) {
-    grid += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
-  g += `<g clip-path="url(#${area.id})">${grid}</g>`;
   // tfmap::wheel_rows: the wheels' turns across the map, dotted; their
   // names are in the lane beside it, so nothing else is drawn over the
   // colour.
-  let over = "";
+  // The map fills the plot, so its axes are drawn over it.
+  let over = `<path class="axis" fill="none" d="M${L} ${T}V${T + plotH}H${L + plotW}"/>`;
   for (const l of lines) {
-    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="1.25"${l.opacity ? ` stroke-opacity="${l.opacity}"` : ""} stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
+    over += `<line x1="${L}" x2="${L + plotW}" y1="${sy(l.x)}" y2="${sy(l.x)}" stroke="var(${l.ink})" stroke-width="${wheelWidth(l)}" stroke-dasharray="${DASH.dense}" stroke-linecap="round"/>`;
   }
   over += laneRight(lines.map((l) => ({ ...l, y: sy(l.x) })), L + plotW, T, T + plotH);
   const k = mapPaints.length;
@@ -1745,18 +1782,18 @@ function probabilityChart(e, color, unit) {
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
   for (const [z, t] of ylab) {
-    inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(z)}" y2="${sy(z)}"/>`;
+    inside += `${gridAcross(sy(z), L, plotW, T + plotH)}`;
     g += `<text x="${L - 5}" y="${sy(z) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
   for (const v of xg.ticks) {
-    inside += `<line class="grid" x1="${sx(v)}" x2="${sx(v)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(v), L, T, plotH)}`;
     const t = axisLabel(v, xg.step, unit);
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
   const line = e.normal_line;
   if (line && Number.isFinite(line.centre) && Number.isFinite(line.spread)) {
-    inside += `<line x1="${sx(line.centre - line.spread * zTop)}" y1="${sy(-zTop)}" x2="${sx(line.centre + line.spread * zTop)}" y2="${sy(zTop)}" stroke="var(--text3)" stroke-width="1" stroke-dasharray="${DASH.loose}"/>`;
+    inside += `<line x1="${sx(line.centre - line.spread * zTop)}" y1="${sy(-zTop)}" x2="${sx(line.centre + line.spread * zTop)}" y2="${sy(zTop)}" stroke="var(--callout)" stroke-width="${CALL_OUT_W}" stroke-dasharray="${DASH.loose}"/>`;
   }
   let dots = "";
   for (const [x, z] of pts) {
@@ -1879,7 +1916,7 @@ function liveStrip(d) {
   let g = area.svg, inside = "";
   const yg = gridFor(-half, half, plotH, 26);
   for (const v of yg.ticks) {
-    if (v > -half && v < half) inside += `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${sy(v)}" y2="${sy(v)}"/>`;
+    if (v > -half && v < half) inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
     // The ends are left for "Early" and "Late".
     if (Math.min(sy(v) - T, T + plotH - sy(v)) > 14) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(axisLabel(v, yg.step, " ms"))}</text>`;
   }
@@ -1887,7 +1924,7 @@ function liveStrip(d) {
   const xg = gridFor(start, end, plotW, Math.min(90, plotW / 4), TIME_STEPS);
   for (const t of xg.ticks) {
     if (t < -1e-9) continue;
-    inside += `<line class="grid" x1="${sx(t)}" x2="${sx(t)}" y1="${T}" y2="${T + plotH}"/>`;
+    inside += `${gridDown(sx(t), L, T, plotH)}`;
     const label = fmtTime(t);
     const anchor = sx(t) - label.length * CHAR_W / 2 < L - 8 ? "start" : sx(t) + label.length * CHAR_W / 2 > W ? "end" : "middle";
     g += `<text x="${sx(t)}" y="${H - 5}" text-anchor="${anchor}">${label}</text>`;
@@ -1918,10 +1955,11 @@ function liveView(l) {
   const heard = r.beats_used > 0;
   const wait = "Listening…";
   const be = Number.isFinite(r.beat_error_unlock_ms) ? r.beat_error_unlock_ms : r.beat_error_ms;
+  const dg = { ...BASE_DIGITS, ...((l.pm || {}).digits || {}) };
   html += `<div class="tiles">
-    ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, 1) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
-    ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, 0) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
-    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), 2) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
+    ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, dg.rate) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
+    ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, dg.amplitude) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
+    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
     ${tile("Beats Heard", "", esc(d.beats_heard || 0), "", heard ? `${esc(r.beats_used)} in the last ${num(r.span_s, 0)} s` : wait)}
   </div>`;
   // Clipping, when core counts it, in the server's (core's) words (#808).
