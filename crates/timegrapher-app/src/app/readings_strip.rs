@@ -185,7 +185,7 @@ impl TimegrapherApp {
                 vec![strong(&length, 18.0)],
             ],
         );
-        let r = self.reading();
+        let r = self.card_reading();
         let r = r.as_ref().filter(|r| heard(Some(r)));
         let figures = [
             ("Rate", r.and_then(rate_figure), "s/d"),
