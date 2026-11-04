@@ -615,6 +615,10 @@ fn live_and_saved_breaks(name: &str, arrive: &dyn Fn(usize) -> f64) -> Vec<(f64,
                 rec.write(&b).unwrap();
             }
             breaks::Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
+            breaks::Live::Cut => {
+                live.push((written as f64 / 8000.0, 0.0));
+                rec.sound_lost(0.0);
+            }
         }
     }
     let files = rec.segment_paths();
@@ -684,11 +688,28 @@ fn a_suspend_the_input_resumes_from_unsaid_is_a_break_live_and_saved() {
             (30.0 + sleep_s).max(t + sleep_s)
         }
     });
-    assert_eq!(found.len(), 1, "{found:?}");
-    // At the first block that arrived late: the sound up to the sleep
-    // is all there, so the break falls within the 0.3 s before it.
+    // The break is found at the first late block, 29.7 s, but the sound
+    // jumps at the end of the backlog that came with it, 30.0 s: that
+    // backlog is culled, a break at each end.
+    assert_eq!(found.len(), 2, "{found:?}");
     assert!((found[0].0 - 29.7).abs() < 1e-6, "{found:?}");
     assert!((found[0].1 - sleep_s).abs() < 1e-3, "{found:?}");
+    assert!((found[1].0 - 30.0).abs() < 1e-6, "{found:?}");
+    assert_eq!(found[1].1, 0.0, "{found:?}");
+    // No amplitude (2 s) or rate window that holds the jump reads across it.
+    let cut: Vec<breaks::Break> = found
+        .iter()
+        .map(|&(audio_s, gap_s)| breaks::Break { audio_s, gap_s })
+        .collect();
+    for len in [2.0, timegrapher_core::measure::RATE_WINDOW_S] {
+        for i in 0..(len * 100.0) as usize {
+            let start = 30.0 - len + 0.005 + i as f64 * 0.01;
+            assert!(
+                breaks::straddles(&cut, start, start + len),
+                "{start} + {len}"
+            );
+        }
+    }
 }
 
 /// Each way a take's own list of breaks goes unused is said, never silent
