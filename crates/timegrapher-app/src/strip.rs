@@ -125,18 +125,22 @@ impl Default for StripInput {
 /// An overlay's scale: its round ends and step, `(lo, hi, step)`.
 type Scale = (f64, f64, f64);
 
+/// An overlay's values in view, lowest and highest, and the room wanted
+/// for them on its scale.
+type Range = ((f64, f64), (f64, f64));
+
 /// How tall an overlay's axis row above an upright strip is, points.
 const SCALE_ROW: f32 = 21.0;
 
 /// An overlay axis's tick, points.
 const TICK: f32 = 4.0;
 
-/// An overlay's scale for values from `lo` to `hi`: round ends that hold
-/// still while the readings move inside them ([`steady_ends`]), kept from
-/// one frame to the next under the overlay's `name`.
-fn held_scale(ui: &egui::Ui, name: &str, lo: f64, hi: f64) -> Scale {
+/// An overlay's scale for its `range` ([`Overlay::range`]): round ends
+/// that hold still while the readings move inside them ([`steady_ends`]),
+/// kept from one frame to the next under the overlay's `name`.
+fn held_scale(ui: &egui::Ui, name: &str, range: Range) -> Scale {
     let id = ui.id().with(("strip scale", name));
-    let s = steady_ends(ui.data(|d| d.get_temp::<Scale>(id)), lo, hi);
+    let s = steady_ends(ui.data(|d| d.get_temp::<Scale>(id)), range.0, range.1);
     ui.data_mut(|d| d.insert_temp(id, s));
     s
 }
@@ -279,8 +283,9 @@ fn joined(points: &[[f64; 2]], from_s: f64, to_s: f64) -> Vec<([f64; 2], [f64; 2
 }
 
 impl Overlay {
-    /// The scale's ends: the values in view with a little room either side.
-    fn range(&self, from_s: f64, to_s: f64) -> Option<(f64, f64)> {
+    /// The values in view, lowest and highest, and the room wanted for
+    /// them: a little either side, and at least the least span.
+    fn range(&self, from_s: f64, to_s: f64) -> Option<Range> {
         let vals: Vec<f64> = self
             .points
             .iter()
@@ -295,7 +300,7 @@ impl Overlay {
         let hi = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let mid = (lo + hi) / 2.0;
         let half = ((hi - lo) * 0.55).max(self.min_span / 2.0);
-        Some((mid - half, mid + half))
+        Some(((lo, hi), (mid - half, mid + half)))
     }
 }
 
@@ -990,7 +995,7 @@ pub fn draw_strip(
         .iter()
         .filter_map(|o| {
             o.range(oldest, end_s)
-                .map(|(lo, hi)| (o, held_scale(ui, o.name, lo, hi)))
+                .map(|range| (o, held_scale(ui, o.name, range)))
         })
         .collect();
     let row_h = 15.0;
@@ -1769,8 +1774,10 @@ impl Frame<'_> {
             let galley = painter.layout_no_wrap(words, font.clone(), ink);
             let at =
                 Rect::from_center_size(Pos2::new(x, top + galley.size().y / 2.0), galley.size());
-            // Clear of the name and the number before it, inside the strip.
-            if at.left() > taken.right() + 4.0 && at.right() <= r.right() {
+            // The far end's number ends at the strip's end.
+            let at = at.translate(Vec2::new((r.right() - at.right()).min(0.0), 0.0));
+            // Clear of the name and the number before it.
+            if at.left() > taken.right() + 4.0 {
                 painter.galley(at.min, galley, ink);
                 taken = at;
             }

@@ -111,14 +111,23 @@ pub fn round_ends(lo: f64, hi: f64) -> (f64, f64, f64) {
 }
 
 /// A scale that holds still: `shown` (from [`round_ends`]) while it holds
-/// every value from `lo` to `hi` and they fill at least half of it, so
-/// the scale doesn't jump as the readings move within it; else new round
-/// ends. The ends move out when a value leaves the scale, and in only when
-/// the values fill less than half of it.
-pub fn steady_ends(shown: Option<(f64, f64, f64)>, lo: f64, hi: f64) -> (f64, f64, f64) {
+/// every value from `values.0` to `values.1` and the room `wanted` for
+/// them fills at least half of it, so the scale doesn't jump as the
+/// readings move within it; else new round ends around `wanted`. The ends
+/// move out when a value leaves the scale, and in only when the room
+/// wanted fills less than half of it. `wanted` holds the values with any
+/// room around them (a least span, padding): only the values themselves
+/// decide whether the scale still holds them, so room that slides with
+/// them doesn't move the scale.
+pub fn steady_ends(
+    shown: Option<(f64, f64, f64)>,
+    values: (f64, f64),
+    wanted: (f64, f64),
+) -> (f64, f64, f64) {
+    let ((lo, hi), (w0, w1)) = (values, wanted);
     match shown {
-        Some((a, b, step)) if lo >= a && hi <= b && (hi - lo) * 2.0 >= b - a => (a, b, step),
-        _ => round_ends(lo, hi),
+        Some((a, b, step)) if lo >= a && hi <= b && (w1 - w0) * 2.0 >= b - a => (a, b, step),
+        _ => round_ends(w0.min(lo), w1.max(hi)),
     }
 }
 
@@ -175,14 +184,31 @@ mod tests {
     #[test]
     fn a_steady_scale_moves_only_when_it_must() {
         let shown = Some((-100.0, -20.0, 20.0));
+        let at = |lo: f64, hi: f64| steady_ends(shown, (lo, hi), (lo, hi));
         // Readings move inside it: it holds.
-        assert_eq!(steady_ends(shown, -90.0, -30.0), (-100.0, -20.0, 20.0));
+        assert_eq!(at(-90.0, -30.0), (-100.0, -20.0, 20.0));
         // One leaves it: out.
-        assert_eq!(steady_ends(shown, -90.0, -15.0).1, 0.0);
+        assert_eq!(at(-90.0, -15.0).1, 0.0);
         // They fill less than half of it: in.
-        assert_eq!(steady_ends(shown, -60.0, -40.0), round_ends(-60.0, -40.0));
+        assert_eq!(at(-60.0, -40.0), round_ends(-60.0, -40.0));
         // Nothing shown yet: round ends.
-        assert_eq!(steady_ends(None, -91.9, -21.9), (-100.0, -20.0, 20.0));
+        assert_eq!(
+            steady_ends(None, (-91.9, -21.9), (-91.9, -21.9)),
+            (-100.0, -20.0, 20.0)
+        );
+        // Room kept around steady readings slides with them past an end:
+        // the readings are still inside, so the scale holds.
+        let steady = Some((2.0, 8.0, 1.0));
+        assert_eq!(
+            steady_ends(steady, (4.9, 5.2), (2.05, 8.05)),
+            (2.0, 8.0, 1.0)
+        );
+        assert_eq!(steady_ends(steady, (4.9, 5.2), (1.9, 7.9)), (2.0, 8.0, 1.0));
+        // A reading leaves it: new ends around the room wanted.
+        assert_eq!(
+            steady_ends(steady, (4.9, 8.2), (1.9, 8.2)),
+            round_ends(1.9, 8.2)
+        );
     }
 
     #[test]
