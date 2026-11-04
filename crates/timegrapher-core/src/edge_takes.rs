@@ -525,13 +525,32 @@ fn write(dir: &Path, name: &str, text: &str) -> Result<(), String> {
 /// `clock.csv`). Returns the takes written.
 pub fn write_all(root: &Path) -> Result<Vec<EdgeTake>, String> {
     let takes = all();
-    for (n, take) in takes.iter().enumerate() {
-        let dir = root.join("takes").join(take.id);
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let seed = 100 + n as u64;
-        let r = recipe(take.id, seed)?;
-        write_take(&dir, take, r)?;
-    }
+    // Each take has its own seed, so they are made side by side, the
+    // same bytes as one after another.
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads.min(takes.len()))
+            .map(|_| {
+                s.spawn(|| -> Result<(), String> {
+                    loop {
+                        let n = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(take) = takes.get(n) else {
+                            return Ok(());
+                        };
+                        let dir = root.join("takes").join(take.id);
+                        std::fs::create_dir_all(&dir)
+                            .map_err(|e| format!("{}: {e}", dir.display()))?;
+                        let r = recipe(take.id, 100 + n as u64)?;
+                        write_take(&dir, take, r)?;
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .try_for_each(|w| w.join().map_err(|_| "an edge take panicked".to_string())?)
+    })?;
     write_corpus(root, &takes)?;
     Ok(takes)
 }
