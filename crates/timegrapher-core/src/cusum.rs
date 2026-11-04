@@ -53,13 +53,21 @@ impl Cusum {
             max,
             at_s: corner.unwrap_or(t_s[k]),
             at: s[k],
-            p_value: kolmogorov_tail(max),
+            p_value: walk_p(s),
             band: CUSUM_BAND,
             shift: corner.is_some(),
             t_s: t_s.iter().step_by(stride).copied().collect(),
             s: s.iter().step_by(stride).copied().collect(),
         }
     }
+}
+
+/// The p that a CUSUM `s`, scaled so a level that never moves keeps it
+/// a Brownian bridge, came from one level: the Kolmogorov tail of its
+/// largest |s|. The one rule the drawn CUSUM and the level-change test
+/// read (#917).
+pub fn walk_p(s: &[f64]) -> f64 {
+    kolmogorov_tail(s.iter().fold(0.0, |m: f64, v| m.max(v.abs())))
 }
 
 /// P(sup |Brownian bridge| > x).

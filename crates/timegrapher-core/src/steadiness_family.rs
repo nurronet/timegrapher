@@ -1,12 +1,15 @@
 //! The pane's tests as one family (#659): every p-value that can name
 //! something on the pane, each series' period search lines and its
-//! Ljung–Box test and its trend's F test, is held to Holm's correction at [`FAMILY_ALPHA`], so
-//! a steady watch shows nothing in at least 95 takes in 100. Tests with
-//! no p-value (the change finder's penalty, the two-state finder's BIC,
-//! a fold's share) keep their own bars, and each test's own figures stay
-//! as they are: only what is named changes.
+//! Ljung–Box test, its trend's F test and its CUSUM (#917), is held to
+//! Holm's correction at [`FAMILY_ALPHA`], so a steady watch shows
+//! nothing in at least 95 takes in 100. Tests with no p-value (the
+//! two-state finder's BIC, a fold's share) keep their own bars; the
+//! change finder's penalty only places the cuts. Each test's own figures
+//! stay as they are: only what is named changes.
 
-use super::{check_series, Config, Grid, Period, SeriesCheck, SeriesKind, TwoState, Wheel};
+use super::{
+    check_series, Changes, Config, Grid, Lead, Period, SeriesCheck, SeriesKind, TwoState, Wheel,
+};
 use crate::clock::ClockFit;
 use crate::longrun::LongReport;
 use crate::longterm::LongConfig;
@@ -15,6 +18,8 @@ use crate::stream::BeatLog;
 /// The trend's place in a series' tests, beside the Ljung–Box test
 /// (`None`) and the search lines (`Some(line)`, `usize::MAX` for none).
 const TREND: usize = usize::MAX - 1;
+/// The level change's (the CUSUM's) place.
+const LEVEL: usize = usize::MAX - 2;
 
 /// The chance, over the whole pane, of naming anything on a steady
 /// watch.
@@ -71,6 +76,8 @@ pub(super) fn check_all(
         p.push(s.autocorrelation.as_ref().map_or(1.0, |a| a.p_value));
         tests.push((k, Some(TREND)));
         p.push(s.trend.as_ref().map_or(1.0, |t| t.p_value));
+        tests.push((k, Some(LEVEL)));
+        p.push(s.changes.as_ref().map_or(1.0, |c| c.p_value));
         if i.4.is_empty() {
             tests.push((k, Some(usize::MAX)));
             p.push(1.0);
@@ -101,10 +108,12 @@ pub(super) fn check_all(
             let lines = &named[k];
             let memory = keeps(k, None);
             let trend = keeps(k, Some(TREND));
+            let level = keeps(k, Some(LEVEL));
             if lines.len() == sig.len()
                 && lines.iter().all(|&x| x)
                 && (memory || !named_memory(&s, cfg))
                 && (trend || !trend_holds(&s, cfg))
+                && (level || !level_holds(&s, cfg))
             {
                 return s;
             }
@@ -122,6 +131,11 @@ pub(super) fn check_all(
                 // it: the bar a dropped trend's note tells apart.
                 trend_alpha: if trend || !trend_holds(&s, cfg) {
                     cfg.trend_alpha
+                } else {
+                    0.0
+                },
+                level_alpha: if level || !level_holds(&s, cfg) {
+                    cfg.level_alpha
                 } else {
                     0.0
                 },
@@ -163,14 +177,49 @@ pub fn family_long(
     hold_to_family(long, &rep);
 }
 
+/// The change finder's stretches when they say the level moves: cut,
+/// the CUSUM's test kept (#917), and explaining at least `min_explained`
+/// of the variance.
+pub(super) fn level_moves<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
+    s.changes
+        .as_ref()
+        .filter(|c| c.segments.len() > 1 && c.explained >= cfg.min_explained)
+        .filter(|_| level_holds(s, cfg))
+}
+
+/// The one rule that names a level change, read by the headline and the
+/// CUSUM's corner alike (#697): the level moves and the lead is not a
+/// slide, which a slide cut into steps is.
+pub(super) fn level_change<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
+    level_moves(s, cfg).filter(|_| s.lead != Lead::Drifting)
+}
+
+/// Whether the CUSUM's test clears `cfg.level_alpha` (#917).
+pub(super) fn level_holds(s: &SeriesCheck, cfg: &Config) -> bool {
+    s.changes
+        .as_ref()
+        .is_some_and(|c| c.p_value < cfg.level_alpha)
+}
+
+/// Why a test that `bar` held to did not pass: its own bar, or (a bar
+/// of 0) Holm's correction dropping it after its own bar kept it.
+fn not_significant(p: f64, bar: f64, what: &str) -> String {
+    let p = super::p_text(p);
+    if bar == 0.0 {
+        format!("not significant after Holm's correction (p {p} alone)")
+    } else {
+        format!("not significant: p {p}, over the {bar} a {what} needs")
+    }
+}
+
 /// Mark whether the trend passed its test and which of the trend and the
 /// levels the headline names, so a detail row the headline leaves out
 /// can say so.
 pub(super) fn mark_named(s: &mut SeriesCheck, cfg: &Config) {
     let significant = trend_holds(s, cfg);
-    let drifting = s.lead == super::Lead::Drifting;
-    let levels =
-        super::level_change(s, cfg).is_some() || (drifting && super::level_moves(s, cfg).is_some());
+    let drifting = s.lead == Lead::Drifting;
+    let levels = level_change(s, cfg).is_some() || (drifting && level_moves(s, cfg).is_some());
+    let level_ok = level_holds(s, cfg);
     let bar = |x: f64, what: &str| {
         (x < cfg.min_explained)
             .then(|| format!("under the {:.0}% a {what} needs", cfg.min_explained * 100.0))
@@ -180,25 +229,19 @@ pub(super) fn mark_named(s: &mut SeriesCheck, cfg: &Config) {
         t.significant = significant;
         t.named = drifting;
         t.note = (!drifting).then(|| {
-            // A bar of 0 is Holm's correction dropping a trend that
-            // passed its own test.
-            let p = (!significant).then(|| match cfg.trend_alpha {
-                0.0 => format!(
-                    "not significant after Holm's correction (p {} alone)",
-                    super::p_text(t.p_value)
-                ),
-                a => format!(
-                    "not significant: p {}, over the {a} a trend needs",
-                    super::p_text(t.p_value)
-                ),
-            });
+            let p = (!significant).then(|| not_significant(t.p_value, cfg.trend_alpha, "trend"));
             p.or_else(|| bar(t.explained.max(t.curve_explained), "trend"))
                 .unwrap_or_else(other)
         });
     }
     if let Some(c) = s.changes.as_mut() {
         c.named = levels;
-        c.note = (!levels).then(|| bar(c.explained, "level change").unwrap_or_else(other));
+        c.note = (!levels).then(|| {
+            let p =
+                (!level_ok).then(|| not_significant(c.p_value, cfg.level_alpha, "level change"));
+            p.or_else(|| bar(c.explained, "level change"))
+                .unwrap_or_else(other)
+        });
     }
 }
 
@@ -319,6 +362,56 @@ mod tests {
             c.note.as_deref(),
             Some("under the 99% a level change needs")
         );
+    }
+
+    /// A level change is named only when the CUSUM's test passes as well
+    /// as the split's share (#917): the same step with the bar out of
+    /// reach is left out, and its row says which test it missed.
+    #[test]
+    fn a_level_change_needs_its_cusum_test() {
+        let mut z = crate::synth::Rng::new(6);
+        let step: Vec<f64> = (0..720)
+            .map(|i| if i < 360 { 270.0 } else { 274.0 } + 2.0 * z.normal())
+            .collect();
+        let run = |cfg: &Config| {
+            let g = Grid {
+                t0: 0.0,
+                step: 10.0,
+                y: step.clone(),
+            };
+            check_series(SeriesKind::Amplitude, g, None, None, None, &[], cfg)
+        };
+        let s = run(&Config::default());
+        assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
+        let c = s.changes.as_ref().unwrap();
+        assert!(c.p_value > 0.0 && c.named, "{}", c.p_value);
+        // The bar just under the step's own p.
+        let strict = Config {
+            level_alpha: c.p_value / 2.0,
+            ..Config::default()
+        };
+        let s = run(&strict);
+        assert_ne!(s.lead, Lead::ShiftingMean, "{}", s.headline);
+        let note = s.changes.unwrap().note.unwrap();
+        assert!(note.starts_with("not significant: p "), "{note}");
+        assert!(note.ends_with(" a level change needs"), "{note}");
+    }
+
+    /// A steady 30 min take whose readings follow themselves (ρ 0.9)
+    /// names no level change: seed 1 of the #659 grid, where 7 in 100
+    /// still do (#917).
+    #[test]
+    fn a_steady_red_take_names_no_level_change() {
+        use crate::longterm::LongConfig;
+        let lc = LongConfig {
+            wheels: crate::periodicity::standard_wheels(28_800, 20),
+            ..Default::default()
+        };
+        let sc = crate::scenarios::steady_red(1800.0, 0.9, 1);
+        let log = crate::scenarios::beat_log(&sc, 1);
+        let long = crate::longrun::analyse(&log, None, &lc);
+        let r = super::super::check(&log, None, &long, &lc, &Config::default());
+        assert!(r.findings.iter().all(|f| f.code != "shifting_mean"));
     }
 
     /// A series checked again because Holm dropped its period line keeps

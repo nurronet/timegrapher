@@ -70,8 +70,10 @@ pub struct Config {
     /// A trend or a set of steps is what the headline names when it
     /// explains this share of the variance.
     pub min_explained: f64,
-    /// A trend's p must be below this too; 0 where Holm drops it (#659).
+    /// A trend's and a level change's (the CUSUM's) p must be below
+    /// these too; 0 where Holm drops one (#659, #917).
     pub trend_alpha: f64,
+    pub level_alpha: f64,
     /// Whether an autocorrelation peak may name a cycle the period search
     /// did not keep: off in the pane, whose cycles meet Holm's (#659).
     pub acf_alone: bool,
@@ -101,6 +103,7 @@ impl Default for Config {
             change_min_segment_s: 300.0,
             min_explained: 0.2,
             trend_alpha: 0.01,
+            level_alpha: 0.01,
             acf_alone: true,
             outlier_sigma: 6.0,
             max_points: 600,
@@ -239,8 +242,10 @@ pub struct Changes {
     /// ([`confidence::long_run_sd`]): what a split is judged against.
     pub long_run_sigma: f64,
     pub segments: Vec<Segment>,
-    /// Share of the variance the segment means explain.
+    /// Share of the variance the segment means explain, and the CUSUM's
+    /// p that the level never moves, the test a level change needs (#917).
     pub explained: f64,
+    pub p_value: f64,
     /// Whether the headline names the levels (a level change, or the
     /// steps of a slide); if not, `note` says why.
     pub named: bool,
@@ -1139,6 +1144,7 @@ pub fn check_series(
             block_sigma: bs,
             long_run_sigma: lr,
             explained: explained(y, &fitted),
+            p_value: walk.as_ref().map_or(1.0, |w| crate::cusum::walk_p(&w.1)),
             segments: segs,
             named: false,
             note: None,
@@ -1152,7 +1158,7 @@ pub fn check_series(
     if let Some((ts, ss)) = walk {
         // The corner is marked only at a level change the headline
         // names (#697).
-        let cuts: Vec<f64> = level_change(&out, cfg)
+        let cuts: Vec<f64> = family::level_change(&out, cfg)
             .iter()
             .flat_map(|c| c.segments.iter().skip(1).map(|g| g.start_s))
             .collect();
@@ -1247,7 +1253,7 @@ fn also(s: &SeriesCheck, cfg: &Config) -> Option<String> {
         ));
     }
     let moves = !matches!(s.lead, Lead::ShiftingMean | Lead::Drifting);
-    if let Some(ch) = level_change(s, cfg).filter(|_| moves) {
+    if let Some(ch) = family::level_change(s, cfg).filter(|_| moves) {
         let lo = ch
             .segments
             .iter()
@@ -1782,21 +1788,6 @@ fn refine(d: &Grid, p: f64, rel: f64) -> f64 {
     }
 }
 
-/// The change finder's stretches when they say the level moves: cut, and
-/// explaining at least `min_explained` of the variance.
-pub(super) fn level_moves<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
-    s.changes
-        .as_ref()
-        .filter(|c| c.segments.len() > 1 && c.explained >= cfg.min_explained)
-}
-
-/// The one rule that names a level change, read by the headline and the
-/// CUSUM's corner alike (#697): the level moves and the lead is not a
-/// slide, which a slide cut into steps is.
-pub(super) fn level_change<'a>(s: &'a SeriesCheck, cfg: &Config) -> Option<&'a Changes> {
-    level_moves(s, cfg).filter(|_| s.lead != Lead::Drifting)
-}
-
 fn lead(s: &SeriesCheck, cfg: &Config) -> Lead {
     if let Some(t) = &s.two_state {
         if t.switching_levels() {
@@ -1813,7 +1804,7 @@ fn lead(s: &SeriesCheck, cfg: &Config) -> Lead {
         .trend
         .as_ref()
         .map_or(0.0, |t| t.explained.max(t.curve_explained));
-    if let Some(ch) = level_moves(s, cfg) {
+    if let Some(ch) = family::level_moves(s, cfg) {
         // A slide cut into steps is still a slide.
         return if trend >= 0.8 * ch.explained && family::trend_holds(s, cfg) {
             Lead::Drifting
