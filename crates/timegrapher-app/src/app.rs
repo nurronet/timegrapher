@@ -34,7 +34,7 @@ use timegrapher_core::capture::{self, Capture, Event, InputDevice, Level};
 use timegrapher_core::clockstore;
 use timegrapher_core::library;
 use timegrapher_core::library::{length_text, size_text};
-use timegrapher_core::live::{LiveAnalyzer, LiveConfig, LiveReading, AVERAGES, MAX_PROFILE_S};
+use timegrapher_core::live::{profile_span_s, LiveAnalyzer, LiveConfig, LiveReading, AVERAGES};
 use timegrapher_core::measure::Caveat;
 use timegrapher_core::mixer::{self, GainState, InputGain};
 use timegrapher_core::periodicity::Wheel;
