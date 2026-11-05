@@ -1874,8 +1874,6 @@ fn every_text(sec: f64) -> String {
     }
 }
 
-/// The lead of [`lead_text`] in a few words: what a plot's title line
-/// says after the series' name.
 /// The level shifts in the words both the headline and the one-line
 /// summary use, so a plot's title says what its text says: every level
 /// for a few, past that the range and the ends, each level left to the
@@ -1908,6 +1906,8 @@ fn shifts_text(s: &SeriesCheck) -> String {
     )
 }
 
+/// The lead of [`lead_text`] in a few words: what a plot's title line
+/// says after the series' name.
 fn lead_summary(s: &SeriesCheck) -> String {
     let k = s.series;
     let every = every_text;
