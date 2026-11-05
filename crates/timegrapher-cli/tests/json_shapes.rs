@@ -271,6 +271,10 @@ fn session_keeps_its_fields() {
             assert_eq!(decimals(tick), decimals(words[0]), "{line}");
             assert_eq!(decimals(tock), decimals(words[0]), "{line}");
         }
+        if let Some((_, rest)) = line.split_once("(from the unlock; ") {
+            let drop = rest.split_once(" ms from the drop").unwrap().0;
+            assert_eq!(decimals(drop), decimals(words[0]), "{line}");
+        }
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
