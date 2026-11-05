@@ -199,7 +199,8 @@ fn a_narrow_cards_title_is_short_not_cut() {
         for _ in 0..2 {
             let out = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    readouts::card_title(ui, rect, caption, &["Help."], &[], None);
+                    let short = readouts::cards_short(ui, &[(rect, caption)]);
+                    readouts::card_title(ui, rect, caption, &["Help."], &[], (None, short));
                 });
             });
             texts = out
@@ -227,31 +228,39 @@ fn a_narrow_cards_title_is_short_not_cut() {
 
 /// The readings cards switch to their short names together (Hugh, #1061):
 /// one too narrow for its caption takes the others with it, so a row
-/// never mixes "Amplitude" with "B.E.".
+/// never mixes "Amplitude" with "B.E."; widened again, they are whole on
+/// the very next pass, with nothing held over (Vernon).
 #[test]
 fn the_cards_name_their_readings_short_together() {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let rect = |x: f32, w: f32| egui::Rect::from_min_size(egui::pos2(x, 10.0), egui::vec2(w, 24.0));
-    let mut texts = Vec::new();
-    for _ in 0..3 {
+    let row = |beat_error_w: f32| {
         let out = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                readouts::card_title(ui, rect(10.0, 300.0), "Amplitude", &["Help."], &[], None);
-                readouts::card_title(ui, rect(400.0, 76.0), "Beat Error", &["Help."], &[], None);
+                let titles = [
+                    (rect(10.0, 300.0), "Amplitude"),
+                    (rect(400.0, beat_error_w), "Beat Error"),
+                ];
+                let short = readouts::cards_short(ui, &titles);
+                for (r, caption) in titles {
+                    readouts::card_title(ui, r, caption, &["Help."], &[], (None, short));
+                }
             });
         });
-        texts = out
-            .shapes
+        out.shapes
             .iter()
             .filter_map(|c| match &c.shape {
                 egui::Shape::Text(t) => Some(t.galley.text().to_string()),
                 _ => None,
             })
             .filter(|t| t != "?")
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+    };
+    for _ in 0..3 {
+        assert_eq!(row(76.0), ["Amp.", "B.E."]);
     }
-    assert_eq!(texts, ["Amp.", "B.E."]);
+    assert_eq!(row(300.0), ["Amplitude", "Beat Error"]);
 }
 
 /// The texts a readings card's figure row paints in `rect`, and where.
