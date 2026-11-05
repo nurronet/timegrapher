@@ -4,6 +4,14 @@ use super::*;
 use timegrapher_core::figure_text::true_minus;
 
 impl TimegrapherApp {
+    /// Open the Settings window at `tab`, reading the kept clocks afresh.
+    pub(super) fn open_settings(&mut self, tab: Tab) {
+        self.cal.drop_rate_preset();
+        self.kept_clocks = clockstore::ClockStore::load();
+        self.read_library();
+        self.settings_tab = Some(tab);
+    }
+
     /// The gear at the end of the icon bar, in both views: Settings.
     pub(super) fn settings_gear(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);

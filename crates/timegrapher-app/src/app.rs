@@ -2021,6 +2021,8 @@ pub struct TimegrapherApp {
     /// The library as read when Settings opened or it last changed:
     /// `Ok(None)` while there is none at its folder.
     library: Result<Option<library::Library>, String>,
+    /// Saved hours still WAVs being kept as FLAC, from start-up (#503).
+    wav_keep: Option<library_folder::WavKeep>,
     /// Where Move Library… is asking to move it to.
     library_move_ask: Option<PathBuf>,
     /// A move under way: where to, and its outcome when done.
@@ -2293,6 +2295,7 @@ impl TimegrapherApp {
         app.crash = applog::dir().and_then(|d| applog::unseen_crashes(&d).pop());
         app.kept = kept_sounds(&scratch_dir());
         app.read_library();
+        app.keep_saved_wavs();
         app.check_pending = app.check_at_start;
         app
     }
@@ -2556,6 +2559,7 @@ impl TimegrapherApp {
             forget_ask: None,
             library_dir: None,
             library: Ok(None),
+            wav_keep: None,
             library_move_ask: None,
             library_moving: None,
             view: View::Bench,
@@ -3226,14 +3230,6 @@ impl TimegrapherApp {
                 self.show_pane(pane, !on);
             }
         }
-    }
-
-    /// Open the Settings window at `tab`, reading the kept clocks afresh.
-    fn open_settings(&mut self, tab: Tab) {
-        self.cal.drop_rate_preset();
-        self.kept_clocks = clockstore::ClockStore::load();
-        self.read_library();
-        self.settings_tab = Some(tab);
     }
 
     // Each part the readings rest on is set here, and only here, so every

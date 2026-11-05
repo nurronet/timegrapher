@@ -1856,6 +1856,7 @@ impl TimegrapherApp {
     /// Take in whatever audio has arrived.
     pub(super) fn poll(&mut self) {
         self.poll_for(FRAME_BUDGET);
+        self.poll_wav_keep();
     }
 
     /// One block of a capture, or a break core's gap rule found before the

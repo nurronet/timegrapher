@@ -1,6 +1,35 @@
 //! The library folder: finding it, reading it, and moving it.
 
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
+use timegrapher_core::recorder;
+
+/// Saved takes whose hours are still WAVs (saved before hours were kept
+/// as FLAC, #503, or stopped before one was converted), kept as FLAC one
+/// at a time on a thread of their own.
+pub(super) struct WavKeep {
+    /// How many takes are done, of `of`.
+    done: Arc<AtomicUsize>,
+    of: usize,
+    /// When it is over: the hours converted, and the takes that couldn't
+    /// be, each with why.
+    rx: mpsc::Receiver<(usize, Vec<String>)>,
+}
+
+impl WavKeep {
+    /// The status bar's fact while it works.
+    pub(super) fn words(&self) -> String {
+        let done = self.done.load(Ordering::Relaxed).min(self.of);
+        format!("Keeping saved takes as FLAC: {done} of {}", self.of)
+    }
+}
+
+/// The status fact's hover.
+pub(super) const WAV_KEEP_HINT: &str = "Takes saved before recordings were kept as FLAC, \
+     or stopped before an hour was converted, are converted an hour at a time. Each hour is \
+     checked sample for sample before its WAV is deleted, and a take being recorded is left \
+     alone.";
 
 impl TimegrapherApp {
     /// The library's folder: the one chosen, else `~/Timegrapher Data`.
@@ -20,6 +49,66 @@ impl TimegrapherApp {
             }
             _ => Ok(None),
         };
+    }
+
+    /// At start-up: keep as FLAC every saved hour in the library still kept
+    /// as a WAV, on a thread of its own. Not when another copy of the app
+    /// has the library: that copy does it.
+    pub(super) fn keep_saved_wavs(&mut self) {
+        let Ok(Some(lib)) = &self.library else { return };
+        if lib.read_only.is_some() {
+            return;
+        }
+        let mut dirs: Vec<PathBuf> = lib
+            .watches
+            .iter()
+            .chain([&lib.unsorted])
+            .flat_map(|e| e.takes.iter().map(|t| e.take_dir(t)))
+            .flat_map(|d| recorder::holding_wav(&d))
+            .collect();
+        dirs.dedup();
+        if dirs.is_empty() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let done = Arc::new(AtomicUsize::new(0));
+        let count = done.clone();
+        self.wav_keep = Some(WavKeep {
+            done,
+            of: dirs.len(),
+            rx,
+        });
+        std::thread::spawn(move || {
+            let (mut hours, mut failed) = (0, Vec::new());
+            for d in dirs {
+                match recorder::keep_saved_as_flac(&d) {
+                    Ok(n) => hours += n,
+                    Err(e) => failed.push(e),
+                }
+                count.fetch_add(1, Ordering::Relaxed);
+            }
+            let _ = tx.send((hours, failed));
+        });
+    }
+
+    /// Take in the end of [`Self::keep_saved_wavs`]: the library read again
+    /// for its takes' sizes, and any take it couldn't convert logged and
+    /// said.
+    pub(super) fn poll_wav_keep(&mut self) {
+        let Some(k) = &self.wav_keep else { return };
+        let Ok((hours, failed)) = k.rx.try_recv() else {
+            return;
+        };
+        self.wav_keep = None;
+        applog::info(&format!("Kept {hours} saved hours as FLAC"));
+        for e in &failed {
+            applog::warn(&format!("Couldn't keep a saved hour as FLAC: {e}"));
+        }
+        if let Some(e) = failed.first() {
+            let m = format!("Couldn't keep a saved hour as FLAC, so it stays a WAV: {e}");
+            self.message = Some((m, true));
+        }
+        self.read_library();
     }
 
     /// Act on a button in Settings' Watches Folder section.

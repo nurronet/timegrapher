@@ -1187,6 +1187,10 @@ impl TimegrapherApp {
                     .text(RichText::new(batch_words(frac, b.duration_s.is_some())).small()),
             );
         }
+        if let Some(k) = &self.wav_keep {
+            ui.label(RichText::new(k.words()).small().color(pal.text_secondary))
+                .on_hover_text(library_folder::WAV_KEEP_HINT);
+        }
         // A take opened, its painting or masks changed: Save keeps them.
         if self.session.recorder.is_none() && self.marks_unsaved() {
             ui.label(RichText::new("Changes not saved").color(pal.text_secondary))
