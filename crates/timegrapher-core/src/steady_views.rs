@@ -59,6 +59,11 @@ pub struct Readings {
     pub lo: Vec<f64>,
     pub hi: Vec<f64>,
     pub counts: Vec<usize>,
+    /// Whether any point stands for more than one reading ([`banded`]),
+    /// so each is drawn over its band, and the key that says so
+    /// ([`readings_key`]).
+    pub banded: bool,
+    pub key: String,
     /// The value scale they are drawn on ([`readings_range`]), null with
     /// fewer than two.
     pub y_range: Option<[f64; 2]>,
@@ -79,6 +84,29 @@ pub struct Drawn {
 /// the series is drawn as bands.
 pub fn banded(drawn: &[Drawn]) -> bool {
     drawn.iter().any(|d| d.count > 1)
+}
+
+/// What readings `step_s` long are: "10 s readings"; shorter than 10 s,
+/// "2 s windows". Steps are seconds long, so whole seconds.
+pub fn readings_kind(step_s: f64) -> String {
+    let what = if step_s >= 10.0 - 1e-9 {
+        "readings"
+    } else {
+        "windows"
+    };
+    format!("{step_s:.0} s {what}")
+}
+
+/// The Readings view's key: what a dot is and how many are drawn, and on
+/// a long series ([`banded`]) how many readings the bands hold: "10 s
+/// readings (179)", "10 s readings in 3000 bands (23400)".
+pub fn readings_key(step_s: f64, drawn: usize, read: usize, banded: bool) -> String {
+    let kind = readings_kind(step_s);
+    if banded {
+        format!("{kind} in {drawn} bands ({read})")
+    } else {
+        format!("{kind} ({drawn})")
+    }
 }
 
 /// The value scale a series' readings are drawn on: core's
@@ -825,7 +853,10 @@ pub fn views(
 fn readings_of(g: &Grid) -> Readings {
     let drawn = thin_readings(g);
     let pick = |f: fn(&Drawn) -> f64| drawn.iter().map(f).collect::<Vec<f64>>();
+    let read = drawn.iter().map(|d| d.count).sum();
     Readings {
+        banded: banded(&drawn),
+        key: readings_key(g.step, drawn.len(), read, banded(&drawn)),
         step_s: g.step,
         n: g.y.len(),
         chunk_s: chunk_s(g),
@@ -917,6 +948,49 @@ mod tests {
             assert_eq!((d.lo, d.hi, d.count), (e.lo, e.hi, e.count));
         }
         assert_eq!(drawn.last().map(|d| d.hi), Some(6000.0));
+    }
+
+    /// The cases the MCP view's own key was tested on, now core's for the
+    /// app and the view alike.
+    #[test]
+    fn the_readings_key_says_what_a_dot_is_and_how_many_are_drawn() {
+        assert_eq!(readings_key(10.0, 179, 179, false), "10 s readings (179)");
+        assert_eq!(readings_key(2.0, 912, 912, false), "2 s windows (912)");
+        assert_eq!(readings_key(20.0, 90, 90, false), "20 s readings (90)");
+        assert_eq!(readings_key(5.0, 40, 40, false), "5 s windows (40)");
+        assert_eq!(
+            readings_key(2.0, 3000, 9000, true),
+            "2 s windows in 3000 bands (9000)"
+        );
+        assert_eq!(readings_kind(10.0), "10 s readings");
+    }
+
+    /// The JSON carries whether the readings are banded and the key, with
+    /// the count the bands hold (a missing reading is in no band).
+    #[test]
+    fn the_readings_json_carries_banded_and_its_key() {
+        let mut y = vec![1.0; 6001];
+        y[17] = f64::NAN;
+        let g = Grid {
+            t0: 0.0,
+            step: 2.0,
+            y,
+        };
+        let r = readings_of(&g);
+        assert!(r.banded);
+        let read: usize = r.counts.iter().sum();
+        assert_eq!(read, 6000);
+        assert_eq!(
+            r.key,
+            format!("2 s windows in {} bands (6000)", r.t_s.len())
+        );
+        let short = readings_of(&Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: vec![1.0, 2.0, f64::NAN],
+        });
+        assert!(!short.banded);
+        assert_eq!(short.key, "10 s readings (2)");
     }
 
     #[test]
