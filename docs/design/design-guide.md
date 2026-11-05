@@ -253,6 +253,7 @@ Every pane has one toolbar row, in three named zones that keep their place from 
 - **(8) Quantities:** the Rate, Amplitude and Beat Error toggles, at the left, in panes that plot them.
 - **(9) Pane Controls:** this pane's own controls, each a label followed by its control. Groups are split by a separator. When the pane is narrow, this zone folds into "…" from its right end. Quantities and Actions never fold.
 - **(10) Actions:** Export, Info and "?", at the right, in that order. Info (the "i") opens the pane's side panel of full text. Today only the nine Steadiness views have one (their headlines and statistics); a pane without long text has no "i".
+- **A switch in a pane's toolbar changes that pane only; app-wide settings live in Settings or the menus.** Each pane keeps its own switches, even where two panes show the same control, such as Wheel Periods on Periods and FFT.
 
 ### The Info panel
 
@@ -261,7 +262,7 @@ A pane whose findings take more than a line gets an Info panel instead of text a
 - **On the plot:** a one-line headline in the plot's title, such as "Rate · repeats every 46 s, 4.0 s/d peak to peak". It comes from core, so the app, CLI and MCP say the same thing.
 - **In the panel:** the pane's one-line description, then for each shown series its full findings and its statistics (each starting with what it counts), then the stretch it was tested over. The text is selectable, so it can be copied.
 - **Where it is:** a side panel down the right of the pane, 300 pt wide or a third of the pane, whichever is less. Below about 600 pt of pane width, it opens as a pop-over from its button instead.
-- **How it opens:** only from the "i" in the Actions zone. One setting covers every pane of a family (all nine Steadiness views), so switching views keeps it open or closed.
+- **How it opens:** only from the "i" in the Actions zone. Each pane keeps its own, as every toolbar switch does, so opening it on one Steadiness view leaves the others as they were.
 - **Who has one:** today, the nine Steadiness views. Any pane that would otherwise print paragraphs above its plot gets one, and a pane with no long text has no "i".
 
 No control appears or disappears with the state of the pane. A control that doesn't apply is disabled, with its reason in its hint.

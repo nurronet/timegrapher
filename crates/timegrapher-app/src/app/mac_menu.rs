@@ -50,28 +50,21 @@ pub(crate) fn want() {
     }
 }
 
-/// Before the window goes at quit, for every window the app has: its
-/// first responder becomes the window itself, and the window and its
-/// views are kept until the process ends (#1071).
-///
-/// AppKit's Touch Bar finder watches the views in the responder chain
-/// and stops watching them later, on its next display cycle. Making the
-/// window first responder only asks it to update; if eframe has already
-/// dropped the window by then, the view it stops watching is gone and
-/// AppKit aborts ("quit unexpectedly"). That race made the first fix
-/// work on some quits and not others. A window and view that are never
-/// freed can always be stopped watching. The app is quitting, so
-/// what it keeps is freed with the process.
+/// Set by [`before_close`] when the app is quitting, for [`end_process`].
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// At quit, before eframe lets go of anything: each window's first
+/// responder becomes the window itself, and the app is marked as quitting
+/// so [`end_process`] ends the process once the app is dropped (#1071).
 pub(crate) fn before_close() {
     if !WANTED.load(Ordering::Relaxed) {
         return;
     }
+    QUITTING.store(true, Ordering::Relaxed);
     // SAFETY: NSApplication's shared instance and its `windows` array,
-    // each entry a live NSWindow; makeFirstResponder: with nil, which
-    // makes the window its own first responder; `retain` on the window
-    // and its content view (nil or a live NSView), each balanced by no
-    // release, so they outlive winit's drop of the window. All on the
-    // main thread, where eframe calls `on_exit`.
+    // each entry a live NSWindow, and makeFirstResponder: with nil, which
+    // makes the window its own first responder; on the main thread, where
+    // eframe calls `on_exit`.
     unsafe {
         let app: *mut objc2::runtime::AnyObject =
             objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
@@ -85,18 +78,29 @@ pub(crate) fn before_close() {
         let count: usize = objc2::msg_send![windows, count];
         for i in 0..count {
             let w: *mut objc2::runtime::AnyObject = objc2::msg_send![windows, objectAtIndex: i];
-            if w.is_null() {
-                continue;
-            }
-            let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
-            let _: bool = objc2::msg_send![w, makeFirstResponder: none];
-            let view: *mut objc2::runtime::AnyObject = objc2::msg_send![w, contentView];
-            for keep in [w, view] {
-                // Retained::retain is null-safe; forgetting it leaves the
-                // extra retain in place for the life of the process.
-                std::mem::forget(objc2::rc::Retained::retain(keep));
+            if !w.is_null() {
+                let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
+                let _: bool = objc2::msg_send![w, makeFirstResponder: none];
             }
         }
+    }
+}
+
+/// When quitting, end the process now, once the app has been dropped and
+/// before eframe drops the window or AppKit draws again (#1071).
+///
+/// AppKit's Touch Bar finder watches the window's responders and stops
+/// watching them on a later display cycle. Once eframe has let the window
+/// go, that cycle stops watching something already gone and AppKit aborts
+/// ("quit unexpectedly"). Neither making the window first responder
+/// (#1073) nor keeping the window and its view (#1183) stopped it. Ending
+/// here leaves no later cycle to run. eframe has already saved its
+/// settings and joined their writer (they drop before the app), and the
+/// app's `on_exit` has stopped listening and finished any save.
+pub(crate) fn end_process() {
+    if WANTED.load(Ordering::Relaxed) && QUITTING.load(Ordering::Relaxed) {
+        crate::applog::info("Quit");
+        std::process::exit(0);
     }
 }
 

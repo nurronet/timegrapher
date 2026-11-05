@@ -193,3 +193,77 @@ fn a_dimmed_menu_switch_says_why_in_its_hover() {
     }
     assert!(!on);
 }
+
+/// A switch in a pane's toolbar changes that pane only: Wheel Periods
+/// clicked on FFT leaves Periods as it was, and each pane's own choice
+/// comes back next time. Settings from before each pane kept its own
+/// give every pane the one old choice.
+#[test]
+fn a_panes_wheel_periods_switch_changes_that_pane_only() {
+    use steady::View;
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut app = synthetic(40.0, 0.0);
+    app.reveal_pane(Pane::SteadyPeriods);
+    app.reveal_pane(Pane::SteadyFft);
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1600.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| app.panels(ctx));
+        theme::tools_drawn_at(&ctx)
+            .into_iter()
+            .find(|(k, _)| k == "FFT/Wheel Periods")
+            .map(|(_, r)| r)
+    };
+    let (fft, periods) = (
+        app.show_wheels.on(View::Fft),
+        app.show_wheels.on(View::Periods),
+    );
+    pass(&mut app, Vec::new());
+    let at = pass(&mut app, Vec::new())
+        .expect("Wheel Periods drawn on FFT")
+        .center();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    pass(
+        &mut app,
+        vec![egui::Event::PointerMoved(at), button(true), button(false)],
+    );
+    pass(&mut app, Vec::new());
+    assert_eq!(app.show_wheels.on(View::Fft), !fft);
+    assert_eq!(app.show_wheels.on(View::Periods), periods);
+    // Only the pane switched is noted: Periods, drawn too, keeps the
+    // default, as do the panes' Info and dB Scale.
+    assert_eq!(app.show_wheels.saved(), vec![(View::Fft, !fft)]);
+    assert!(app.steady_info.saved().is_empty() && app.maps_db.saved().is_empty());
+    app.maps_db.set(View::Wavelet, true);
+    app.steady_info.set(View::Cusum, true);
+
+    let mut back = TimegrapherApp::with_devices(Vec::new(), None);
+    back.apply_settings(app.settings());
+    for (switch, on, off) in [
+        (&back.show_wheels, View::Periods, View::Fft),
+        (&back.maps_db, View::Wavelet, View::Stft),
+        (&back.steady_info, View::Cusum, View::Allan),
+    ] {
+        assert!(switch.on(on) && !switch.on(off), "{switch:?}");
+    }
+
+    let mut older = app.settings();
+    older.show_wheels = false;
+    older.show_wheels_set.clear();
+    back.apply_settings(older);
+    for p in Pane::STEADY {
+        assert!(!back.show_wheels.on(p.steady_view().unwrap()), "{p:?}");
+    }
+}
