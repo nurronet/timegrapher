@@ -71,3 +71,21 @@ test("the Cycle view is drawn on core's scale, not one of its own", () => {
   assert.deepEqual(chart.y, [0.7, 3.4]);
   assert.ok(!/function spreadRange|function percentileRange/.test(html), "the page works out no scale");
 });
+
+test("the Readings view draws level lines only where the words name the levels (#1112)", () => {
+  let chart;
+  context.xyChart = (c) => { chart = plain(c); return "<svg/>"; };
+  context.dotKey = () => "10 s readings";
+  const readings = { t_s: [0, 600, 1200, 1800], values: [0.35, 0.39, 0.37, 0.37], y_range: [0.3, 0.4], step_s: 10, stride: 1 };
+  const segments = [
+    { start_s: 0, end_s: 600, mean: 0.35 },
+    { start_s: 600, end_s: 1200, mean: 0.39 },
+    { start_s: 1200, end_s: 1800, mean: 0.37 },
+  ];
+  const plot = (named) =>
+    context.steadyPlot({ series: "beat_error", views: { readings }, changes: { segments, named, note: "under the 20% a level change needs" } }, "readings", {});
+  plot(false);
+  assert.deepEqual(chart.lines, [], "stretches the level test rejects draw no line");
+  plot(true);
+  assert.deepEqual(chart.lines.map((l) => l.pts), segments.map((g) => [[g.start_s, g.mean], [g.end_s, g.mean]]));
+});

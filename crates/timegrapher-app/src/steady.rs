@@ -894,6 +894,21 @@ fn state_levels(t: Option<&timegrapher_core::twostate::TwoState>) -> Option<[f64
     t.filter(|t| t.two_levels).map(|t| [t.low, t.high])
 }
 
+/// The levels drawn across a series' readings, one line per stretch:
+/// only where the words name them (core's `Changes::named`, #1112). A
+/// split the headline turns down draws nothing; the stats line says why.
+fn level_lines(c: &SeriesCheck) -> Vec<[[f64; 2]; 2]> {
+    c.changes
+        .as_ref()
+        .filter(|ch| ch.named && ch.segments.len() > 1)
+        .map_or_else(Vec::new, |ch| {
+            ch.segments
+                .iter()
+                .map(|g| [[g.start_s, g.mean], [g.end_s, g.mean]])
+                .collect()
+        })
+}
+
 /// One series' title and plot. Its findings and statistics are in the
 /// Info panel.
 fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View, opts: Opts) {
@@ -1018,19 +1033,12 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
             p.bar_chart(BarChart::new("bands", bars));
         }
         p.points(Points::new("readings", pts).color(colour).radius(1.4_f32));
-        if let Some(ch) = &c.changes {
-            if ch.segments.len() > 1 {
-                for seg in &ch.segments {
-                    p.line(
-                        Line::new(
-                            "level",
-                            vec![[seg.start_s, seg.mean], [seg.end_s, seg.mean]],
-                        )
-                        .color(pal.text)
-                        .width(1.8_f32),
-                    );
-                }
-            }
+        for [a, b] in level_lines(c) {
+            p.line(
+                Line::new("level", vec![a, b])
+                    .color(pal.text)
+                    .width(1.8_f32),
+            );
         }
         if let Some(levels) = state_levels(c.two_state.as_ref()) {
             for v in levels {
