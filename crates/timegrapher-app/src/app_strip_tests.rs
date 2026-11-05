@@ -218,6 +218,53 @@ fn dragging_the_strip_looks_back_and_returns() {
     assert!(((now - at) / 15.0 - 15.0 / 30.0).abs() < 1e-9, "{now}");
 }
 
+/// A zoom leaves the strip at a round length, never such as 3:01, and
+/// the small steps a wheel turn plays out in still add up (#1068 item 3).
+#[test]
+fn a_zoom_leaves_a_round_length() {
+    let mut app = synthetic(600.0, 0.0);
+    app.strip.set_span(120.0);
+    let step = StripInput {
+        span_factor: 1.02,
+        ..Default::default()
+    };
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        app.apply_strip_input(step, app.strip_end_s());
+        let s = app.strip.span_s;
+        assert_eq!(s % 60.0, 0.0, "{s}");
+        seen.push(s);
+    }
+    assert_eq!(seen.last(), Some(&180.0), "{seen:?}");
+    // Below 2 min, a 5 s step; below 10 s, whole seconds.
+    app.strip.set_span(60.0);
+    let zoom_in = |f: f64| StripInput {
+        span_factor: f,
+        ..Default::default()
+    };
+    app.apply_strip_input(zoom_in(0.93), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 55.0);
+    app.strip.set_span(8.0);
+    app.apply_strip_input(zoom_in(0.8), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 6.0);
+    // Zoomed in far past the shortest length, a zoom back out starts
+    // from it, not from where the zooms in were heading.
+    for _ in 0..20 {
+        app.apply_strip_input(zoom_in(0.5), app.strip_end_s());
+    }
+    assert_eq!(app.strip.span_s, StripView::MIN_SPAN_S);
+    app.apply_strip_input(zoom_in(1.1), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.5), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
+    // Nor from below it when that still rounds to the shortest length.
+    app.strip.set_span(2.0);
+    app.apply_strip_input(zoom_in(0.76), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.3), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
+}
+
 /// Zooming the strip's time out stops at the take's length: past it is
 /// only blank paper. A length already longer, typed in, is kept.
 #[test]
@@ -459,4 +506,67 @@ fn overlay_axis_columns_lie_side_by_side() {
         .map(|(_, r)| r.right())
         .fold(last.right(), f32::max);
     assert!(widest <= screen.right(), "the last column leaves the pane");
+}
+
+/// A masked beat is drawn faint, under the hatching: 30% of its colour
+/// over the strip's ground, opaque so crowded dots don't add up to full
+/// strength, and painted before the hatching (#1068 item 2).
+#[test]
+fn masked_beats_are_faint_under_the_hatching() {
+    let mut app = synthetic(40.0, 0.0);
+    for p in [Pane::Sound, Pane::Scope, Pane::Charts, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    app.mask(20.0, 30.0);
+    let ctx = themed();
+    let mut out = None;
+    for _ in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+    }
+    let out = out.unwrap();
+    let vis = ctx.style().visuals.clone();
+    let [tick, tock] = strip::side_colors(vis.dark_mode);
+    let faint = [tick, tock].map(|c| vis.extreme_bg_color.lerp_to_gamma(c, 0.3));
+    let dots: Vec<(usize, Color32)> = out
+        .shapes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| match &c.shape {
+            egui::Shape::Circle(d)
+                if d.fill == tick || d.fill == tock || faint.contains(&d.fill) =>
+            {
+                Some((i, d.fill))
+            }
+            _ => None,
+        })
+        .collect();
+    let first_full = dots
+        .iter()
+        .find(|(_, c)| !faint.contains(c))
+        .expect("beats")
+        .0;
+    let masked: Vec<usize> = dots
+        .iter()
+        .filter(|(_, c)| faint.contains(c))
+        .map(|d| d.0)
+        .collect();
+    assert!(!masked.is_empty(), "the masked beats are drawn");
+    // Before the hatching and every other beat.
+    let hatch = theme::palette(vis.dark_mode)
+        .text_tertiary
+        .gamma_multiply(theme::MASK_WASH);
+    let first_line = out
+        .shapes
+        .iter()
+        .position(|c| matches!(&c.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == hatch))
+        .expect("the hatching");
+    let last_masked = *masked.last().unwrap();
+    assert!(last_masked < first_line && last_masked < first_full);
 }

@@ -664,7 +664,7 @@ fn the_width_and_length_fields_show_their_units_whole() {
             }));
         }
         let out = out.unwrap();
-        for want in [width_label(width), span_label(length)] {
+        for want in [width_label(width), fields::duration(length)] {
             let (t, clip) = out
                 .shapes
                 .iter()

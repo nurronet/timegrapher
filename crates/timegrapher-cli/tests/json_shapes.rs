@@ -252,6 +252,30 @@ fn session_keeps_its_fields() {
     ] {
         assert!(line.contains(&format!(" ± {t}{unit}")), "{t}{unit}: {line}");
     }
+    // The whole file's rate, amplitude and beat error carry as many
+    // decimals as their ± (decimals follow the ±, #510 K3).
+    let decimals = |t: &str| t.split_once('.').map_or(0, |(_, d)| d.len());
+    for head in ["Rate         ", "Amplitude    ", "Beat error   "] {
+        let line = text[at("Whole file ")..]
+            .lines()
+            .find(|l| l.starts_with(head))
+            .unwrap_or_else(|| panic!("no {head:?} in\n{text}"));
+        let words: Vec<&str> = line[head.len()..].split_whitespace().collect();
+        assert_eq!(words[1], "±", "{line}");
+        assert_eq!(decimals(words[0]), decimals(words[2]), "{line}");
+        // Tick and Tock, and the drop's beat error, take the same decimals
+        // as the figure beside them.
+        if let Some((_, rest)) = line.split_once(" (Tick ") {
+            let (tick, rest) = rest.split_once(", Tock ").unwrap();
+            let tock = rest.split_once(';').unwrap().0;
+            assert_eq!(decimals(tick), decimals(words[0]), "{line}");
+            assert_eq!(decimals(tock), decimals(words[0]), "{line}");
+        }
+        if let Some((_, rest)) = line.split_once("(from the unlock; ") {
+            let drop = rest.split_once(" ms from the drop").unwrap().0;
+            assert_eq!(decimals(drop), decimals(words[0]), "{line}");
+        }
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

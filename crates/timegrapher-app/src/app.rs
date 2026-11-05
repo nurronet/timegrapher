@@ -1558,10 +1558,6 @@ const SPANS: [f64; 11] = [
     10.0, 30.0, 60.0, 300.0, 1800.0, 3600.0, 7200.0, 21_600.0, 86_400.0, 172_800.0, 259_200.0,
 ];
 
-fn span_label(v: f64) -> String {
-    fields::duration(v)
-}
-
 /// The strip's width either side of the centre: ±250 ms, ±2 s.
 fn width_label(v: f64) -> String {
     if v >= 1000.0 {
@@ -2202,6 +2198,8 @@ pub struct TimegrapherApp {
     /// session so far, growing as beats arrive. Any zoom or pan of the
     /// strip's time turns it off.
     strip_fit: bool,
+    /// The unrounded length a run of strip zooms is heading for.
+    strip_zoom_s: Option<f64>,
     /// Whether Fit was on before an opened take was fitted.
     live_fit: bool,
     trend: Vec<TrendPoint>,
@@ -2653,6 +2651,7 @@ impl TimegrapherApp {
             reread_with: None,
             live_strip: None,
             strip_fit: false,
+            strip_zoom_s: None,
             live_fit: false,
             trend: Vec::new(),
             trend_key: (Revision::default(), 10.0f64.to_bits()),

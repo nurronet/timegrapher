@@ -931,6 +931,10 @@ fn edge_near(masked: &[(f64, f64)], p: Pos2, g: &Geom) -> Option<(f64, f64, bool
         .map(|(a, b, start, _)| (a, b, start))
 }
 
+/// How strongly a masked beat's dot shows its colour: 30% of the way
+/// from the strip's ground (Hugh, #1068 item 2).
+const MASKED_BEAT: f32 = 0.3;
+
 /// Shade the masked stretches across the plotting area `r` between
 /// `oldest` and `end` (the track names them), and the stretch being
 /// dragged over (`dragging`) more strongly.
@@ -1036,6 +1040,10 @@ pub fn draw_strip(
     let drags = f.pointer(ui, &resp, &mut input);
     let (step, ms_lines) = f.paint_ms_grid();
     let time_lines = f.paint_time_grid();
+    // Masked beats lie under the position washes and the hatching.
+    if let Some(anchor) = anchor {
+        f.paint_beats(beats, period_s, anchor, true);
+    }
     f.paint_layers(&drags);
     f.paint_grid(&ms_lines, &time_lines);
     f.paint_key();
@@ -1043,7 +1051,7 @@ pub fn draw_strip(
     let Some(anchor) = anchor else {
         return input;
     };
-    f.paint_beats(beats, period_s, anchor);
+    f.paint_beats(beats, period_s, anchor, false);
     f.paint_overlay_lines(&overlays);
     f.paint_rate_line(beats, period_s, anchor, step);
     f.paint_cursor();
@@ -1876,8 +1884,12 @@ impl Frame<'_> {
     }
 
     /// The beats on the strip as dots, Tick and Tock in their colours,
-    /// faint while the watch settles or where masked out.
-    fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor) {
+    /// faint while the watch settles. With `masked`, only the beats in a
+    /// masked stretch, at 30% of their colour over the strip's ground and
+    /// opaque, so crowded dots don't add up to full strength: a masked
+    /// beat is still there to judge the mask by, but reads as unused
+    /// (Hugh, #1068 item 2). Without, only the others.
+    fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor, masked: bool) {
         let (g, r, extras) = (&self.g, self.g.r, self.extras);
         let lo = beats.partition_point(|b| b.time < self.oldest);
         let hi = beats.partition_point(|b| b.time <= g.end);
@@ -1892,8 +1904,13 @@ impl Frame<'_> {
         let every = (per_px / MAX_BEATS_PER_PX).ceil().max(1.0) as i64;
         let colors = side_colors(self.vis.dark_mode);
         let painter = self.painter.with_clip_rect(r.expand(3.0));
+        let ground = self.vis.extreme_bg_color;
         for b in shown {
             if !b.is_good() || b.index.div_euclid(2).rem_euclid(every) != 0 {
+                continue;
+            }
+            let in_mask = extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1);
+            if in_mask != masked {
                 continue;
             }
             let p = g.pos(
@@ -1904,10 +1921,10 @@ impl Frame<'_> {
                 b.time,
             );
             let mut c = colors[b.index.rem_euclid(2) as usize];
-            // Faint while the watch settles after a move, or masked out.
-            if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1)
-                || extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1)
-            {
+            if in_mask {
+                c = ground.lerp_to_gamma(c, MASKED_BEAT);
+            } else if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1) {
+                // Faint while the watch settles after a move.
                 c = c.gamma_multiply(0.3);
             }
             painter.circle_filled(p, radius, c);
