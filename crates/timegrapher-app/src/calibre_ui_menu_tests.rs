@@ -438,6 +438,7 @@ fn enter_on_opening_keeps_the_calibre_and_esc_stays_in_the_menu() {
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
     let picked = std::cell::RefCell::new(None);
     let esc_behind = std::cell::Cell::new(false);
+    let enter_behind = std::cell::Cell::new(false);
     let run = |c: &mut Calibres, events: Vec<egui::Event>| {
         ctx.run(
             egui::RawInput {
@@ -452,6 +453,7 @@ fn enter_on_opening_keeps_the_calibre_and_esc_stays_in_the_menu() {
                         *picked.borrow_mut() = Some(p);
                     }
                     esc_behind.set(ui.input(|i| i.key_pressed(egui::Key::Escape)));
+                    enter_behind.set(ui.input(|i| i.key_pressed(egui::Key::Enter)));
                 });
             },
         )
@@ -461,6 +463,11 @@ fn enter_on_opening_keeps_the_calibre_and_esc_stays_in_the_menu() {
     run(&mut c, vec![]);
     run(&mut c, key(egui::Key::Enter));
     assert_eq!(picked.borrow().as_deref(), Some(current.as_str()));
+    // Walter's walk: the New Watch form behind took that Enter as Add Watch.
+    assert!(
+        !enter_behind.get(),
+        "the window behind saw the menu's Enter"
+    );
     // Again, and Esc on the empty field.
     run(&mut c, vec![]);
     run(&mut c, vec![]);
@@ -527,6 +534,19 @@ fn enter_on_opening_picks_nothing_when_the_calibre_isnt_listed() {
     assert!(
         drawn_at(&open, "Search every calibre").is_some(),
         "the menu stays open"
+    );
+    // Trevor's HOLD: a search cleared by Esc lights nothing again.
+    run(&mut c, vec![egui::Event::Text("2824".into())]);
+    run(&mut c, vec![]);
+    run(&mut c, key(egui::Key::Escape));
+    run(&mut c, vec![]);
+    run(&mut c, key(egui::Key::Enter));
+    run(&mut c, vec![]);
+    assert_eq!(picked.borrow().as_deref(), None, "Enter after Esc picked");
+    let open = run(&mut c, vec![]);
+    assert!(
+        drawn_at(&open, "Search every calibre").is_some(),
+        "the menu stays open after Esc and Enter"
     );
     run(&mut c, key(egui::Key::ArrowDown));
     run(&mut c, key(egui::Key::Enter));

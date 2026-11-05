@@ -2311,7 +2311,9 @@ impl MenuSearch {
             (
                 i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
                 i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::Enter),
+                // Enter is the menu's alone: a dialog behind it never
+                // takes it as its default button.
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
             )
         });
         let mut highlight = if opened {
