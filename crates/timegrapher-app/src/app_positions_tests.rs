@@ -292,6 +292,7 @@ fn the_positions_table_reads_a_free_take() {
     // The pane draws it, with Each Position's word for a free take.
     let ctx = themed();
     let mut drawn = String::new();
+    let mut shapes = Vec::new();
     for _ in 0..2 {
         let out = ctx.run(egui::RawInput::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -300,6 +301,31 @@ fn the_positions_table_reads_a_free_take() {
             });
         });
         drawn = format!("{:?} {:?}", out.shapes, theme::tools_drawn(&ctx));
+        shapes = out.shapes;
+    }
+    // Each unit's line, under its column's name, clear of the first row's
+    // stripe (Walter's walk of #1110).
+    let at = |want: &str| {
+        shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == want => {
+                Some(t.galley.rect.translate(t.pos.to_vec2()))
+            }
+            _ => None,
+        })
+    };
+    let row = at("Dial Up (DU)").expect("first row drawn");
+    let stripe = shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Rect(r) if r.rect.contains(row.center()) && r.rect.height() < 40.0 => {
+                Some(r.rect)
+            }
+            _ => None,
+        })
+        .expect("first row striped");
+    for unit in ["s/d", "°", "ms"] {
+        let u = at(unit).unwrap_or_else(|| panic!("{unit} drawn"));
+        assert!(u.bottom() <= stripe.top(), "{unit} {u:?} under {stripe:?}");
     }
     for want in [
         "This Take",

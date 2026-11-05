@@ -958,8 +958,12 @@ fn column_head_swatch(
     // one before it.
     let w = w.max(head_w(ui, name) + if swatch.is_some() { 12.0 } else { 0.0 });
     let line = Vec2::new(w, ui.spacing().interact_size.y);
+    // The grid's row takes the height asked for, not what overflows it:
+    // room for the unit's line (Walter's walk of #1110).
+    let lines = if unit.is_empty() { 1.0 } else { 2.0 };
+    let cell = Vec2::new(w, lines * line.y);
     let r = ui
-        .allocate_ui_with_layout(line, egui::Layout::top_down(egui::Align::Max), |ui| {
+        .allocate_ui_with_layout(cell, egui::Layout::top_down(egui::Align::Max), |ui| {
             ui.set_min_width(w);
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.allocate_ui_with_layout(
