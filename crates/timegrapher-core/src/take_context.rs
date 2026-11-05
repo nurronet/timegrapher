@@ -312,7 +312,7 @@ fn whole_recording(m: &Manifest) -> Result<RecordingEntry, String> {
 /// the files it was made from can't be placed.
 fn kept_place(e: &RecordingEntry, length_s: f64) -> Result<Place, String> {
     match e.file.as_str() {
-        "." | "" | "./" => Ok(Place {
+        f if crate::take::names_whole_folder(f) => Ok(Place {
             parts: 0..0,
             offset_s: 0.0,
             length_s,

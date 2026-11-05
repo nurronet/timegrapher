@@ -518,32 +518,14 @@ const PANES_KNOWN: &[(&str, &str)] = &[
         "* beat_error readings",
         "#1144: the app counts its trend's readings, not core's readings grid",
     ),
-    ("dd3235_DU_30min amplitude 2 s", SETTLE),
-    ("dd3235_DU_30min beat_error 2 s", SETTLE),
-    ("eta2824_bare_DU_30min amplitude 2 s", SETTLE),
-    ("eta2824_bare_DU_30min beat_error 2 s", SETTLE),
-    ("eta2824_holder_DU_30min amplitude 2 s", SETTLE),
-    ("eta2824_holder_DU_30min beat_error 2 s", SETTLE),
-    ("reverso21600_DU_2h amplitude 2 s", SETTLE),
-    ("reverso21600_DU_2h beat_error 2 s", SETTLE),
-    ("reverso21600_DU_level_overnight amplitude 2 s", SETTLE),
-    ("reverso21600_DU_level_overnight beat_error 2 s", SETTLE),
-    ("ym42_CD_90min amplitude 2 s", SETTLE),
-    ("ym42_CD_90min beat_error 2 s", SETTLE),
-    ("ym42_CL_90min amplitude 2 s", SETTLE),
-    ("ym42_CL_90min beat_error 2 s", SETTLE),
-    ("ym42_CR_long amplitude 2 s", SETTLE),
-    ("ym42_CR_long beat_error 2 s", SETTLE),
-    ("ym42_CU_8h amplitude 2 s", SETTLE),
-    ("ym42_CU_8h beat_error 2 s", SETTLE),
-    ("ym42_DD_30min amplitude 2 s", SETTLE),
-    ("ym42_DD_30min beat_error 2 s", SETTLE),
-    ("ym42_DU_2h amplitude 2 s", SETTLE),
-    ("ym42_DU_2h beat_error 2 s", SETTLE),
+    ("ym42_CR_long amplitude 2 s", MEASURE),
+    ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
 
-/// #1145, in [`PANES_KNOWN`].
-const SETTLE: &str = "#1145: the app leaves out the windows before the position's settle time";
+/// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
+/// entries with their own `measure_s` and `settle_s`.
+const MEASURE: &str = "#1156: series reads a take whose entries give their own \
+                       measure_s or a later file's settle_s whole, not session's windows";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {
