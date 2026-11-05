@@ -31,7 +31,8 @@ pub fn parse_number(s: &str) -> Option<f64> {
 /// Seconds shown as "30 s", "5 min", "2 h" or "1:30:00".
 pub fn duration(v: f64) -> String {
     let s = v.round().max(0.0) as u64;
-    if s < 120 {
+    // A whole minute reads as one, "1 min" beside "5 min", never "60 s".
+    if s < 60 || (s < 120 && !s.is_multiple_of(60)) {
         format!("{} s", plain(v))
     } else if s.is_multiple_of(3600) {
         format!("{} h", s / 3600)
@@ -254,6 +255,8 @@ mod tests {
         assert_eq!(parse_duration("5 fortnights"), None);
         assert_eq!(duration(30.0), "30 s");
         assert_eq!(duration(300.0), "5 min");
+        assert_eq!(duration(60.0), "1 min");
+        assert_eq!(duration(90.0), "90 s");
         assert_eq!(duration(7200.0), "2 h");
         assert_eq!(duration(3750.0), "1:02:30");
         assert_eq!(plain(62.5), "62.5");
