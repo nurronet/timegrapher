@@ -59,6 +59,7 @@ pub mod steady_views;
 pub mod stream;
 pub mod synth;
 pub mod take;
+pub mod take_context;
 pub mod timefreq;
 pub mod timing;
 pub mod twostate;
