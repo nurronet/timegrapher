@@ -161,12 +161,12 @@ fn differences(id: &str, app: &Option<WholeTake>, cli: &serde_json::Value) -> Ve
 const KNOWN: &[(&str, &str)] = &[
     (
         "ym42_CR_long/take_part01-003.flac entry 1",
-        "one of two readings of one file: the app opens a file whole, reading both \
+        "#1197: one of two readings of one file; the app opens a file whole, reading both \
          entries' windows, not one of them",
     ),
     (
         "ym42_CR_long/take_part01-003.flac entry 2",
-        "one of two readings of one file: the app opens a file whole, reading both \
+        "#1197: one of two readings of one file; the app opens a file whole, reading both \
          entries' windows, not one of them",
     ),
 ];
