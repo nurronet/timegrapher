@@ -329,7 +329,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: App against session on every corpus take
         if: matrix.check == 'app' && steps.changes.outputs.full != 'false'
-        timeout-minutes: 25
+        # Each take is also opened whole, for its panes against series and
+        # session (#514): about 3 minutes on a pull request's cut, and 20.5
+        # on the whole corpus (run 41989178413, against 14.6 before).
+        timeout-minutes: 35
         run: |
           set -o pipefail
           cargo test --locked --release -p timegrapher-app corpus_tests -- --nocapture 2>&1 | tee app-corpus.txt

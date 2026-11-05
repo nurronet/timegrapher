@@ -6,9 +6,10 @@
 
 use crate::marks::{self, Rank};
 use crate::steady::{wheel_lines, Turn, WheelLine};
+use crate::strength;
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
-use egui_plot::{LineStyle, Plot, PlotImage, PlotPoint};
+use egui_plot::{LineStyle, Plot};
 use timegrapher_core::library::length_text;
 use timegrapher_core::periodicity::Wheel;
 use timegrapher_core::timefreq::{size_number, TimeFrequency};
@@ -211,15 +212,14 @@ pub fn draw(
         .default_x_bounds(0.0f64.min(left), x_hi)
         .default_y_bounds(bottom, top)
         .show(ui, |p| {
-            grid.draw_under(p, pal);
-            p.image(
-                PlotImage::new(
-                    "map",
-                    tex.id(),
-                    PlotPoint::new(left + width / 2.0, (top + bottom) / 2.0),
-                    Vec2::new(width as f32, (top - bottom) as f32),
-                )
-                .highlight(false),
+            grid.draw_map(
+                p,
+                pal,
+                strength::Picture {
+                    texture: tex.id(),
+                    min: [left, bottom],
+                    max: [left + width, top],
+                },
             );
             wheel_rows(p, &lines, pal);
             // The map fills the plot, so only its axes are drawn, over it.
@@ -450,5 +450,55 @@ mod tests {
         assert_eq!(size_number(0.123), "0.12");
         m.series = "beat_error";
         assert_eq!(key_title(&m), "Beat Error Swing (ms)");
+    }
+
+    /// The map's picture is painted over the plot's background, not under
+    /// it: egui_plot's own image item paints first of all, so the opaque
+    /// background hid every cell (Walter, 11-05).
+    #[test]
+    fn the_map_is_drawn_over_its_background() {
+        let m = map(
+            vec![vec![1.0, 2.0, 3.0]; 3],
+            vec![600.0, 900.0, 1200.0],
+            Some(300.0),
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let bg = ctx.style().visuals.extreme_bg_color;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let label = |v: f64| format!("{v}");
+                draw(
+                    ui,
+                    Plot::new("map"),
+                    egui::Id::new("map"),
+                    &m,
+                    3600.0,
+                    false,
+                    None,
+                    label,
+                    label,
+                );
+            });
+        });
+        let at =
+            |want: &dyn Fn(&egui::Shape) -> bool| out.shapes.iter().position(|c| want(&c.shape));
+        let background = at(&|s| matches!(s, egui::Shape::Rect(r) if r.fill == bg))
+            .expect("the plot's background");
+        let picture = at(
+            &|s| matches!(s, egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default()),
+        )
+        .expect("the map's picture");
+        assert!(
+            picture > background,
+            "picture {picture}, background {background}"
+        );
     }
 }
