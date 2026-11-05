@@ -509,6 +509,9 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 const PANES_KNOWN: &[(&str, &str)] = &[
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
+    ("ym42_CR_long rate readings", MEASURE),
+    ("ym42_CR_long amplitude readings", MEASURE),
+    ("ym42_CR_long beat_error readings", MEASURE),
 ];
 
 /// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two

@@ -480,7 +480,8 @@ pub fn listed_positions(
 
 /// A listed position: the stretch's start, the start of what is read,
 /// the end of that, the position, and whether the entry carries on the
-/// one before it ([`continues_position`]), so that it is no change.
+/// one before it ([`continues_position`]) with no settling of its own,
+/// so that it is no change.
 pub type ListedPosition<P> = (f64, f64, Option<f64>, P, bool);
 
 /// Entry `e`'s listed position, as [`listed_positions`] gives it, in take
@@ -503,13 +504,11 @@ pub fn listed_position(
             (end, end)
         }
     };
-    Some((
-        start,
-        from,
-        to.is_finite().then_some(to),
-        p,
-        continues_position(e, m),
-    ))
+    // Carried on only where its reading starts at its start: an entry's
+    // own settling wins over carrying on (`reading_window`), so one that
+    // settles is a change, as `session` reads it.
+    let carried = continues_position(e, m) && from <= start;
+    Some((start, from, to.is_finite().then_some(to), p, carried))
 }
 
 /// A take's changes of position (where each began, and the position)
@@ -1809,6 +1808,21 @@ mod tests {
         .unwrap();
         let listed = listed_positions(&split, &split.recordings, 1200.0);
         assert!(listed.iter().all(|l| !l.4), "{listed:?}");
+        // ym42_CR_long's third file: a carried-on entry with its own
+        // measure_s, then one of the same file with its own settle_s. The
+        // second settles, so it is a change, however the first is read.
+        let own: Manifest = toml::from_str(
+            "[[recording]]\nfile = \"b.flac\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"CR\"\nmeasure_s = 337.0\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"CR\"\nsettle_s = 377.0\n",
+        )
+        .unwrap();
+        let listed = listed_positions(&own, &own.recordings[1..], 600.0);
+        assert_eq!(
+            listed.iter().map(|l| l.4).collect::<Vec<_>>(),
+            [true, false]
+        );
+        assert_eq!(listed[1].1, 377.0);
         let (changes, _) = positions_of(listed.into_iter());
         assert_eq!(changes.len(), 2);
     }
