@@ -1050,7 +1050,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         ui.painter(),
         resp.transform.frame().to_owned(),
         &[(key.as_str(), colour, None)],
-        ui,
+        (ui, f32::NEG_INFINITY),
         pal,
     );
 }

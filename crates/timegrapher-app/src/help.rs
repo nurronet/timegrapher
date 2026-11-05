@@ -254,7 +254,9 @@ pub const CHARTS: &[&str] = &[
      the wheel (or a pinch) zooms it around the pointer, out to the whole session, and a \
      double-click fits the whole session again (and \
      follows new beats while listening). Clicking a moment shows it on the strip and \
-     in the readings.",
+     in the readings. Fit in the toolbar shows the whole session again.",
+    "With the pointer over a chart, each chart's strip above its plot reads every \
+     line's value at that time.",
 ];
 
 pub const STEADINESS: &[&str] = &[

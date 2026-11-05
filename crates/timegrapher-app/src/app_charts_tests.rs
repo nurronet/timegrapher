@@ -22,6 +22,9 @@ fn a_readings_beat_error_falls_back_to_the_drop() {
         amplitude_odd_deg: None,
         beat_error_unlock_ms: unlock,
         beat_error_ms: drop,
+        rate_error_s_per_day: None,
+        amplitude_error_deg: None,
+        beat_error_unlock_error_ms: None,
         heard: true,
     };
     assert_eq!(trend_beat_error(&point(Some(-0.4), Some(0.5))), Some(-0.4));
@@ -230,9 +233,10 @@ fn a_charts_scale_neither_zooms_nor_pans() {
             text = painted_text(&pass(app, vec![egui::Event::PointerMoved(at)]));
         }
         each.push(text.clone());
+        // The scale's labels, not the values box's "name: value" lines.
         let labels = |t: &str| -> Vec<String> {
             t.lines()
-                .filter(|l| l.ends_with(" s/d"))
+                .filter(|l| l.ends_with(" s/d") && !l.contains(": "))
                 .map(String::from)
                 .collect()
         };
@@ -242,7 +246,7 @@ fn a_charts_scale_neither_zooms_nor_pans() {
         );
         let scale: Vec<String> = text
             .lines()
-            .filter(|l| l.ends_with(" s/d"))
+            .filter(|l| l.ends_with(" s/d") && !l.contains(": "))
             .map(String::from)
             .collect();
         assert!(scale.len() > 2, "{text}");
@@ -357,18 +361,17 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         let end = time_labels(&look(&mut app, vec![wheel(dy, egui::Modifiers::NONE)]));
         assert!(end[0] >= 0.0 && end[end.len() - 1] <= 120.0, "{end:?}");
         assert!((span(&end) - span(&z)).abs() <= 10.0, "{z:?} {end:?}");
-        assert!(zoomed_off(&look(&mut app, Vec::new())), "{end:?}");
+        look(&mut app, Vec::new());
+        assert!(!app.charts_fit, "{end:?}");
     }
     // Zoomed out past the take, it shows the whole session again.
     let out = look(&mut app, vec![egui::Event::Zoom(0.1)]);
     assert_eq!(time_labels(&out), b);
-    assert!(!zoomed_off(&out));
-}
-
-/// A chart moved off the whole session offers the way back to it.
-fn zoomed_off(text: &str) -> bool {
-    text.lines()
-        .any(|l| l == "Show Whole Session" || l == "Follow Live")
+    assert!(app.charts_fit);
+    // The pane's one Fit, and no button on any chart (#1063).
+    assert!(!out
+        .lines()
+        .any(|l| l == "Show Whole Session" || l == "Follow Live"));
 }
 
 fn time_labels(text: &str) -> Vec<f64> {
@@ -379,4 +382,174 @@ fn time_labels(text: &str) -> Vec<f64> {
             Some(m.parse::<f64>().ok()? * 60.0 + s.parse::<f64>().ok()?)
         })
         .collect()
+}
+
+/// The values box writes a point to the decimals its card does (Walter's
+/// walk of #1057, #1063): an amplitude of 269.5° with a ± of 0.3° reads
+/// 269.5, not 270; with no ± it takes the base decimals; a rate keeps
+/// its sign and a true minus.
+#[test]
+fn the_values_box_writes_figures_as_the_cards_do() {
+    use super::charts::line_value;
+    use timegrapher_core::figure_text::base_digits;
+    let point = |t, amp, se| TrendPoint {
+        t,
+        rate_s_per_day: Some(-1.234),
+        amplitude_deg: Some(amp),
+        amplitude_even_deg: None,
+        amplitude_odd_deg: None,
+        beat_error_unlock_ms: None,
+        beat_error_ms: None,
+        rate_error_s_per_day: Some(0.04),
+        amplitude_error_deg: se,
+        beat_error_unlock_error_ms: None,
+        heard: true,
+    };
+    let trend = [point(0.0, 269.46, Some(0.3)), point(10.0, 269.46, None)];
+    let amp: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, 269.46]).collect();
+    let se: fn(&TrendPoint) -> Option<f64> = |p| p.amplitude_error_deg;
+    let at = |x| line_value(&amp, se, (x, &trend), base_digits::AMPLITUDE, false);
+    assert_eq!(at(1.0).as_deref(), Some("269.5"));
+    assert_eq!(at(9.0).as_deref(), Some("269"));
+    let rate: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, -1.234]).collect();
+    let se: fn(&TrendPoint) -> Option<f64> = |p| p.rate_error_s_per_day;
+    let r = line_value(&rate, se, (0.0, &trend), base_digits::RATE, true);
+    assert_eq!(r.as_deref(), Some("\u{2212}1.23"));
+}
+
+/// The pointer over a chart reads every chart's lines in their lanes
+/// (Hugh, #1063): no box over the plot or its time labels, the time once
+/// in the lane of the chart under the pointer, and nothing once it
+/// leaves.
+#[test]
+fn the_lanes_read_the_pointers_time_on_every_chart() {
+    let mut app = synthetic(60.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    app.chart_series = [true, true, false];
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let mut out = pass(&mut app, Vec::new());
+    for _ in 0..3 {
+        out = pass(&mut app, Vec::new());
+    }
+    // The Rate chart's name, the lowest "Rate" (the card's is above).
+    let title = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Rate" => Some(t.pos),
+            _ => None,
+        })
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    let at = title + Vec2::new(400.0, 60.0);
+    for _ in 0..3 {
+        out = pass(&mut app, vec![egui::Event::PointerMoved(at)]);
+    }
+    let text = painted_text(&out);
+    let value = |unit: &str| {
+        text.lines().any(|l| {
+            l.ends_with(unit)
+                && (l.starts_with('+') || l.starts_with('\u{2212}') || l.starts_with('2'))
+        })
+    };
+    assert!(value(" s/d") && value("°"), "{text}");
+    assert!(!text.contains("Scroll or drag"), "{text}");
+    assert!(app.charts_over.is_some(), "{text}");
+    for _ in 0..3 {
+        out = pass(&mut app, vec![egui::Event::PointerGone]);
+    }
+    assert_eq!(app.charts_over, None);
+    // The card's own figures stay; the lane's three amplitudes go.
+    let degrees = |t: &str| t.lines().filter(|l| l.ends_with('°')).count();
+    let gone = painted_text(&out);
+    assert_eq!(degrees(&gone) + 3, degrees(&text), "{gone}");
+}
+
+/// Panned to the newest reading, the charts follow new ones at the length
+/// they show, as the strip does; panned back, they stay put (Hugh,
+/// #1070).
+#[test]
+fn the_charts_panned_to_the_newest_reading_follow_new_ones() {
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        painted_text(&ctx.run(input, |ctx| app.panels(ctx)))
+    };
+    let mut text = String::new();
+    for _ in 0..4 {
+        text = pass(&mut app, Vec::new());
+    }
+    assert!(text.lines().any(|l| l == "Charts"), "{text}");
+    // The pointer well inside the Rate chart.
+    let at = egui::pos2(720.0, 700.0);
+    let look = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        pass(app, events);
+        // Long enough for a wheel turn's smooth scroll to play out.
+        let mut text = String::new();
+        for _ in 0..40 {
+            text = pass(app, vec![egui::Event::PointerMoved(at)]);
+        }
+        // The axis's labels, in order: not the lane's time at the pointer.
+        let all = time_labels(&text);
+        let n = 1 + all.windows(2).take_while(|w| w[1] > w[0]).count();
+        all[..n].to_vec()
+    };
+    let wheel = |dy: f32| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0.0, dy),
+        modifiers: egui::Modifiers::NONE,
+    };
+    look(&mut app, vec![egui::Event::PointerMoved(at)]);
+    look(&mut app, vec![egui::Event::Zoom(3.0)]);
+    let end = look(&mut app, vec![wheel(-6000.0)]);
+    let span = |l: &[f64]| l[l.len() - 1] - l[0];
+    assert!(end[end.len() - 1] > 90.0, "{end:?}");
+    // A minute more heard, a reading a second, as listening adds them
+    // (the take behind them unchanged, so nothing reads them again):
+    // the charts move with it, the length kept.
+    let more = |app: &mut TimegrapherApp, s: usize| {
+        for _ in 0..s {
+            let mut p = *app.trend.last().unwrap();
+            p.t += 1.0;
+            app.trend.push(p);
+        }
+    };
+    more(&mut app, 60);
+    let later = look(&mut app, Vec::new());
+    assert!(later[0] > end[0] + 30.0, "{end:?} {later:?}");
+    assert!(
+        (span(&later) - span(&end)).abs() <= 10.0,
+        "{end:?} {later:?}"
+    );
+    // Panned back, more heard leaves them where they are.
+    let back = look(&mut app, vec![wheel(600.0)]);
+    assert!(back[0] < later[0], "{later:?} {back:?}");
+    more(&mut app, 30);
+    assert_eq!(look(&mut app, Vec::new()), back);
 }
