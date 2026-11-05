@@ -10,7 +10,6 @@ use std::time::SystemTime;
 use timegrapher_core::audio;
 use timegrapher_core::clock::{self, ClockFit};
 use timegrapher_core::clockstore::{self, ClockStore, DeviceClock};
-use timegrapher_core::figure_text::{base_digits, figure, figure_with_pm};
 use timegrapher_core::library::fixed_text;
 use timegrapher_core::recorder::utc;
 use timegrapher_core::take;
@@ -135,18 +134,9 @@ pub fn describe(d: &DeviceClock) -> String {
         String::new()
     };
     format!(
-        "{}: {} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
+        "{}: {}; {}, {}{span}",
         d.device,
-        // Each to its ±'s decimals (#510 K3).
-        figure_with_pm(d.ppm.abs(), d.ppm_sd, base_digits::CLOCK, false),
-        if d.ppm >= 0.0 { "fast" } else { "slow" },
-        figure(
-            d.rate_error_s_per_day().abs(),
-            d.ppm_sd.map(|s| clock::rate_error_s_per_day(s).abs()),
-            base_digits::RATE,
-            false
-        ),
-        if d.ppm >= 0.0 { "slow" } else { "fast" },
+        d.error_text(),
         d.how_text(),
         d.measured_utc
     )

@@ -145,6 +145,11 @@ names in backticks:
   undoes. CI's **Silent reverts** step (in `mcp-renderer`) fails a PR that puts a
   file back to a version it had earlier on `main`, unless the body names the revert;
   after adding the line, re-run that job, as editing the body does not.
+- **One source:** the self-check line from #514, word for word: "Adds no
+  calculation, threshold, selection rule or fact wording outside core. Every
+  figure shown names the core function that makes it." Then name the core
+  function behind each figure the change shows, or say it shows none. The
+  repository's template, `.github/pull_request_template.md`, carries the line.
 - Last line: `— <your agent name> (<work area>)`.
 
 Every sentence in the body must be true at the PR's head. Update the body when a
