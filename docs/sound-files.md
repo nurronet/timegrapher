@@ -67,8 +67,10 @@ added hiss) were all within 0.08% of plain. A fuzz target
 
 ## Known limits
 
-- **Above 655,350 Hz no FLAC is written**: FLAC's frame headers can't name
-  a faster rate. Such a take's hours stay WAV, whole and readable.
+- **Above 655,350 Hz, or above 65,535 Hz at a rate that isn't a multiple
+  of 10, no FLAC is written**: the frame headers flacenc writes always name
+  the rate, and can't name those (FLAC itself could leave it to the stream
+  info). Such a take's hours stay WAV, whole and readable.
   flacenc itself takes rates only up to 96 kHz, so a faster stream is made
   at 96 kHz and its stream info and every frame header are given the true
   rate as they are written (#1175); the FLAC is then checked sample for
