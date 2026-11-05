@@ -854,7 +854,12 @@ impl TimegrapherApp {
                 };
                 ui.label(RichText::new(found).small().color(pal.text_tertiary))
                     .on_hover_text(how);
+                // A beat rate picked closes the menu, as a calibre does.
+                let was = bph;
                 bph_choices(ui, &mut bph);
+                if bph != was {
+                    ui.close();
+                }
                 ui.separator();
             };
             self.cal

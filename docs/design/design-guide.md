@@ -227,7 +227,20 @@ Masks are hatched (section 11), so a masked stretch can't be taken for a faint o
   - Use the standard symbol for a thing.
   - Rabbit, swing and seesaw (Rate, Amplitude, Beat Error) always appear in that order, left to right.
 - **Disabled** controls stay in place, greyed out, with a hint saying why.
-- **Menus** mark the current item with a ✓. The blue highlight is only for the item under the pointer, as on macOS.
+- **Menus** mark the current item with a ✓. The blue highlight is only for the item under the pointer, or the one ↑/↓ moved to in a search menu, as on macOS.
+
+### Search menus
+
+A menu with a search field at its top over the list it filters, such as the Calibre picker or a Manage Calibres column funnel, follows the macOS search field, Excel's column filter and a command palette. One helper, `theme::MenuSearch`, builds every such menu, so they all behave the same:
+
+1. Opening it puts the caret in its search field, ready to type, and each open starts with an empty search.
+2. A click in the field places the caret or selects text, and never closes the menu. Search menus close on a click *outside* them; plain menus with no field close on any click.
+3. It closes on a pick, on Esc in an empty field, on a click outside it, or on a click on its button again.
+4. Typing filters the list live. The first match is highlighted, ↑/↓ move the highlight, and Enter picks it.
+5. Once the field has text, a ⊗ at its right clears it. Cmd/Ctrl+A selects all of it, and Delete clears it.
+6. Esc clears the text first. Esc on an empty field closes the menu with no change.
+7. Tab and Shift+Tab move within the menu (field, list, buttons) and never reach the window behind it.
+8. A funnel's ticks apply only on OK, or Enter. Cancel, or Esc on an empty field, closes it with no change.
 
 ---
 

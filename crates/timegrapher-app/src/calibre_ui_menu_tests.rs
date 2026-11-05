@@ -217,3 +217,133 @@ fn the_calibre_menu_keeps_its_height_after_a_search() {
         );
     }
 }
+
+/// Where `words` is drawn, if anywhere.
+fn drawn_at(out: &egui::FullOutput, words: &str) -> Option<egui::Rect> {
+    out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(x) if x.galley.text() == words => Some(x.visual_bounding_rect()),
+        _ => None,
+    })
+}
+
+fn key(k: egui::Key) -> Vec<egui::Event> {
+    let e = |pressed| egui::Event::Key {
+        key: k,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Default::default(),
+    };
+    vec![e(true), e(false)]
+}
+
+fn click(at: egui::Pos2) -> Vec<egui::Event> {
+    let press = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    vec![egui::Event::PointerMoved(at), press(true), press(false)]
+}
+
+/// The search menu's rules (Peter, 5 Nov; docs/design/design-guide.md,
+/// "Search menus"): a click in its field keeps it open with the caret
+/// there; Esc clears the text first and only then closes it; each open
+/// starts with an empty search; ↓ and Enter pick from the list.
+#[test]
+fn a_click_in_the_calibre_search_keeps_the_menu_open() {
+    let mut c = Calibres::in_memory();
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
+    let mut picked = None;
+    let mut run = |c: &mut Calibres, events: Vec<egui::Event>| {
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(300.0);
+                    if let Some(p) = c.picker(ui, "", None) {
+                        picked = Some(p);
+                    }
+                });
+            },
+        );
+        let settled = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(300.0);
+                    c.picker(ui, "", None);
+                });
+            },
+        );
+        drop(out);
+        settled
+    };
+    let open =
+        |c: &mut Calibres,
+         run: &mut dyn FnMut(&mut Calibres, Vec<egui::Event>) -> egui::FullOutput| {
+            run(c, vec![]);
+            run(c, click(egui::pos2(60.0, 18.0)))
+        };
+    let shown = open(&mut c, &mut run);
+    let field = drawn_at(&shown, "Search every calibre").expect("the search field");
+    // A click in the field: still open.
+    let after = run(&mut c, click(field.center()));
+    assert!(
+        drawn_at(&after, "Search every calibre").is_some(),
+        "closed by a click in its field"
+    );
+    // Typing goes into the field, still open.
+    let typed = run(&mut c, vec![egui::Event::Text("2824".into())]);
+    assert!(
+        drawn_at(&typed, "Short List").is_none(),
+        "a search lists its hits"
+    );
+    // A ⊗ clears it, keeping the menu open.
+    let clear = drawn_at(&typed, "⊗").unwrap_or_else(|| panic!("{:?}", texts(&typed)));
+    let cleared = run(&mut c, click(clear.center()));
+    assert!(
+        drawn_at(&cleared, "Short List").is_some(),
+        "⊗ clears the search"
+    );
+    // Esc clears the text first, then closes.
+    run(&mut c, vec![egui::Event::Text("2824".into())]);
+    let esc = run(&mut c, key(egui::Key::Escape));
+    assert!(
+        drawn_at(&esc, "Short List").is_some(),
+        "the first Esc clears the text"
+    );
+    let esc = run(&mut c, key(egui::Key::Escape));
+    assert!(
+        drawn_at(&esc, "Search every calibre").is_none(),
+        "Esc on an empty field closes"
+    );
+    // Each open starts empty, with the caret in the field.
+    run(&mut c, vec![egui::Event::Text("zzz".into())]);
+    let again = open(&mut c, &mut run);
+    assert!(
+        drawn_at(&again, "Short List").is_some(),
+        "a new open starts with no search"
+    );
+    // ↓ then Enter picks the second hit.
+    let hits = run(&mut c, vec![egui::Event::Text("2824".into())]);
+    let names: Vec<String> = texts(&hits)
+        .into_iter()
+        .filter(|t| t.contains(" · "))
+        .collect();
+    assert!(names.len() >= 2, "{names:?}");
+    run(&mut c, key(egui::Key::ArrowDown));
+    run(&mut c, key(egui::Key::Enter));
+    let second = names[1].split(" · ").next().unwrap().to_string();
+    assert_eq!(picked.as_deref(), Some(second.as_str()));
+}

@@ -1587,9 +1587,15 @@ folder can't be moved while another copy has it open. The Watches view adds watc
 - **Calibre.** Not Set, a calibre from the list (`timegrapher_core::calibres`,
   some 4,500 of them, each with its sources), or one of your own.
   - **The menu.** On the Calibre card with no watch picked, and in the
-    New Watch form. A **Search every calibre** box at its top, ready to
-    type into, lists every calibre matching a name, another name or the
-    maker (the first 200, with how many more). Empty, the menu offers Not
+    New Watch form. A **Search every calibre** box at its top, empty and
+    ready to type into at each open, lists every calibre matching a name,
+    another name or the maker (the first 200, with how many more). It
+    works as every search menu does (design guide, Search menus):
+    - A click in the box never closes the menu.
+    - ↑/↓ move the highlight from the first match, and Enter picks it.
+    - A ⊗ clears the search, and so does Esc. Esc in an empty box closes
+      the menu.
+    - Tab stays in the menu. Empty, the menu offers Not
     Set, then **Recent**, the **Short List** by maker and **Custom** (your
     own calibres). The list keeps one height while you search, and
     scrolls between the search field and **Manage Calibres…**, which stays at the menu's foot and opens
@@ -1636,8 +1642,10 @@ folder can't be moved while another copy has it open. The Watches view adds watc
       **(Select All Search Results)** and picks just the values the search
       lists, as a spreadsheet's does. The star column's funnel with only
       Starred ticked shows just the short list. The
-      ticks apply on **OK**; **Cancel** leaves the filter as it was, and OK
-      needs at least one value ticked. It lists the values the other
+      ticks apply on **OK** or Enter. **Cancel**, or Esc with the search
+      empty, leaves the filter as it was, and OK needs at least one value
+      ticked. Its search works as the Calibre menu's: a click in it keeps the
+      menu open, a ⊗ or Esc clears it, and Tab stays in the menu. It lists the values the other
       filters let through; the funnels combine, so a row shows only when
       every column's value is ticked, and the search over the table
       narrows them too.
