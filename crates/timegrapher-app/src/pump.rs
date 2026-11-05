@@ -31,6 +31,19 @@ pub struct Shell {
     app: Arc<Mutex<TimegrapherApp>>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// Dropped last, after the app: on a Mac at quit, ends the process
+    /// before eframe drops the window (#1071).
+    _end: EndAfterApp,
+}
+
+/// See [`Shell`]'s last field.
+struct EndAfterApp;
+
+impl Drop for EndAfterApp {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        crate::app::mac_menu::end_process();
+    }
 }
 
 impl Shell {
@@ -51,7 +64,12 @@ impl Shell {
                 None
             }
         };
-        Shell { app, stop, thread }
+        Shell {
+            app,
+            stop,
+            thread,
+            _end: EndAfterApp,
+        }
     }
 
     pub(crate) fn app(&self) -> MutexGuard<'_, TimegrapherApp> {
