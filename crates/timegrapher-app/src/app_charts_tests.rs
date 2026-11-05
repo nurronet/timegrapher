@@ -478,3 +478,78 @@ fn the_lanes_read_the_pointers_time_on_every_chart() {
     let gone = painted_text(&out);
     assert_eq!(degrees(&gone) + 3, degrees(&text), "{gone}");
 }
+
+/// Panned to the newest reading, the charts follow new ones at the length
+/// they show, as the strip does; panned back, they stay put (Hugh,
+/// #1070).
+#[test]
+fn the_charts_panned_to_the_newest_reading_follow_new_ones() {
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        painted_text(&ctx.run(input, |ctx| app.panels(ctx)))
+    };
+    let mut text = String::new();
+    for _ in 0..4 {
+        text = pass(&mut app, Vec::new());
+    }
+    assert!(text.lines().any(|l| l == "Charts"), "{text}");
+    // The pointer well inside the Rate chart.
+    let at = egui::pos2(720.0, 700.0);
+    let look = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        pass(app, events);
+        // Long enough for a wheel turn's smooth scroll to play out.
+        let mut text = String::new();
+        for _ in 0..40 {
+            text = pass(app, vec![egui::Event::PointerMoved(at)]);
+        }
+        // The axis's labels, in order: not the lane's time at the pointer.
+        let all = time_labels(&text);
+        let n = 1 + all.windows(2).take_while(|w| w[1] > w[0]).count();
+        all[..n].to_vec()
+    };
+    let wheel = |dy: f32| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0.0, dy),
+        modifiers: egui::Modifiers::NONE,
+    };
+    look(&mut app, vec![egui::Event::PointerMoved(at)]);
+    look(&mut app, vec![egui::Event::Zoom(3.0)]);
+    let end = look(&mut app, vec![wheel(-6000.0)]);
+    let span = |l: &[f64]| l[l.len() - 1] - l[0];
+    assert!(end[end.len() - 1] > 90.0, "{end:?}");
+    // A minute more heard, a reading a second, as listening adds them
+    // (the take behind them unchanged, so nothing reads them again):
+    // the charts move with it, the length kept.
+    let more = |app: &mut TimegrapherApp, s: usize| {
+        for _ in 0..s {
+            let mut p = *app.trend.last().unwrap();
+            p.t += 1.0;
+            app.trend.push(p);
+        }
+    };
+    more(&mut app, 60);
+    let later = look(&mut app, Vec::new());
+    assert!(later[0] > end[0] + 30.0, "{end:?} {later:?}");
+    assert!(
+        (span(&later) - span(&end)).abs() <= 10.0,
+        "{end:?} {later:?}"
+    );
+    // Panned back, more heard leaves them where they are.
+    let back = look(&mut app, vec![wheel(600.0)]);
+    assert!(back[0] < later[0], "{later:?} {back:?}");
+    more(&mut app, 30);
+    assert_eq!(look(&mut app, Vec::new()), back);
+}

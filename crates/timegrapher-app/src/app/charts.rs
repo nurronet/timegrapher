@@ -10,13 +10,16 @@ impl TimegrapherApp {
     pub(super) fn charts_pane(&mut self, ui: &mut egui::Ui) {
         let shown = self.chart_series;
         self.note_need(ui, Pane::Charts, STACKED_MIN_H);
-        let (mut moved, mut over) = (false, None);
+        let (mut moved, mut over, mut newest) = (false, None, false);
         self.charts_drawn = stacked(ui, shown, STACKED_MIN_H, |ui, k| {
-            let (m, hover) = self.chart(ui, k);
+            let (m, hover, at_newest) = self.chart(ui, k);
             moved |= m;
             over = over.or(hover);
+            newest |= at_newest;
         });
         self.charts_fit = !moved;
+        // Their lines end a reading apart, so one at its newest is enough.
+        self.charts_follow = newest;
         // Every chart's lane reads the pointer's time, those above the
         // one under it a frame late.
         if over != self.charts_over {
@@ -47,8 +50,9 @@ impl TimegrapherApp {
     }
 
     /// One reading's chart: whether it was moved off the whole session,
-    /// and the time under the pointer on it.
-    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) -> (bool, Option<f64>) {
+    /// the time under the pointer on it, and whether, so moved, it ends at
+    /// its newest reading.
+    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) -> (bool, Option<f64>, bool) {
         let pal = theme::pal(ui);
         // A lane over the plot for the chart's name and its lines' key,
         // so neither sits on the lines (Walter's walk of #1057, #1063).
@@ -76,11 +80,12 @@ impl TimegrapherApp {
             .chart_average_drawn
             .insert(steady::title(reading), average)
             .is_some_and(|was| was != average);
+        let follow = self.charts_follow;
         let resp = plot.show(ui, |p| {
             grid.draw(p, pal);
-            draw_chart(p, series, to_live, y_range, rescale)
+            draw_chart(p, series, (to_live, follow), y_range, rescale)
         });
-        let (click, hover, moved) = resp.inner;
+        let (click, hover, moved, at_newest) = resp.inner;
         // The moment shown and the pointer's time, painted over the plot
         // rather than added to it: a plot line counts towards the automatic
         // bounds, so one under the pointer near the edge widened the chart
@@ -95,19 +100,10 @@ impl TimegrapherApp {
             egui::pos2(frame.left(), lane.top()),
             egui::pos2(frame.right(), lane.bottom()),
         );
-        let signed = reading == SeriesKind::Rate;
-        let values: Vec<LaneValue> = hover
-            .or(self.charts_over)
-            .map(|x| {
-                lookup
-                    .iter()
-                    .filter_map(|l| {
-                        let v = line_value(&l.pts, l.se, (x, &self.trend), decimals, signed)?;
-                        Some((format!("{v}{unit}"), l.color, l.under, pal.axis_ink(l.key)))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let at = hover.or(self.charts_over);
+        let values = at.map_or_else(Vec::new, |x| {
+            lane_values(&lookup, (x, &self.trend), (reading, unit, decimals), pal)
+        });
         let only = steady::SERIES.map(|k| k == reading);
         paint_lane(
             ui,
@@ -160,13 +156,14 @@ impl TimegrapherApp {
                 self.strip_end = Some(at.x);
             }
         }
-        (moved, hover)
+        (moved, hover, at_newest)
     }
 }
 
-/// A click on a chart, the time under the pointer, and whether it was moved
-/// off the whole session.
-type ChartInput = (Option<egui_plot::PlotPoint>, Option<f64>, bool);
+/// A click on a chart, the time under the pointer, whether it was moved
+/// off the whole session, and whether, so moved, it ends at the newest
+/// reading.
+type ChartInput = (Option<egui_plot::PlotPoint>, Option<f64>, bool, bool);
 
 /// The lines of one reading's chart over the session, each in its reading's
 /// colour, with the unit and decimals its values show with.
@@ -317,7 +314,7 @@ fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
 fn draw_chart(
     p: &mut egui_plot::PlotUi<'_>,
     series: Vec<ChartLine>,
-    to_live: bool,
+    (to_live, follow): (bool, bool),
     y_range: Option<(f64, f64)>,
     rescale: bool,
 ) -> ChartInput {
@@ -327,7 +324,21 @@ fn draw_chart(
     if let (Some((lo, hi)), true) = (y_range, rescale) {
         p.set_plot_bounds_y(lo..=hi);
     }
-    pan_and_zoom(p, &series);
+    let panned = pan_and_zoom(p, &series);
+    // Panned to the newest reading, a chart follows new ones at the
+    // length it shows, as the strip does; Fit is the whole session (Hugh,
+    // #1070).
+    let take = take_span(&series);
+    let b = p.plot_bounds();
+    let (lo, hi) = (b.min()[0], b.max()[0]);
+    let mut at_newest = false;
+    if let (Some((_, newest)), false) = (take, to_live || p.auto_bounds().x) {
+        if follow && !panned && hi < newest {
+            p.set_plot_bounds_x(newest - (hi - lo)..=newest);
+        }
+        // Judged from the bounds a pan has settled into, the frame after.
+        at_newest = !panned && (follow || hi >= newest);
+    }
     for l in series {
         let w = if l.main { 1.8_f32 } else { 1.2_f32 };
         // Broken where there is no reading (a masked stretch, a
@@ -356,7 +367,7 @@ fn draw_chart(
     let click = clicked.then(|| p.pointer_coordinate()).flatten();
     // Panned or zoomed away from the whole session.
     let moved = !to_live && !p.auto_bounds().x;
-    (click, hover.map(|h| h.x), moved)
+    (click, hover.map(|h| h.x), moved, moved && at_newest)
 }
 
 /// Pan and zoom a chart's time by hand, kept to the take. The wheel, a
@@ -364,11 +375,12 @@ fn draw_chart(
 /// a pinch, zooms about the pointer. Alt and the wheel zooms the strip's
 /// width; the charts' scale fits their lines, so here it does nothing.
 /// Zoomed out to the whole take, the chart shows the whole session again.
-fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) {
+/// Whether it moved the chart.
+fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
     let r = p.response();
     let dragged = r.dragged_by(egui::PointerButton::Primary);
     if !r.hovered() && !dragged {
-        return;
+        return false;
     }
     let drag = if dragged { r.drag_delta().x } else { 0.0 };
     let px = r.rect.width().max(1.0);
@@ -380,7 +392,7 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) {
         .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
     let shift = drag + if alt { 0.0 } else { s.x + s.y };
     if shift == 0.0 && zoom == 1.0 {
-        return;
+        return false;
     }
     let b = p.plot_bounds();
     let (mut lo, mut hi) = (b.min()[0], b.max()[0]);
@@ -391,13 +403,19 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) {
     }
     let dt = -f64::from(shift / px) * (hi - lo);
     let Some(take) = take_span(series) else {
-        return;
+        return false;
     };
     match keep_in(lo + dt, hi + dt, take) {
-        Some((lo, hi)) => p.set_plot_bounds_x(lo..=hi),
+        // Held at an end, a turn further moves nothing.
+        Some(to) if to == (b.min()[0], b.max()[0]) => false,
+        Some((lo, hi)) => {
+            p.set_plot_bounds_x(lo..=hi);
+            true
+        }
         None => {
             let y = p.auto_bounds().y;
             p.set_auto_bounds([true, y]);
+            true
         }
     }
 }
@@ -442,6 +460,24 @@ pub(super) fn line_value(
     let at = trend.partition_point(|p| p.t < t);
     let se = trend.get(at).and_then(se);
     Some(true_minus(&figure(v, se, base, signed)))
+}
+
+/// Each of `lines`' values at `x` for a chart's lane, written as its
+/// card writes the reading, in the line's colour.
+fn lane_values(
+    lines: &[ChartLine],
+    (x, trend): (f64, &[TrendPoint]),
+    (reading, unit, base): (SeriesKind, &str, usize),
+    pal: &theme::Palette,
+) -> Vec<LaneValue> {
+    let signed = reading == SeriesKind::Rate;
+    lines
+        .iter()
+        .filter_map(|l| {
+            let v = line_value(&l.pts, l.se, (x, trend), base, signed)?;
+            Some((format!("{v}{unit}"), l.color, l.under, pal.axis_ink(l.key)))
+        })
+        .collect()
 }
 
 /// A line's value in a chart's lane: its text, the line's colour and the

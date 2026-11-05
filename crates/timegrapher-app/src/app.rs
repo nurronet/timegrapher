@@ -2185,6 +2185,9 @@ pub struct TimegrapherApp {
     /// The time under the pointer over any chart last frame, which every
     /// chart's lane reads its values at (#1063).
     charts_over: Option<f64>,
+    /// The charts, panned or zoomed, end at the newest reading and follow
+    /// new ones at the length they show (Hugh, #1070).
+    charts_follow: bool,
     /// The averaging time each chart last drew with: a new one rescales
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
@@ -2665,6 +2668,7 @@ impl TimegrapherApp {
             charts_to_live_now: false,
             charts_fit: true,
             charts_over: None,
+            charts_follow: false,
             chart_average_drawn: Default::default(),
             capture: None,
             live: None,
