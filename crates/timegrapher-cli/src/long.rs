@@ -12,7 +12,7 @@ use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::longrun::{self, LongReport};
 use timegrapher_core::longterm::{Component, LongConfig};
 use timegrapher_core::periodicity::{common_escape_wheels, standard_wheels, Wheel};
-use timegrapher_core::stream::{self, BeatLog, StreamConfig};
+use timegrapher_core::stream::{BeatLog, StreamConfig};
 use timegrapher_core::timefreq::size_number;
 use timegrapher_core::{audio, joined, take, timing};
 
@@ -353,38 +353,31 @@ pub(crate) fn read(
     cfg.analysis.lift_known = resolved_train.lift_given(lift).is_some();
     let files = expand_dirs(files)?;
     let file = files.first().ok_or("no recording given")?.clone();
-    let mut info = audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    for f in &files[1..] {
-        let i = audio::info(f).map_err(|e| format!("{}: {e}", f.display()))?;
-        info.frames = info.frames.zip(i.frames).map(|(a, b)| a + b);
-    }
+    audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     // Once the recordings open, so a run that fails on them says only why.
     if let Some(note) = resolved_train.lift_default_note(lift) {
         eprintln!("{note}");
     }
-    let total_s = info
-        .frames
-        .map_or(0.0, |f| f as f64 / info.sample_rate as f64);
-    let mut clock = crate::clock_cmd::resolve(
-        clock_args.log,
-        &info,
-        total_s,
-        || crate::clock_cmd::usb(&files),
-        || crate::clock_cmd::correction(&files[0], clock_args.device, clock_args.card_ppm),
-    )?;
-    let total = info.frames.map(|f| f as f64 / info.sample_rate as f64);
-    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    // Opened as core opens a take (`take::open_files`): its beats, its
+    // clock from the clock log, USB lines or known correction, its breaks.
+    let settings = take::EntrySettings {
+        stream: cfg.clone(),
+        card_clock: false,
+        settle_s: None,
+    };
     let mut progress = Progress::new();
-    let mut log = stream::analyze_files(&paths, &cfg, |done| {
-        progress.at(done, total, |d| fixed_text(d / 60.0, 0), "min")
-    })
-    .map_err(|e| e.to_string())?;
+    let opened = take::open_files(
+        &files,
+        clock_args.log,
+        &settings,
+        take::usb,
+        |first| take::correction(first, clock_args.device, clock_args.card_ppm),
+        |done, total| progress.at(done, Some(total), |d| fixed_text(d / 60.0, 0), "min"),
+    )?;
     progress.end();
-    let timegrapher_core::breaks::Found { breaks, unlisted } = take::breaks(
-        &mut log,
-        take::Listed::Files(&paths),
-        clock.as_mut().map(|c| &mut c.fit),
-    );
+    let clock =
+        crate::clock_cmd::AppliedClock::of(opened.clock, opened.clock_ppm, opened.clock_source);
+    let (log, breaks, unlisted) = (opened.log, opened.breaks, opened.unlisted);
     Ok(Read {
         files,
         take: None,
@@ -456,11 +449,8 @@ fn read_take(
     )?;
     progress.end();
     let log_path = e.clock.as_ref().map(|c| base.join(c));
-    let clock = opened.clock.map(|fit| crate::clock_cmd::AppliedClock {
-        fit,
-        ppm: opened.clock_ppm,
-        from: opened.clock_source.clone().unwrap_or_default(),
-    });
+    let clock =
+        crate::clock_cmd::AppliedClock::of(opened.clock, opened.clock_ppm, opened.clock_source);
     // Each entry from the end of its settling, as `session` and the app
     // read it.
     let stretches = joined::take_spans(&m, opened.log.duration_s);

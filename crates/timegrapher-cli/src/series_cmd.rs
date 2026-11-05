@@ -578,7 +578,29 @@ mod tests {
              240° to 300°."
         );
     }
-    use crate::clock_cmd::resolve as resolve_clock;
+    use crate::clock_cmd::AppliedClock;
+    use std::path::Path;
+    use timegrapher_core::take;
+
+    /// The clock core reads (`take::read_clock`) from the clock `log`, the
+    /// USB lines and the correction, as `series` applies it.
+    fn resolve_clock(
+        log: Option<&Path>,
+        info: &audio::AudioInfo,
+        total_s: f64,
+        usb: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+        correction: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+    ) -> Result<Option<AppliedClock>, String> {
+        let text = log.map(fs::read_to_string).transpose().unwrap();
+        let c = take::read_clock(
+            (text.as_deref(), log),
+            (info.sample_rate, info.bytes_per_frame),
+            total_s,
+            usb,
+            correction,
+        )?;
+        Ok(AppliedClock::of(c.fit, c.ppm, c.source))
+    }
     use std::fs;
     use timegrapher_core::audio;
     use timegrapher_core::clock::{self, ClockFit};

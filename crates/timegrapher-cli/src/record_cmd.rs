@@ -45,7 +45,6 @@ use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
 use timegrapher_core::power_reserve;
 use timegrapher_core::recorder::{self, Recorder, SessionInfo};
 use timegrapher_core::session::{self, Manifest, Position};
-use timegrapher_core::stream::{self, StreamConfig};
 use timegrapher_core::take::{self, MANIFEST};
 use timegrapher_core::timing::Anchor;
 use timegrapher_core::{analyze, AnalysisConfig};
@@ -536,29 +535,36 @@ fn reserve_results(
     ending: power_reserve::Ending,
 ) -> Result<power_reserve::Results, String> {
     use power_reserve::Results;
-    let files = timegrapher_core::recording_order::recordings_in(dir, &[])
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut cfg = StreamConfig::default();
-    cfg.analysis.bph = bph;
-    let paths: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-    let mut log = stream::analyze_files(&paths, &cfg, |_| {})
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let info = audio::info(paths[0]).map_err(|e| format!("{}: {e}", paths[0].display()))?;
-    // Its clock and breaks, as every command opens a take. A clock log
-    // that cannot be read leaves the results on the sound card's clock.
-    let log_path = dir.join(take::CLOCK_LOG);
-    let mut clock = crate::clock_cmd::resolve(
-        log_path.is_file().then_some(log_path.as_path()),
-        &info,
-        log.duration_s,
-        || crate::clock_cmd::usb(&files),
-        || crate::clock_cmd::correction(&files[0], None, None),
+    // Opened as every command opens a take (`take::open_entry` on its own
+    // session file): its beats, clock log and breaks. A take with no
+    // session file is read as its sound alone.
+    let manifest = dir.join(MANIFEST);
+    let listed = match manifest.is_file() {
+        true => Some(crate::session_cmd::load_manifest_file(&manifest)?.0),
+        false => None,
+    };
+    let (base, m, entry) = take::whole_entry(dir, listed.as_ref())?;
+    let given = take::Given {
+        bph,
+        lift_deg: None,
+    };
+    let settings = take::EntrySettings {
+        stream: take::stream_settings(&m, None, given),
+        card_clock: false,
+        settle_s: None,
+    };
+    let opened = take::open_entry(
+        &base,
+        &m,
+        &entry,
+        &settings,
+        take::usb,
+        |first| take::correction_for(&m, first, None, None),
+        |_, _| {},
     )
-    .ok()
-    .flatten()
-    .map(|a| a.fit);
-    let breaks = take::breaks(&mut log, take::Listed::Files(&paths), clock.as_mut()).breaks;
-    let beat_s = 3600.0 / f64::from(log.bph.max(1));
+    .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let (log, clock, breaks) = (opened.log, opened.clock, opened.breaks);
+    let beat_s = power_reserve::beat_s(Some(log.bph));
     let heard = power_reserve::heard(&log.beats, beat_s);
     let mut r = Results::of(&heard, ending, started, pos.common(), true, |s| {
         clock.as_ref().map_or(s, |c| c.map(s))
@@ -805,9 +811,13 @@ fn live(
 }
 
 fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
-    // The first hour, as kept: its FLAC once converted.
-    let first = dir.join("audio-001.wav");
-    let wav = timegrapher_core::recording_order::recordings_in(&first, &[])?.remove(0);
+    // The first hour, as kept (its FLAC once converted): the take's first
+    // file in core's order.
+    let wav = timegrapher_core::recording_order::recordings_in(dir, &[])
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("{}: no recording in the take", dir.display()))?;
     // Whether a regular beat was found, and clipping, over the whole take,
     // as `analyze` reports them, which a short take still gets.
     let a = audio::load(&wav).map_err(|e| format!("{}: {e}", wav.display()))?;
@@ -1115,6 +1125,7 @@ fn say_break(lost: &breaks::Live) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use timegrapher_core::stream::{self, StreamConfig};
 
     #[test]
     fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
