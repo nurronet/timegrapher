@@ -1872,8 +1872,10 @@ in [sessions.md](sessions.md#a-take-kept-as-its-analysis-alone).
 
 Opened, such a take shows its readings, Paper Strip, charts, Steadiness
 tests and position stretches as the take with its sound would, from the
-beats it kept, and the Tick Tock Profile from the profile kept for the
-last 2 seconds. It can't be measured again with
+beats it kept, and the Tick Tock Profile as the average of the 2 s
+profiles it kept in the Average Over window, weighted by their beats;
+the band is the range of their bands, and the hover says how many and
+from when to when. It can't be measured again with
 other settings, and the Scope needs the sound: it says there is no
 waveform. Masks
 can still be changed and saved into its `session.toml`.

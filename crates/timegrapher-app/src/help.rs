@@ -227,7 +227,9 @@ pub const STRIP: &[&str] = &[
 
 pub const PROFILE: &[&str] = &[
     "The typical sound of a tick (blue) and a tock (deep orange): the line is the beats' \
-     typical loudness, the band where the middle 80% fall. Time runs in ms from the drop.",
+     typical loudness, the band where the middle 80% fall. Time runs in ms from the drop. On a \
+     take kept without its sound, the line is the average of the 2 s profiles kept in the \
+     Average Over window and the band the range of their bands.",
     "A line from the top is an edge: Unlock, Drop or Peak. Amplitude comes from unlock to \
      drop, the beat error from the unlocks. A bar across the curve marks where an edge meets \
      it; a ring on the curve is a sound: Unlock, Impulse or Drop Sound. Hover a name, line \

@@ -372,7 +372,8 @@ impl TimegrapherApp {
         } else {
             codes
         };
-        let (masked, position, sound) = (self.masked.clone(), self.position, !self.no_sound);
+        let (masked, position, sound) =
+            (self.masked.clone(), self.position, self.no_sound.is_none());
         Some(move || {
             let log = steady::log_of(&live)?;
             let fit = reading_clock(take_clock.as_ref(), opened, ppm, log.duration_s);

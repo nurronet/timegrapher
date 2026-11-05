@@ -1279,7 +1279,7 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
         a
     };
     let (mut a, b) = (open(&kept), open(&full));
-    assert!(a.no_sound && !b.no_sound);
+    assert!(a.no_sound.is_some() && b.no_sound.is_none());
     assert_eq!(a.masked, b.masked);
     assert_eq!(a.masked, vec![(30.0, 32.0)]);
     let (la, lb) = (a.live.as_ref().unwrap(), b.live.as_ref().unwrap());
@@ -1299,11 +1299,52 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
     assert!(close(ra.beat_error_ms, rb.beat_error_ms, 0.001));
     assert_eq!(a.trend.len(), b.trend.len());
     // The profiles kept for each 2 seconds stand in for the sound.
-    assert!(a.sound_history.len() >= 29, "{}", a.sound_history.len());
-    assert!(a
-        .sound_history
+    let k = a.no_sound.as_deref().expect("kept");
+    assert!(k.len() >= 29, "{}", k.len());
+    assert!(k
         .iter()
-        .all(|(_, k)| k.sides[0].is_some() && k.sides[1].is_some()));
+        .all(|p| p.sides[0].is_some() && p.sides[1].is_some()));
+    // Moved back, the Tick Tock Profile averages those in the Average
+    // Over window, and says so (#979).
+    a.average_s = 10.0;
+    let shown = a.profiles_at(20.0);
+    let hover = shown.hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: average of 5 2 s profiles, 0:10 to 0:20"),
+        "{hover}"
+    );
+    assert!(hover.contains("Tock: average of 5 2 s profiles"), "{hover}");
+    assert!(hover.contains("Band: range of the 2 s bands"), "{hover}");
+    assert!(shown.line.is_none() && shown.profiles.iter().all(Option::is_some));
+    assert_eq!(shown.band, crate::profiles::BAND_AVERAGED);
+    // A break in the window leaves out the stretch it falls in.
+    a.take_breaks = Some(vec![timegrapher_core::breaks::Break {
+        audio_s: 15.0,
+        gap_s: 0.0,
+    }]);
+    let hover = a.profiles_at(20.0).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: average of 4 2 s profiles, 0:10 to 0:20"),
+        "{hover}"
+    );
+    a.take_breaks = None;
+    // One stretch is the 2 s profile, not an average of one.
+    a.average_s = 2.0;
+    let hover = a.profiles_at(20.0).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: the 2 s profile, 0:18 to 0:20"),
+        "{hover}"
+    );
+    // Off the 2 s grid, too (Walter).
+    let hover = a.profiles_at(19.3).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: the 2 s profile, 0:18 to 0:20"),
+        "{hover}"
+    );
+    // A masked moment is masked, as with the sound.
+    let shown = a.profiles_at(31.0);
+    assert!(shown.masked && shown.profiles.iter().all(Option::is_none));
+    assert_eq!(shown.line.as_deref(), Some("Masked at 0:31"));
     // Masks changed on it are saved into its session file, which still
     // says it has no sound.
     a.masked = vec![(30.0, 32.0), (50.0, 52.0)];
