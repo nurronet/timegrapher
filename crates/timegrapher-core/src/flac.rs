@@ -155,10 +155,15 @@ pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
             }
             Ok(())
         })?;
-        out.into_inner()
-            .map_err(|e| AudioError::Io(e.into_error()))?
-            .sync_all()
-            .map_err(AudioError::Io)?;
+        let out = out
+            .into_inner()
+            .map_err(|e| AudioError::Io(e.into_error()))?;
+        // The FLAC keeps the WAV's time: when the sound was written, which
+        // readers check the order of a take's hours by.
+        if let Ok(written) = wav.metadata().and_then(|m| m.modified()) {
+            out.set_modified(written).map_err(AudioError::Io)?;
+        }
+        out.sync_all().map_err(AudioError::Io)?;
         if !same_samples_file(wav, &part)? {
             return Err(failed("the FLAC does not decode to the WAV's samples"));
         }
@@ -389,6 +394,24 @@ mod tests {
         w.finalize().unwrap();
         assert!(!same_samples(&b, &f).unwrap());
         assert!(same_samples(&a, &f).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_flac_keeps_the_time_its_wav_was_written() {
+        let dir = scratch("mtime");
+        let w = dir.join("audio-001.wav");
+        wav(&w, 6_000, 1, 16);
+        let then =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_761_600_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&w)
+            .unwrap()
+            .set_modified(then)
+            .unwrap();
+        let f = keep_as_flac(&w).unwrap();
+        assert_eq!(std::fs::metadata(&f).unwrap().modified().unwrap(), then);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
