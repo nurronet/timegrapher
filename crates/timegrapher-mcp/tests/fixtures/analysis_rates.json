@@ -22,7 +22,7 @@
   },
   {
     "name": "USB-only",
-    "doc": { "schema": "timegrapher.analyze/2", "watch_heard": true, "overall": { "rate_s_per_day": 6 }, "rate_corrected_s_per_day": 4, "clock": { "ppm": 23.15, "rate_s_per_day": 4, "from": "from 120 USB lines in the recording, 0.3 ppm apart" } },
+    "doc": { "schema": "timegrapher.analyze/2", "watch_heard": true, "overall": { "rate_s_per_day": 6 }, "rate_corrected_s_per_day": 4, "clock": { "ppm": -23.15, "rate_s_per_day": 4, "from": "from 120 USB lines in the recording, 0.3 ppm apart" } },
     "expected_rate": 4,
     "expected_lead": "Readings: rate +4.0 s/d.",
     "expected_basis": "corrected for the sound card's clock (from 120 USB lines in the recording, 0.3 ppm apart)"

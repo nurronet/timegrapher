@@ -335,7 +335,7 @@ fn split_entries_clock_probe(metadata: &str, folder: bool) {
     };
     let mut app = opened(&path);
     let clock = app.take_clock.as_ref().expect("the app retains the clock");
-    assert!((clock.ppm - 20.0).abs() < 0.1);
+    assert!((clock.ppm + 20.0).abs() < 0.1);
     assert_eq!(clock.breaks.len(), 1);
     assert!((clock.breaks[0].gap_s - 60.0).abs() < 0.01);
     for (position, reading) in [Position::DialUp, Position::DialDown]
