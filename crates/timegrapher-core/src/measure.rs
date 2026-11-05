@@ -1041,7 +1041,7 @@ mod tests {
         );
         assert_eq!(
             d.long(None).unwrap(),
-            "The USB lines measure the sound card at +120.0 ppm and the clock log at +20 ± 2 \
+            "The USB lines measure the sound card at +120.0 ppm and the clock log at +20.0 ± 2.0 \
              ppm; the rates are corrected by the USB lines."
         );
         // Its JSON leaves the clock log unsaid, as before (#635).

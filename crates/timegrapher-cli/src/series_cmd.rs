@@ -342,7 +342,7 @@ fn rate_amplitude_line(x: &timegrapher_core::amplitude_slope::CrossCorrelation) 
         x.readings,
         fixed_text(x.effective_readings, 0),
         match (x.s_per_day_per_deg, x.s_per_day_per_deg_se) {
-            (Some(b), Some(se)) => timegrapher_core::amplitude_slope::slope_pm_text(b, se, 3),
+            (Some(b), Some(se)) => timegrapher_core::amplitude_slope::slope_pm_text(b, se),
             _ => "no slope".into(),
         },
         p_text(x.p_value)
