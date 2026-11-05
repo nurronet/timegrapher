@@ -574,11 +574,10 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
         Align2::RIGHT_BOTTOM,
         "Start",
     );
-    name(
-        *end + egui::vec2(0.0, 18.0),
-        Align2::CENTER_CENTER,
-        &w.last_text,
-    );
+    // The end's hour off the trail, as the beads' are, past its larger
+    // dot (Walter's walk of #1148: below it, the trail crossed it).
+    let (side, align) = bead_side(&dots, dots.len() - 1);
+    name(*end + 14.0 * side, align, &w.last_text);
     for b in &w.beads {
         let (side, align) = bead_side(&dots, b.dot);
         name(dots[b.dot] + 11.0 * side, align, &b.text);
@@ -1133,8 +1132,10 @@ mod tests {
             .expect("the end's dot");
         let name = |n: &str| texts.iter().find(|t| t.0 == n).unwrap().1;
         assert!(name("Start").max.x <= start.x && name("Start").max.y <= start.y);
-        assert!(name(&w.last_text).min.y > end.center.y + end.radius);
-        // Each bead's name sits clear of every dot, so never on the trail.
+        let last = name(&w.last_text);
+        assert!(last.distance_to_pos(end.center) > end.radius, "{last:?}");
+        // Each bead's name and the end's sit clear of every dot, so never
+        // on the trail.
         let dots: Vec<Pos2> = circles
             .iter()
             .filter(|c| c.radius == 2.5)
@@ -1143,11 +1144,12 @@ mod tests {
         assert_eq!(dots.len(), w.dots.len());
         for b in &w.beads {
             assert!(ring(5.0, w.dots[b.dot].when).is_some(), "{}", b.text);
-            let r = name(&b.text);
+        }
+        for text in w.beads.iter().map(|b| &b.text).chain([&w.last_text]) {
+            let r = name(text);
             assert!(
                 !dots.iter().any(|d| r.expand(1.0).contains(*d)),
-                "{} {r:?}",
-                b.text
+                "{text} {r:?}"
             );
         }
     }
