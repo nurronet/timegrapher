@@ -12,7 +12,8 @@ use crate::strength::{self, Strength, DATA_W};
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use egui_plot::{
-    GridInput, GridMark, HLine, Line, LineStyle, Plot, PlotPoint, Points, Polygon, Text, VLine,
+    Bar, BarChart, GridInput, GridMark, HLine, Line, LineStyle, Plot, PlotPoint, Points, Polygon,
+    Text, VLine,
 };
 use serde::{Deserialize, Serialize};
 use timegrapher_core::figure_text::true_minus;
@@ -372,6 +373,17 @@ fn stats_line(c: &SeriesCheck) -> String {
 /// readings shorter than 10 s are windows, "880 2 s windows".
 fn counted(n: usize, step_s: f64) -> String {
     format!("{n} {}", kind_of(step_s))
+}
+
+/// The Readings view's key: what a dot is and how many are drawn, and on
+/// a long series how many readings the bands hold: "10 s readings (179)",
+/// "10 s readings in 3000 bands (23400)".
+fn readings_key(step_s: f64, drawn: usize, read: usize, banded: bool) -> String {
+    if banded {
+        format!("{} in {drawn} bands ({read})", kind_of(step_s))
+    } else {
+        format!("{} ({drawn})", kind_of(step_s))
+    }
 }
 
 /// Readings `step_s` long: "10 s readings"; shorter than 10 s, "2 s
@@ -971,8 +983,13 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         ..
     } = r;
     let g = &s.grids[i];
-    let (_, pts) = steady_views::thin_readings(g);
-    let range = spread(&pts);
+    let drawn = steady_views::thin_readings(g);
+    let pts: Vec<[f64; 2]> = drawn.iter().map(|d| [d.t, d.mean]).collect();
+    // A long series is drawn in chunks, each the band from its lowest
+    // reading to its highest, on the scale of the readings themselves: a
+    // band reaching past it is clipped at the plot's edge (#1034).
+    let banded = steady_views::banded(&drawn);
+    let range = steady_views::readings_range(g);
     let grid = value_grid(k);
     let mut plot = grid
         .on(base)
@@ -982,9 +999,24 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         plot = plot.default_y_bounds(lo, hi);
     }
     // What a dot is, and how many are drawn, as Charts' key.
-    let key = format!("{} ({})", kind_of(g.step), pts.len());
+    let read: usize = drawn.iter().map(|d| d.count).sum();
+    let key = readings_key(g.step, drawn.len(), read, banded);
+    let width = steady_views::chunk_s(g);
     let resp = plot.show(ui, |p| {
         grid.draw(p, pal);
+        if banded {
+            let bars = drawn
+                .iter()
+                .map(|d| {
+                    Bar::new(d.t, d.hi - d.lo)
+                        .base_offset(d.lo)
+                        .width(width)
+                        .fill(colour.gamma_multiply(BOX_OPACITY))
+                        .stroke(egui::Stroke::NONE)
+                })
+                .collect();
+            p.bar_chart(BarChart::new("bands", bars));
+        }
         p.points(Points::new("readings", pts).color(colour).radius(1.4_f32));
         if let Some(ch) = &c.changes {
             if ch.segments.len() > 1 {
@@ -1969,13 +2001,6 @@ fn log_label(
 
 /// How many colours the Cycle view's dots take, first cycle to last.
 const TIME_BANDS: usize = 12;
-
-/// The points' value scale: core's ([`timegrapher_core::chart_scale::spread`]),
-/// which leaves out lone wild values and which the MCP view uses too.
-fn spread(pts: &[[f64; 2]]) -> Option<(f64, f64)> {
-    let ys: Vec<f64> = pts.iter().map(|p| p[1]).collect();
-    timegrapher_core::chart_scale::spread(&ys)
-}
 
 fn note(ui: &mut egui::Ui, text: &str) {
     let pal = theme::pal(ui);
