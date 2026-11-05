@@ -193,13 +193,9 @@ pub(crate) fn card_title(
     let mut child = card_row(ui, rect, caption);
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         // Tight, so a reading card's caption stays whole at 800.
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = title_gap();
         theme::help(ui, caption, help);
-        let caption_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(caption.into(), theme::semibold(13.0), pal.text)
-                .size()
-                .x
-        });
+        let caption_w = caption_width(ui, caption);
         let small_w = |ui: &mut egui::Ui, t: &str| {
             ui.fonts_mut(|f| {
                 f.layout_no_wrap(t.into(), egui::FontId::proportional(12.0), pal.text)
@@ -242,7 +238,7 @@ pub(crate) fn card_title(
             let r = ui.add(
                 egui::Label::new(
                     RichText::new(short.unwrap_or(caption))
-                        .font(theme::semibold(13.0))
+                        .font(caption_font())
                         .color(pal.text_secondary),
                 )
                 .truncate(),
@@ -259,20 +255,34 @@ pub(crate) fn card_title(
     });
 }
 
+/// A card title's caption font.
+fn caption_font() -> egui::FontId {
+    theme::semibold(13.0)
+}
+
+/// The gap between the items of a card's title row.
+fn title_gap() -> f32 {
+    4.0
+}
+
+/// How wide a card title's whole caption is.
+fn caption_width(ui: &egui::Ui, caption: &str) -> f32 {
+    ui.fonts_mut(|f| {
+        f.layout_no_wrap(caption.into(), caption_font(), Color32::WHITE)
+            .size()
+            .x
+    })
+}
+
 /// Whether the readings cards name their readings short: where any of
 /// them, in its title row, has no room for its whole caption beside its
 /// "?", all of them do, so a row never mixes "Amplitude" with "B.E."
 /// (Hugh, #1061). Worked out from the rows alone, each pass.
 pub(crate) fn cards_short(ui: &egui::Ui, titles: &[(egui::Rect, &str)]) -> bool {
     titles.iter().any(|&(rect, caption)| {
-        let caption_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(caption.into(), theme::semibold(13.0), Color32::WHITE)
-                .size()
-                .x
-        });
         // Beside the "?" and the gap to it, as `card_title` lays them.
-        let room = rect.width() - 16.0 - 4.0;
-        steady_views::short_name(caption).is_some() && caption_w > room
+        let room = rect.width() - theme::help_size() - title_gap();
+        steady_views::short_name(caption).is_some() && caption_width(ui, caption) > room
     })
 }
 
@@ -382,8 +392,8 @@ impl TimegrapherApp {
             short: cards_short(
                 ui,
                 &[
-                    (cards[3].title, "Amplitude"),
-                    (cards[4].title, "Beat Error"),
+                    (cards[3].title, steady::title(SeriesKind::Amplitude)),
+                    (cards[4].title, steady::title(SeriesKind::BeatError)),
                 ],
             ),
         };
@@ -598,11 +608,16 @@ impl TimegrapherApp {
         let beats = c.beats;
         let whole = c.whole;
         let compact = c.compact;
-        let facts = reading_limits("Amplitude", caveats, lift_now, beats);
+        let facts = reading_limits(
+            steady::title(SeriesKind::Amplitude),
+            caveats,
+            lift_now,
+            beats,
+        );
         card_title(
             ui,
             rows.title,
-            "Amplitude",
+            steady::title(SeriesKind::Amplitude),
             help::AMPLITUDE,
             &facts,
             (None, c.short),
@@ -664,9 +679,14 @@ impl TimegrapherApp {
         card_title(
             ui,
             rows.title,
-            "Beat Error",
+            steady::title(SeriesKind::BeatError),
             help::BEAT_ERROR,
-            &reading_limits("Beat Error", caveats, lift_now, beats),
+            &reading_limits(
+                steady::title(SeriesKind::BeatError),
+                caveats,
+                lift_now,
+                beats,
+            ),
             (None, c.short),
         );
         let be_pm = be_pm.filter(|_| unlock.is_some());
