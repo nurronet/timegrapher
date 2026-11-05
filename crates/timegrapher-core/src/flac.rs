@@ -56,6 +56,10 @@ pub fn encode<W: Write + Seek>(
     let cfg = flacenc::config::Encoder::default()
         .into_verified()
         .map_err(|(_, e)| failed(e))?;
+    let mut plain = flacenc::config::Encoder::default();
+    plain.subframe_coding.use_fixed = false;
+    plain.subframe_coding.use_lpc = false;
+    let plain = plain.into_verified().map_err(|(_, e)| failed(e))?;
     let block = cfg.block_size;
     let mut stream = Stream::new(format.sample_rate as usize, ch, bps).map_err(failed)?;
     let start = out.stream_position().map_err(AudioError::Io)?;
@@ -77,8 +81,16 @@ pub fn encode<W: Write + Seek>(
         }
         fill.fill_interleaved(&buf).map_err(failed)?;
         let n = fill.1.current_frame_number().unwrap_or(0);
-        let frame = flacenc::encode_fixed_size_frame(&cfg, &fill.0, n, stream.stream_info())
+        let mut frame = flacenc::encode_fixed_size_frame(&cfg, &fill.0, n, stream.stream_info())
             .map_err(failed)?;
+        // flacenc can code a block of loud 24-bit sound in vastly more
+        // than its plain samples (a 4096-sample block in up to a GB): still
+        // lossless, so it checks, but a 12 minute take came out 40 GB. A
+        // block that comes out bigger than plain is coded plain.
+        if frame.count_bits() as u64 > plain_bits(buf.len() as u64, bps as u64, 1) {
+            frame = flacenc::encode_fixed_size_frame(&plain, &fill.0, n, stream.stream_info())
+                .map_err(failed)?;
+        }
         stream.stream_info_mut().update_frame_info(&frame);
         let mut sink = flacenc::bitsink::ByteSink::new();
         frame.write(&mut sink).map_err(failed)?;
@@ -100,6 +112,13 @@ pub fn encode<W: Write + Seek>(
     out.write_all(&header(&stream)?).map_err(AudioError::Io)?;
     out.seek(SeekFrom::Start(end)).map_err(AudioError::Io)?;
     Ok(frames)
+}
+
+/// The most bits a stream's blocks may take: `samples` samples (all
+/// channels) of `bps` bits written plain, in `blocks` blocks, with room
+/// for each block's frame header, subframe headers and checksums.
+fn plain_bits(samples: u64, bps: u64, blocks: u64) -> u64 {
+    samples * bps + blocks * 8 * (16 + 8 + 2)
 }
 
 /// The FLAC file `wav` becomes: the same name with `.flac`.
@@ -145,36 +164,159 @@ pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
         channels: spec.channels,
         bits_per_sample: spec.bits_per_sample,
     };
-    let part = flac.with_extension("flac.part");
-    let written = (|| {
-        let mut out = std::io::BufWriter::new(File::create(&part).map_err(AudioError::Io)?);
-        let mut samples = reader.samples::<i32>();
-        let frames = encode(format, &mut out, |buf, most| {
+    let mut samples = reader.samples::<i32>();
+    // The FLAC keeps the WAV's time: when the sound was written, which
+    // readers check the order of a take's hours by.
+    let written = wav.metadata().and_then(|m| m.modified()).ok();
+    write_checked(
+        format,
+        flac,
+        written,
+        |buf, most| {
             for s in samples.by_ref().take(most) {
                 buf.push(s.map_err(AudioError::Wav)?);
             }
             Ok(())
-        })?;
+        },
+        |part| same_samples_file(wav, part),
+    )
+}
+
+/// Write the FLAC `flac` from the samples `next` hands over ([`encode`])
+/// under a temporary name, dated `written`, synced, and give it its own
+/// name only once `same` says it holds the samples it should: a FLAC at
+/// `flac` is always a whole, checked one, and one already there is
+/// replaced in one step. Returns the frames written.
+fn write_checked(
+    format: Format,
+    flac: &Path,
+    written: Option<std::time::SystemTime>,
+    next: impl FnMut(&mut Vec<i32>, usize) -> Result<(), AudioError>,
+    same: impl FnOnce(&Path) -> Result<bool, AudioError>,
+) -> Result<u64, AudioError> {
+    let part = flac.with_extension("flac.part");
+    let done = (|| {
+        let mut out = std::io::BufWriter::new(File::create(&part).map_err(AudioError::Io)?);
+        let frames = encode(format, &mut out, next)?;
         let out = out
             .into_inner()
             .map_err(|e| AudioError::Io(e.into_error()))?;
-        // The FLAC keeps the WAV's time: when the sound was written, which
-        // readers check the order of a take's hours by.
-        if let Ok(written) = wav.metadata().and_then(|m| m.modified()) {
-            out.set_modified(written).map_err(AudioError::Io)?;
+        if let Some(t) = written {
+            out.set_modified(t).map_err(AudioError::Io)?;
         }
         out.sync_all().map_err(AudioError::Io)?;
-        if !same_samples_file(wav, &part)? {
-            return Err(failed("the FLAC does not decode to the WAV's samples"));
+        if !same(&part)? {
+            return Err(failed(
+                "the FLAC does not decode to the samples it was given",
+            ));
         }
         std::fs::rename(&part, flac).map_err(AudioError::Io)?;
         sync_folder(flac)?;
         Ok(frames)
     })();
-    if written.is_err() {
+    if done.is_err() {
         std::fs::remove_file(&part).ok();
     }
-    written
+    done
+}
+
+/// The format, largest block and length in frames a FLAC file's stream
+/// info names, read from its first 42 bytes; None when they are not a
+/// FLAC's.
+fn stream_info(flac: &Path) -> Option<(Format, u64, u64)> {
+    use std::io::Read;
+    let mut b = [0u8; 42];
+    File::open(flac).ok()?.read_exact(&mut b).ok()?;
+    // "fLaC", then the first block's header: type 0 (stream info), 34 long.
+    if &b[..4] != b"fLaC" || b[4] & 0x7f != 0 || b[5..8] != [0, 0, 34] {
+        return None;
+    }
+    // From byte 18: 20 bits of sample rate, 3 of channels less one, 5 of
+    // bits per sample less one, 36 of frames.
+    let x = u64::from_be_bytes(b[18..26].try_into().ok()?);
+    let format = Format {
+        sample_rate: (x >> 44) as u32,
+        channels: ((x >> 41) & 0x7) as u16 + 1,
+        bits_per_sample: ((x >> 36) & 0x1f) as u16 + 1,
+    };
+    let block = u64::from(u16::from_be_bytes([b[10], b[11]]));
+    Some((format, block, x & 0xf_ffff_ffff))
+}
+
+/// Whether the FLAC `flac` is bigger than its samples would be written
+/// plain, as flacenc wrote some blocks of loud 24-bit sound before
+/// [`encode`] checked each block's size (a 12:53 take kept in 40 GB).
+/// [`shrink`] writes such a one again. Never one whose stream info does
+/// not give its length or block size (0, "unknown").
+pub fn bloated(flac: &Path) -> bool {
+    let Some((f, block, frames)) = stream_info(flac) else {
+        return false;
+    };
+    let Ok(size) = std::fs::metadata(flac).map(|m| m.len()) else {
+        return false;
+    };
+    if frames == 0 || block == 0 {
+        return false;
+    }
+    let samples = frames * u64::from(f.channels);
+    let bits = plain_bits(
+        samples,
+        u64::from(f.bits_per_sample),
+        frames.div_ceil(block),
+    );
+    size > 42 + bits.div_ceil(8) + 64 * 1024
+}
+
+/// Write the FLAC `flac` again from its own samples, a block at a time,
+/// and put the new one in its place only once it decodes to exactly the
+/// old one's samples: the old one is whole until then. It keeps its
+/// time. For a [`bloated`] FLAC, which this makes no bigger than its
+/// samples written plain. Returns the frames written.
+pub fn shrink(flac: &Path) -> Result<u64, AudioError> {
+    let mut old = claxon::FlacReader::open(flac).map_err(AudioError::Flac)?;
+    let i = old.streaminfo();
+    let format = Format {
+        sample_rate: i.sample_rate,
+        channels: i.channels as u16,
+        bits_per_sample: i.bits_per_sample as u16,
+    };
+    let written = std::fs::metadata(flac).and_then(|m| m.modified()).ok();
+    let mut samples = old.samples();
+    write_checked(
+        format,
+        flac,
+        written,
+        |buf, most| {
+            for s in samples.by_ref().take(most) {
+                buf.push(s.map_err(AudioError::Flac)?);
+            }
+            Ok(())
+        },
+        |part| same_flac_samples(flac, part),
+    )
+}
+
+/// Whether the FLACs `a` and `b` hold the same samples in the same format.
+fn same_flac_samples(a: &Path, b: &Path) -> Result<bool, AudioError> {
+    let mut a = claxon::FlacReader::open(a).map_err(AudioError::Flac)?;
+    let mut b = claxon::FlacReader::open(b).map_err(AudioError::Flac)?;
+    let (x, y) = (a.streaminfo(), b.streaminfo());
+    if (x.sample_rate, x.channels, x.bits_per_sample)
+        != (y.sample_rate, y.channels, y.bits_per_sample)
+    {
+        return Ok(false);
+    }
+    let mut back = b.samples();
+    for s in a.samples() {
+        let s = s.map_err(AudioError::Flac)?;
+        let Some(v) = back.next() else {
+            return Ok(false);
+        };
+        if v.map_err(AudioError::Flac)? != s {
+            return Ok(false);
+        }
+    }
+    Ok(back.next().is_none())
 }
 
 /// Make the names in the folder holding `file` last: once this returns,
@@ -247,6 +389,19 @@ pub fn same_samples_file(wav: &File, flac: &Path) -> Result<bool, AudioError> {
     Ok(back.next().is_none())
 }
 
+/// A FLAC at `path` as flacenc writes it unchecked, bloated: 16 blocks
+/// of a loud 24-bit mono sine at 48 kHz, in over twice their plain size.
+/// Returns its samples.
+#[cfg(test)]
+pub(crate) fn write_bloated(path: &Path) -> Vec<i32> {
+    let (hi, lo) = ((1i32 << 23) - 1, -(1i32 << 23));
+    let samples: Vec<i32> = (0..16 * 4096)
+        .map(|i| ((i as f64 * 0.3).sin() * 1e7).clamp(f64::from(lo), f64::from(hi)) as i32)
+        .collect();
+    std::fs::write(path, tests::whole_stream(&samples, 1, 24)).unwrap();
+    samples
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,7 +438,7 @@ mod tests {
 
     /// The bytes flacenc writes for `samples` encoding them whole, with
     /// the block sizes a fixed-block stream names.
-    fn whole_stream(samples: &[i32], channels: u16, bits: u16) -> Vec<u8> {
+    pub(super) fn whole_stream(samples: &[i32], channels: u16, bits: u16) -> Vec<u8> {
         let cfg = flacenc::config::Encoder::default().into_verified().unwrap();
         let src = flacenc::source::MemSource::from_samples(
             samples,
@@ -412,6 +567,99 @@ mod tests {
             .unwrap();
         let f = keep_as_flac(&w).unwrap();
         assert_eq!(std::fs::metadata(&f).unwrap().modified().unwrap(), then);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Loud 24-bit sound that flacenc codes in far more than its plain
+    /// samples (a 12:53 take came out 40 GB; flacenc's Rice size estimate
+    /// wraps for big residuals): a full-scale square wave of 34 samples,
+    /// one 4096-sample block of which flacenc alone writes in about a GB,
+    /// a clipped sine, and uniform noise of ±2^22. Every block comes out
+    /// no bigger than plain, so the FLAC is no bigger than its samples
+    /// plain with the stream's and each block's headers (about its WAV's
+    /// size at worst), and it holds the same samples.
+    #[test]
+    fn loud_24_bit_sound_is_never_kept_bigger_than_plain() {
+        let dir = scratch("loud");
+        let w = dir.join("audio-001.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48000,
+            bits_per_sample: 24,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let (hi, lo) = ((1i32 << 23) - 1, -(1i32 << 23));
+        let mut out = hound::WavWriter::create(&w, spec).unwrap();
+        for i in 0..4096 {
+            out.write_sample(if (i / 17) % 2 == 0 { hi } else { lo })
+                .unwrap();
+        }
+        for i in 0..4096 {
+            let a = (i as f64 * 0.3).sin() * 3e7;
+            out.write_sample(a.clamp(f64::from(lo), f64::from(hi)) as i32)
+                .unwrap();
+        }
+        let mut x: u64 = 88_172_645_463_325_252;
+        for _ in 0..4096 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            out.write_sample((x % (1 << 23)) as i32 - (1 << 22))
+                .unwrap();
+        }
+        out.finalize().unwrap();
+        let f = dir.join("audio-001.flac");
+        assert_eq!(encode_wav(&w, &f).unwrap(), 3 * 4096);
+        let size = |p: &Path| std::fs::metadata(p).unwrap().len();
+        let most = 42 + 3 * (4096 * 3 + 16 + 8 + 2);
+        assert!(size(&f) <= most, "{} > {most}", size(&f));
+        assert!(same_samples(&w, &f).unwrap());
+        assert!(!bloated(&f));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A FLAC flacenc wrote bloated, as it was kept before blocks were
+    /// checked: [`bloated`] finds it, and [`shrink`] writes it again no
+    /// bigger than plain, with the same samples and time.
+    #[test]
+    fn a_bloated_flac_is_written_again_with_the_same_samples() {
+        let dir = scratch("shrink");
+        let f = dir.join("audio-001.flac");
+        let samples = write_bloated(&f);
+        let then =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_761_600_000);
+        File::options()
+            .write(true)
+            .open(&f)
+            .unwrap()
+            .set_modified(then)
+            .unwrap();
+        let size = || std::fs::metadata(&f).unwrap().len();
+        let plain = samples.len() as u64 * 3;
+        assert!(size() > 2 * plain, "not bloated: {} bytes", size());
+        assert!(bloated(&f));
+        assert_eq!(shrink(&f).unwrap(), samples.len() as u64);
+        // Plain, with the stream's and each block's headers.
+        let most = plain + 42 + 16 * (16 + 8 + 2);
+        assert!(size() <= most, "{} > {most}", size());
+        assert!(!bloated(&f));
+        let back: Vec<i32> = claxon::FlacReader::open(&f)
+            .unwrap()
+            .samples()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(back, samples);
+        assert_eq!(std::fs::metadata(&f).unwrap().modified().unwrap(), then);
+        assert!(!dir.join("audio-001.flac.part").exists());
+        // A stream whose info leaves its length unknown (0) is never
+        // taken for bloated, however big.
+        let mut bytes = std::fs::read(&f).unwrap();
+        bytes[21] &= 0xf0;
+        bytes[22..26].fill(0);
+        bytes.resize(bytes.len() + 128 * 1024, 0);
+        std::fs::write(&f, bytes).unwrap();
+        assert_eq!(stream_info(&f).unwrap().2, 0);
+        assert!(!bloated(&f));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

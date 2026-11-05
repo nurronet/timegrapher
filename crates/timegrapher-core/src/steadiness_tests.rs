@@ -1694,3 +1694,39 @@ fn a_window_goes_in_the_cell_its_middle_lies_in() {
     assert!(g.y[2].is_nan(), "{:?}", g.y);
     assert_eq!(g.y[3], 270.0);
 }
+
+/// The readings [`reading_grids`] gives the app's Distributions
+/// pane are the ones `check` counts as "readings" (#1144): each of the
+/// three counts the same values to the same figures.
+#[test]
+fn reading_grids_are_the_readings_check_counts() {
+    let s = crate::scenarios::find("rub").unwrap();
+    let log = crate::scenarios::beat_log(&s, 1);
+    let lc = crate::longterm::LongConfig {
+        wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+        ..Default::default()
+    };
+    let cfg = Config::default();
+    let long = crate::longrun::analyse(&log, None, &lc);
+    let r = check(&log, None, &long, &lc, &cfg);
+    let (grids, selected) =
+        reading_grids(&log, long.clock.as_ref(), &long.breaks, cfg.rate_reading_s);
+    use crate::distribution::{AMPLITUDE, BEAT_ERROR, RATE};
+    for (kind, g) in [RATE, AMPLITUDE, BEAT_ERROR].into_iter().zip(&grids) {
+        let values: Vec<f64> = g.y.iter().copied().filter(|v| v.is_finite()).collect();
+        assert!(values.len() > 100, "{}: {}", kind.series, values.len());
+        let ours = crate::distribution::distribution(&values, kind, "readings", g.step);
+        let theirs = r
+            .distributions
+            .overall
+            .iter()
+            .find(|d| d.series == kind.series && d.values == "readings");
+        assert_eq!(ours.as_ref(), theirs, "{}", kind.series);
+    }
+    let be = r
+        .series
+        .iter()
+        .find(|c| c.series == SeriesKind::BeatError)
+        .unwrap();
+    assert_eq!(selected.beat_error_source, be.beat_error_source);
+}

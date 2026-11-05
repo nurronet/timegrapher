@@ -130,7 +130,7 @@
      "defaults": 0
     },
     "crates/timegrapher-app/src/isochronism.rs": {
-     "bounds": 4,
+     "bounds": 3,
      "comparisons": 0,
      "constants": 0,
      "defaults": 0
@@ -203,7 +203,7 @@
     },
     "crates/timegrapher-app/src/steady.rs": {
      "bounds": 8,
-     "comparisons": 9,
+     "comparisons": 8,
      "constants": 2,
      "defaults": 0
     },
@@ -233,8 +233,8 @@
     }
    },
    "total": {
-    "bounds": 105,
-    "comparisons": 109,
+    "bounds": 104,
+    "comparisons": 108,
     "constants": 59,
     "defaults": 2
    }

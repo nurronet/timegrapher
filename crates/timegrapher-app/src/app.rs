@@ -21,6 +21,7 @@ use crate::steady::{self, Steadiness};
 use crate::strip::{self, Anchor, StripInput, StripView};
 use crate::theme::{self, DialogButton, Icon, Role};
 use crate::watches;
+use distributions::{DistKey, DistReadings};
 use eframe::egui::{self, Color32, RichText, Vec2};
 use egui_plot::{GridMark, Line, LineStyle, Plot, Points};
 use egui_tiles::{Linear, LinearDir, SimplificationOptions, TileId, Tiles, Tree, UiResponse};
@@ -2137,18 +2138,22 @@ pub struct TimegrapherApp {
     iso_view: isochronism::View,
     /// The rate over each 2 seconds of beats, for the rate's distribution.
     rate_2s: RateTwoS,
+    /// Core's readings the Distributions pane counts (#1144), what they were
+    /// read for and up to, and the run in the background that replaces them.
+    dist_readings: Option<(DistKey, f64, DistReadings)>,
+    dist_job: Option<(DistKey, f64, std::sync::mpsc::Receiver<DistReadings>)>,
     /// The series each Steadiness pane shows: rate, amplitude, beat error.
     steady_series: std::collections::BTreeMap<steady::View, [bool; 3]>,
     /// The Periods pane's scores in dB.
     periods_db: bool,
     /// The FFT pane's rate as the beat timing's spectrum, in ms.
     fft_timing: bool,
-    /// The STFT and Wavelet Map panes' colours in dB.
-    maps_db: bool,
-    /// The calibre's wheels marked on the period axes.
-    show_wheels: bool,
-    /// The Steadiness panes' Info panel open, in every view alike.
-    steady_info: bool,
+    /// Each STFT and Wavelet Map pane's colours in dB.
+    maps_db: steady::PerPane,
+    /// The calibre's wheels marked on each pane's period axes.
+    show_wheels: steady::PerPane,
+    /// Each Steadiness pane's Info panel open.
+    steady_info: steady::PerPane,
     scope_view: scope::View,
     /// Sound read from the recording for the Scope once stopped: the
     /// stretch asked for (seconds) and what was read of it.
@@ -2352,9 +2357,12 @@ impl TimegrapherApp {
             steady_shown: self.steady_series.iter().map(|(v, s)| (*v, *s)).collect(),
             periods_db: self.periods_db,
             fft_timing: self.fft_timing,
-            maps_db: self.maps_db,
-            show_wheels: self.show_wheels,
-            steady_info: self.steady_info,
+            maps_db: self.maps_db.unset,
+            maps_db_set: self.maps_db.saved(),
+            show_wheels: self.show_wheels.unset,
+            show_wheels_set: self.show_wheels.saved(),
+            steady_info: self.steady_info.unset,
+            steady_info_set: self.steady_info.saved(),
             positions_settle_s: self.guided_settle_s,
             positions_measure_s: self.guided_measure_s,
             scope: self.scope_view,
@@ -2405,8 +2413,11 @@ impl TimegrapherApp {
             periods_db,
             fft_timing,
             maps_db,
+            maps_db_set,
             show_wheels,
+            show_wheels_set,
             steady_info,
+            steady_info_set,
             positions_settle_s,
             positions_measure_s,
             scope,
@@ -2471,9 +2482,9 @@ impl TimegrapherApp {
         self.theme = theme;
         self.periods_db = periods_db;
         self.fft_timing = fft_timing;
-        self.maps_db = maps_db;
-        self.show_wheels = show_wheels;
-        self.steady_info = steady_info;
+        self.maps_db = steady::PerPane::new(maps_db_set, maps_db);
+        self.show_wheels = steady::PerPane::new(show_wheels_set, show_wheels);
+        self.steady_info = steady::PerPane::new(steady_info_set, steady_info);
         self.set_positions_times(positions_settle_s, positions_measure_s);
         self.steady_series = steady_series_from(steady_shown, steady_series);
         self.scope_view = scope;
@@ -2646,9 +2657,9 @@ impl TimegrapherApp {
             steady_series: Default::default(),
             periods_db: false,
             fft_timing: false,
-            maps_db: false,
-            show_wheels: true,
-            steady_info: false,
+            maps_db: steady::PerPane::new(Vec::new(), false),
+            show_wheels: steady::PerPane::new(Vec::new(), true),
+            steady_info: steady::PerPane::new(Vec::new(), false),
             scope_view: scope::View::default(),
             scope_audio: None,
             scope_traces: std::collections::VecDeque::new(),
@@ -2659,6 +2670,8 @@ impl TimegrapherApp {
             hist_readings: true,
             iso_view: Default::default(),
             rate_2s: RateTwoS::default(),
+            dist_readings: None,
+            dist_job: None,
             cursor_t: None,
             cursor_next: None,
             folded: Default::default(),
@@ -3047,7 +3060,8 @@ impl TimegrapherApp {
             }),
             Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
-                let mut info = self.steady_info;
+                let view = p.steady_view().unwrap_or_default();
+                let mut info = self.steady_info.on(view);
                 let mut pin = |ui: &mut egui::Ui| {
                     let accent = theme::pal(ui).accent;
                     if theme::icon_toggle(ui, Icon::Info, info, accent)
@@ -3061,7 +3075,7 @@ impl TimegrapherApp {
                     self.steady_settings(ui, p);
                     self.export_button(ui, p);
                 });
-                self.steady_info = info;
+                self.steady_info.set(view, info);
             }
             Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
                 isochronism::view_choice(ui, &mut self.iso_view);

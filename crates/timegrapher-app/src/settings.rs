@@ -53,14 +53,21 @@ pub struct Settings {
     pub periods_db: bool,
     /// The FFT pane's rate as the beat timing's spectrum, in ms.
     pub fft_timing: bool,
-    /// The STFT and Wavelet Map panes' colours in dB.
+    /// The STFT and Wavelet Map panes' colours in dB, for a pane not
+    /// switched yet: before each pane kept its own, the one choice.
     #[serde(alias = "maps_log")]
     pub maps_db: bool,
+    /// Each map pane's own dB Scale.
+    pub maps_db_set: Vec<(steady::View, bool)>,
     /// The calibre's wheels marked on the Periods, FFT, STFT Map and
-    /// Wavelet Map panes' period axes.
+    /// Wavelet Map panes' period axes, for a pane not switched yet.
     pub show_wheels: bool,
-    /// The Steadiness panes' Info panel open: one setting for all of them.
+    /// Each of those panes' own Wheel Periods.
+    pub show_wheels_set: Vec<(steady::View, bool)>,
+    /// The Steadiness panes' Info panel open, for a pane not switched yet.
     pub steady_info: bool,
+    /// Each Steadiness pane's own Info panel.
+    pub steady_info_set: Vec<(steady::View, bool)>,
     /// The Positions Test's settling and measuring in each position,
     /// seconds.
     pub positions_settle_s: f64,
@@ -156,8 +163,11 @@ impl Default for Settings {
             periods_db: false,
             fft_timing: false,
             maps_db: false,
+            maps_db_set: Vec::new(),
             show_wheels: true,
+            show_wheels_set: Vec::new(),
             steady_info: false,
+            steady_info_set: Vec::new(),
             positions_settle_s: crate::guided::SETTLE_S,
             positions_measure_s: crate::guided::MEASURE_S,
             scope: scope::View::default(),

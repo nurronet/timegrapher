@@ -449,6 +449,7 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
     use timegrapher_core::distribution as dist;
     let dir = root.join("takes").join(id);
     let mut app = opened(&dir);
+    app.update_dist_readings(None);
     let series = series_json(cli, &dir);
     let mut out = Vec::new();
     let theirs = series["distributions"]["overall"]
@@ -506,26 +507,54 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// held to that only where a surface reads a run: a pull request's corpus
 /// cut is too short for one.
 const PANES_KNOWN: &[(&str, &str)] = &[
+    ("reverso21600_DU_2h rate readings", ENTRY_CUTS),
+    ("reverso21600_DU_2h amplitude readings", ENTRY_CUTS),
+    ("reverso21600_DU_2h beat_error readings", ENTRY_CUTS),
+    ("reverso21600_DU_level_overnight rate readings", ENTRY_CUTS),
     (
-        "* rate readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
+        "reverso21600_DU_level_overnight amplitude readings",
+        ENTRY_CUTS,
     ),
     (
-        "* amplitude readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
+        "reverso21600_DU_level_overnight beat_error readings",
+        ENTRY_CUTS,
     ),
-    (
-        "* beat_error readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
-    ),
+    ("ym42_CD_90min rate readings", ENTRY_CUTS),
+    ("ym42_CD_90min amplitude readings", ENTRY_CUTS),
+    ("ym42_CD_90min beat_error readings", ENTRY_CUTS),
+    ("ym42_CL_90min rate readings", ENTRY_CUTS),
+    ("ym42_CL_90min amplitude readings", ENTRY_CUTS),
+    ("ym42_CL_90min beat_error readings", ENTRY_CUTS),
+    ("ym42_CR_long rate readings", ENTRY_CUTS),
+    ("ym42_CR_long amplitude readings", ENTRY_CUTS),
+    ("ym42_CR_long beat_error readings", ENTRY_CUTS),
+    ("ym42_CU_8h rate readings", ENTRY_CUTS),
+    ("ym42_CU_8h amplitude readings", ENTRY_CUTS),
+    ("ym42_CU_8h beat_error readings", ENTRY_CUTS),
+    ("ym42_DD_30min rate readings", ENTRY_CUTS),
+    ("ym42_DD_30min amplitude readings", ENTRY_CUTS),
+    ("ym42_DD_30min beat_error readings", ENTRY_CUTS),
+    ("ym42_DU_2h rate readings", ENTRY_CUTS),
+    ("ym42_DU_2h amplitude readings", ENTRY_CUTS),
+    ("ym42_DU_2h beat_error readings", ENTRY_CUTS),
+    // The app cuts each of its 96 ten-minute files, so each hour reads less
+    // and carries a breaks caveat; session reads one run (#1159).
+    ("reverso21600_DU_level_overnight power reserve", ENTRY_CUTS),
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
 
-/// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
-/// entries with their own `measure_s` and `settle_s`.
-const MEASURE: &str = "#1156: series reads a take whose entries give their own \
-                       measure_s or a later file's settle_s whole, not session's windows";
+/// #1166, in [`PANES_KNOWN`]: a take whose entries carry one position on
+/// across its files is cut at each entry in the app, read as one run by
+/// series, so its readings tile differently.
+const ENTRY_CUTS: &str = "#1166: the app cuts a take at each entry that carries on one \
+                          position, where series reads it as one run";
+
+/// #1156, in [`PANES_KNOWN`]: ym42_CR_long's third file has two entries
+/// with their own `measure_s` and `settle_s`. Since #294 step 3 `series`
+/// reads session's windows of them; the app still reads its own cuts.
+const MEASURE: &str = "#1156: the app reads its own cuts of a take whose entries give their \
+                       own measure_s or a later file's settle_s, not session's windows";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {

@@ -344,6 +344,20 @@ all at once, which is how a watchmaker looks back through a take.
 Dropping a file or folder on the window opens it too where the desktop
 passes drops to the app (Windows, macOS and X11; not Wayland).
 
+The beats found in a take's sound are kept in the system's cache folder
+(`~/.cache/timegrapher/beats` on Linux, `~/Library/Caches/timegrapher/beats`
+on macOS, `%LOCALAPPDATA%\timegrapher\beats` on Windows), so the take
+opens again in seconds rather than minutes. A copy is only read back
+for the same sound files (each one's name, length, modified time and
+start), the same analysis settings and the same build of the engine, and
+then it is exact to the bit; anything else reads the sound again. A take
+whose files changed in the last two minutes, which may still be
+recording, gets no copy. The folder is held to 2 GB, the copies used
+longest ago going first, and deleting it only makes the next open slow.
+Starting the app with `TIMEGRAPHER_NO_BEAT_CACHE=1` set reads every take
+from its sound. Opening without a window, the command line and the MCP
+server always read the sound.
+
 When viewing a recording analysed as a whole, known jumps in its beat log also
 bound each reading. Saved position and settling boundaries add to those cuts;
 they do not replace them. Earlier and later pieces remain available to inspect.
@@ -924,16 +938,16 @@ measurements of the same averaged sound, not single beats, so they sit
 near but not exactly on each other. A sound is missing when it can't be
 told apart from its neighbour (a soft unlock merged into the impulse,
 say). Each plot carries its side's facts in its top-left corner, over
-the quiet lead-in before the unlock: Beats, Unlock, Drop, Unlock to Drop
-and Amplitude, a row each, the values with their units. The box is the
+the quiet lead-in before the unlock: Beats, Unlock, Drop and Unlock to
+Drop, a row each, the values with their units. The amplitude isn't
+there: the Amplitude card reads the same moment, with its ±. The box is the
 same on both plots, so Tick and Tock compare row against row, and it
 sits under the band and the line, so a spike that runs into it still
-shows. On a plot under 100 points tall it keeps Unlock to Drop and
-Amplitude (fewer if even those don't fit), and hovering it gives all
-five. There the box takes the top right corner where the trace runs
-under the left and not the right; where the trace runs under both
-corners it keeps fewer rows, Amplitude last, and none where even one
-would sit on the trace, so the picture comes first. A plot that would be under 100 points with its names outside
+shows. On a plot under 100 points tall it keeps Unlock to Drop alone,
+and hovering it gives all four. There the box takes the top right
+corner where the trace runs under the left and not the right; where the
+trace runs under both corners it keeps fewer rows, Unlock to Drop last,
+and none where even one would sit on the trace, so the picture comes first. A plot that would be under 100 points with its names outside
 takes them in: the edges' names sit along its top on the plot's
 background, one row, under the trace (Unlock starts right of its line
 where the facts box has the corner, and a name that would crowd the one
@@ -1261,7 +1275,7 @@ they start as hidden tabs beside the Tick Tock Profile. Above the plots
 is the toolbar and nothing else: each plot has its series' title, and the
 plots take the rest of the pane. **Info**, an "i" in a circle fixed at the
 right of the toolbar just left of the **?**, opens the Info panel down the
-right of the pane (300 pt, or a third of the pane if less; over the plots,
+right of that pane alone (300 pt, or a third of the pane if less; over the plots,
 from the pane's top right corner, in a pane under 600 pt wide): what the
 view shows, then for each series shown, under its coloured title, the
 sentence `series` writes, saying what was detected (a cycle, two levels, a
@@ -1350,8 +1364,8 @@ wheels' lines are grey and dotted, and named, so they never
 read as the grid or a reading. With no calibre picked, or none of its
 wheels known, one minute and one hour are marked in grey instead, periods
 alone named after no wheel. **Wheel Periods**, in the toolbars of
-Periods, FFT, STFT Map and Wavelet Map, shows or hides these marks; it
-starts on. A marked point (the period found, the lag the readings repeat
+Periods, FFT, STFT Map and Wavelet Map, shows or hides these marks in
+that pane only; it starts on. Each map's **dB Scale** is its own too. A marked point (the period found, the lag the readings repeat
 at, the tallest peak) keeps its dot on the trace, and its note sits in
 the nearest clear space the trace doesn't cross, above right first, on a
 plate with a thin leader to the dot; it keeps its place until the trace
@@ -1583,8 +1597,8 @@ folder can't be moved while another copy has it open. The Watches view adds watc
     type into, lists every calibre matching a name, another name or the
     maker (the first 200, with how many more). Empty, the menu offers Not
     Set, then **Recent**, the **Short List** by maker and **Custom** (your
-    own calibres). The list scrolls between the search field and
-    **Manage Calibres…**, which stays at the menu's foot and opens
+    own calibres). The list keeps one height while you search, and
+    scrolls between the search field and **Manage Calibres…**, which stays at the menu's foot and opens
     Settings at Calibres, and as a button under it. Recent is the 6
     calibres the app was last set to, by a pick in the menu, a watch or
     take opened, or a take saved: the latest first, none twice, never

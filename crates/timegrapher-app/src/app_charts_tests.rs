@@ -1,7 +1,7 @@
 //! The Charts and Distributions panes, headless: what each plots and
 //! where its values come from.
 
-use super::tests::{painted_text, synthetic, themed};
+use super::tests::{painted_text, synthetic, synthetic_varying, themed};
 use super::*;
 
 /// A trend reading's beat error as core reads one (`beat_error_signed`).
@@ -137,12 +137,12 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
 /// value along the bottom stays clear of the lowest share up the side.
 #[test]
 fn a_distributions_axis_labels_stay_apart() {
-    let mut app = synthetic(300.0, 12.0);
-    // Readings spread across a second a day, as a watch's are.
-    for (i, p) in app.trend.iter_mut().enumerate() {
-        p.rate_s_per_day = Some(-0.45 + 0.7 * ((i * 7) % 30) as f64 / 29.0);
-    }
+    // Readings spread across a second a day, as a watch's are: each 10 s
+    // reading's rate steps to another level.
+    let spread = |t: f64| -12.45 + 0.7 * (((t / 10.0) as usize * 7) % 30) as f64 / 29.0;
+    let mut app = synthetic_varying(300.0, 12.0, spread);
     app.hist_readings = true;
+    app.update_dist_readings(None);
     let ctx = themed();
     fn texts(shape: &egui::Shape, into: &mut Vec<(String, egui::Rect)>) {
         match shape {
