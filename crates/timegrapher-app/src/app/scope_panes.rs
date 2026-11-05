@@ -27,6 +27,31 @@ pub(super) struct ShownSound {
     pub(super) masked: bool,
 }
 
+/// One line in a sound pane's plot's place.
+fn not_shown(line: String, masked: bool) -> ShownSound {
+    ShownSound {
+        profiles: [None, None],
+        line: Some(line),
+        hover: None,
+        masked,
+    }
+}
+
+/// The moment `at` is masked out ([`SoundAt::Masked`]).
+fn masked_at(at: &str) -> ShownSound {
+    not_shown(format!("Masked at {at}"), true)
+}
+
+/// No beats were heard at `at` ([`SoundAt::NoBeats`]).
+fn no_beats_at(at: &str) -> ShownSound {
+    not_shown(format!("No beats at {at}"), false)
+}
+
+/// No sound was kept for `at` ([`SoundAt::NotKept`]).
+fn none_kept_at(at: &str) -> ShownSound {
+    not_shown(format!("No sound kept from {at}"), false)
+}
+
 /// One line in place of a sound pane's plot, as a pane too short for its
 /// plot says so.
 fn no_sound_line(ui: &mut egui::Ui, line: &str) {
@@ -182,12 +207,7 @@ impl TimegrapherApp {
             hover,
             masked: false,
         };
-        let line = |l: String| ShownSound {
-            profiles: [None, None],
-            line: Some(l),
-            hover: None,
-            masked: false,
-        };
+        let line = |l: String| not_shown(l, false);
         if self.running() && self.strip_end.is_none() {
             let p = self
                 .live
@@ -195,23 +215,20 @@ impl TimegrapherApp {
                 .map_or([None, None], |l| l.tick_profiles().clone());
             return shown(p, None);
         }
+        if let Some(kept) = &self.no_sound {
+            return self.kept_average(kept, end);
+        }
         let beats = self.live.as_ref().map_or(&[][..], |l| l.beats());
         let window = (end, self.average_s);
         match sound_at(&self.sound_history, window, &self.masked, beats, |k| {
             k.span_s
         }) {
-            SoundAt::Kept { at, coarse, sound } => {
+            SoundAt::Kept { coarse, sound, .. } => {
                 let mut hover = Vec::new();
-                if self.no_sound {
-                    hover.push(format!(
-                        "2 s at {} (this take kept no sound)",
-                        length_text(at)
-                    ));
-                }
                 if coarse {
                     hover.push("Shapes from then are kept once a minute".to_string());
                 }
-                if !self.no_sound && sound.span_s != self.sound_span() {
+                if sound.span_s != self.sound_span() {
                     hover.push(format!(
                         "Made over the {} s Average Over set then",
                         sound.span_s
@@ -220,11 +237,8 @@ impl TimegrapherApp {
                 let p = sound.sides.clone();
                 shown(p, (!hover.is_empty()).then(|| hover.join("\n")))
             }
-            SoundAt::Masked => ShownSound {
-                masked: true,
-                ..line(format!("Masked at {at}"))
-            },
-            SoundAt::NoBeats => line(format!("No beats at {at}")),
+            SoundAt::Masked => masked_at(&at),
+            SoundAt::NoBeats => no_beats_at(&at),
             SoundAt::NotKept => {
                 self.poll_sound_job();
                 let worked_out = match &self.sound_at {
@@ -241,9 +255,61 @@ impl TimegrapherApp {
                     // At the newest beats, before any sound is kept: the
                     // empty plots.
                     None if self.strip_end.is_none() => shown([None, None], None),
-                    None => line(format!("No sound kept from {at}")),
+                    None => none_kept_at(&at),
                 }
             }
+        }
+    }
+
+    /// For a take kept without its sound: the Tick Tock Profile over the
+    /// Average Over window ending at `end`, averaged from the 2 s profiles
+    /// it kept (`kept`; [`timegrapher_core::profile::profile_at`], #979),
+    /// with what it is made of for the hover; or the line in its place.
+    fn kept_average(
+        &self,
+        kept: &[timegrapher_core::analysis_take::StretchProfiles],
+        end: f64,
+    ) -> ShownSound {
+        use timegrapher_core::profile::{profile_at, ProfileAt};
+        let at = length_text(end);
+        let Some(live) = self.live.as_ref() else {
+            return no_beats_at(&at);
+        };
+        let osc_period_s = 2.0 * timegrapher_core::power_reserve::beat_s(live.bph());
+        let sides = match profile_at(
+            kept,
+            (end, self.average_s),
+            &self.masked,
+            self.take_breaks.as_deref().unwrap_or_default(),
+            live.beats(),
+            osc_period_s,
+            &live.config().analysis.amplitude,
+        ) {
+            ProfileAt::Averaged(sides) => *sides,
+            ProfileAt::Masked => return masked_at(&at),
+            ProfileAt::NoBeats => return no_beats_at(&at),
+            ProfileAt::NotKept => return none_kept_at(&at),
+        };
+        let mut hover: Vec<String> = ["Tick", "Tock"]
+            .iter()
+            .zip(&sides)
+            .map(|(name, s)| match s {
+                Some(s) => format!(
+                    "{name}: average of {} 2 s profiles, {} to {}",
+                    s.stretches,
+                    length_text(s.from_s),
+                    length_text(s.to_s)
+                ),
+                None => format!("{name}: none kept"),
+            })
+            .collect();
+        hover.push("Band: range of the 2 s bands".to_string());
+        hover.push("This take kept no sound".to_string());
+        ShownSound {
+            profiles: sides.map(|s| s.map(|s| s.profile)),
+            line: None,
+            hover: Some(hover.join("\n")),
+            masked: false,
         }
     }
 
@@ -259,7 +325,7 @@ impl TimegrapherApp {
             return no_sound_line(ui, line);
         }
         let profiles = shown.profiles;
-        let Some(live) = self.live.as_ref().filter(|_| !self.no_sound) else {
+        let Some(live) = self.live.as_ref().filter(|_| self.no_sound.is_none()) else {
             let words = if self.live.is_none() {
                 "Listen to a watch or open a recording to see its sound here."
             } else {
