@@ -11,7 +11,12 @@ const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join
 const palette = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/palette.rs"), "utf8");
 const VIRIDIS = JSON.parse(palette.match(/pub const VIRIDIS: \[\[u8; 3\]; 17\] = (\[[\s\S]*?\]);/)[1].replace(/,\s*\]$/, "]"));
 const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
-const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
+// A core string constant, written out or named after another one
+// (WALK_AMP_NAME is AMPLITUDE_SHORT, #1061).
+const coreStr = (name) => {
+  const m = viewsRs.match(new RegExp(`pub const ${name}: &str = (?:"([^"]*)"|([A-Z_]+));`));
+  return m[1] ?? coreStr(m[2]);
+};
 const WALK_WORDS = {
   title: coreStr("WALK_TITLE"), hint: coreStr("WALK_HINT"), since: coreStr("WALK_SINCE"), key_start: coreStr("WALK_KEY_START"),
   rate_name: coreStr("WALK_RATE_NAME"), rate_unit: coreStr("WALK_RATE_UNIT"),
