@@ -806,8 +806,10 @@ fn derived_join_transports_cuts_and_existing_sample_context() {
 #[test]
 fn derived_join_keeps_amplitude_sides_on_the_renumbered_beats() {
     use timegrapher_core::amplitude::AmplitudeWindow;
+    // A join never renames a side (#1146): stretches that start on a Tick
+    // or on a Tock keep every window's sides and signs as they were.
     for (start, second_start, expected_swaps) in
-        [(0.0, 40.0, [false, false]), (0.125, 40.125, [true, true])]
+        [(0.0, 40.0, [false, false]), (0.125, 40.125, [false, false])]
     {
         let end = start + 10.0;
         let mut log = context_log();
