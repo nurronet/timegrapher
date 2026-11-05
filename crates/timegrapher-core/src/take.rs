@@ -373,8 +373,12 @@ pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
         return false;
     };
     let position = |r: &RecordingEntry| r.position.as_deref().and_then(session::Position::parse);
+    // An entry for the take's whole folder is not a file the next one
+    // carries on from: the first file of the folder still settles.
+    let whole = |f: &str| matches!(f, "." | "./" | "");
     before.file != e.file
-        && e.file != "."
+        && !whole(&e.file)
+        && !whole(&before.file)
         && position(e).is_some()
         && position(before) == position(e)
         && e.start_s.is_none()
@@ -1808,6 +1812,26 @@ mod tests {
             (30.0, 0.0, 30.0, 30.0)
         );
         assert_eq!(given(6), 40.0);
+        // A take whose session file lists its whole folder first, then its
+        // first file (as dd3235_DU_30min does): that file still settles.
+        let m: Manifest = toml::from_str(
+            "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"001.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"002.flac\"\nposition = \"DU\"\n",
+        )
+        .unwrap();
+        let carries: Vec<bool> = m
+            .recordings
+            .iter()
+            .map(|e| continues_position(e, &m))
+            .collect();
+        assert_eq!(carries, [false, false, true]);
+        let from = |i: usize| {
+            reading_window(&m.recordings[i], &m, None, 600.0)
+                .unwrap()
+                .from_s
+        };
+        assert_eq!((from(1), from(2)), (SETTLE_S, 0.0));
     }
 
     /// A stretch that starts partway into its recording settles halfway

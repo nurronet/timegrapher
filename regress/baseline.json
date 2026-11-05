@@ -753,18 +753,18 @@
       },
       {
         "label": "take_part01-001.flac",
-        "rate_s_per_day": 0.8905812208716668,
-        "amplitude_deg": 282.06261989781456,
-        "beat_error_unlock_ms": 0.23389095227119672,
-        "beat_error_ms": 0.4877855542631358,
-        "beats": 4711,
+        "rate_s_per_day": 0.9240791550389815,
+        "amplitude_deg": 281.77587518273816,
+        "beat_error_unlock_ms": 0.23758285830792342,
+        "beat_error_ms": 0.4820378071796365,
+        "beats": 4551,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
             "arch": "x86_64",
-            "build_date": "2026-11-05",
+            "build_date": "2026-11-04",
             "git_dirty": false,
-            "git_hash": "8e83982",
+            "git_hash": "496e8ad",
             "name": "timegrapher",
             "os": "linux",
             "version": "0.4.2"
@@ -804,11 +804,7 @@
                 "take": "dd3235_DU_30min"
               },
               "path_relative_to_session": "take_part01-001.flac",
-              "verified_identity": {
-                "bytes": 35215321,
-                "sha256": "1d32f09437523ef6ed54a4bf2e188b7fa088bfcb9c6d7b765d8b5dee7fe42ace",
-                "timing": "verified_at_fetch_this_run"
-              }
+              "verified_identity": null
             }
           ],
           "settings": {
@@ -837,7 +833,7 @@
             "clock_input_sha256": null,
             "detected_bph": 28800,
             "measured_end_s": 600.0,
-            "measured_start_s": 0.0,
+            "measured_start_s": 20.0,
             "no_cycles": true,
             "no_shape": true,
             "resolved_lift_known": true,
@@ -1179,18 +1175,18 @@
       },
       {
         "label": "take_part01-001.flac",
-        "rate_s_per_day": 10.751937210942941,
-        "amplitude_deg": 288.7182497917383,
-        "beat_error_unlock_ms": 0.18683197653874856,
-        "beat_error_ms": 0.26780318041531215,
-        "beats": 4800,
+        "rate_s_per_day": 10.749757129055126,
+        "amplitude_deg": 288.88396084147746,
+        "beat_error_unlock_ms": 0.18684348147695382,
+        "beat_error_ms": 0.26683554705153345,
+        "beats": 4641,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
             "arch": "x86_64",
-            "build_date": "2026-11-05",
+            "build_date": "2026-10-29",
             "git_dirty": false,
-            "git_hash": "8e83982",
+            "git_hash": "ba13c6a",
             "name": "timegrapher",
             "os": "linux",
             "version": "0.4.2"
@@ -1222,19 +1218,9 @@
           "inputs": [
             {
               "bytes_observed_after_analysis": 37474569,
-              "declared_corpus_identity": {
-                "bytes": 37474569,
-                "name": "take_part01-001.flac",
-                "release": "eta2824_bare_DU_30min",
-                "sha256": "52be80b67c050b7aea71db6040af04a283b7a33f9a7b47a8a1a7a6bf2ebb8a32",
-                "take": "eta2824_bare_DU_30min"
-              },
+              "declared_corpus_identity": null,
               "path_relative_to_session": "take_part01-001.flac",
-              "verified_identity": {
-                "bytes": 37474569,
-                "sha256": "52be80b67c050b7aea71db6040af04a283b7a33f9a7b47a8a1a7a6bf2ebb8a32",
-                "timing": "verified_at_fetch_this_run"
-              }
+              "verified_identity": null
             }
           ],
           "settings": {
@@ -1263,7 +1249,7 @@
             "clock_input_sha256": null,
             "detected_bph": 28800,
             "measured_end_s": 600.0,
-            "measured_start_s": 0.0,
+            "measured_start_s": 20.0,
             "no_cycles": true,
             "no_shape": true,
             "resolved_lift_known": true,
@@ -1629,18 +1615,18 @@
       },
       {
         "label": "take_part01-001.flac",
-        "rate_s_per_day": 11.167446551270372,
-        "amplitude_deg": 310.1721471242805,
-        "beat_error_unlock_ms": -0.00020874728457948022,
-        "beat_error_ms": 0.1607465566884835,
-        "beats": 4779,
+        "rate_s_per_day": 11.143634944493641,
+        "amplitude_deg": 310.29212564980685,
+        "beat_error_unlock_ms": 0.002252686389581926,
+        "beat_error_ms": 0.15257857582730175,
+        "beats": 4620,
         "provenance": {
           "schema": "timegrapher.regress-entry-provenance/1",
           "software": {
             "arch": "x86_64",
-            "build_date": "2026-11-05",
+            "build_date": "2026-10-29",
             "git_dirty": false,
-            "git_hash": "8e83982",
+            "git_hash": "ba13c6a",
             "name": "timegrapher",
             "os": "linux",
             "version": "0.4.2"
@@ -1672,19 +1658,9 @@
           "inputs": [
             {
               "bytes_observed_after_analysis": 35670100,
-              "declared_corpus_identity": {
-                "bytes": 35670100,
-                "name": "take_part01-001.flac",
-                "release": "eta2824_holder_DU_30min",
-                "sha256": "85f3460187ed98654b9b95982d10f6946cd07fec91f3eebf4bff127747b86350",
-                "take": "eta2824_holder_DU_30min"
-              },
+              "declared_corpus_identity": null,
               "path_relative_to_session": "take_part01-001.flac",
-              "verified_identity": {
-                "bytes": 35670100,
-                "sha256": "85f3460187ed98654b9b95982d10f6946cd07fec91f3eebf4bff127747b86350",
-                "timing": "verified_at_fetch_this_run"
-              }
+              "verified_identity": null
             }
           ],
           "settings": {
@@ -1713,7 +1689,7 @@
             "clock_input_sha256": null,
             "detected_bph": 28800,
             "measured_end_s": 600.0,
-            "measured_start_s": 0.0,
+            "measured_start_s": 20.0,
             "no_cycles": true,
             "no_shape": true,
             "resolved_lift_known": true,
