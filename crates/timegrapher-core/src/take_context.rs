@@ -265,6 +265,28 @@ impl TakeContext {
             })
             .collect()
     }
+
+    /// The take's breaks with a cut, of no gap, wherever its readings are
+    /// cut and no break already is ([`take::reading_cuts`]): each change
+    /// of position after the first and the end of each settling, from the
+    /// positions `m` (the session file the context was opened from)
+    /// lists. What a reading over the whole take, such as a long take's
+    /// hours, is cut by, as the app cuts the take it opens.
+    pub fn reading_breaks(&self, m: &Manifest) -> Vec<Break> {
+        let (stretches, settles) = take::positions_of(self.listed_positions(m).into_iter());
+        // An entry in the position the one before it was in (the next file
+        // of a take split into files) is no change of position.
+        let changes: Vec<f64> = stretches
+            .iter()
+            .enumerate()
+            .filter(|&(i, s)| i == 0 || stretches[i - 1].1 != s.1)
+            .map(|(_, s)| s.0)
+            .collect();
+        breaks::with_jumps(
+            self.breaks.clone(),
+            &take::reading_cuts(&self.breaks, &changes, &settles),
+        )
+    }
 }
 
 /// The one recording a take is opened as: [`take::whole_take`]'s, which

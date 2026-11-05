@@ -520,10 +520,6 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ),
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
-    (
-        "reverso21600_DU_level_overnight power reserve",
-        "#1150: session reads each 10-minute entry alone, too short for a run",
-    ),
 ];
 
 /// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two

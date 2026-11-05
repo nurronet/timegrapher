@@ -306,3 +306,38 @@ fn masks_out_of_order_or_meeting_are_held_in_order_and_merged() {
     assert_eq!(ctx.masked, [(10.0, 25.0), (30.0, 35.0), (65.0, 66.0)]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A take's readings are cut at each change of position and each end of
+/// settling; the next file of a take in the same position is no change.
+#[test]
+fn a_takes_reading_breaks_cut_at_changes_of_position_and_settling() {
+    let dir = synthetic_take("cuts");
+    let m: Manifest = toml::from_str(
+        "bph = 28800\n\
+         [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n\
+         [[recording]]\nfile = \"b.wav\"\nposition = \"DU\"\n\
+         [[recording]]\nfile = \"c.wav\"\nposition = \"CU\"\n",
+    )
+    .unwrap();
+    let (ctx, _) = TakeContext::open(
+        &dir,
+        &m,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    let at: Vec<f64> = ctx.reading_breaks(&m).iter().map(|b| b.audio_s).collect();
+    // a.wav settles for core's 20 s. b.wav (60 s on) is in a.wav's
+    // position: no cut where it starts (where its own settling ends is
+    // `take::reading_window`'s to say). c.wav changes to CU at 121 s and
+    // settles to 141 s.
+    assert!(!at.contains(&60.0), "{at:?}");
+    for t in [20.0, 121.0, 141.0] {
+        assert!(at.contains(&t), "{t} in {at:?}");
+    }
+    assert!(ctx.reading_breaks(&m).iter().all(|b| b.gap_s == 0.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
