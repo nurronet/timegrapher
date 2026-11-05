@@ -1283,6 +1283,20 @@ impl TimegrapherApp {
         entries: &[RecordingEntry],
         duration_s: Option<f64>,
     ) -> (Stretches, Vec<(f64, f64)>) {
+        self.apply_manifest_placed(m, entries, duration_s, None)
+    }
+
+    /// [`Self::apply_manifest`] for a take opened from a folder of several
+    /// sound files, `parts` placing each on the strip: an entry for one of
+    /// them gives its positions, settling and masks in seconds into its
+    /// own file, so each is moved to where that file starts (#1154).
+    pub(super) fn apply_manifest_placed(
+        &mut self,
+        m: &Manifest,
+        entries: &[RecordingEntry],
+        duration_s: Option<f64>,
+        parts: Option<&FileParts>,
+    ) -> (Stretches, Vec<(f64, f64)>) {
         if let Some(w) = &m.watch {
             self.watch = w.clone();
         }
@@ -1307,21 +1321,34 @@ impl TimegrapherApp {
             self.put_bph(m.bph);
         }
         // What the take masked out; its seconds are the strip's.
-        let masked: Vec<[f64; 2]> = entries.iter().flat_map(|e| e.masked.clone()).collect();
+        let place = |e: &RecordingEntry| parts.and_then(|p| p.part(&e.file));
+        let masked: Vec<[f64; 2]> = entries
+            .iter()
+            .flat_map(|e| {
+                let off = place(e).map_or(0.0, |p| p.0);
+                e.masked.iter().map(move |s| [s[0] + off, s[1] + off])
+            })
+            .collect();
         self.put_masked(timegrapher_core::session::masked_spans(&masked));
         self.opened_masks = Some(self.masked.clone());
         // Each entry read once the watch has settled, from core's window
         // for it, as `session` reads it: the app's own takes say
         // `settle_s = 0`, a recorded one its settling, and a take shorter
         // than twice its settling settles to halfway. Its length is known
-        // here for a take of one sound file; for one of several, each
-        // entry runs to its end.
+        // here for a take of one sound file, and for each file of a folder
+        // take placed by `parts`; otherwise each entry runs to its end.
         let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
         let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
-        let listed = timegrapher_core::take::listed_positions(m, entries, length);
+        // An entry for one file of a folder take is read over that file,
+        // and lands where the file starts on the strip.
+        let listed = entries.iter().flat_map(|e| {
+            let (off, len) = place(e).unwrap_or((0.0, length));
+            timegrapher_core::take::listed_positions(m, std::slice::from_ref(e), len)
+                .into_iter()
+                .map(move |(a, b, c, p)| (a + off, b + off, c.map(|c| c + off), p))
+        });
         let (out, settles) = timegrapher_core::take::positions_of(
             listed
-                .into_iter()
                 .filter_map(|(start, from, to, p)| Some((start, from, to, Position::of_core(p)?))),
         );
         // What was recorded under any painting, loaded with the positions.
@@ -1434,7 +1461,7 @@ impl TimegrapherApp {
                         self.keep_mic_setup();
                         self.set_watch_setup(WatchSetup::default());
                         self.open_note = None;
-                        self.apply_manifest(&m, &entries, None)
+                        self.apply_manifest_placed(&m, &entries, None, FileParts::of(path).as_ref())
                     }
                     None => {
                         self.fresh_setup(path, &files);
@@ -1587,7 +1614,9 @@ impl TimegrapherApp {
         let (stretches, settles) = match manifest {
             Some((m, entries)) => {
                 let length = info.frames.map(|f| f as f64 / f64::from(info.sample_rate));
-                let out = self.apply_manifest(&m, &entries, length.filter(|_| files.len() == 1));
+                let parts = FileParts::of(path);
+                let length = length.filter(|_| files.len() == 1);
+                let out = self.apply_manifest_placed(&m, &entries, length, parts.as_ref());
                 self.watch_fills_in(path, &m);
                 out
             }
@@ -2336,6 +2365,53 @@ fn recordings_info(
         }
     }
     Ok((files, info))
+}
+
+/// Where each sound file of a take opened from a folder of several sits
+/// on the strip, which runs through them in order: the file, the second
+/// it starts at and its length. A session file's entry for one of them
+/// gives its times in seconds into that file (#1154).
+pub(super) struct FileParts {
+    dir: PathBuf,
+    parts: Vec<(PathBuf, f64, f64)>,
+}
+
+impl FileParts {
+    /// The files of the folder `path`, placed end to end; none for a lone
+    /// file, a folder of one, or one whose lengths can't all be read.
+    pub(super) fn of(path: &Path) -> Option<Self> {
+        if !path.is_dir() {
+            return None;
+        }
+        let files = recordings_in(path).ok()?;
+        if files.len() < 2 {
+            return None;
+        }
+        let mut at = 0.0;
+        let mut parts = Vec::with_capacity(files.len());
+        for f in files {
+            let info = timegrapher_core::audio::info(&f).ok()?;
+            let length = info.frames? as f64 / f64::from(info.sample_rate);
+            let f = f.canonicalize().ok()?;
+            parts.push((f, at, length));
+            at += length;
+        }
+        Some(FileParts {
+            dir: path.to_path_buf(),
+            parts,
+        })
+    }
+
+    /// Where the file an entry names (`file`, from the take's folder)
+    /// starts on the strip, and its length; none for an entry of the whole
+    /// folder or a file not in it.
+    pub(super) fn part(&self, file: &str) -> Option<(f64, f64)> {
+        let named = self.dir.join(file).canonicalize().ok()?;
+        self.parts
+            .iter()
+            .find(|p| p.0 == named)
+            .map(|&(_, at, length)| (at, length))
+    }
 }
 
 /// The name an opened take shows with: a folder says how many files.

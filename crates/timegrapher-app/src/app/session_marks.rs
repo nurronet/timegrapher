@@ -1,5 +1,6 @@
 //! Masks and positions saved into a take's session file.
 
+use super::take_io::FileParts;
 use super::*;
 
 /// Save `masked` to the entries for `path` in its take's session file,
@@ -43,10 +44,12 @@ pub(super) fn save_marks_to_take(
             Ok(())
         }
     };
+    let parts = FileParts::of(path);
     let marks = Marks {
         listed: &listed,
         one_file: &one_file,
         masked,
+        parts: parts.as_ref(),
     };
     let changed = match doc.get_mut("recording") {
         Some(toml_edit::Item::ArrayOfTables(tables)) => marks.in_tables(tables, positions)?,
@@ -77,19 +80,38 @@ struct Marks<'a> {
     /// Refuses positions where the entries list more than one file.
     one_file: &'a dyn Fn(Vec<String>) -> Result<(), String>,
     masked: &'a [[f64; 2]],
+    /// Where each file of a folder take sits on the strip: an entry for
+    /// one of them keeps the masks over it, in seconds into it (#1154).
+    parts: Option<&'a FileParts>,
 }
 
 impl Marks<'_> {
     /// An entry's masked stretches, or none.
     fn set(&self, t: &mut dyn toml_edit::TableLike) {
-        if self.masked.is_empty() {
+        let masked = self.masked_in(&file_of(t));
+        if masked.is_empty() {
             t.remove("masked");
         } else {
             let mut spans = toml_edit::Array::new();
-            for m in self.masked {
+            for m in masked {
                 spans.push(toml_edit::Array::from_iter([m[0], m[1]]));
             }
             t.insert("masked", toml_edit::value(spans));
+        }
+    }
+
+    /// The masks an entry naming `file` keeps: for one file of a folder
+    /// take, those over it, cut at its ends and in seconds into it; else
+    /// every mask, in the strip's seconds.
+    fn masked_in(&self, file: &str) -> Vec<[f64; 2]> {
+        match self.parts.and_then(|p| p.part(file)) {
+            Some((at, length)) => self
+                .masked
+                .iter()
+                .map(|m| [m[0].max(at) - at, m[1].min(at + length) - at])
+                .filter(|m| m[1] > m[0])
+                .collect(),
+            None => self.masked.to_vec(),
         }
     }
 
