@@ -232,8 +232,6 @@ pub fn from_snippets(
         p10.push(q(&c, 0.1));
         p90.push(q(&c, 0.9));
     }
-    let quiet = ((0.003 * fs) as usize).min(len);
-    let mut floor_v = tmpl[..quiet].to_vec();
     let mut p = TickProfile {
         side,
         beats: snips.len(),
@@ -242,7 +240,7 @@ pub fn from_snippets(
         median,
         p10,
         p90,
-        floor: crate::dsp::median_f32(&mut floor_v),
+        floor: 0.0,
         unlock_ms: None,
         drop_ms: None,
         peak_ms: None,
@@ -258,8 +256,9 @@ pub fn from_snippets(
 /// Measure a profile's marks on `curve` (sampled at `fs`, the beat at
 /// sample `origin`): the unlock and drop edges amplitude reads
 /// ([`edges_guided`], from `guide` when given), the drop's peak, the
-/// amplitude when it is plausible, and sounds 1 to 3 ([`shape::measure`]).
-/// The one way every profile is marked.
+/// amplitude when it is plausible, sounds 1 to 3 ([`shape::measure`]),
+/// and the noise floor (the median of the first 3 ms). The one way every
+/// profile is marked.
 fn mark(
     p: &mut TickProfile,
     (curve, fs, origin): (&[f32], f64, usize),
@@ -268,6 +267,8 @@ fn mark(
     guide: Option<f64>,
 ) {
     let to_ms = |s: f64| (s - origin as f64) / fs * 1000.0;
+    let quiet = ((0.003 * fs) as usize).min(curve.len());
+    p.floor = crate::dsp::median_f32(&mut curve[..quiet].to_vec());
     let e = edges_guided(curve, fs, origin, cfg.onset_fraction, guide);
     let sh = shape::measure(curve, fs, origin, &ShapeConfig::default());
     let from_unlock = |t: Option<f64>| -> Option<f64> { Some(sh.as_ref()?.unlock_at_ms + t?) };
@@ -408,22 +409,27 @@ pub fn sound_at<'a, T>(
     }
 }
 
+/// One side of [`ProfileAt::Averaged`]: its curve the beat-weighted
+/// average of the stretches' curves ("average of N 2 s profiles", never a
+/// median), its band the range of their bands (lowest p10 to highest
+/// p90, "range of the 2 s bands"), and its marks measured on that curve as
+/// on any profile; `stretches` the N averaged, covering `from_s` to
+/// `to_s`. A side counts only the stretches that have it.
+#[derive(Debug, Clone)]
+pub struct SideAverage {
+    pub profile: TickProfile,
+    pub stretches: usize,
+    pub from_s: f64,
+    pub to_s: f64,
+}
+
 /// The Tick Tock Profile over an Average Over window, built from the 2 s
 /// stretch profiles a take kept without its sound ([`profile_at`], #979).
 #[derive(Debug, Clone)]
 pub enum ProfileAt {
-    /// Both sides over the stretches kept in the window: `stretches` of
-    /// them, covering `from_s` to `to_s`. Each side's curve is the
-    /// beat-weighted average of the stretches' curves ("average of N 2 s
-    /// profiles", never a median), its band the range of their bands
-    /// (lowest p10 to highest p90, "range of the 2 s bands"), and its
-    /// marks measured on that curve as on any profile.
-    Averaged {
-        sides: Box<[Option<TickProfile>; 2]>,
-        stretches: usize,
-        from_s: f64,
-        to_s: f64,
-    },
+    /// Each side over the stretches kept in the window that have it
+    /// ([`SideAverage`]), or `None` for a side none of them has.
+    Averaged(Box<[Option<SideAverage>; 2]>),
     /// The window's end, or all of it, is masked, or every stretch in it
     /// reaches into a mask or across a break: culled, never filled.
     Masked,
@@ -472,20 +478,15 @@ pub fn profile_at(
     };
     let inside: Vec<_> = kept.iter().filter(whole).collect();
     let used: Vec<_> = inside.iter().copied().filter(clean).collect();
-    if let (Some(first), Some(last)) = (used.first(), used.last()) {
+    if !used.is_empty() {
         let sides = [Side::A, Side::B].map(|side| {
-            let each: Vec<&TickProfile> = used
+            let each: Vec<(f64, &TickProfile)> = used
                 .iter()
-                .filter_map(|p| p.sides[side as usize].as_ref())
+                .filter_map(|p| Some((p.end_s, p.sides[side as usize].as_ref()?)))
                 .collect();
             averaged(&each, side, osc_period_s, cfg)
         });
-        return ProfileAt::Averaged {
-            sides: Box::new(sides),
-            stretches: used.len(),
-            from_s: first.end_s - every,
-            to_s: last.end_s,
-        };
+        return ProfileAt::Averaged(Box::new(sides));
     }
     // Stretches there, all culled, are masked; else as `sound_at` says.
     match why {
@@ -498,18 +499,22 @@ pub fn profile_at(
 /// One side's profiles averaged as [`profile_at`] says, or `None` with
 /// none to average. Those not on the first's time axis are left out.
 fn averaged(
-    each: &[&TickProfile],
+    kept: &[(f64, &TickProfile)],
     side: Side,
     osc_period_s: f64,
     cfg: &AmplitudeConfig,
-) -> Option<TickProfile> {
-    let first = *each.first()?;
-    let same = |p: &&&TickProfile| {
+) -> Option<SideAverage> {
+    let first = kept.first()?.1;
+    let same = |(_, p): &&(f64, &TickProfile)| {
         p.median.len() == first.median.len()
             && (p.t0_ms - first.t0_ms).abs() < 1e-9
             && (p.step_ms - first.step_ms).abs() < 1e-9
     };
-    let each: Vec<&TickProfile> = each.iter().filter(same).copied().collect();
+    let kept: Vec<&(f64, &TickProfile)> = kept.iter().filter(same).collect();
+    let every = crate::analysis_take::PROFILE_EVERY_S;
+    let from_s = kept.first()?.0 - every;
+    let to_s = kept.last()?.0;
+    let each: Vec<&TickProfile> = kept.iter().map(|k| k.1).collect();
     let beats: usize = each.iter().map(|p| p.beats).sum();
     let n = first.median.len();
     let weight = |p: &TickProfile| p.beats.max(1) as f32 / beats.max(1) as f32;
@@ -530,14 +535,12 @@ fn averaged(
     // at, as `from_snippets` measures them on a template.
     let fs = 1000.0 / first.step_ms;
     let origin = (-first.t0_ms / first.step_ms).round().max(0.0) as usize;
-    let quiet = ((3.0 / first.step_ms) as usize).min(n);
-    let mut floor = median[..quiet].to_vec();
     let mut p = TickProfile {
         side,
         beats,
         t0_ms: first.t0_ms,
         step_ms: first.step_ms,
-        floor: crate::dsp::median_f32(&mut floor),
+        floor: 0.0,
         unlock_ms: None,
         drop_ms: None,
         peak_ms: None,
@@ -551,7 +554,12 @@ fn averaged(
     };
     mark(&mut p, (&median, fs, origin), osc_period_s, cfg, None);
     p.median = median;
-    Some(p)
+    Some(SideAverage {
+        profile: p,
+        stretches: each.len(),
+        from_s,
+        to_s,
+    })
 }
 
 #[cfg(test)]
@@ -689,28 +697,22 @@ mod tests {
         let at = |window: (f64, f64), masked: &[(f64, f64)], breaks: &[crate::breaks::Break]| {
             profile_at(&kept, window, masked, breaks, &beats, osc, &cfg)
         };
-        let ProfileAt::Averaged {
-            sides,
-            stretches,
-            from_s,
-            to_s,
-        } = at((20.0, 10.0), &[], &[])
-        else {
+        let ProfileAt::Averaged(sides) = at((20.0, 10.0), &[], &[]) else {
             panic!("no profile");
         };
-        assert_eq!((stretches, from_s, to_s), (5, 10.0, 20.0));
         let used = &kept[5..];
-        for (i, p) in sides.iter().enumerate() {
-            let p = p.as_ref().expect("both sides");
+        for (i, a) in sides.iter().enumerate() {
+            let a = a.as_ref().expect("both sides");
+            assert_eq!((a.stretches, a.from_s, a.to_s), (5, 10.0, 20.0));
+            let p = &a.profile;
             let each: Vec<&TickProfile> =
                 used.iter().map(|s| s.sides[i].as_ref().unwrap()).collect();
             assert_eq!(p.beats, each.iter().map(|e| e.beats).sum::<usize>());
             let k = p.median.len() / 2;
-            let want: f32 = each
-                .iter()
-                .map(|e| e.median[k] * e.beats as f32)
-                .sum::<f32>()
-                / p.beats as f32;
+            let weighted = |f: &dyn Fn(&TickProfile) -> f64| {
+                each.iter().map(|e| f(e) * e.beats as f64).sum::<f64>() / p.beats as f64
+            };
+            let want = weighted(&|e| e.median[k] as f64) as f32;
             assert!((p.median[k] - want).abs() < 1e-5 * want.abs().max(1.0));
             let lo = each.iter().map(|e| e.p10[k]).fold(f32::INFINITY, f32::min);
             let hi = each
@@ -718,24 +720,35 @@ mod tests {
                 .map(|e| e.p90[k])
                 .fold(f32::NEG_INFINITY, f32::max);
             assert_eq!((p.p10[k], p.p90[k]), (lo, hi));
+            // The marks on the average read what the stretches read.
             let amp = p.amplitude_deg.expect("an amplitude");
-            assert!((amp - 280.0).abs() < 10.0, "amplitude {amp}");
+            let theirs = weighted(&|e| e.amplitude_deg.unwrap());
+            assert!(
+                (amp - theirs).abs() < 2.0,
+                "amplitude {amp}, theirs {theirs}"
+            );
             let (u, d) = (p.unlock_ms.unwrap(), p.drop_ms.unwrap());
-            assert!((d - each[0].drop_ms.unwrap()).abs() < 0.3, "drop {d}");
+            let theirs = weighted(&|e| e.drop_ms.unwrap());
+            assert!((d - theirs).abs() < 0.2, "drop {d}, theirs {theirs}");
             assert!(u < d && p.sound3_ms.is_some());
         }
         let count = |r: ProfileAt| match r {
-            ProfileAt::Averaged { stretches, .. } => stretches,
+            ProfileAt::Averaged(sides) => sides.map(|s| s.map_or(0, |s| s.stretches)),
             other => panic!("{other:?}"),
         };
+        // A stretch with no tock counts for the tick alone.
+        let mut no_tock = kept.clone();
+        no_tock[7].sides[1] = None;
+        let one_side = profile_at(&no_tock, (20.0, 10.0), &[], &[], &beats, osc, &cfg);
+        assert_eq!(count(one_side), [5, 4]);
         // Shorter than a stretch: the one stretch ending there.
-        assert_eq!(count(at((20.0, 0.5), &[], &[])), 1);
+        assert_eq!(count(at((20.0, 0.5), &[], &[])), [1, 1]);
         // A mask in 13 to 13.5 s and a break at 15.5 s cull 12-14 and 14-16.
         let brk = crate::breaks::Break {
             audio_s: 15.5,
             gap_s: 1.0,
         };
-        assert_eq!(count(at((20.0, 10.0), &[(13.0, 13.5)], &[brk])), 3);
+        assert_eq!(count(at((20.0, 10.0), &[(13.0, 13.5)], &[brk])), [3, 3]);
         // All of it culled: masked; nothing kept there: not kept.
         assert!(matches!(
             at((20.0, 4.0), &[(16.5, 17.0), (18.5, 19.0)], &[]),
