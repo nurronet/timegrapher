@@ -220,6 +220,44 @@ fn each_position_counts_its_own_seconds() {
     assert_eq!(app.recorded_in(Position::CrownUp), 0.0);
 }
 
+/// The Distributions pane's 2 s windows are the settled stretch of the
+/// position the watch is in now, picked by core's one rule (#636): none
+/// from the position before, and none from the settling.
+#[test]
+fn the_distributions_take_the_windows_of_the_position_now() {
+    let mut app = synthetic(20.0, 0.0);
+    app.session.listen();
+    app.session.set_state(session::State::Paused {
+        since: Instant::now(),
+    });
+    let before = app.position_windows().len();
+    assert!(before > 0, "Dial Up's own windows");
+    let moved = app.live.as_ref().unwrap().duration_s();
+    app.set_position(Position::DialDown);
+    app.session.start_settle(moved);
+    let cfg = SynthConfig {
+        duration_s: 40.0,
+        ..Default::default()
+    };
+    let audio = generate(&cfg, |_| 220.0, |_| 0.0);
+    let live = app.live.as_mut().unwrap();
+    for b in audio.samples.chunks(960) {
+        live.push(b);
+    }
+    let wins = app.position_windows();
+    assert!(wins.len() > 5, "{} windows", wins.len());
+    let settled = moved + app.guided_settle_s;
+    for w in &wins {
+        let mid = 0.5 * (w.start_s + w.end_s);
+        assert!(
+            mid >= settled,
+            "a window at {mid} s, settled from {settled} s"
+        );
+        let a = w.mean().unwrap();
+        assert!((a - 220.0).abs() < 15.0, "Dial Down reads 220, not {a}");
+    }
+}
+
 /// With no guided test, the Positions Test pane reads every position
 /// marked in the take: each one's settled duration and readings, the
 /// positions never marked, and the largest rate difference.
@@ -850,7 +888,7 @@ fn a_masked_stretch_leaves_the_readings_and_comes_back() {
     };
     // The 2-second stretches the distributions count, too.
     let stretches = |app: &TimegrapherApp| {
-        app.unmasked_windows()
+        app.position_windows()
             .iter()
             .filter(|w| w.end_s > 30.0 && w.start_s < 45.0)
             .count()
