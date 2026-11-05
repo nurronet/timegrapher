@@ -1,6 +1,7 @@
 //! The Paper Strip pane: its trend, settings, fit and input.
 
 use super::*;
+use timegrapher_core::steady_views;
 
 impl TimegrapherApp {
     /// Show the whole session so far along the strip, ending at its latest
@@ -672,7 +673,7 @@ fn strip_overlays_drawn(
     if on[0] {
         overlays.push(strip::Overlay {
             name: "Amplitude",
-            short: "Amp.",
+            short: steady_views::AMPLITUDE_SHORT,
             unit: "°",
             color: pal.trace_amplitude,
             min_span: 10.0,
@@ -684,13 +685,13 @@ fn strip_overlays_drawn(
         for (name, short, pick, color) in [
             (
                 "Beat Error from the Unlock",
-                "B.E. U",
+                steady_views::BEAT_ERROR_UNLOCK_SHORT,
                 (|p: &TrendPoint| p.beat_error_from(Unlock)) as fn(&TrendPoint) -> Option<f64>,
                 pal.trace_beat_error,
             ),
             (
                 "Beat Error from the Drop",
-                "B.E. D",
+                steady_views::BEAT_ERROR_DROP_SHORT,
                 (|p: &TrendPoint| p.beat_error_from(Drop)) as fn(&TrendPoint) -> Option<f64>,
                 pal.trace_beat_error.gamma_multiply(0.6),
             ),
@@ -751,6 +752,9 @@ mod tests {
                 amplitude_odd_deg: None,
                 beat_error_unlock_ms: (i != 1).then_some(0.2),
                 beat_error_ms: Some(0.8),
+                rate_error_s_per_day: None,
+                amplitude_error_deg: None,
+                beat_error_unlock_error_ms: None,
                 heard: true,
             })
             .collect();

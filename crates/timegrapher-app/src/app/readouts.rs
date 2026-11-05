@@ -4,6 +4,7 @@ use super::*;
 use crate::sparkline;
 use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm, true_minus};
 use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
+use timegrapher_core::steady_views;
 
 /// What the reading cards draw from.
 struct CardCtx<'a> {
@@ -24,6 +25,8 @@ struct CardCtx<'a> {
     /// "at hh:mm:ss, set by the Paper Strip", for the figures' hovers,
     /// when the strip is moved back: the strip's own label says it.
     moment: Option<String>,
+    /// The readings cards name their readings short ([`cards_short`]).
+    short: bool,
 }
 
 /// The cards' widths at `total`: Current Position, Listen, Calibre and
@@ -178,25 +181,21 @@ fn card_row(ui: &mut egui::Ui, rect: egui::Rect, salt: &str) -> egui::Ui {
 
 /// The title row: the caption, its limits in a chip, and the "?" in
 /// the corner. The caption is cut short before the chip is.
-fn card_title(
+pub(crate) fn card_title(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     caption: &str,
     help: &[&str],
     limits: &[(String, String)],
-    note: Option<&(String, String)>,
+    (note, short): (Option<&(String, String)>, bool),
 ) {
     let pal = theme::pal(ui);
     let mut child = card_row(ui, rect, caption);
     child.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         // Tight, so a reading card's caption stays whole at 800.
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = title_gap();
         theme::help(ui, caption, help);
-        let caption_w = ui.fonts_mut(|f| {
-            f.layout_no_wrap(caption.into(), theme::semibold(13.0), pal.text)
-                .size()
-                .x
-        });
+        let caption_w = caption_width(ui, caption);
         let small_w = |ui: &mut egui::Ui, t: &str| {
             ui.fonts_mut(|f| {
                 f.layout_no_wrap(t.into(), egui::FontId::proportional(12.0), pal.text)
@@ -231,19 +230,60 @@ fn card_title(
             }
         }
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            // Too narrow for the whole caption (800 pt), its short form as
+            // the axes have it, the whole one on a hover, rather than a
+            // cut "Ampli…" that names nothing (#1061); all the cards
+            // together, as [`cards_short`] says.
+            let short = steady_views::short_name(caption).filter(|_| short);
             let r = ui.add(
                 egui::Label::new(
-                    RichText::new(caption)
-                        .font(theme::semibold(13.0))
+                    RichText::new(short.unwrap_or(caption))
+                        .font(caption_font())
                         .color(pal.text_secondary),
                 )
                 .truncate(),
             );
-            if let Some(h) = caption_hover {
+            let hover = match (short, caption_hover) {
+                (Some(_), Some(h)) => Some(format!("{caption}\n\n{h}")),
+                (Some(_), None) => Some(caption.to_string()),
+                (None, h) => h,
+            };
+            if let Some(h) = hover {
                 r.on_hover_text(h);
             }
         });
     });
+}
+
+/// A card title's caption font.
+fn caption_font() -> egui::FontId {
+    theme::semibold(13.0)
+}
+
+/// The gap between the items of a card's title row.
+fn title_gap() -> f32 {
+    4.0
+}
+
+/// How wide a card title's whole caption is.
+fn caption_width(ui: &egui::Ui, caption: &str) -> f32 {
+    ui.fonts_mut(|f| {
+        f.layout_no_wrap(caption.into(), caption_font(), Color32::WHITE)
+            .size()
+            .x
+    })
+}
+
+/// Whether the readings cards name their readings short: where any of
+/// them, in its title row, has no room for its whole caption beside its
+/// "?", all of them do, so a row never mixes "Amplitude" with "B.E."
+/// (Hugh, #1061). Worked out from the rows alone, each pass.
+pub(crate) fn cards_short(ui: &egui::Ui, titles: &[(egui::Rect, &str)]) -> bool {
+    titles.iter().any(|&(rect, caption)| {
+        // Beside the "?" and the gap to it, as `card_title` lays them.
+        let room = rect.width() - theme::help_size() - title_gap();
+        steady_views::short_name(caption).is_some() && caption_width(ui, caption) > room
+    })
 }
 
 /// A figure's hover, with the moment it is read at first when the strip
@@ -332,7 +372,7 @@ impl TimegrapherApp {
             "Listen",
             help::LISTEN,
             &[],
-            length.as_ref(),
+            (length.as_ref(), false),
         );
         slots.push((Slot::Listen, cards[1].figure.union(cards[1].controls)));
         let c = CardCtx {
@@ -349,6 +389,13 @@ impl TimegrapherApp {
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
             moment: self.moment_hover(),
+            short: cards_short(
+                ui,
+                &[
+                    (cards[3].title, steady::title(SeriesKind::Amplitude)),
+                    (cards[4].title, steady::title(SeriesKind::BeatError)),
+                ],
+            ),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -382,7 +429,14 @@ impl TimegrapherApp {
         let compact = c.compact;
         let rate = r.and_then(|r| r.rate_s_per_day);
         let rate_facts = reading_limits("Rate", caveats, lift_now, beats);
-        card_title(ui, rows.title, "Rate", &help::RATE, &rate_facts, None);
+        card_title(
+            ui,
+            rows.title,
+            "Rate",
+            &help::RATE,
+            &rate_facts,
+            (None, c.short),
+        );
         let unit = match pm.and_then(|e| pm_text(e, base::RATE)) {
             Some(t) => format!("± {t} s/d"),
             None => "s/d".to_string(),
@@ -511,6 +565,9 @@ impl TimegrapherApp {
             amplitude_odd_deg: r.amplitude_odd_deg,
             beat_error_unlock_ms: r.beat_error_unlock_ms,
             beat_error_ms: r.beat_error_ms,
+            rate_error_s_per_day: r.rate_error_s_per_day,
+            amplitude_error_deg: r.amplitude_error_deg,
+            beat_error_unlock_error_ms: r.beat_error_unlock_error_ms,
             heard: r.watch_heard,
         });
         out
@@ -554,8 +611,20 @@ impl TimegrapherApp {
         let beats = c.beats;
         let whole = c.whole;
         let compact = c.compact;
-        let facts = reading_limits("Amplitude", caveats, lift_now, beats);
-        card_title(ui, rows.title, "Amplitude", help::AMPLITUDE, &facts, None);
+        let facts = reading_limits(
+            steady::title(SeriesKind::Amplitude),
+            caveats,
+            lift_now,
+            beats,
+        );
+        card_title(
+            ui,
+            rows.title,
+            steady::title(SeriesKind::Amplitude),
+            help::AMPLITUDE,
+            &facts,
+            (None, c.short),
+        );
         // Whole degrees, unless the ± is under a degree: a decimal only
         // where the beats can say it (decimals follow the ±, #510 K3).
         let amp_pm = r.and_then(|r| r.amplitude_error_deg);
@@ -613,10 +682,15 @@ impl TimegrapherApp {
         card_title(
             ui,
             rows.title,
-            "Beat Error",
+            steady::title(SeriesKind::BeatError),
             help::BEAT_ERROR,
-            &reading_limits("Beat Error", caveats, lift_now, beats),
-            None,
+            &reading_limits(
+                steady::title(SeriesKind::BeatError),
+                caveats,
+                lift_now,
+                beats,
+            ),
+            (None, c.short),
         );
         let be_pm = be_pm.filter(|_| unlock.is_some());
         let unit = match be_pm.and_then(|e| pm_text(e, base::BEAT_ERROR)) {
