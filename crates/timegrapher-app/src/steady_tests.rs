@@ -1344,3 +1344,51 @@ fn the_stats_line_says_why_a_trend_or_split_is_left_out() {
     );
     assert!(!line.contains("stretches"), "{line}");
 }
+
+/// The readings plot draws level lines only where the words name the
+/// levels; stretches the level test turns down draw none (#1112).
+#[test]
+fn level_lines_are_drawn_only_where_the_words_name_them() {
+    use timegrapher_core::steadiness::{Changes, Segment};
+    let mut c = steadiness::check_series(
+        SeriesKind::BeatError,
+        Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: (0..40).map(|i| 0.37 + 0.01 * (i as f64).sin()).collect(),
+        },
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    let seg = |a: f64, mean: f64| Segment {
+        start_s: a,
+        end_s: a + 100.0,
+        mean,
+    };
+    c.changes = Some(Changes {
+        block_s: 60.0,
+        block_sigma: 1.0,
+        long_run_sigma: 1.0,
+        segments: vec![seg(0.0, 0.35), seg(100.0, 0.39), seg(200.0, 0.37)],
+        explained: 0.1,
+        p_value: 0.5,
+        named: false,
+        note: Some("under the 20% a level change needs".into()),
+    });
+    assert!(level_lines(&c).is_empty());
+    assert!(stats_line(&c).contains("3 stretches of one level"));
+    c.changes.as_mut().unwrap().named = true;
+    assert_eq!(
+        level_lines(&c),
+        [
+            [[0.0, 0.35], [100.0, 0.35]],
+            [[100.0, 0.39], [200.0, 0.39]],
+            [[200.0, 0.37], [300.0, 0.37]],
+        ]
+    );
+    c.changes.as_mut().unwrap().segments.truncate(1);
+    assert!(level_lines(&c).is_empty(), "one stretch is no level change");
+}
