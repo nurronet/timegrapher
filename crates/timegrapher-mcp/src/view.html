@@ -1946,7 +1946,7 @@ function walkCard(w) {
     dots: dots.map((d) => ({ pts: [[d.amplitude_deg, d.rate_s_per_day]], hovers: [d.hover], rgb: `rgb(${viridisRgb(d.when).join(",")})`, r: 3 })),
   });
   return `<div class="card"><h2>${esc(W.title)}</h2><p class="hint">${esc(W.hint)}</p>${chart}
-    <div class="map-key"><span>0 h</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
+    <div class="map-key"><span>${esc(W.key_start)}</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
 }
 
 function seriesView(doc, extra, limits, seriesLimits) {
