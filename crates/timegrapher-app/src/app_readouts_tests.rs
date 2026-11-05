@@ -865,3 +865,69 @@ fn the_scope_says_masked_where_the_profile_does() {
     let scope = painted_text(&out);
     assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
 }
+
+/// Tick's and Tock's amplitudes take the decimals of the figure beside
+/// them, its ±'s, as the CLI writes them (Walter's and Rico's note).
+#[test]
+fn tick_and_tock_take_the_amplitudes_decimals() {
+    assert_eq!(
+        readouts::sides_text(279.494, 279.571, Some(0.04)),
+        "Tick 279.49°, Tock 279.57°: each side's own amplitude."
+    );
+    // With no ±, the amplitude's base decimals, as before.
+    let base = |x| {
+        timegrapher_core::library::fixed_text(x, timegrapher_core::library::base_digits::AMPLITUDE)
+    };
+    assert_eq!(
+        readouts::sides_text(279.494, 279.571, None),
+        format!(
+            "Tick {}°, Tock {}°: each side's own amplitude.",
+            base(279.494),
+            base(279.571)
+        )
+    );
+}
+
+/// The Amplitude card's hover gives Tick and Tock to the decimals of the
+/// live amplitude's ±, the one beside its figure (Trevor's mutant of
+/// #1114: the card passing no ± survived).
+#[test]
+fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
+    let mut app = synthetic(60.0, 5.0);
+    let r = app.reading().expect("a reading");
+    let (Some(a), Some(b), Some(se)) = (
+        r.amplitude_even_deg,
+        r.amplitude_odd_deg,
+        r.amplitude_error_deg,
+    ) else {
+        panic!("the synthetic take reads both sides and a ±: {r:?}");
+    };
+    let want = readouts::sides_text(a, b, Some(se));
+    assert_ne!(want, readouts::sides_text(a, b, None), "a ± under 1°");
+    let figure = readouts::amplitude_figure(&r).expect("a figure");
+    let ctx = themed();
+    ctx.style_mut(|s| {
+        s.interaction.tooltip_delay = 0.0;
+        s.interaction.show_tooltips_only_when_still = false;
+    });
+    let mut at = None;
+    let mut text = String::new();
+    for _ in 0..6 {
+        let input = egui::RawInput {
+            events: at.map(egui::Event::PointerMoved).into_iter().collect(),
+            ..screen()
+        };
+        let out = ctx.run(input, |ctx| app.panels(ctx));
+        at = at.or_else(|| {
+            out.shapes.iter().find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if figure.starts_with(t.galley.text()) => {
+                    Some(t.galley.rect.translate(t.pos.to_vec2()).center())
+                }
+                _ => None,
+            })
+        });
+        text = painted_text(&out);
+    }
+    assert!(at.is_some(), "{figure} drawn: {text}");
+    assert!(text.contains(&want), "{want} in: {text}");
+}
