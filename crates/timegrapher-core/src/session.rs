@@ -457,7 +457,7 @@ pub fn window_in(w: &AmplitudeWindow, from_s: f64, to_s: f64) -> bool {
 }
 
 /// Midpoint membership for measured and nominal amplitude windows alike.
-fn window_span_in(start: f64, end: f64, from_s: f64, to_s: f64) -> bool {
+pub(crate) fn window_span_in(start: f64, end: f64, from_s: f64, to_s: f64) -> bool {
     let mid = (start + end) / 2.0;
     mid >= from_s && mid < to_s
 }

@@ -1335,6 +1335,12 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
         hover.contains("Tick: the 2 s profile, 0:18 to 0:20"),
         "{hover}"
     );
+    // Off the 2 s grid, too (Walter).
+    let hover = a.profiles_at(19.3).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: the 2 s profile, 0:18 to 0:20"),
+        "{hover}"
+    );
     // A masked moment is masked, as with the sound.
     let shown = a.profiles_at(31.0);
     assert!(shown.masked && shown.profiles.iter().all(Option::is_none));
