@@ -1550,6 +1550,14 @@ fn print_summary(
         opt(s.rate_p05, 1),
         opt(s.rate_p95, 1)
     );
+    // Tick and Tock have no ± of their own, so they take the decimals of
+    // the amplitude beside them (decimals follow the ±, #510 K3): never
+    // 269.53 beside a Tick of 270.
+    let side = |x: Option<f64>| {
+        x.map_or("-".into(), |x| {
+            figure(x, s.amplitude_se_deg, base_digits::AMPLITUDE, false)
+        })
+    };
     println!(
         "Amplitude    {} deg (Tick {}, Tock {}; lift angle {} deg)",
         s.amplitude_deg.map_or("-".into(), |a| figure_with_pm(
@@ -1558,8 +1566,8 @@ fn print_summary(
             base_digits::AMPLITUDE,
             false
         )),
-        opt(s.amplitude_even_deg, 0),
-        opt(s.amplitude_odd_deg, 0),
+        side(s.amplitude_even_deg),
+        side(s.amplitude_odd_deg),
         s.lift_deg
     );
     print_conditions(s, calibre);
