@@ -844,15 +844,10 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         0.0,
         log.duration_s,
     );
-    let clipping = Clipping::of(
-        log.clipped_samples,
-        log.clipped_beats.len(),
-        log.beats.len(),
-        // A take `record` just saved has its sound: never read as silence.
-        opened
-            .peak
-            .ok_or_else(|| format!("{}: no sound to read the peak level from", dir.display()))?,
-    );
+    // A take `record` just saved has its sound: never read as silence.
+    let clipping = opened
+        .clipping()
+        .ok_or_else(|| format!("{}: no sound to read the peak level from", dir.display()))?;
     let (whole_bph, whole_s) = (log.bph, log.duration_s);
     // The readings as `session` will take them: after the same settling
     // time.
@@ -1136,7 +1131,7 @@ fn say_break(lost: &breaks::Live) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use timegrapher_core::stream::{self, StreamConfig};
+    use timegrapher_core::stream::StreamConfig;
 
     #[test]
     fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
@@ -1458,8 +1453,21 @@ mod tests {
         let c = check_saved(&dir, &set).unwrap();
         let mut scfg = StreamConfig::default();
         scfg.analysis.bph = set.bph;
-        let log = stream::analyze_files(&[wav.as_path()], &scfg, |_| {}).unwrap();
-        let m = session::measure(&log, None, c.from_s, c.to_s);
+        let settings = take::EntrySettings {
+            stream: scfg,
+            card_clock: true,
+            settle_s: None,
+        };
+        let opened = take::open_files(
+            std::slice::from_ref(&wav),
+            None,
+            &settings,
+            |_| Ok(None),
+            |_| Ok(None),
+            |_, _| {},
+        )
+        .unwrap();
+        let m = session::measure(&opened.log, None, c.from_s, c.to_s);
         assert_eq!(m.beat_error_unlock_ms, None, "the unlock is never found");
         assert!(m.beat_error_ms.is_some());
         assert_eq!(c.beat_error_ms, m.beat_error_ms);

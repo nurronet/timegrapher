@@ -872,6 +872,23 @@ pub struct OpenedEntry {
     pub peak: Option<f32>,
 }
 
+impl OpenedEntry {
+    /// The clipping over everything read: the clipped samples and beats
+    /// the stream counted, and the peak level. `None` for a take kept as
+    /// its analysis alone, which keeps no peak to read.
+    pub fn clipping(&self) -> Option<crate::analysis::Clipping> {
+        let log = &self.log;
+        self.peak.map(|peak| {
+            crate::analysis::Clipping::of(
+                log.clipped_samples,
+                log.clipped_beats.len(),
+                log.beats.len(),
+                peak,
+            )
+        })
+    }
+}
+
 /// One entry of a take, read: what was read, and its measurement.
 pub struct EntryRead {
     /// The sound files read, in order; empty for a take kept as its
