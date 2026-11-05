@@ -2178,14 +2178,8 @@ pub fn check(
     // amplitude and beat error windows are averaged into the rate's
     // readings, so one reading means the same time for all three. The
     // short windows are kept for finding cycles.
-    let (t0, n) = if rate_grid.y.is_empty() {
-        (amp_grid.t0, (amp_grid.span() / r).ceil() as usize)
-    } else {
-        (rate_grid.t0, rate_grid.y.len())
-    };
-    let amp_readings = rebin(&amp_grid, t0, r, n);
+    let [amp_readings, be_readings] = into_readings(&rate_grid, &amp_grid, &be_grid, r);
     let (amp_paired, amp_noise) = pairing_readings(&amp_grid, &amp_readings);
-    let be_readings = rebin(&be_grid, t0, r, n);
     let rate_amplitude = cross_correlation(&rate_grid, &amp_paired, &amp_noise, cfg);
     let isochronism = isochronism_curve(&rate_grid, &amp_paired, &amp_noise, cfg);
     let walk = crate::walk::walk(&rate_grid, &amp_grid, cfg.wind_h);
@@ -2492,6 +2486,38 @@ pub(crate) fn reading_grids(
     let amp = rebin(&amp, rate.t0, r, rate.y.len());
     let be = rebin(&be, rate.t0, r, rate.y.len());
     [rate, amp, be]
+}
+
+/// The amplitude and the beat error windows averaged into the rate's
+/// readings of `r` seconds, so one reading means the same time for all
+/// three; with no rate reading, laid from the amplitude windows' start
+/// over their span.
+fn into_readings(rate: &Grid, amp: &Grid, be: &Grid, r: f64) -> [Grid; 2] {
+    let (t0, n) = if rate.y.is_empty() {
+        (amp.t0, (amp.span() / r).ceil() as usize)
+    } else {
+        (rate.t0, rate.y.len())
+    };
+    [rebin(amp, t0, r, n), rebin(be, t0, r, n)]
+}
+
+/// The readings of `r` seconds each whose distributions [`check`] gives
+/// as "readings": the rate's, and the amplitude and the beat error
+/// averaged into them, on true time with `clock` and `breaks` as `check`
+/// is given them. With them, the beat error's source as `check` chose it
+/// over the 2 s windows, with its caveats. The app's Distributions pane
+/// counts these (#1144).
+pub fn distribution_readings(
+    log: &BeatLog,
+    clock: Option<&ClockFit>,
+    breaks: &[crate::breaks::Break],
+    r: f64,
+) -> ([Grid; 3], crate::session::BeatErrorSelection) {
+    let rate = rate_grid(&rate_windows(log, clock, breaks, r), r);
+    let amp = windows_grid(log, clock, breaks, &|w| w.mean());
+    let (be, selected) = beat_error::grid(log, clock, breaks, None);
+    let [amp, be] = into_readings(&rate, &amp, &be, r);
+    ([rate, amp, be], selected)
 }
 
 /// The rate readings [`check`] tests, `r` seconds each, on true time.

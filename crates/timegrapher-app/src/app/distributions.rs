@@ -3,6 +3,17 @@
 use super::*;
 use crate::strength::{self, Grid, Strength};
 
+/// What core's readings for the Distributions pane were read for: the
+/// take's revision, the position on show and Average Over (its bits).
+pub(super) type DistKey = (Revision, Position, u64);
+/// Core's readings for the Distributions pane (#1144): the rate's, and the
+/// amplitude and the beat error averaged into them, with the beat error's
+/// source ([`timegrapher_core::steadiness::distribution_readings`]).
+pub(super) type DistReadings = (
+    [timegrapher_core::longterm::Grid; 3],
+    core_session::BeatErrorSelection,
+);
+
 /// The width kept for the shares up the side of a distribution's plot.
 const SIDE_AXIS_W: f32 = 44.0;
 
@@ -77,6 +88,9 @@ impl TimegrapherApp {
     /// The Distributions pane: a plot for each reading shown, one above
     /// the other, sharing the pane's height.
     pub(super) fn distributions_pane(&mut self, ui: &mut egui::Ui) {
+        if self.hist_readings {
+            self.update_dist_readings(Some(ui.ctx()));
+        }
         let shown = self.dist_series;
         self.note_need(ui, Pane::Distributions, DIST_MIN_H);
         stacked(ui, shown, DIST_MIN_H, |ui, k| self.histogram(ui, k));
@@ -162,6 +176,69 @@ impl TimegrapherApp {
         probability_paper(ui, plot, &values, d.normal_line, (x_lo, x_hi), color);
     }
 
+    /// Keeps core's readings for the pane ([`DistReadings`]) up to date
+    /// with the take, the position on show and Average Over: read over what
+    /// the steadiness tests read ([`Self::steady_log`]) in the background
+    /// with `ctx`, the last ones showing until the next are ready, or here
+    /// and now without. While listening they are read again once a new
+    /// reading can have come.
+    pub(super) fn update_dist_readings(&mut self, ctx: Option<&egui::Context>) {
+        let key = (self.rev, self.position, self.average_s.to_bits());
+        if self.dist_job.as_ref().is_some_and(|j| j.0 != key) {
+            self.dist_job = None;
+        }
+        if self.dist_readings.as_ref().is_some_and(|d| d.0 != key) {
+            self.dist_readings = None;
+        }
+        if let Some((k, upto, rx)) = &self.dist_job {
+            match rx.try_recv() {
+                Ok(d) => {
+                    self.dist_readings = Some((*k, *upto, d));
+                    self.dist_job = None;
+                }
+                Err(TryRecvError::Disconnected) => self.dist_job = None,
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+        let spans = self.current_spans();
+        let clock = Self::rate_clock(&self.take_clock).cloned();
+        let joined = !self.session.stretches().is_empty();
+        let Some(live) = self.live.as_ref() else {
+            return;
+        };
+        let dur =
+            steady::joined_duration(&spans, live.duration_s(), clock.as_ref().filter(|_| joined));
+        let due = self
+            .dist_readings
+            .as_ref()
+            .is_none_or(|d| dur - d.1 >= self.average_s);
+        if self.dist_job.is_some() || !due {
+            return;
+        }
+        let Some((log, breaks)) =
+            steady::log_of(live).map(|l| self.steady_log(l, &spans, clock.as_ref()))
+        else {
+            return;
+        };
+        let clock = clock.filter(|_| !joined); // A joined log is on it.
+        let r = self.average_s;
+        let read = move || {
+            timegrapher_core::steadiness::distribution_readings(&log, clock.as_ref(), &breaks, r)
+        };
+        match ctx {
+            Some(ctx) => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(read());
+                    ctx.request_repaint();
+                });
+                self.dist_job = Some((key, dur, rx));
+            }
+            None => self.dist_readings = Some((key, dur, read())),
+        }
+    }
+
     /// The values of `reading` a distribution counts, in the position the
     /// watch is in now: each 2 s stretch (`short`) or one reading per
     /// averaging time. With them, the scale they are on, their colour and
@@ -182,19 +259,13 @@ impl TimegrapherApp {
         // position are a different measurement.
         let inside = |t: f64| self.in_position(t);
         let windows = self.position_windows();
-        // One reading per averaging time: a new reading comes every half
-        // second, and the ones between share most of their beats, so counting
-        // them all would stack up repeats and look surer than it is.
-        let every = self.average_s;
-        let trend = &self.trend;
-        let readings = |f: fn(&TrendPoint) -> Option<f64>| -> Vec<f64> {
-            timegrapher_core::live::spaced_readings(
-                trend
-                    .iter()
-                    .filter(|p| inside(p.t))
-                    .filter_map(|p| Some((p.t, f(p)?))),
-                every,
-            )
+        // The readings, one per Average Over so that no two share beats:
+        // core's, as `timegrapher series` counts them (#1144).
+        let core = self.dist_readings.as_ref().map(|d| &d.2 .0);
+        let readings = |i: usize| -> Vec<f64> {
+            core.map_or_else(Vec::new, |g| {
+                g[i].y.iter().copied().filter(|v| v.is_finite()).collect()
+            })
         };
         use timegrapher_core::distribution::{AMPLITUDE, BEAT_ERROR, RATE};
         match reading {
@@ -210,13 +281,7 @@ impl TimegrapherApp {
                 "2 s",
                 None,
             ),
-            SeriesKind::Rate => (
-                readings(|p| p.rate_s_per_day),
-                RATE,
-                pal.trace_rate,
-                "readings",
-                None,
-            ),
+            SeriesKind::Rate => (readings(0), RATE, pal.trace_rate, "readings", None),
             SeriesKind::Amplitude if short => (
                 windows.iter().filter_map(|w| w.mean()).collect(),
                 AMPLITUDE,
@@ -225,7 +290,7 @@ impl TimegrapherApp {
                 None,
             ),
             SeriesKind::Amplitude => (
-                readings(|p| p.amplitude_deg),
+                readings(1),
                 AMPLITUDE,
                 pal.trace_amplitude,
                 "readings",
@@ -233,7 +298,11 @@ impl TimegrapherApp {
             ),
             SeriesKind::BeatError => {
                 let selected = self.hist_beat_errors(short);
-                let values = selected.values.iter().map(|(_, v)| *v).collect();
+                let values = if short {
+                    selected.values.iter().map(|(_, v)| *v).collect()
+                } else {
+                    readings(2)
+                };
                 (
                     values,
                     BEAT_ERROR,
@@ -250,14 +319,12 @@ impl TimegrapherApp {
                 core_session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)
             }));
         }
-        let readings = timegrapher_core::live::spaced_readings(
-            self.trend
-                .iter()
-                .filter(|p| self.in_position(p.t))
-                .filter_map(|p| Some((p.t, p.beat_error()?))),
-            self.average_s,
-        );
-        core_session::select_beat_errors(readings.into_iter().map(Some))
+        // The source core chose over the windows the readings are made
+        // of, with its caveats.
+        self.dist_readings.as_ref().map_or_else(
+            || core_session::select_beat_errors(std::iter::empty()),
+            |d| d.2 .1.clone(),
+        )
     }
 }
 
@@ -386,47 +453,40 @@ fn value_grid(g: egui_plot::GridInput) -> Vec<GridMark> {
 #[cfg(test)]
 mod source_tests {
     use super::*;
+
+    /// The readings the pane counts are core's (#1144): one per Average
+    /// Over, read again when Average Over changes, with the beat error's
+    /// source as core chose it over the windows they are made of.
     #[test]
-    fn beat_error_distribution_selects_after_spacing_and_reports_left_out_readings() {
-        let mut app = super::super::tests::synthetic(30.0, 0.0);
-        app.average_s = 2.0;
-        app.trend = [Some(0.2), None, None, None, Some(0.4)]
-            .into_iter()
-            .enumerate()
-            .map(|(i, unlock)| TrendPoint {
-                t: i as f64,
-                rate_s_per_day: None,
-                amplitude_deg: None,
-                amplitude_even_deg: None,
-                amplitude_odd_deg: None,
-                beat_error_unlock_ms: unlock,
-                beat_error_ms: Some(0.8),
-                heard: true,
-            })
-            .collect();
-        let selected = app.hist_beat_errors(false);
-        assert_eq!(
-            selected.beat_error_sources,
-            core_session::BeatErrorSources { unlock: 2, drop: 1 }
+    fn readings_are_cores_one_per_average_over() {
+        let mut app = super::super::tests::synthetic(120.0, 5.0);
+        app.average_s = 10.0;
+        app.update_dist_readings(None);
+        let count = |app: &TimegrapherApp, k| app.hist_values(k, false, &theme::DARK).0;
+        let rates = count(&app, SeriesKind::Rate);
+        assert!(
+            (9..=12).contains(&rates.len()),
+            "{} rate readings",
+            rates.len()
         );
-        assert_eq!(selected.values, vec![(0, 0.2), (2, 0.4)]);
-        assert!(matches!(
-            selected.caveats().as_slice(),
-            [Caveat::BeatErrorSourceReadings {
-                used: 2,
-                readings: 3,
-                ..
-            }]
-        ));
-        for p in &mut app.trend {
-            p.beat_error_unlock_ms = None;
-        }
-        let selected = app.hist_beat_errors(false);
+        assert!(rates.iter().all(|r| (r - 5.0).abs() < 1.0), "{rates:?}");
+        let amps = count(&app, SeriesKind::Amplitude);
+        assert_eq!(amps.len(), rates.len());
+        assert!(amps.iter().all(|a| (a - 280.0).abs() < 10.0), "{amps:?}");
+        let (bes, .., selected) = app.hist_values(SeriesKind::BeatError, false, &theme::DARK);
+        assert_eq!(bes.len(), rates.len());
+        let core = app.dist_readings.as_ref().unwrap();
         assert_eq!(
-            selected.beat_error_source,
-            Some(core_session::BeatErrorSource::Drop)
+            selected.unwrap().beat_error_source,
+            core.2 .1.beat_error_source
         );
-        assert_eq!(selected.values.len(), 3);
-        assert!(selected.caveats().contains(&Caveat::BeatErrorFromDrop));
+        app.average_s = 20.0;
+        app.update_dist_readings(None);
+        let longer = count(&app, SeriesKind::Rate);
+        assert!(
+            (4..=6).contains(&longer.len()),
+            "{} rate readings at 20 s",
+            longer.len()
+        );
     }
 }

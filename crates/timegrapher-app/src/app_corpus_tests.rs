@@ -449,6 +449,7 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
     use timegrapher_core::distribution as dist;
     let dir = root.join("takes").join(id);
     let mut app = opened(&dir);
+    app.update_dist_readings(None);
     let series = series_json(cli, &dir);
     let mut out = Vec::new();
     let theirs = series["distributions"]["overall"]
@@ -506,18 +507,6 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// held to that only where a surface reads a run: a pull request's corpus
 /// cut is too short for one.
 const PANES_KNOWN: &[(&str, &str)] = &[
-    (
-        "* rate readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
-    ),
-    (
-        "* amplitude readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
-    ),
-    (
-        "* beat_error readings",
-        "#1144: the app counts its trend's readings, not core's readings grid",
-    ),
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
