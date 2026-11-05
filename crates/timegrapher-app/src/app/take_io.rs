@@ -1,6 +1,7 @@
 //! Listening and saving: the microphone, the session and its unsaved state, saving takes and analysis, opening and replaying recordings, the whole-take analysis, and the poll that feeds the live view.
 
 use super::*;
+use timegrapher_core::take_context::{EntryWindow, FilePart};
 
 impl TimegrapherApp {
     pub(super) fn live_config(&self) -> LiveConfig {
@@ -1287,15 +1288,16 @@ impl TimegrapherApp {
     }
 
     /// [`Self::apply_manifest`] for a take opened from a folder of several
-    /// sound files, `parts` placing each on the strip: an entry for one of
-    /// them gives its positions, settling and masks in seconds into its
-    /// own file, so each is moved to where that file starts (#1154).
+    /// sound files, `layout` (core's [`folder_layout`], one window per
+    /// entry) placing each on the strip: an entry for one of them gives its
+    /// positions, settling and masks in seconds into its own file, so each
+    /// is moved to where that file starts (#1154).
     pub(super) fn apply_manifest_placed(
         &mut self,
         m: &Manifest,
         entries: &[RecordingEntry],
         duration_s: Option<f64>,
-        parts: Option<&FileParts>,
+        layout: Option<&[EntryWindow]>,
     ) -> (Stretches, Vec<(f64, f64)>) {
         if let Some(w) = &m.watch {
             self.watch = w.clone();
@@ -1320,12 +1322,14 @@ impl TimegrapherApp {
         if m.bph.is_some() {
             self.put_bph(m.bph);
         }
-        // What the take masked out; its seconds are the strip's.
-        let place = |e: &RecordingEntry| parts.and_then(|p| p.part(&e.file));
+        // What the take masked out; its seconds are the strip's, each
+        // entry's moved to where its file starts.
+        let offset = |i: usize| layout.map_or(0.0, |w| w[i].offset_s);
         let masked: Vec<[f64; 2]> = entries
             .iter()
-            .flat_map(|e| {
-                let off = place(e).map_or(0.0, |p| p.0);
+            .enumerate()
+            .flat_map(|(i, e)| {
+                let off = offset(i);
                 e.masked.iter().map(move |s| [s[0] + off, s[1] + off])
             })
             .collect();
@@ -1336,19 +1340,28 @@ impl TimegrapherApp {
         // `settle_s = 0`, a recorded one its settling, and a take shorter
         // than twice its settling settles to halfway. Its length is known
         // here for a take of one sound file, and for each file of a folder
-        // take placed by `parts`; otherwise each entry runs to its end.
-        let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
-        let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
-        // An entry for one file of a folder take is read over that file,
-        // and lands where the file starts on the strip.
-        let listed = entries.iter().flat_map(|e| {
-            let (off, len) = place(e).unwrap_or((0.0, length));
-            timegrapher_core::take::listed_positions(m, std::slice::from_ref(e), len)
-                .into_iter()
-                .map(move |(a, b, c, p)| (a + off, b + off, c.map(|c| c + off), p))
-        });
+        // take laid out by core; otherwise each entry runs to its end.
+        let listed = match layout {
+            Some(windows) => entries
+                .iter()
+                .zip(windows)
+                .filter_map(|(e, w)| {
+                    timegrapher_core::take::listed_position(
+                        e,
+                        w.window.as_ref().ok().copied(),
+                        w.offset_s,
+                    )
+                })
+                .collect(),
+            None => {
+                let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
+                let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
+                timegrapher_core::take::listed_positions(m, entries, length)
+            }
+        };
         let (out, settles) = timegrapher_core::take::positions_of(
             listed
+                .into_iter()
                 .filter_map(|(start, from, to, p)| Some((start, from, to, Position::of_core(p)?))),
         );
         // What was recorded under any painting, loaded with the positions.
@@ -1461,7 +1474,9 @@ impl TimegrapherApp {
                         self.keep_mic_setup();
                         self.set_watch_setup(WatchSetup::default());
                         self.open_note = None;
-                        self.apply_manifest_placed(&m, &entries, None, FileParts::of(path).as_ref())
+                        let layout = folder_layout(path, &m, &entries);
+                        let windows = layout.as_ref().map(|l| l.1.as_slice());
+                        self.apply_manifest_placed(&m, &entries, None, windows)
                     }
                     None => {
                         self.fresh_setup(path, &files);
@@ -1614,9 +1629,10 @@ impl TimegrapherApp {
         let (stretches, settles) = match manifest {
             Some((m, entries)) => {
                 let length = info.frames.map(|f| f as f64 / f64::from(info.sample_rate));
-                let parts = FileParts::of(path);
+                let layout = folder_layout(path, &m, &entries);
                 let length = length.filter(|_| files.len() == 1);
-                let out = self.apply_manifest_placed(&m, &entries, length, parts.as_ref());
+                let windows = layout.as_ref().map(|l| l.1.as_slice());
+                let out = self.apply_manifest_placed(&m, &entries, length, windows);
                 self.watch_fills_in(path, &m);
                 out
             }
@@ -2367,51 +2383,26 @@ fn recordings_info(
     Ok((files, info))
 }
 
-/// Where each sound file of a take opened from a folder of several sits
-/// on the strip, which runs through them in order: the file, the second
-/// it starts at and its length. A session file's entry for one of them
-/// gives its times in seconds into that file (#1154).
-pub(super) struct FileParts {
-    dir: PathBuf,
-    parts: Vec<(PathBuf, f64, f64)>,
-}
-
-impl FileParts {
-    /// The files of the folder `path`, placed end to end; none for a lone
-    /// file, a folder of one, or one whose lengths can't all be read.
-    pub(super) fn of(path: &Path) -> Option<Self> {
-        if !path.is_dir() {
-            return None;
-        }
-        let files = recordings_in(path).ok()?;
-        if files.len() < 2 {
-            return None;
-        }
-        let mut at = 0.0;
-        let mut parts = Vec::with_capacity(files.len());
-        for f in files {
-            let info = timegrapher_core::audio::info(&f).ok()?;
-            let length = info.frames? as f64 / f64::from(info.sample_rate);
-            let f = f.canonicalize().ok()?;
-            parts.push((f, at, length));
-            at += length;
-        }
-        Some(FileParts {
-            dir: path.to_path_buf(),
-            parts,
-        })
+/// A take opened from the folder `path` of several sound files, with its
+/// session file `m` and that file's `entries` for the folder, laid out by
+/// core (`take_context::entry_layout`): each sound file's place on the
+/// strip, and each entry's window there, one per entry (#1154). None for
+/// a lone file, a folder of one, or one core can't lay out.
+pub(super) fn folder_layout(
+    path: &Path,
+    m: &Manifest,
+    entries: &[RecordingEntry],
+) -> Option<(Vec<FilePart>, Vec<EntryWindow>)> {
+    if !path.is_dir() {
+        return None;
     }
-
-    /// Where the file an entry names (`file`, from the take's folder)
-    /// starts on the strip, and its length; none for an entry of the whole
-    /// folder or a file not in it.
-    pub(super) fn part(&self, file: &str) -> Option<(f64, f64)> {
-        let named = self.dir.join(file).canonicalize().ok()?;
-        self.parts
-            .iter()
-            .find(|p| p.0 == named)
-            .map(|&(_, at, length)| (at, length))
-    }
+    let listed = Manifest {
+        recordings: entries.to_vec(),
+        ..m.clone()
+    };
+    let (files, windows) =
+        timegrapher_core::take_context::entry_layout(path, &listed, None).ok()?;
+    (files.len() > 1 && windows.len() == entries.len()).then_some((files, windows))
 }
 
 /// The name an opened take shows with: a folder says how many files.
