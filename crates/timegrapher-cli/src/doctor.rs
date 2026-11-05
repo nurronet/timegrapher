@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use timegrapher_core::audio::{self, Audio};
 use timegrapher_core::diagnose::{self, DiagnoseConfig, SignalCheck};
-use timegrapher_core::library::{fixed_text, signed_text};
+use timegrapher_core::figure_text::figure;
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::mixer::{self, Fix, Mixer};
 
 pub struct Options {
@@ -176,13 +177,14 @@ fn gap_rise_line(gap_rise_db: Option<f64>) -> String {
 }
 
 /// The quick look's line: the rate signed as every surface signs it, so
-/// one that rounds to zero reads 0.0, never -0.0 (#815,
-/// [`timegrapher_core::library::signed_text`]).
+/// one that rounds to zero reads 0.0, never -0.0 (#815), and both figures
+/// to their base decimals, as a figure with no ± is written everywhere
+/// (core's `figure`, #510 K3).
 fn quick_look_line(rate_s_per_day: f64, beat_error_ms: f64) -> String {
     format!(
         "Quick look   rate {} s/d, beat error {} ms (on the sound card's clock)",
-        timegrapher_core::library::signed_text(rate_s_per_day, 1),
-        fixed_text(beat_error_ms, 1)
+        figure(rate_s_per_day, None, base_digits::RATE, true),
+        figure(beat_error_ms, None, base_digits::BEAT_ERROR, false)
     )
 }
 
@@ -300,6 +302,14 @@ mod tests {
         assert!(quick_look_line(-0.04, 0.3).starts_with("Quick look   rate 0.0 s/d, "));
         assert!(quick_look_line(2.36, 0.3).starts_with("Quick look   rate +2.4 s/d, "));
         assert!(quick_look_line(-2.36, 0.3).starts_with("Quick look   rate -2.4 s/d, "));
+    }
+
+    /// The quick look's beat error has no ±, so it takes beat error's base
+    /// decimals, as the app's card and `analyze` write it (#510 K3).
+    #[test]
+    fn the_quick_look_beat_error_takes_its_base_decimals() {
+        assert!(quick_look_line(1.0, 0.347).contains("beat error 0.35 ms"));
+        assert!(quick_look_line(1.0, -0.001).contains("beat error 0.00 ms"));
     }
 
     #[test]
