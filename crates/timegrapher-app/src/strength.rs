@@ -125,10 +125,13 @@ impl Grid {
         self.add(p, pal, Layers::All);
     }
 
-    /// Add the background alone, under a plot filled edge to edge (a map),
-    /// whose grid would lie hidden under the fill.
-    pub fn draw_under(&self, p: &mut PlotUi<'_>, pal: &Palette) {
-        self.add(p, pal, Layers::Background);
+    /// Add the background and a map's picture over it, for a plot filled
+    /// edge to edge, whose grid would lie hidden under the fill. One item,
+    /// so the picture is painted after the background: egui_plot paints a
+    /// `PlotImage` as it is added, under every other item, which hid the
+    /// time-frequency maps under the background (Walter, 11-05).
+    pub fn draw_map(&self, p: &mut PlotUi<'_>, pal: &Palette, map: Picture) {
+        self.add(p, pal, Layers::Map(map));
     }
 
     /// Add the axes alone, over such a plot, so they show on its fill.
@@ -147,13 +150,22 @@ impl Grid {
     }
 }
 
+/// A picture laid over a plot: its texture, stretched from `min` to
+/// `max` in plot values.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Picture {
+    pub texture: egui::TextureId,
+    pub min: [f64; 2],
+    pub max: [f64; 2],
+}
+
 /// What a [`GridItem`] paints.
 #[derive(Clone, Copy, PartialEq)]
 enum Layers {
     /// The background, the grid and the axes.
     All,
-    /// The background alone.
-    Background,
+    /// The background and a picture over it.
+    Map(Picture),
     /// The axes alone.
     Axes,
 }
@@ -316,7 +328,15 @@ impl PlotItem for GridItem {
             // The library's background, less its border.
             shapes.push(Shape::rect_filled(f, 2.0, ui.visuals().extreme_bg_color));
         }
-        if self.layers == Layers::Background {
+        if let Layers::Map(m) = self.layers {
+            let at = |v: [f64; 2]| t.position_from_point(&egui_plot::PlotPoint::new(v[0], v[1]));
+            let whole = egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+            shapes.push(Shape::image(
+                m.texture,
+                egui::Rect::from_two_pos(at(m.min), at(m.max)),
+                whole,
+                Color32::WHITE,
+            ));
             return;
         }
         let zero = if self.grid.zero_y {
