@@ -101,11 +101,19 @@ impl TimegrapherApp {
     /// said.
     pub(super) fn poll_wav_keep(&mut self) {
         let Some(k) = &self.wav_keep else { return };
-        let Ok((hours, failed)) = k.rx.try_recv() else {
-            return;
+        // A thread that died sends nothing: its end all the same, so the
+        // status bar doesn't keep its count (Trevor).
+        let (hours, failed) = match k.rx.try_recv() {
+            Ok(end) => end,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => (
+                0,
+                vec!["the conversion stopped before it finished".to_string()],
+            ),
         };
         self.wav_keep = None;
-        applog::info(&format!("Kept {hours} saved hours as FLAC"));
+        let unit = if hours == 1 { "hour" } else { "hours" };
+        applog::info(&format!("Kept {hours} saved {unit} as FLAC"));
         for e in &failed {
             applog::warn(&format!("Couldn't keep a saved hour as FLAC: {e}"));
         }
@@ -272,5 +280,52 @@ impl TimegrapherApp {
                 self.error("Moving your watches stopped without finishing.".into());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A conversion thread that dies sends nothing: that is its end too,
+    /// said, so the status bar doesn't keep its count (Trevor, #1120).
+    #[test]
+    fn a_conversion_that_dies_ends_and_says_so() {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        app.wav_keep = Some(WavKeep {
+            done: Arc::new(AtomicUsize::new(0)),
+            of: 2,
+            rx,
+        });
+        app.poll_wav_keep();
+        assert!(app.wav_keep.is_none());
+        let (m, bad) = app.message.clone().expect("said");
+        assert!(bad && m.contains("stopped before it finished"), "{m}");
+    }
+
+    /// While it works, the window draws again by itself, so the count
+    /// moves and the fact goes when it ends without the mouse being moved
+    /// (Walter's walk of #1120).
+    #[test]
+    fn the_window_draws_again_while_it_works() {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let (_tx, rx) = mpsc::channel();
+        app.wav_keep = Some(WavKeep {
+            done: Arc::new(AtomicUsize::new(0)),
+            of: 2,
+            rx,
+        });
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let delay = |app: &mut TimegrapherApp| {
+            let out = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.status_facts(ui));
+            });
+            out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        };
+        delay(&mut app);
+        assert!(delay(&mut app) <= std::time::Duration::from_secs(1));
     }
 }

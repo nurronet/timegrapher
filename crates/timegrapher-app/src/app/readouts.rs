@@ -1180,7 +1180,7 @@ impl TimegrapherApp {
     /// The status bar's facts after the take's name, none cut short: the
     /// analysis under way, unsaved changes, the recording's state and the
     /// signal.
-    fn status_facts(&self, ui: &mut egui::Ui) {
+    pub(super) fn status_facts(&self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         if let Some(b) = &self.batch {
             let done = f64::from_bits(b.progress.load(std::sync::atomic::Ordering::Relaxed));
@@ -1194,6 +1194,10 @@ impl TimegrapherApp {
             );
         }
         if let Some(k) = &self.wav_keep {
+            // Its count moves and its end comes with no input to wake the
+            // window (Walter's walk of #1120).
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
             ui.label(RichText::new(k.words()).small().color(pal.text_secondary))
                 .on_hover_text(library_folder::WAV_KEEP_HINT);
         }
