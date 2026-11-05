@@ -223,15 +223,6 @@ pub fn from_snippets(
     let origin = (PRE_S * fs).round() as usize;
     let to_ms = |s: f64| (s - origin as f64) / fs * 1000.0;
     let guide = guide_unlock_ms.map(|ms| origin as f64 + ms / 1000.0 * fs);
-    let e = edges_guided(&tmpl, fs, origin, cfg.onset_fraction, guide);
-    let amp = e
-        .map(|e| amplitude_deg((e.drop - e.unlock) / fs, osc_period_s, cfg.lift_deg))
-        .filter(|a| (100.0..=380.0).contains(a));
-    let sh = shape::measure(&tmpl, fs, origin, &ShapeConfig::default());
-    let from_unlock = |t: Option<f64>| -> Option<f64> {
-        let s = sh.as_ref()?;
-        Some(s.unlock_at_ms + t?)
-    };
 
     let stride = ((STEP_MS / 1000.0 * fs).round() as usize).max(1);
     let (mut median, mut p10, mut p90) = (Vec::new(), Vec::new(), Vec::new());
@@ -243,7 +234,7 @@ pub fn from_snippets(
     }
     let quiet = ((0.003 * fs) as usize).min(len);
     let mut floor_v = tmpl[..quiet].to_vec();
-    Some(TickProfile {
+    let mut p = TickProfile {
         side,
         beats: snips.len(),
         t0_ms: to_ms(0.0),
@@ -252,14 +243,43 @@ pub fn from_snippets(
         p10,
         p90,
         floor: crate::dsp::median_f32(&mut floor_v),
-        unlock_ms: e.map(|e| to_ms(e.unlock)),
-        drop_ms: e.map(|e| to_ms(e.drop)),
-        peak_ms: e.map(|e| to_ms(e.peak as f64)),
-        amplitude_deg: amp,
-        sound1_ms: from_unlock(sh.as_ref().and_then(|s| s.t1_ms)),
-        sound2_ms: from_unlock(sh.as_ref().and_then(|s| s.t2_ms)),
-        sound3_ms: from_unlock(sh.as_ref().map(|s| s.t3_ms)),
-    })
+        unlock_ms: None,
+        drop_ms: None,
+        peak_ms: None,
+        amplitude_deg: None,
+        sound1_ms: None,
+        sound2_ms: None,
+        sound3_ms: None,
+    };
+    mark(&mut p, (&tmpl, fs, origin), osc_period_s, cfg, guide);
+    Some(p)
+}
+
+/// Measure a profile's marks on `curve` (sampled at `fs`, the beat at
+/// sample `origin`): the unlock and drop edges amplitude reads
+/// ([`edges_guided`], from `guide` when given), the drop's peak, the
+/// amplitude when it is plausible, and sounds 1 to 3 ([`shape::measure`]).
+/// The one way every profile is marked.
+fn mark(
+    p: &mut TickProfile,
+    (curve, fs, origin): (&[f32], f64, usize),
+    osc_period_s: f64,
+    cfg: &AmplitudeConfig,
+    guide: Option<f64>,
+) {
+    let to_ms = |s: f64| (s - origin as f64) / fs * 1000.0;
+    let e = edges_guided(curve, fs, origin, cfg.onset_fraction, guide);
+    let sh = shape::measure(curve, fs, origin, &ShapeConfig::default());
+    let from_unlock = |t: Option<f64>| -> Option<f64> { Some(sh.as_ref()?.unlock_at_ms + t?) };
+    p.unlock_ms = e.map(|e| to_ms(e.unlock));
+    p.drop_ms = e.map(|e| to_ms(e.drop));
+    p.peak_ms = e.map(|e| to_ms(e.peak as f64));
+    p.amplitude_deg = e
+        .map(|e| amplitude_deg((e.drop - e.unlock) / fs, osc_period_s, cfg.lift_deg))
+        .filter(|a| (100.0..=380.0).contains(a));
+    p.sound1_ms = from_unlock(sh.as_ref().and_then(|s| s.t1_ms));
+    p.sound2_ms = from_unlock(sh.as_ref().and_then(|s| s.t2_ms));
+    p.sound3_ms = from_unlock(sh.as_ref().map(|s| s.t3_ms));
 }
 
 /// Start samples of the template windows around `times` that fit in `env`,
@@ -388,6 +408,152 @@ pub fn sound_at<'a, T>(
     }
 }
 
+/// The Tick Tock Profile over an Average Over window, built from the 2 s
+/// stretch profiles a take kept without its sound ([`profile_at`], #979).
+#[derive(Debug, Clone)]
+pub enum ProfileAt {
+    /// Both sides over the stretches kept in the window: `stretches` of
+    /// them, covering `from_s` to `to_s`. Each side's curve is the
+    /// beat-weighted average of the stretches' curves ("average of N 2 s
+    /// profiles", never a median), its band the range of their bands
+    /// (lowest p10 to highest p90, "range of the 2 s bands"), and its
+    /// marks measured on that curve as on any profile.
+    Averaged {
+        sides: Box<[Option<TickProfile>; 2]>,
+        stretches: usize,
+        from_s: f64,
+        to_s: f64,
+    },
+    /// The window's end, or all of it, is masked, or every stretch in it
+    /// reaches into a mask or across a break: culled, never filled.
+    Masked,
+    /// The beats heard reach to either side of the window, and none fall
+    /// in it.
+    NoBeats,
+    /// No stretch was kept in the window.
+    NotKept,
+}
+
+/// The Tick Tock Profile for the Average Over window of `window_s`
+/// seconds ending at `end` (#979, the math guide's method): the stretches
+/// kept whole within it, never shorter than one stretch, less those that
+/// reach into a mask (`masked`, cleaned as
+/// [`crate::session::masked_spans`] cleans them) or across a break, are
+/// averaged side by side, weighted by their beats, on the time axis they
+/// were kept on (each aligned on its own drop). Stretches whose curves
+/// don't share that axis are left out. With none left, why: as
+/// [`sound_at`] says it. `osc_period_s` and `cfg` measure the marks, as
+/// [`from_snippets`] does.
+pub fn profile_at(
+    kept: &[crate::analysis_take::StretchProfiles],
+    (end, window_s): (f64, f64),
+    masked: &[(f64, f64)],
+    breaks: &[crate::breaks::Break],
+    beats: &[Beat],
+    osc_period_s: f64,
+    cfg: &AmplitudeConfig,
+) -> ProfileAt {
+    // The moment itself masked, or the whole window: masked, as `sound_at`
+    // says, so the sound panes agree with the strip's hatching.
+    let why = sound_at::<()>(&[], (end, window_s), masked, beats, |_| 0.0);
+    if matches!(why, SoundAt::Masked) {
+        return ProfileAt::Masked;
+    }
+    let every = crate::analysis_take::PROFILE_EVERY_S;
+    let from = end - window_s.max(every);
+    let whole = |p: &&crate::analysis_take::StretchProfiles| {
+        p.end_s <= end + 1e-9 && p.end_s - every >= from - 1e-9
+    };
+    let clean = |p: &&crate::analysis_take::StretchProfiles| {
+        let start = p.end_s - every;
+        !crate::session::in_mask(masked, p.end_s)
+            && crate::session::masked_within(masked, start, p.end_s) <= 0.0
+            && !crate::breaks::straddles(breaks, start, p.end_s)
+    };
+    let inside: Vec<_> = kept.iter().filter(whole).collect();
+    let used: Vec<_> = inside.iter().copied().filter(clean).collect();
+    if let (Some(first), Some(last)) = (used.first(), used.last()) {
+        let sides = [Side::A, Side::B].map(|side| {
+            let each: Vec<&TickProfile> = used
+                .iter()
+                .filter_map(|p| p.sides[side as usize].as_ref())
+                .collect();
+            averaged(&each, side, osc_period_s, cfg)
+        });
+        return ProfileAt::Averaged {
+            sides: Box::new(sides),
+            stretches: used.len(),
+            from_s: first.end_s - every,
+            to_s: last.end_s,
+        };
+    }
+    // Stretches there, all culled, are masked; else as `sound_at` says.
+    match why {
+        _ if !inside.is_empty() => ProfileAt::Masked,
+        SoundAt::NoBeats => ProfileAt::NoBeats,
+        _ => ProfileAt::NotKept,
+    }
+}
+
+/// One side's profiles averaged as [`profile_at`] says, or `None` with
+/// none to average. Those not on the first's time axis are left out.
+fn averaged(
+    each: &[&TickProfile],
+    side: Side,
+    osc_period_s: f64,
+    cfg: &AmplitudeConfig,
+) -> Option<TickProfile> {
+    let first = *each.first()?;
+    let same = |p: &&&TickProfile| {
+        p.median.len() == first.median.len()
+            && (p.t0_ms - first.t0_ms).abs() < 1e-9
+            && (p.step_ms - first.step_ms).abs() < 1e-9
+    };
+    let each: Vec<&TickProfile> = each.iter().filter(same).copied().collect();
+    let beats: usize = each.iter().map(|p| p.beats).sum();
+    let n = first.median.len();
+    let weight = |p: &TickProfile| p.beats.max(1) as f32 / beats.max(1) as f32;
+    let median: Vec<f32> = (0..n)
+        .map(|k| each.iter().map(|p| p.median[k] * weight(p)).sum())
+        .collect();
+    let p10 = (0..n)
+        .map(|k| each.iter().map(|p| p.p10[k]).fold(f32::INFINITY, f32::min))
+        .collect();
+    let p90 = (0..n)
+        .map(|k| {
+            each.iter()
+                .map(|p| p.p90[k])
+                .fold(f32::NEG_INFINITY, f32::max)
+        })
+        .collect();
+    // The marks, measured on the averaged curve at the stride it was kept
+    // at, as `from_snippets` measures them on a template.
+    let fs = 1000.0 / first.step_ms;
+    let origin = (-first.t0_ms / first.step_ms).round().max(0.0) as usize;
+    let quiet = ((3.0 / first.step_ms) as usize).min(n);
+    let mut floor = median[..quiet].to_vec();
+    let mut p = TickProfile {
+        side,
+        beats,
+        t0_ms: first.t0_ms,
+        step_ms: first.step_ms,
+        floor: crate::dsp::median_f32(&mut floor),
+        unlock_ms: None,
+        drop_ms: None,
+        peak_ms: None,
+        amplitude_deg: None,
+        sound1_ms: None,
+        sound2_ms: None,
+        sound3_ms: None,
+        median: Vec::new(),
+        p10,
+        p90,
+    };
+    mark(&mut p, (&median, fs, origin), osc_period_s, cfg, None);
+    p.median = median;
+    Some(p)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +650,110 @@ mod tests {
             assert!(p.p10.iter().zip(&p.p90).all(|(a, b)| a <= b));
             assert!(p.sound3_ms.is_some());
         }
+    }
+
+    /// Twenty seconds of a synthetic watch at 280°, kept as an
+    /// analysis-only take keeps it: both sides' profiles every 2 s.
+    fn kept_stretches() -> (Vec<crate::analysis_take::StretchProfiles>, Vec<Beat>, f64) {
+        let sc = SynthConfig {
+            duration_s: 20.0,
+            ..SynthConfig::default()
+        };
+        let audio = generate(&sc, |_| 280.0, |_| 0.0);
+        let fs = audio.sample_rate as f64;
+        let cfg = AnalysisConfig::default();
+        let a = analyze(&audio, &cfg);
+        let osc = 2.0 * 3600.0 / a.summary.bph as f64;
+        let env = envelope(&audio.samples, fs, &cfg.envelope);
+        let kept = (1..=10)
+            .map(|k| {
+                let end_s = 2.0 * k as f64;
+                crate::analysis_take::StretchProfiles {
+                    end_s,
+                    signal: None,
+                    sides: profiles(&env, fs, &a.beats, osc, end_s - 2.0, end_s, &cfg.amplitude),
+                }
+            })
+            .collect();
+        (kept, a.beats, osc)
+    }
+
+    /// The Average Over window from kept 2 s profiles (#979): the
+    /// stretches in it averaged by their beats, the band the range of
+    /// theirs, the marks measured on the average; stretches in a mask or
+    /// across a break culled, never filled.
+    #[test]
+    fn a_window_of_kept_profiles_averages_the_stretches_in_it() {
+        let (kept, beats, osc) = kept_stretches();
+        let cfg = AmplitudeConfig::default();
+        let at = |window: (f64, f64), masked: &[(f64, f64)], breaks: &[crate::breaks::Break]| {
+            profile_at(&kept, window, masked, breaks, &beats, osc, &cfg)
+        };
+        let ProfileAt::Averaged {
+            sides,
+            stretches,
+            from_s,
+            to_s,
+        } = at((20.0, 10.0), &[], &[])
+        else {
+            panic!("no profile");
+        };
+        assert_eq!((stretches, from_s, to_s), (5, 10.0, 20.0));
+        let used = &kept[5..];
+        for (i, p) in sides.iter().enumerate() {
+            let p = p.as_ref().expect("both sides");
+            let each: Vec<&TickProfile> =
+                used.iter().map(|s| s.sides[i].as_ref().unwrap()).collect();
+            assert_eq!(p.beats, each.iter().map(|e| e.beats).sum::<usize>());
+            let k = p.median.len() / 2;
+            let want: f32 = each
+                .iter()
+                .map(|e| e.median[k] * e.beats as f32)
+                .sum::<f32>()
+                / p.beats as f32;
+            assert!((p.median[k] - want).abs() < 1e-5 * want.abs().max(1.0));
+            let lo = each.iter().map(|e| e.p10[k]).fold(f32::INFINITY, f32::min);
+            let hi = each
+                .iter()
+                .map(|e| e.p90[k])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!((p.p10[k], p.p90[k]), (lo, hi));
+            let amp = p.amplitude_deg.expect("an amplitude");
+            assert!((amp - 280.0).abs() < 10.0, "amplitude {amp}");
+            let (u, d) = (p.unlock_ms.unwrap(), p.drop_ms.unwrap());
+            assert!((d - each[0].drop_ms.unwrap()).abs() < 0.3, "drop {d}");
+            assert!(u < d && p.sound3_ms.is_some());
+        }
+        let count = |r: ProfileAt| match r {
+            ProfileAt::Averaged { stretches, .. } => stretches,
+            other => panic!("{other:?}"),
+        };
+        // Shorter than a stretch: the one stretch ending there.
+        assert_eq!(count(at((20.0, 0.5), &[], &[])), 1);
+        // A mask in 13 to 13.5 s and a break at 15.5 s cull 12-14 and 14-16.
+        let brk = crate::breaks::Break {
+            audio_s: 15.5,
+            gap_s: 1.0,
+        };
+        assert_eq!(count(at((20.0, 10.0), &[(13.0, 13.5)], &[brk])), 3);
+        // All of it culled: masked; nothing kept there: not kept.
+        assert!(matches!(
+            at((20.0, 4.0), &[(16.5, 17.0), (18.5, 19.0)], &[]),
+            ProfileAt::Masked
+        ));
+        assert!(matches!(
+            at((20.0, 10.0), &[(19.0, 20.5)], &[]),
+            ProfileAt::Masked
+        ));
+        assert!(matches!(at((60.0, 10.0), &[], &[]), ProfileAt::NotKept));
+        // No beats heard in 10 to 14 s, with beats either side: no beats.
+        let quiet: Vec<Beat> = beats
+            .iter()
+            .filter(|b| !(10.0..14.0).contains(&b.time))
+            .cloned()
+            .collect();
+        let none = profile_at(&[], (14.0, 4.0), &[], &[], &quiet, osc, &cfg);
+        assert!(matches!(none, ProfileAt::NoBeats), "{none:?}");
     }
 
     #[test]
