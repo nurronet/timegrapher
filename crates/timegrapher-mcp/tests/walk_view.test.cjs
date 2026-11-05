@@ -15,7 +15,12 @@ const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join
 // fixture to core).
 const TIME_MAP = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/time_map.json"), "utf8"));
 const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
-const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
+// A core string constant, written out or named after another one
+// (WALK_AMP_NAME is AMPLITUDE_SHORT, #1061).
+const coreStr = (name) => {
+  const m = viewsRs.match(new RegExp(`pub const ${name}: &str = (?:"([^"]*)"|([A-Z_]+));`));
+  return m[1] ?? coreStr(m[2]);
+};
 const WALK_WORDS = {
   title: coreStr("WALK_TITLE"), hint: coreStr("WALK_HINT"), since: coreStr("WALK_SINCE"), key_start: coreStr("WALK_KEY_START"),
   start: coreStr("WALK_START"),

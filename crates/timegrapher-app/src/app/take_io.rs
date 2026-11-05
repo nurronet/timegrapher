@@ -1,6 +1,7 @@
 //! Listening and saving: the microphone, the session and its unsaved state, saving takes and analysis, opening and replaying recordings, the whole-take analysis, and the poll that feeds the live view.
 
 use super::*;
+use timegrapher_core::take_context::{EntryWindow, FilePart};
 
 impl TimegrapherApp {
     pub(super) fn live_config(&self) -> LiveConfig {
@@ -1283,6 +1284,21 @@ impl TimegrapherApp {
         entries: &[RecordingEntry],
         duration_s: Option<f64>,
     ) -> (Stretches, Vec<(f64, f64)>) {
+        self.apply_manifest_placed(m, entries, duration_s, None)
+    }
+
+    /// [`Self::apply_manifest`] for a take opened from a folder of several
+    /// sound files, `layout` (core's [`folder_layout`], one window per
+    /// entry) placing each on the strip: an entry for one of them gives its
+    /// positions, settling and masks in seconds into its own file, so each
+    /// is moved to where that file starts (#1154).
+    pub(super) fn apply_manifest_placed(
+        &mut self,
+        m: &Manifest,
+        entries: &[RecordingEntry],
+        duration_s: Option<f64>,
+        layout: Option<&[EntryWindow]>,
+    ) -> (Stretches, Vec<(f64, f64)>) {
         if let Some(w) = &m.watch {
             self.watch = w.clone();
         }
@@ -1306,19 +1322,43 @@ impl TimegrapherApp {
         if m.bph.is_some() {
             self.put_bph(m.bph);
         }
-        // What the take masked out; its seconds are the strip's.
-        let masked: Vec<[f64; 2]> = entries.iter().flat_map(|e| e.masked.clone()).collect();
+        // What the take masked out; its seconds are the strip's, each
+        // entry's moved to where its file starts.
+        let offset = |i: usize| layout.map_or(0.0, |w| w[i].offset_s);
+        let masked: Vec<[f64; 2]> = entries
+            .iter()
+            .enumerate()
+            .flat_map(|(i, e)| {
+                let off = offset(i);
+                e.masked.iter().map(move |s| [s[0] + off, s[1] + off])
+            })
+            .collect();
         self.put_masked(timegrapher_core::session::masked_spans(&masked));
         self.opened_masks = Some(self.masked.clone());
         // Each entry read once the watch has settled, from core's window
         // for it, as `session` reads it: the app's own takes say
         // `settle_s = 0`, a recorded one its settling, and a take shorter
         // than twice its settling settles to halfway. Its length is known
-        // here for a take of one sound file; for one of several, each
-        // entry runs to its end.
-        let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
-        let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
-        let listed = timegrapher_core::take::listed_positions(m, entries, length);
+        // here for a take of one sound file, and for each file of a folder
+        // take laid out by core; otherwise each entry runs to its end.
+        let listed = match layout {
+            Some(windows) => entries
+                .iter()
+                .zip(windows)
+                .filter_map(|(e, w)| {
+                    timegrapher_core::take::listed_position(
+                        e,
+                        w.window.as_ref().ok().copied(),
+                        w.offset_s,
+                    )
+                })
+                .collect(),
+            None => {
+                let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
+                let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
+                timegrapher_core::take::listed_positions(m, entries, length)
+            }
+        };
         let (out, settles) = timegrapher_core::take::positions_of(
             listed
                 .into_iter()
@@ -1434,7 +1474,9 @@ impl TimegrapherApp {
                         self.keep_mic_setup();
                         self.set_watch_setup(WatchSetup::default());
                         self.open_note = None;
-                        self.apply_manifest(&m, &entries, None)
+                        let layout = folder_layout(path, &m, &entries);
+                        let windows = layout.as_ref().map(|l| l.1.as_slice());
+                        self.apply_manifest_placed(&m, &entries, None, windows)
                     }
                     None => {
                         self.fresh_setup(path, &files);
@@ -1587,7 +1629,10 @@ impl TimegrapherApp {
         let (stretches, settles) = match manifest {
             Some((m, entries)) => {
                 let length = info.frames.map(|f| f as f64 / f64::from(info.sample_rate));
-                let out = self.apply_manifest(&m, &entries, length.filter(|_| files.len() == 1));
+                let layout = folder_layout(path, &m, &entries);
+                let length = length.filter(|_| files.len() == 1);
+                let windows = layout.as_ref().map(|l| l.1.as_slice());
+                let out = self.apply_manifest_placed(&m, &entries, length, windows);
                 self.watch_fills_in(path, &m);
                 out
             }
@@ -2336,6 +2381,32 @@ fn recordings_info(
         }
     }
     Ok((files, info))
+}
+
+/// A take opened from the folder `path` of several sound files, with its
+/// session file `m` and that file's `entries` for the folder, laid out by
+/// core (`take_context::entry_layout`): each sound file's place on the
+/// strip, and each entry's window there, one per entry (#1154). None for
+/// a lone file, a folder of one, one core can't lay out, or one with an
+/// entry for the whole folder, which reads over the take whole as before.
+pub(super) fn folder_layout(
+    path: &Path,
+    m: &Manifest,
+    entries: &[RecordingEntry],
+) -> Option<(Vec<FilePart>, Vec<EntryWindow>)> {
+    let whole = entries
+        .iter()
+        .any(|e| timegrapher_core::take::names_whole_folder(&e.file));
+    if !path.is_dir() || whole {
+        return None;
+    }
+    let listed = Manifest {
+        recordings: entries.to_vec(),
+        ..m.clone()
+    };
+    let (files, windows) =
+        timegrapher_core::take_context::entry_layout(path, &listed, None).ok()?;
+    (files.len() > 1 && windows.len() == entries.len()).then_some((files, windows))
 }
 
 /// The name an opened take shows with: a folder says how many files.

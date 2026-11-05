@@ -448,10 +448,36 @@ pub const WALK_HINT: &str = "Rate at each amplitude as the watch runs down.";
 pub const WALK_MIN_POINTS: usize = 3;
 /// A point read from fewer readings than this says how many on hover.
 pub const WALK_FEW_READINGS: usize = 10;
+/// The one spelling of beat error's short name, for the names built on it.
+macro_rules! beat_error_short {
+    () => {
+        "B.E."
+    };
+}
+/// Each reading's short name, where its whole one has no room: the
+/// strip's overlay axes and the walk's axis (#1052), and a narrow
+/// readings card's title (#1061). The one place they are spelled.
+pub const AMPLITUDE_SHORT: &str = "Amp.";
+pub const BEAT_ERROR_SHORT: &str = beat_error_short!();
+/// Beat error from the unlock and from the drop, on the strip's axes.
+pub const BEAT_ERROR_UNLOCK_SHORT: &str = concat!(beat_error_short!(), " U");
+pub const BEAT_ERROR_DROP_SHORT: &str = concat!(beat_error_short!(), " D");
+
+/// A reading's short name for its whole one, as the cards and axes name
+/// them: "Amplitude" is "Amp." and "Beat Error" "B.E."; none for a name
+/// already short.
+pub fn short_name(name: &str) -> Option<&'static str> {
+    match name {
+        "Amplitude" => Some(AMPLITUDE_SHORT),
+        "Beat Error" => Some(BEAT_ERROR_SHORT),
+        _ => None,
+    }
+}
+
 /// The axes' short names and units, as the app's strip writes them (#1052).
 pub const WALK_RATE_NAME: &str = "Rate";
 pub const WALK_RATE_UNIT: &str = "s/d";
-pub const WALK_AMP_NAME: &str = "Amp.";
+pub const WALK_AMP_NAME: &str = AMPLITUDE_SHORT;
 pub const WALK_AMP_UNIT: &str = "°";
 /// What the colour key's hours count from. Core can't yet tell a take
 /// begun at full wind from one whose `wind_h` was left at its default, so

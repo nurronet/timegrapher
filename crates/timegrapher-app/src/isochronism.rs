@@ -15,7 +15,7 @@ use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
     curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
-    WALK_HINT, WALK_KEY_START, WALK_SINCE, WALK_START,
+    WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
 };
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
@@ -171,7 +171,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(right, unit.top()),
         Align2::RIGHT_BOTTOM,
-        "Rate",
+        WALK_RATE_NAME,
         name.clone(),
         pal.text,
     );
@@ -185,7 +185,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(deg.left() - 3.0, deg.top()),
         Align2::RIGHT_TOP,
-        "Amp.",
+        WALK_AMP_NAME,
         name,
         pal.text,
     );
