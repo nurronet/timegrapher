@@ -448,10 +448,36 @@ pub const WALK_HINT: &str = "Rate at each amplitude as the watch runs down.";
 pub const WALK_MIN_POINTS: usize = 3;
 /// A point read from fewer readings than this says how many on hover.
 pub const WALK_FEW_READINGS: usize = 10;
+/// The one spelling of beat error's short name, for the names built on it.
+macro_rules! beat_error_short {
+    () => {
+        "B.E."
+    };
+}
+/// Each reading's short name, where its whole one has no room: the
+/// strip's overlay axes and the walk's axis (#1052), and a narrow
+/// readings card's title (#1061). The one place they are spelled.
+pub const AMPLITUDE_SHORT: &str = "Amp.";
+pub const BEAT_ERROR_SHORT: &str = beat_error_short!();
+/// Beat error from the unlock and from the drop, on the strip's axes.
+pub const BEAT_ERROR_UNLOCK_SHORT: &str = concat!(beat_error_short!(), " U");
+pub const BEAT_ERROR_DROP_SHORT: &str = concat!(beat_error_short!(), " D");
+
+/// A reading's short name for its whole one, as the cards and axes name
+/// them: "Amplitude" is "Amp." and "Beat Error" "B.E."; none for a name
+/// already short.
+pub fn short_name(name: &str) -> Option<&'static str> {
+    match name {
+        "Amplitude" => Some(AMPLITUDE_SHORT),
+        "Beat Error" => Some(BEAT_ERROR_SHORT),
+        _ => None,
+    }
+}
+
 /// The axes' short names and units, as the app's strip writes them (#1052).
 pub const WALK_RATE_NAME: &str = "Rate";
 pub const WALK_RATE_UNIT: &str = "s/d";
-pub const WALK_AMP_NAME: &str = "Amp.";
+pub const WALK_AMP_NAME: &str = AMPLITUDE_SHORT;
 pub const WALK_AMP_UNIT: &str = "°";
 /// What the colour key's hours count from. Core can't yet tell a take
 /// begun at full wind from one whose `wind_h` was left at its default, so
@@ -459,6 +485,8 @@ pub const WALK_AMP_UNIT: &str = "°";
 pub const WALK_SINCE: &str = "since start";
 /// The colour key's left end: the take's start.
 pub const WALK_KEY_START: &str = "0 h";
+/// The name by the ring at the walk's first point (Hugh's look C).
+pub const WALK_START: &str = "Start";
 
 /// One point of the Isochronism card: hours since the take's start, its
 /// amplitude and rate, and its hover.
@@ -524,6 +552,91 @@ pub fn walk_beads(dots: &[WalkDot], last_hours: f64) -> Vec<WalkBead> {
             })
         })
         .collect()
+}
+
+/// A headline as short lines, one fact a line (Hugh's F4): each of its
+/// sentences and clauses on a line of its own, from a capital, without
+/// its full stop. What the Isochronism pane and card show over the walk,
+/// from the curve's headline.
+pub fn headline_lines(headline: &str) -> Vec<String> {
+    headline
+        .split(". ")
+        .flat_map(|s| s.split("; "))
+        .map(|s| s.trim().trim_end_matches('.'))
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let mut c = s.chars();
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+/// About how many steps each of the walk's axes is cut into, on a 1-2-5
+/// step with round ends (Hugh's F3: 6 to 10 a side).
+pub const WALK_AXIS_STEPS: f64 = 10.0;
+
+/// Amplitudes from `lo` to `hi`, padded by 5% and at least `min`: the
+/// isochronism curve's span (`min` its bin width) and the walk's
+/// ([`crate::steadiness::ISO_BIN_DEG`]).
+pub fn amp_padded(lo: f64, hi: f64, min: f64) -> (f64, f64) {
+    let pad = ((hi - lo) * 0.05).max(min);
+    (lo - pad, hi + pad)
+}
+
+/// Rates from `lo` to `hi`, padded by 15% as the charts are.
+pub fn rate_padded(lo: f64, hi: f64) -> (f64, f64) {
+    let pad = ((hi - lo) * 0.15).max(0.05);
+    (lo - pad, hi + pad)
+}
+
+/// The isochronism curve's amplitude span from its bins' amplitudes, in
+/// order: the first's to the last's, padded by the bin width
+/// ([`amp_padded`]); none with no bins.
+pub fn curve_amp(bin_amps: &[f64], bin_deg: f64) -> Option<(f64, f64)> {
+    Some(amp_padded(*bin_amps.first()?, *bin_amps.last()?, bin_deg))
+}
+
+/// The walk's amplitude and rate spans: its dots' padded
+/// ([`amp_padded`], [`rate_padded`]).
+pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
+    let ends = |f: fn(&WalkDot) -> f64| {
+        dots.iter()
+            .map(f)
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                (l.min(v), h.max(v))
+            })
+    };
+    let (a_lo, a_hi) = ends(|d| d.amplitude_deg);
+    let (r_lo, r_hi) = ends(|d| d.rate_s_per_day);
+    [
+        amp_padded(a_lo, a_hi, crate::steadiness::ISO_BIN_DEG),
+        rate_padded(r_lo, r_hi),
+    ]
+}
+
+/// One axis's `(lo, hi, step)` over `span`: round ends on a 1-2-5 step
+/// cut into about [`WALK_AXIS_STEPS`] ([`chart_scale::round_ends_in`]).
+pub fn walk_axis((lo, hi): (f64, f64)) -> (f64, f64, f64) {
+    chart_scale::round_ends_in(lo, hi, WALK_AXIS_STEPS)
+}
+
+/// The walk's amplitude span ([`walk_spans`]) widened to the curve's
+/// ([`curve_amp`]) when there is one, so a degree sits at one x in the
+/// curve and the walk.
+pub fn walk_amp(dots: &[WalkDot], curve_amp: Option<(f64, f64)>) -> (f64, f64) {
+    let (a_lo, a_hi) = walk_spans(dots)[0];
+    curve_amp.map_or((a_lo, a_hi), |(lo, hi)| (lo.min(a_lo), hi.max(a_hi)))
+}
+
+/// The walk's axes, amplitude ([`walk_amp`]) then rate ([`walk_spans`]),
+/// each `(lo, hi, step)` ([`walk_axis`]).
+pub fn walk_axes(dots: &[WalkDot], curve_amp: Option<(f64, f64)>) -> [(f64, f64, f64); 2] {
+    [
+        walk_axis(walk_amp(dots, curve_amp)),
+        walk_axis(walk_spans(dots)[1]),
+    ]
 }
 
 /// Hours as the card writes them: one decimal under 10 h, whole above.
@@ -1462,6 +1575,42 @@ mod tests {
         let long = beads(&dots_to(120.0, 0.0..0.0), 120.0);
         let texts: Vec<&str> = long.iter().map(|b| b.1.as_str()).collect();
         assert_eq!(texts, ["24 h", "48 h", "72 h", "96 h"]);
+    }
+
+    #[test]
+    fn a_headline_goes_one_fact_a_line() {
+        assert_eq!(
+            headline_lines("The rate falls 0.23 s/d per degree, 145° to 251°; flattest near 213°. Slope from 12 bins."),
+            ["The rate falls 0.23 s/d per degree, 145° to 251°", "Flattest near 213°", "Slope from 12 bins"]
+        );
+        assert!(headline_lines("").is_empty());
+    }
+
+    #[test]
+    fn the_walk_axes_end_round_on_six_to_ten_steps() {
+        let dots: Vec<WalkDot> = [(211.4, -3.2), (272.0, 4.1), (301.3, 0.0)]
+            .iter()
+            .map(|&(a, r)| WalkDot {
+                hours: 0.0,
+                when: 0.0,
+                amplitude_deg: a,
+                rate_s_per_day: r,
+                hover: String::new(),
+                joined: true,
+            })
+            .collect();
+        // Padded as the charts are (5% or 2°, 15%), then rounded.
+        let [amp, rate] = walk_axes(&dots, None);
+        assert_eq!(amp, (200.0, 310.0, 10.0));
+        assert_eq!(rate, (-5.0, 6.0, 1.0));
+        // A curve reaching further widens the amplitude; the rate is the
+        // walk's own.
+        let curve = curve_amp(&[150.0, 200.0, 250.0], 10.0);
+        assert_eq!(curve, Some((140.0, 260.0)));
+        let [amp, wide_rate] = walk_axes(&dots, curve);
+        assert_eq!(amp, (140.0, 320.0, 20.0));
+        assert_eq!(wide_rate, rate);
+        assert_eq!(curve_amp(&[], 10.0), None);
     }
 
     #[test]

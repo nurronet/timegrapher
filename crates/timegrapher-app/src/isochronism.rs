@@ -10,10 +10,13 @@ use crate::strength::{self, Grid, Strength};
 use crate::theme::{self, Icon};
 use eframe::egui::{self, Align2, Color32, Pos2, RichText, Stroke};
 use egui_plot::{Line, Plot, PlotPoint, PlotTransform, Points, VLine};
-use timegrapher_core::chart_scale::{axis_number, round_ends_in, round_step};
+use timegrapher_core::chart_scale::{axis_number, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
-use timegrapher_core::steady_views::{WalkDot, WalkView, WALK_HINT, WALK_KEY_START, WALK_SINCE};
+use timegrapher_core::steady_views::{
+    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
+    WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
+};
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
 const GUTTER: f32 = 64.0;
@@ -76,7 +79,7 @@ pub fn ui(
         gutter: gutter(ui, curve, walk),
     };
     for line in curve
-        .map(|c| summary_lines(&c.headline))
+        .map(|c| headline_lines(&c.headline))
         .unwrap_or_default()
     {
         ui.label(RichText::new(line).small().color(pal.text_secondary));
@@ -116,28 +119,10 @@ fn shaped(ui: &egui::Ui, h: f32, gutter: f32) -> (f32, f32) {
     (shown, (h - shown) / 2.0)
 }
 
-/// The headline as short lines, one fact a line (Hugh's F4): each of its
-/// sentences and clauses on a line of its own, from a capital, without
-/// its full stop.
-fn summary_lines(headline: &str) -> Vec<String> {
-    headline
-        .split(". ")
-        .flat_map(|s| s.split("; "))
-        .map(|s| s.trim().trim_end_matches('.'))
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            let mut c = s.chars();
-            c.next()
-                .map(|f| f.to_uppercase().chain(c).collect())
-                .unwrap_or_default()
-        })
-        .collect()
-}
-
 /// An axis from `span` with round ends on a 1-2-5 step, cut into about 6
-/// to 10 steps (Hugh's F3): the ends and the step.
-fn round_axis((lo, hi): Span) -> (Span, f64) {
-    let (lo, hi, step) = round_ends_in(lo, hi, 10.0);
+/// to 10 steps (Hugh's F3; core's [`walk_axis`]): the ends and the step.
+fn round_axis(span: Span) -> (Span, f64) {
+    let (lo, hi, step) = walk_axis(span);
     ((lo, hi), step)
 }
 
@@ -186,7 +171,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(right, unit.top()),
         Align2::RIGHT_BOTTOM,
-        "Rate",
+        WALK_RATE_NAME,
         name.clone(),
         pal.text,
     );
@@ -200,7 +185,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(deg.left() - 3.0, deg.top()),
         Align2::RIGHT_TOP,
-        "Amp.",
+        WALK_AMP_NAME,
         name,
         pal.text,
     );
@@ -363,25 +348,8 @@ fn curve_and_bounds(c: &IsochronismCurve) -> Option<(Vec<[f64; 2]>, Span, Span)>
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
             (l.min(v), h.max(v))
         });
-    Some((
-        curve,
-        amp_padded(a_lo, a_hi, c.bin_deg),
-        rate_padded(lo, hi),
-    ))
-}
-
-/// Amplitudes from `lo` to `hi`, padded by 5% and at least `min`, for both
-/// charts.
-fn amp_padded(lo: f64, hi: f64, min: f64) -> Span {
-    let pad = ((hi - lo) * 0.05).max(min);
-    (lo - pad, hi + pad)
-}
-
-/// Rates from `lo` to `hi`, padded by 15% as the charts are, for both
-/// charts.
-fn rate_padded(lo: f64, hi: f64) -> Span {
-    let pad = ((hi - lo) * 0.15).max(0.05);
-    (lo - pad, hi + pad)
+    let amps: Vec<f64> = c.bins.iter().map(|b| b.amplitude_deg).collect();
+    Some((curve, curve_amp(&amps, c.bin_deg)?, rate_padded(lo, hi)))
 }
 
 /// The chart's plot, `id`, fixed in place, `h` high over the given bounds, on
@@ -500,29 +468,18 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
     });
 }
 
-/// One amplitude range for the curve and the walk: the span of both.
+/// One amplitude range for the curve and the walk: the span of both
+/// (core's [`walk_amp`]).
 fn shared_amp(c: &IsochronismCurve, w: &WalkView) -> Option<Span> {
-    let (_, (a_lo, a_hi), _) = curve_and_bounds(c)?;
-    let ((b_lo, b_hi), _) = walk_bounds(w);
-    Some((a_lo.min(b_lo), a_hi.max(b_hi)))
+    let (_, amp, _) = curve_and_bounds(c)?;
+    Some(walk_amp(&w.dots, Some(amp)))
 }
 
-/// The walk's amplitude and rate bounds, padded as the curve's are.
+/// The walk's amplitude and rate bounds, padded as the curve's are
+/// (core's [`walk_spans`]).
 fn walk_bounds(w: &WalkView) -> (Span, Span) {
-    let ends = |f: fn(&timegrapher_core::steady_views::WalkDot) -> f64| {
-        w.dots
-            .iter()
-            .map(f)
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
-                (l.min(v), h.max(v))
-            })
-    };
-    let (a_lo, a_hi) = ends(|d| d.amplitude_deg);
-    let (r_lo, r_hi) = ends(|d| d.rate_s_per_day);
-    (
-        amp_padded(a_lo, a_hi, timegrapher_core::steadiness::ISO_BIN_DEG),
-        rate_padded(r_lo, r_hi),
-    )
+    let [amp, rate] = walk_spans(&w.dots);
+    (amp, rate)
 }
 
 /// The walk as Hugh's look C draws it (Peter, 11-05): a 2 pt trail
@@ -578,7 +535,7 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     name(
         *start + egui::vec2(-10.0, -10.0),
         Align2::RIGHT_BOTTOM,
-        "Start",
+        WALK_START,
     );
     // The end's hour off the trail, as the beads' are, past its larger
     // dot (Walter's walk of #1148: below it, the trail crossed it).
@@ -1011,7 +968,7 @@ mod tests {
                  per degree. The rate reads +1.0 s/d at 145° and -3.0 s/d at 251°; it changes \
                  least near 213°.";
         assert_eq!(
-            summary_lines(h),
+            headline_lines(h),
             [
                 "Between 145° and 251° the rate goes with the amplitude by -0.23 ± 0.01 s/d per \
                  degree",
@@ -1234,7 +1191,7 @@ mod tests {
         assert!(
             walk_only
                 .iter()
-                .any(|t| t == &summary_lines(&curve.headline)[0]),
+                .any(|t| t == &headline_lines(&curve.headline)[0]),
             "{walk_only:?}"
         );
         assert!(

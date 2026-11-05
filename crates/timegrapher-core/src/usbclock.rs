@@ -140,7 +140,8 @@ pub fn measure(x: &[f32], fs: u32) -> Option<UsbClock> {
         return None;
     }
     let x = &x[..x.len().min((MAX_DURATION_S * fs as f64) as usize)];
-    let top = HIGHEST_HZ.min(fs / 2 - 1000);
+    // Below 2 kHz sampling no line fits under the Nyquist limit.
+    let top = HIGHEST_HZ.min((fs / 2).saturating_sub(1000));
     let mut ppm: Vec<f64> = (LOWEST_HZ..=top)
         .step_by(1000)
         .filter_map(|f0| line(x, fs, f0))
@@ -166,6 +167,18 @@ pub fn measure(x: &[f32], fs: u32) -> Option<UsbClock> {
 
 #[cfg(test)]
 mod tests {
+    /// Sound sampled too slowly to hold any USB line reads no clock, rather
+    /// than overflowing on the line search's upper end.
+    #[test]
+    fn slow_sampling_reads_no_clock() {
+        for fs in [100, 1000, 1999, 2000] {
+            assert!(
+                super::measure(&vec![0.0; 120 * fs as usize], fs).is_none(),
+                "{fs} Hz"
+            );
+        }
+    }
+
     use super::*;
 
     fn noise(n: usize, seed: u64) -> Vec<f32> {
