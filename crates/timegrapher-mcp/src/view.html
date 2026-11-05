@@ -813,10 +813,10 @@ let steadyView = null;
 // scale, and the FFT's rate as the beat timing in ms.
 // steady::TIME_BANDS: the Cycle view's dots, coloured by when they came.
 const TIME_BANDS = 12;
-let fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
 // A switch in a view's toolbar changes only that view (Hugh, 11-05), as
 // the app's panes do: each view keeps its own, from these at first.
 const SWITCH_DEFAULTS = { fftTiming: false, mapsLog: false, showWheels: true, showInfo: false };
+let { fftTiming, mapsLog, showWheels, showInfo } = SWITCH_DEFAULTS;
 const viewSwitches = {};
 // Put the switches the current view shows away, and take out `view`'s.
 function switchView(view) {
