@@ -56,14 +56,15 @@ pub fn read(files: &[PathBuf], from_s: f64, len_s: f64) -> Result<Span, String> 
 
 /// Frames `lo..hi` of one file, mixed to mono, full scale ±1.
 fn frames(path: &Path, lo: u64, hi: u64) -> Result<Vec<f32>, String> {
+    // A WAV kept as FLAC since it was listed is read as its FLAC (#503).
+    let kept = audio::kept_path(path);
+    let path = kept.as_deref().unwrap_or(path);
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
     match ext.as_str() {
-        // A WAV kept as FLAC since it was listed is read as its FLAC (#503).
-        "wav" if !path.exists() => flac_frames(&timegrapher_core::flac::kept_name(path), lo, hi),
         "wav" => wav_frames(path, lo, hi),
         "flac" => flac_frames(path, lo, hi),
         other => Err(format!("file extension '{other}'")),
@@ -274,6 +275,10 @@ mod tests {
             frames(&dir.join("audio-001.flac"), 8000, 8100).unwrap()
         );
         assert_eq!(got.len(), 100);
+        // With neither there, the error names the file asked for.
+        std::fs::remove_file(dir.join("audio-001.flac")).unwrap();
+        assert!(frames(&wav, 0, 10).is_err());
+        assert_eq!(audio::kept_path(&wav), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
