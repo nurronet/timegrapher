@@ -518,17 +518,6 @@ const PANES_KNOWN: &[(&str, &str)] = &[
         "* beat_error readings",
         "#1144: the app counts its trend's readings, not core's readings grid",
     ),
-    ("aquanaut324_DU_20min_newstand beat_error 2 s", SIGN),
-    ("blackdial_daytona_DU_20min_newstand beat_error 2 s", SIGN),
-    ("dd3285_explorer2_DU_43min_newstand beat_error 2 s", SIGN),
-    ("eta2824_bare_DU_10min_g4 beat_error 2 s", SIGN),
-    (
-        "eta2824clone2_holder_DU_20min_greycradle beat_error 2 s",
-        SIGN,
-    ),
-    ("peacock1258_DU_30min beat_error 2 s", SIGN),
-    ("pepsi3285_DU_10min_newstand_firsttest beat_error 2 s", SIGN),
-    ("reverso21600_DU_20min_newstand beat_error 2 s", SIGN),
     ("dd3235_DU_30min amplitude 2 s", SETTLE),
     ("dd3235_DU_30min beat_error 2 s", SETTLE),
     ("eta2824_bare_DU_30min amplitude 2 s", SETTLE),
@@ -557,8 +546,6 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ),
 ];
 
-/// #1146, in [`PANES_KNOWN`].
-const SIGN: &str = "#1146: the app's 2 s beat error has the opposite sign to series's";
 /// #1145, in [`PANES_KNOWN`].
 const SETTLE: &str = "#1145: the app leaves out the windows before the position's settle time";
 
