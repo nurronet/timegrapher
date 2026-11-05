@@ -298,7 +298,10 @@ the timegrapher app draws them:
   series and that series' `summary`, the headline in a few words; the Info
   switch shows the view's description and each series' full headline, as
   `series` words it, and its statistics; the Readings view's key says what
-  a dot is and how many are drawn, over its Readings, Periods,
+  a dot is and how many are drawn, and on a long series, where core gives
+  the readings in chunks, each dot is a chunk's mean over a filled band
+  from its lowest reading to its highest, as the app draws it, and the key
+  says how many bands hold how many readings, over its Readings, Periods,
   Cycle, Autocorrelation, Allan Deviation, CUSUM or FFT view, picked with
   the buttons above it; each view keeps its own switches, so turning one
   on in one view leaves the others as they were; Periods has a Log Scale switch, and the FFT draws
