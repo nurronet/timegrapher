@@ -81,16 +81,13 @@ pub fn banded(drawn: &[Drawn]) -> bool {
     drawn.iter().any(|d| d.count > 1)
 }
 
-/// The value scale drawn readings are drawn on
-/// ([`crate::chart_scale::spread`]): of their values, or of the bands'
-/// lowest and highest readings once they are [`banded`].
-pub fn readings_range(drawn: &[Drawn]) -> Option<(f64, f64)> {
-    let ends: Vec<f64> = if banded(drawn) {
-        drawn.iter().flat_map(|d| [d.lo, d.hi]).collect()
-    } else {
-        drawn.iter().map(|d| d.mean).collect()
-    };
-    chart_scale::spread(&ends)
+/// The value scale a series' readings are drawn on: core's
+/// [`crate::chart_scale::spread`] of every finite reading, banded or not,
+/// so a few stray readings stay outside it (#1034). A band reaching
+/// past it is clipped at the plot's edge; its `lo` and `hi` stay true.
+pub fn readings_range(g: &Grid) -> Option<(f64, f64)> {
+    let finite: Vec<f64> = g.y.iter().copied().filter(|v| v.is_finite()).collect();
+    chart_scale::spread(&finite)
 }
 
 /// How long a chunk of [`thin_readings`] spans, seconds, on average: a
@@ -641,11 +638,6 @@ pub fn views(
     let folds = folds(&grids, report, lc);
     let series = (0..3)
         .map(|i| {
-            let g = &grids[i];
-            let n = g.y.len();
-            let drawn = thin_readings(g);
-            let pick = |f: fn(&Drawn) -> f64| drawn.iter().map(f).collect::<Vec<f64>>();
-            let (values, lo, hi) = (pick(|d| d.mean), pick(|d| d.lo), pick(|d| d.hi));
             let search = searches[i]
                 .as_ref()
                 .filter(|s| !s.period_s.is_empty())
@@ -670,17 +662,7 @@ pub fn views(
                 beat_error_sources: report.series[i].beat_error_sources,
                 caveats: report.series[i].caveats.clone(),
                 series: NAMES[i],
-                readings: Readings {
-                    step_s: g.step,
-                    n,
-                    chunk_s: chunk_s(g),
-                    y_range: readings_range(&drawn).map(|(a, b)| [a, b]),
-                    t_s: pick(|d| d.t),
-                    values,
-                    counts: drawn.iter().map(|d| d.count).collect(),
-                    lo,
-                    hi,
-                },
+                readings: readings_of(&grids[i]),
                 search,
                 fold,
             }
@@ -689,6 +671,24 @@ pub fn views(
     Views {
         series,
         period_span: period_span(&searches).map(|(a, b)| [a, b]),
+    }
+}
+
+/// A series' readings as the views give them ([`thin_readings`]), on
+/// their scale ([`readings_range`]).
+fn readings_of(g: &Grid) -> Readings {
+    let drawn = thin_readings(g);
+    let pick = |f: fn(&Drawn) -> f64| drawn.iter().map(f).collect::<Vec<f64>>();
+    Readings {
+        step_s: g.step,
+        n: g.y.len(),
+        chunk_s: chunk_s(g),
+        y_range: readings_range(g).map(|(a, b)| [a, b]),
+        t_s: pick(|d| d.t),
+        values: pick(|d| d.mean),
+        counts: drawn.iter().map(|d| d.count).collect(),
+        lo: pick(|d| d.lo),
+        hi: pick(|d| d.hi),
     }
 }
 
@@ -796,6 +796,44 @@ mod tests {
     /// reading can land on one phase of it each time and draw a flat
     /// line; the chunks' bands keep its swing in every point, while their
     /// means stay on the level (#1034).
+    /// Walter's Pepsi case (#1037): 7 h of 2 s beat error windows between
+    /// 0.2 and 0.6 ms, with a stray at ±2 ms in one chunk in twenty. Read
+    /// from the readings, the scale stays on the 0.2-0.6 ms trace (from
+    /// the band ends it ran −2 to +2 ms), and the bands still carry the
+    /// strays, clipped where they are drawn and true in the JSON.
+    #[test]
+    fn stray_readings_in_a_few_chunks_leave_the_scale_alone() {
+        let n = 7 * 3600 / 2;
+        let mut y: Vec<f64> = (0..n)
+            .map(|i| 0.4 + 0.2 * ((i as f64) * 0.37).sin())
+            .collect();
+        let per = n as f64 / super::MAX_READINGS as f64;
+        let mut strays = 0;
+        for c in (0..super::MAX_READINGS).step_by(20) {
+            let i = (c as f64 * per).ceil() as usize;
+            y[i] = if strays % 2 == 0 { 2.0 } else { -2.0 };
+            strays += 1;
+        }
+        let g = super::Grid {
+            t0: 0.0,
+            step: 2.0,
+            y,
+        };
+        let drawn = super::thin_readings(&g);
+        assert!(super::banded(&drawn));
+        let banded = drawn.iter().filter(|d| d.hi >= 2.0 || d.lo <= -2.0).count();
+        assert_eq!(banded, strays);
+        assert!(banded as f64 >= 0.05 * drawn.len() as f64);
+        let (lo, hi) = super::readings_range(&g).unwrap();
+        assert!(lo > 0.0 && lo < 0.2 && hi > 0.6 && hi < 0.8, "{lo} to {hi}");
+        // The JSON keeps every band's true ends, strays and all, and its
+        // scale is the same.
+        let r = super::readings_of(&g);
+        assert_eq!(r.y_range, Some([lo, hi]));
+        let ends = |v: &[f64], x: f64| v.iter().filter(|&&e| e == x).count();
+        assert_eq!(ends(&r.hi, 2.0) + ends(&r.lo, -2.0), strays);
+    }
+
     #[test]
     fn a_long_takes_minute_cycle_shows_in_the_drawn_bands() {
         let n = 65 * 360;

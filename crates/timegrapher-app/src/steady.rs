@@ -378,11 +378,11 @@ fn counted(n: usize, step_s: f64) -> String {
 /// The Readings view's key: what a dot is and how many are drawn, and on
 /// a long series how many readings the bands hold: "10 s readings (179)",
 /// "10 s readings in 3000 bands (23400)".
-fn readings_key(g: &Grid, drawn: usize, banded: bool) -> String {
+fn readings_key(step_s: f64, drawn: usize, read: usize, banded: bool) -> String {
     if banded {
-        format!("{} in {drawn} bands ({})", kind_of(g.step), g.y.len())
+        format!("{} in {drawn} bands ({read})", kind_of(step_s))
     } else {
-        format!("{} ({drawn})", kind_of(g.step))
+        format!("{} ({drawn})", kind_of(step_s))
     }
 }
 
@@ -986,9 +986,10 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let drawn = steady_views::thin_readings(g);
     let pts: Vec<[f64; 2]> = drawn.iter().map(|d| [d.t, d.mean]).collect();
     // A long series is drawn in chunks, each the band from its lowest
-    // reading to its highest, scaled on the bands' ends (#1034).
+    // reading to its highest, on the scale of the readings themselves: a
+    // band reaching past it is clipped at the plot's edge (#1034).
     let banded = steady_views::banded(&drawn);
-    let range = steady_views::readings_range(&drawn);
+    let range = steady_views::readings_range(g);
     let grid = value_grid(k);
     let mut plot = grid
         .on(base)
@@ -998,7 +999,8 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         plot = plot.default_y_bounds(lo, hi);
     }
     // What a dot is, and how many are drawn, as Charts' key.
-    let key = readings_key(g, drawn.len(), banded);
+    let read: usize = drawn.iter().map(|d| d.count).sum();
+    let key = readings_key(g.step, drawn.len(), read, banded);
     let width = steady_views::chunk_s(g);
     let resp = plot.show(ui, |p| {
         grid.draw(p, pal);

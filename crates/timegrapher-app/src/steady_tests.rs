@@ -1238,14 +1238,11 @@ fn a_few_wild_readings_leave_the_scale_alone() {
     pts[62][1] = 1140.0;
     // The scale the Readings view draws them on, one reading a point.
     let spread = |pts: &[[f64; 2]]| {
-        let one = |&[t, v]: &[f64; 2]| steady_views::Drawn {
-            t,
-            mean: v,
-            lo: v,
-            hi: v,
-            count: 1,
-        };
-        steady_views::readings_range(&pts.iter().map(one).collect::<Vec<_>>())
+        steady_views::readings_range(&Grid {
+            t0: 0.0,
+            step: 1.0,
+            y: pts.iter().map(|p| p[1]).collect(),
+        })
     };
     let (lo, hi) = spread(&pts).unwrap();
     assert!(lo > 8.0 && hi < 16.0, "{lo} to {hi}");
