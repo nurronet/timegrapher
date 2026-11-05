@@ -1821,13 +1821,7 @@ enum Streamed {
     Yes,
 }
 
-/// A kept take's sound is added to its folder each time this much more
-/// has been heard: a crash or a power cut costs no more.
-const STREAM_EVERY_S: f64 = 5.0;
-
-/// After a failed save of a take recording into its folder, the next is
-/// tried this much later.
-const STREAM_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+use timegrapher_core::recorder::{STREAM_EVERY_S, STREAM_RETRY};
 
 impl Drop for AnalysisSave {
     fn drop(&mut self) {
@@ -4152,50 +4146,11 @@ impl TimegrapherApp {
     }
 }
 
-impl eframe::App for TimegrapherApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        crate::frame_built();
-        // One settling for every change of position: the pane's Settle.
-        self.session.set_settle_s(self.guided_settle_s);
-        if std::mem::take(&mut self.listen_pending) && !self.running() {
-            self.quick_listen(false);
-        }
-        // A microphone that opened is one set up.
-        if self.running() && self.session.mic() && !self.setup_sheet {
-            self.mic_set_up = true;
-        }
-        if std::mem::take(&mut self.check_pending) {
-            self.updates.start(ctx, false);
-        }
-        if let Some(m) = self.updates.poll() {
-            self.info_msg(m);
-        }
-        // What the readings rest on: a calibre's lift angle and a measured
-        // clock.
-        let lift_known = self.lift_known();
-        let clock_known = self.clock.is_some();
-        if let Some(l) = &mut self.live {
-            l.set_known(lift_known, clock_known);
-        }
-        // A file dropped on the window is opened, where the desktop passes
-        // drops on (not yet on Wayland).
-        let dropped: Vec<PathBuf> = ctx.input(|i| {
-            i.raw
-                .dropped_files
-                .iter()
-                .filter_map(|f| f.path.clone())
-                .collect()
-        });
-        if let Some(p) = dropped.into_iter().next() {
-            self.input = Input::File;
-            self.file_path = p.display().to_string();
-            self.open_recording(&p, true);
-        }
-
-        crate::pump::timed("poll", || self.poll());
-
-        self.export_tick(ctx);
-
+impl TimegrapherApp {
+    /// The window's close asked for: refused while the library moves or
+    /// a save is written, waited on for a take recording into its folder,
+    /// asked about with unsaved sound.
+    fn close_requests(&mut self, ctx: &egui::Context) {
         // Closing the window while the library is being moved is refused,
         // and the app stays open: stopping a copy part way would leave half
         // a library behind.
@@ -4243,6 +4198,54 @@ impl eframe::App for TimegrapherApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Confirm::Quit);
         }
+    }
+}
+
+impl eframe::App for TimegrapherApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        crate::frame_built();
+        // One settling for every change of position: the pane's Settle.
+        self.session.set_settle_s(self.guided_settle_s);
+        if std::mem::take(&mut self.listen_pending) && !self.running() {
+            self.quick_listen(false);
+        }
+        // A microphone that opened is one set up.
+        if self.running() && self.session.mic() && !self.setup_sheet {
+            self.mic_set_up = true;
+        }
+        if std::mem::take(&mut self.check_pending) {
+            self.updates.start(ctx, false);
+        }
+        if let Some(m) = self.updates.poll() {
+            self.info_msg(m);
+        }
+        // What the readings rest on: a calibre's lift angle and a measured
+        // clock.
+        let lift_known = self.lift_known();
+        let clock_known = self.clock.is_some();
+        if let Some(l) = &mut self.live {
+            l.set_known(lift_known, clock_known);
+        }
+        // A file dropped on the window is opened, where the desktop passes
+        // drops on (not yet on Wayland).
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        if let Some(p) = dropped.into_iter().next() {
+            self.input = Input::File;
+            self.file_path = p.display().to_string();
+            self.open_recording(&p, true);
+        }
+
+        crate::pump::timed("poll", || self.poll());
+
+        self.export_tick(ctx);
+
+        self.close_requests(ctx);
         crate::pump::timed("Positions Test", || self.guided_tick(ctx));
         self.reserve_tick(ctx);
         self.reserve_saved();

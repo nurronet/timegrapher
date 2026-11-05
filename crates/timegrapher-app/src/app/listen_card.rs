@@ -614,16 +614,8 @@ impl TimegrapherApp {
                         folder = true;
                     }
                 });
-            match &recording_in {
-                Some(place) => {
-                    button.on_hover_text(format!("Saving to {place}: {RECORDING_IN_HINT}"))
-                }
-                None => button.on_hover_text(
-                    "Save: keep this in one of your watches, as a take of it, or as a take \
-                     in a folder you choose",
-                ),
-            }
-            .on_disabled_hover_text("Nothing to save yet, or a save is under way");
+            save_icon_hover(button, recording_in.as_deref())
+                .on_disabled_hover_text("Nothing to save yet, or a save is under way");
         });
         if marks {
             self.save_marks();
@@ -1615,6 +1607,18 @@ fn listen_length(ui_b: &mut egui::Ui, top: egui::Rect, length: &str, state: &str
             "The take's length: the sound heard so far while listening, or the whole \
              take opened",
         );
+}
+
+/// The Save icon's hover: where a take recording into its folder is
+/// saving, else what Save does.
+fn save_icon_hover(button: egui::Response, recording_in: Option<&str>) -> egui::Response {
+    match recording_in {
+        Some(place) => button.on_hover_text(format!("Saving to {place}: {RECORDING_IN_HINT}")),
+        None => button.on_hover_text(
+            "Save: keep this in one of your watches, as a take of it, or as a take in a folder \
+             you choose",
+        ),
+    }
 }
 
 /// The Save menu's Keep in a Watch: each of `watches`, then New Watch…,

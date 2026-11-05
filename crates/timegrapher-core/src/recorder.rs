@@ -94,6 +94,15 @@ pub struct Break {
 }
 
 const SEGMENT_S: u64 = 3600;
+
+/// A take kept while it records has its sound added to its copy each time
+/// this much more has been heard ([`Recorder::begin_stream_save`]): a
+/// crash or a power cut costs no more.
+pub const STREAM_EVERY_S: f64 = 5.0;
+
+/// After a failed save of a take kept while it records, the next is tried
+/// this much later.
+pub const STREAM_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 const CLOCK_EVERY_S: f64 = 10.0;
 /// Over the first seconds of a take the clock log gets a line every
 /// [`CLOCK_EARLY_EVERY_S`] instead, so a take of a few seconds still has
