@@ -25,6 +25,11 @@ impl WavKeep {
     }
 }
 
+/// Move Library… while saved takes are being kept as FLAC.
+pub(super) const WAV_KEEP_WAIT: &str =
+    "The library moves once its saved takes are kept as FLAC: try again when the status bar \
+     no longer says so.";
+
 /// The status fact's hover.
 pub(super) const WAV_KEEP_HINT: &str = "Takes saved before recordings were kept as FLAC, \
      or stopped before an hour was converted, are converted an hour at a time. Each hour is \
@@ -126,6 +131,11 @@ impl TimegrapherApp {
                 let (Some(root), Ok(Some(_))) = (self.library_root(), &self.library) else {
                     return;
                 };
+                // Its takes are being converted where they are now.
+                if self.wav_keep.is_some() {
+                    self.message = Some((WAV_KEEP_WAIT.into(), false));
+                    return;
+                }
                 let mut d = rfd::FileDialog::new().set_title("Move the Library Into a Folder");
                 if let Some(parent) = root.parent() {
                     d = d.set_directory(parent);

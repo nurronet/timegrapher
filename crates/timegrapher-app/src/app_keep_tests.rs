@@ -1396,6 +1396,15 @@ fn saved_wav_hours_are_kept_as_flac_at_start_up() {
     let words = app.wav_keep.as_ref().expect("one take to keep").words();
     assert!(words.starts_with("Keeping saved takes as FLAC:"), "{words}");
     assert!(words.ends_with("of 1"), "{words}");
+    // The library doesn't move while its takes are being converted in
+    // place (Duncan's note on #1120).
+    app.library_action(settings_window::LibraryAction::Move);
+    assert!(app.library_move_ask.is_none());
+    assert_eq!(
+        app.message,
+        Some((library_folder::WAV_KEEP_WAIT.to_string(), false))
+    );
+    app.message = None;
     let until = Instant::now() + std::time::Duration::from_secs(30);
     while app.wav_keep.is_some() && Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(20));
