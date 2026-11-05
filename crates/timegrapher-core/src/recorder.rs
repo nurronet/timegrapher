@@ -9,10 +9,9 @@
 //!
 //! Each hour is written as a WAV (`audio-001.wav`), whose header a flush
 //! keeps whole should the program stop. Once the hour closes (it is full,
-//! listening carries on after a pause), a thread of its own keeps it as
-//! FLAC ([`crate::flac::keep_as_flac`], #503), and `session.json` names
+//! listening pauses), a thread of its own keeps it as FLAC ([`crate::flac::keep_as_flac`], #503), and `session.json` names
 //! the FLAC from then on. A copy saved meanwhile holds every closed hour
-//! as FLAC too. The hour still being written stays a WAV.
+//! as FLAC too; only an hour still being written is copied as a WAV.
 //!
 //! A pause leaves the audio running straight on but the time between out:
 //! listening again starts a new file, the clock log gets a line either side
@@ -527,7 +526,11 @@ impl Recorder {
         if let Some(w) = self.writer.as_mut() {
             w.flush().map_err(io_err)?;
         }
-        self.note("paused")
+        self.note("paused")?;
+        // Listening again starts a new hour, so this one is done: it is
+        // kept as FLAC while paused, and a save then holds it so. A pause
+        // that could not be noted leaves the hour as it is, for recovery.
+        self.close_segment()
     }
 
     /// Note sound lost from a live input, `gap_s` true seconds of it, as
@@ -822,8 +825,8 @@ impl Recorder {
     /// settings. Returns the folder.
     ///
     /// Waits for the hours being kept as FLAC, so the folder is left as it
-    /// stays. The last hour, which was never closed by another, is left a
-    /// WAV.
+    /// stays. An hour still being written (no pause since it began) is
+    /// left a WAV.
     pub fn finish(mut self, result: Option<serde_json::Value>) -> io::Result<PathBuf> {
         if let Some(w) = self.writer.take() {
             w.finalize().map_err(io_err)?;
@@ -2012,7 +2015,8 @@ mod tests {
         assert_eq!(r.breaks()[1].device, "test");
         assert_eq!(r.breaks()[1].segment, "audio-003.wav");
         let dir = r.finish(None).unwrap();
-        // Each hour closed is kept as FLAC; the last stays a WAV.
+        // Each hour a pause closed is kept as FLAC; the last, never
+        // paused, stays a WAV.
         let names = ["audio-001.flac", "audio-002.flac", "audio-003.wav"];
         let v: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
@@ -2267,6 +2271,44 @@ mod tests {
             serde_json::json!(["audio-001.wav", "audio-002.wav"])
         );
         assert_eq!(session()["breaks"][0]["segment"], "audio-002.wav");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_save_while_paused_holds_every_hour_as_flac() {
+        let (mut r, base) = save_fixture("paused-save");
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        // Paused, no hour is being written: the save holds them all as
+        // FLAC, whether or not the last has been converted yet.
+        let copy = r.save_copy(&base.join("saved"), "", None).unwrap();
+        let names: Vec<_> = fs::read_dir(&copy)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.starts_with("audio-"))
+            .collect();
+        assert_eq!(names, ["audio-001.flac"]);
+        let saved = crate::audio::load(&copy.join("audio-001.flac")).unwrap();
+        assert_eq!(saved.samples.len(), 2 * 8000);
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(copy.join("session.json")).unwrap()).unwrap();
+        assert_eq!(v["segments"], serde_json::json!(["audio-001.flac"]));
+        // Listening again starts the next hour, as after any pause.
+        r.resume("test");
+        append_second(&mut r, 30);
+        assert_eq!(r.segments.len(), 2);
+        assert_eq!(r.breaks().len(), 1);
+        // Paused before finishing, the last hour is kept as FLAC too.
+        r.pause().unwrap();
+        let dir = r.finish(None).unwrap();
+        assert!(!dir.join("audio-002.wav").exists());
+        assert_eq!(
+            crate::audio::load(&dir.join("audio-002.flac"))
+                .unwrap()
+                .samples
+                .len(),
+            8000
+        );
         fs::remove_dir_all(&base).unwrap();
     }
 }
