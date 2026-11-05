@@ -1,6 +1,40 @@
 //! The library folder: finding it, reading it, and moving it.
 
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
+use timegrapher_core::recorder;
+
+/// Saved takes whose hours are still WAVs (saved before hours were kept
+/// as FLAC, #503, or stopped before one was converted), kept as FLAC one
+/// at a time on a thread of their own.
+pub(super) struct WavKeep {
+    /// How many takes are done, of `of`.
+    done: Arc<AtomicUsize>,
+    of: usize,
+    /// When it is over: the hours converted, and the takes that couldn't
+    /// be, each with why.
+    rx: mpsc::Receiver<(usize, Vec<String>)>,
+}
+
+impl WavKeep {
+    /// The status bar's fact while it works.
+    pub(super) fn words(&self) -> String {
+        let done = self.done.load(Ordering::Relaxed).min(self.of);
+        format!("Keeping saved takes as FLAC: {done} of {}", self.of)
+    }
+}
+
+/// Move Library… while saved takes are being kept as FLAC.
+pub(super) const WAV_KEEP_WAIT: &str =
+    "The library moves once its saved takes are kept as FLAC: try again when the status bar \
+     no longer says so.";
+
+/// The status fact's hover.
+pub(super) const WAV_KEEP_HINT: &str = "Takes saved before recordings were kept as FLAC, \
+     or stopped before an hour was converted, are converted an hour at a time. Each hour is \
+     checked sample for sample before its WAV is deleted, and a take being recorded is left \
+     alone.";
 
 impl TimegrapherApp {
     /// The library's folder: the one chosen, else `~/Timegrapher Data`.
@@ -22,6 +56,74 @@ impl TimegrapherApp {
         };
     }
 
+    /// At start-up: keep as FLAC every saved hour in the library still kept
+    /// as a WAV, on a thread of its own. Not when another copy of the app
+    /// has the library: that copy does it.
+    pub(super) fn keep_saved_wavs(&mut self) {
+        let Ok(Some(lib)) = &self.library else { return };
+        if lib.read_only.is_some() {
+            return;
+        }
+        let mut dirs: Vec<PathBuf> = lib
+            .watches
+            .iter()
+            .chain([&lib.unsorted])
+            .flat_map(|e| e.takes.iter().map(|t| e.take_dir(t)))
+            .flat_map(|d| recorder::holding_wav(&d))
+            .collect();
+        dirs.dedup();
+        if dirs.is_empty() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let done = Arc::new(AtomicUsize::new(0));
+        let count = done.clone();
+        self.wav_keep = Some(WavKeep {
+            done,
+            of: dirs.len(),
+            rx,
+        });
+        std::thread::spawn(move || {
+            let (mut hours, mut failed) = (0, Vec::new());
+            for d in dirs {
+                match recorder::keep_saved_as_flac(&d) {
+                    Ok(n) => hours += n,
+                    Err(e) => failed.push(e),
+                }
+                count.fetch_add(1, Ordering::Relaxed);
+            }
+            let _ = tx.send((hours, failed));
+        });
+    }
+
+    /// Take in the end of [`Self::keep_saved_wavs`]: the library read again
+    /// for its takes' sizes, and any take it couldn't convert logged and
+    /// said.
+    pub(super) fn poll_wav_keep(&mut self) {
+        let Some(k) = &self.wav_keep else { return };
+        // A thread that died sends nothing: its end all the same, so the
+        // status bar doesn't keep its count (Trevor).
+        let (hours, failed) = match k.rx.try_recv() {
+            Ok(end) => end,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => (
+                0,
+                vec!["the conversion stopped before it finished".to_string()],
+            ),
+        };
+        self.wav_keep = None;
+        let unit = if hours == 1 { "hour" } else { "hours" };
+        applog::info(&format!("Kept {hours} saved {unit} as FLAC"));
+        for e in &failed {
+            applog::warn(&format!("Couldn't keep a saved hour as FLAC: {e}"));
+        }
+        if let Some(e) = failed.first() {
+            let m = format!("Couldn't keep a saved hour as FLAC, so it stays a WAV: {e}");
+            self.message = Some((m, true));
+        }
+        self.read_library();
+    }
+
     /// Act on a button in Settings' Watches Folder section.
     pub(super) fn library_action(&mut self, act: settings_window::LibraryAction) {
         use settings_window::LibraryAction;
@@ -37,6 +139,11 @@ impl TimegrapherApp {
                 let (Some(root), Ok(Some(_))) = (self.library_root(), &self.library) else {
                     return;
                 };
+                // Its takes are being converted where they are now.
+                if self.wav_keep.is_some() {
+                    self.message = Some((WAV_KEEP_WAIT.into(), false));
+                    return;
+                }
                 let mut d = rfd::FileDialog::new().set_title("Move the Library Into a Folder");
                 if let Some(parent) = root.parent() {
                     d = d.set_directory(parent);
@@ -173,5 +280,52 @@ impl TimegrapherApp {
                 self.error("Moving your watches stopped without finishing.".into());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A conversion thread that dies sends nothing: that is its end too,
+    /// said, so the status bar doesn't keep its count (Trevor, #1120).
+    #[test]
+    fn a_conversion_that_dies_ends_and_says_so() {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        app.wav_keep = Some(WavKeep {
+            done: Arc::new(AtomicUsize::new(0)),
+            of: 2,
+            rx,
+        });
+        app.poll_wav_keep();
+        assert!(app.wav_keep.is_none());
+        let (m, bad) = app.message.clone().expect("said");
+        assert!(bad && m.contains("stopped before it finished"), "{m}");
+    }
+
+    /// While it works, the window draws again by itself, so the count
+    /// moves and the fact goes when it ends without the mouse being moved
+    /// (Walter's walk of #1120).
+    #[test]
+    fn the_window_draws_again_while_it_works() {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        let (_tx, rx) = mpsc::channel();
+        app.wav_keep = Some(WavKeep {
+            done: Arc::new(AtomicUsize::new(0)),
+            of: 2,
+            rx,
+        });
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let delay = |app: &mut TimegrapherApp| {
+            let out = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.status_facts(ui));
+            });
+            out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        };
+        delay(&mut app);
+        assert!(delay(&mut app) <= std::time::Duration::from_secs(1));
     }
 }

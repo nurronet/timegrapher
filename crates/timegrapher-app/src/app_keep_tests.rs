@@ -1352,3 +1352,142 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
     assert!(error && msg.contains("audio = false"), "{msg}");
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A library at `base/Timegrapher Data` holding one watch with one take
+/// whose `session.json` names a WAV hour, as saved before hours were kept
+/// as FLAC: the take's folder and the WAV's samples as read back.
+fn wav_library(tag: &str) -> (PathBuf, PathBuf, PathBuf, Vec<f32>) {
+    use timegrapher_core::synth::{generate, SynthConfig};
+    let base = std::env::temp_dir().join(format!("tg-app-keep-wavs-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let dir = lib.add(&library::Watch::new("Pepsi")).unwrap();
+    drop(lib);
+    let take = dir.join(library::TAKES).join("2026-10-20 14.32 Dial Up");
+    std::fs::create_dir_all(&take).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 5.0,
+            ..Default::default()
+        },
+        |_| 270.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("audio-001.wav"), &audio).unwrap();
+    let heard = timegrapher_core::audio::load(&take.join("audio-001.wav"))
+        .unwrap()
+        .samples;
+    std::fs::write(
+        take.join("session.json"),
+        r#"{"started_utc":"2026-10-20T21:32:00Z","duration_s":5.0,"segments":["audio-001.wav"]}"#,
+    )
+    .unwrap();
+    (base, root, take, heard)
+}
+
+/// Poll the keeping of saved WAVs until it ends, for at most 30 s.
+fn wav_keep_ends(app: &mut TimegrapherApp) {
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    while app.wav_keep.is_some() && Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        app.poll_wav_keep();
+    }
+    assert!(app.wav_keep.is_none(), "ended within 30 s");
+}
+
+/// At start-up a saved take whose hour is still a WAV (saved before hours
+/// were kept as FLAC, #503) is kept as FLAC in the background: the status
+/// bar says so while it works, and the library is read again after, its
+/// session.json naming the FLAC.
+#[test]
+fn saved_wav_hours_are_kept_as_flac_at_start_up() {
+    let (base, root, take, heard) = wav_library("ok");
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.keep_saved_wavs();
+    let words = app.wav_keep.as_ref().expect("one take to keep").words();
+    assert!(words.starts_with("Keeping saved takes as FLAC:"), "{words}");
+    assert!(words.ends_with("of 1"), "{words}");
+    // The library doesn't move while its takes are being converted in
+    // place (Duncan's note on #1120).
+    app.library_action(settings_window::LibraryAction::Move);
+    assert!(app.library_move_ask.is_none());
+    assert_eq!(
+        app.message,
+        Some((library_folder::WAV_KEEP_WAIT.to_string(), false))
+    );
+    app.message = None;
+    wav_keep_ends(&mut app);
+    assert!(take.join("audio-001.flac").is_file());
+    assert!(!take.join("audio-001.wav").exists());
+    let session = std::fs::read_to_string(take.join("session.json")).unwrap();
+    assert!(session.contains("\"audio-001.flac\""), "{session}");
+    assert_eq!(
+        timegrapher_core::audio::load(&take.join("audio-001.flac"))
+            .unwrap()
+            .samples,
+        heard
+    );
+    assert!(app.message.is_none(), "{:?}", app.message);
+    // The library is read again: its take's size is the FLAC's.
+    let lib = app.library.as_ref().unwrap().as_ref().unwrap();
+    let flac = std::fs::metadata(take.join("audio-001.flac"))
+        .unwrap()
+        .len();
+    assert!(lib.watches[0].takes[0].bytes >= flac);
+    // Nothing is left to do on the next start.
+    app.keep_saved_wavs();
+    assert!(app.wav_keep.is_none());
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// With another copy of the app holding the library (read-only here),
+/// nothing is converted: that copy does it, and two never convert the
+/// same hour at once.
+#[test]
+fn a_library_another_copy_has_keeps_its_wavs() {
+    let (base, root, take, _) = wav_library("other");
+    let other = library::Library::open(&root).unwrap();
+    assert!(other.read_only.is_none());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let lib = app.library.as_ref().unwrap().as_ref().unwrap();
+    assert!(lib.read_only.is_some(), "another copy has it");
+    app.keep_saved_wavs();
+    assert!(app.wav_keep.is_none());
+    assert!(take.join("audio-001.wav").is_file());
+    assert!(!take.join("audio-001.flac").exists());
+    drop((app, other));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// An hour that can't be kept as FLAC stays a whole WAV, and the status
+/// line names it; the session file still names the WAV.
+#[test]
+fn an_hour_that_cant_be_kept_as_flac_stays_a_wav_and_is_named() {
+    let (base, root, take, _) = wav_library("bad");
+    // Not a sound file under its WAV name.
+    std::fs::write(take.join("audio-001.wav"), b"not a wav").unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.keep_saved_wavs();
+    assert!(app.wav_keep.is_some());
+    wav_keep_ends(&mut app);
+    let (m, bad) = app.message.clone().expect("the failure said");
+    assert!(bad && m.contains("audio-001.wav"), "{m}");
+    assert_eq!(
+        std::fs::read(take.join("audio-001.wav")).unwrap(),
+        b"not a wav"
+    );
+    let session = std::fs::read_to_string(take.join("session.json")).unwrap();
+    assert!(session.contains("\"audio-001.wav\""), "{session}");
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
