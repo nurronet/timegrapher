@@ -65,19 +65,7 @@ fn cache_dir() -> Option<PathBuf> {
     if cfg!(test) {
         return Some(std::env::temp_dir().join("timegrapher-thumbnails-test"));
     }
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = if cfg!(target_os = "windows") {
-        env("LOCALAPPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library").join("Caches"))
-    } else {
-        env("XDG_CACHE_HOME").or_else(|| env("HOME").map(|h| h.join(".cache")))
-    };
-    base.map(|b| b.join("timegrapher").join("thumbnails"))
+    timegrapher_core::beat_cache::cache_base().map(|b| b.join("thumbnails"))
 }
 
 /// The cached thumbnail's file for `path` as it is now: a changed photo
