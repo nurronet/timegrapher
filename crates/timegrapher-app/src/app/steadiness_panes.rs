@@ -68,7 +68,7 @@ impl TimegrapherApp {
                 Icon::Db,
                 accent,
                 "dB Scale",
-                &mut self.maps_db,
+                self.maps_db.of(view),
                 "Show the sizes in decibels. Off: linear.",
             );
         }
@@ -81,7 +81,7 @@ impl TimegrapherApp {
                 Icon::Wheel,
                 accent,
                 "Wheel Periods",
-                &mut self.show_wheels,
+                self.show_wheels.of(view),
                 steady::WHEELS_HINT,
             );
         }
@@ -258,9 +258,9 @@ impl TimegrapherApp {
             steady::Opts {
                 periods_db: self.periods_db,
                 fft_timing: self.fft_timing,
-                maps_db: self.maps_db,
-                wheels: self.show_wheels,
-                info: self.steady_info,
+                maps_db: self.maps_db.on(view),
+                wheels: self.show_wheels.on(view),
+                info: self.steady_info.on(view),
             },
         );
     }

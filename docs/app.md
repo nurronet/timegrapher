@@ -1248,7 +1248,7 @@ they start as hidden tabs beside the Tick Tock Profile. Above the plots
 is the toolbar and nothing else: each plot has its series' title, and the
 plots take the rest of the pane. **Info**, an "i" in a circle fixed at the
 right of the toolbar just left of the **?**, opens the Info panel down the
-right of the pane (300 pt, or a third of the pane if less; over the plots,
+right of that pane alone (300 pt, or a third of the pane if less; over the plots,
 from the pane's top right corner, in a pane under 600 pt wide): what the
 view shows, then for each series shown, under its coloured title, the
 sentence `series` writes, saying what was detected (a cycle, two levels, a
@@ -1337,8 +1337,8 @@ wheels' lines are grey and dotted, and named, so they never
 read as the grid or a reading. With no calibre picked, or none of its
 wheels known, one minute and one hour are marked in grey instead, periods
 alone named after no wheel. **Wheel Periods**, in the toolbars of
-Periods, FFT, STFT Map and Wavelet Map, shows or hides these marks; it
-starts on. A marked point (the period found, the lag the readings repeat
+Periods, FFT, STFT Map and Wavelet Map, shows or hides these marks in
+that pane only; it starts on. Each map's **dB Scale** is its own too. A marked point (the period found, the lag the readings repeat
 at, the tallest peak) keeps its dot on the trace, and its note sits in
 the nearest clear space the trace doesn't cross, above right first, on a
 plate with a thin leader to the dot; it keeps its place until the trace
