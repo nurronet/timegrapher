@@ -21,6 +21,7 @@ use crate::steady::{self, Steadiness};
 use crate::strip::{self, Anchor, StripInput, StripView};
 use crate::theme::{self, DialogButton, Icon, Role};
 use crate::watches;
+use distributions::{DistKey, DistReadings};
 use eframe::egui::{self, Color32, RichText, Vec2};
 use egui_plot::{GridMark, Line, LineStyle, Plot, Points};
 use egui_tiles::{Linear, LinearDir, SimplificationOptions, TileId, Tiles, Tree, UiResponse};
@@ -2134,6 +2135,10 @@ pub struct TimegrapherApp {
     iso_view: isochronism::View,
     /// The rate over each 2 seconds of beats, for the rate's distribution.
     rate_2s: RateTwoS,
+    /// Core's readings the Distributions pane counts (#1144), what they were
+    /// read for and up to, and the run in the background that replaces them.
+    dist_readings: Option<(DistKey, f64, DistReadings)>,
+    dist_job: Option<(DistKey, f64, std::sync::mpsc::Receiver<DistReadings>)>,
     /// The series each Steadiness pane shows: rate, amplitude, beat error.
     steady_series: std::collections::BTreeMap<steady::View, [bool; 3]>,
     /// The Periods pane's scores in dB.
@@ -2662,6 +2667,8 @@ impl TimegrapherApp {
             hist_readings: true,
             iso_view: Default::default(),
             rate_2s: RateTwoS::default(),
+            dist_readings: None,
+            dist_job: None,
             cursor_t: None,
             cursor_next: None,
             folded: Default::default(),

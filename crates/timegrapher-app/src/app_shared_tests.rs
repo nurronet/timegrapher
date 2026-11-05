@@ -8,6 +8,15 @@ pub(super) const SETTLE_S: f64 = 10.0;
 use timegrapher_core::synth::{generate, SynthConfig};
 
 pub(super) fn synthetic(seconds: f64, rate: f64) -> TimegrapherApp {
+    synthetic_varying(seconds, rate, |_| 0.0)
+}
+
+/// [`synthetic`] with `extra(t)` s/d more rate at each time `t`.
+pub(super) fn synthetic_varying(
+    seconds: f64,
+    rate: f64,
+    extra: impl Fn(f64) -> f64,
+) -> TimegrapherApp {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     app.reset_session(48000, "syn".into());
     let cfg = SynthConfig {
@@ -15,7 +24,7 @@ pub(super) fn synthetic(seconds: f64, rate: f64) -> TimegrapherApp {
         rate_s_per_day: rate,
         ..Default::default()
     };
-    let audio = generate(&cfg, |_| 280.0, |_| 0.0);
+    let audio = generate(&cfg, |_| 280.0, extra);
     let live = app.live.as_mut().unwrap();
     for b in audio.samples.chunks(960) {
         if live.push(b) {
