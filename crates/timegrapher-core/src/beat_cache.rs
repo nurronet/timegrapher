@@ -32,12 +32,6 @@ use std::time::{Duration, SystemTime};
 
 /// The layout's name and version, first in every copy.
 pub const FORMAT: &[u8; 16] = b"timegrapher.bc/1";
-/// The engine a copy was made by: [`crate::library`]'s identity.
-const ENGINE: &str = concat!(
-    env!("CARGO_PKG_VERSION"),
-    "+",
-    env!("TIMEGRAPHER_ENGINE_SOURCE")
-);
 /// Bytes of each sound file read into the key, from its start.
 const HEAD_BYTES: usize = 1 << 16;
 /// A take whose newest file changed this recently may still be recording:
@@ -96,7 +90,7 @@ pub fn cache_base() -> Option<PathBuf> {
 pub fn key(files: &[&Path], cfg: &StreamConfig) -> Option<String> {
     let mut h = Sha256::new();
     h.update(FORMAT);
-    h.update(ENGINE.as_bytes());
+    h.update(crate::library::ENGINE.as_bytes());
     h.update(format!("{cfg:?}").as_bytes());
     for f in files {
         let meta = fs::metadata(f).ok()?;
@@ -160,7 +154,10 @@ pub fn write(
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
     gz.write_all(&encode(log, peak))?;
     let bytes = gz.finish()?;
-    let part = dir.join(format!("{key}.{}.part", std::process::id()));
+    // Its own name, even for two opens of the same take at once.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let part = dir.join(format!("{key}.{}-{n}.part", std::process::id()));
     fs::write(&part, &bytes)?;
     fs::rename(&part, dir.join(&key)).inspect_err(|_| {
         let _ = fs::remove_file(&part);

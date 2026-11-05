@@ -103,8 +103,33 @@ fn a_copy_is_read_only_for_the_same_sound_and_settings() {
     set_changed(&files[1], SystemTime::now() - Duration::from_secs(1800));
     assert!(read(&cache, &paths, &cfg).is_none());
     set_changed(&files[1], SystemTime::now() - Duration::from_secs(3600));
-    // The copy damaged.
     write(&cache, &paths, &cfg, &log, peak).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // A byte of sound changed inside the first 64 KiB, the length and
+    // the time the same.
+    let changed_at = |f: &Path| fs::metadata(f).unwrap().modified().unwrap();
+    let was = changed_at(&files[0]);
+    let mut bytes = fs::read(&files[0]).unwrap();
+    bytes[1000] ^= 0x01;
+    fs::write(&files[0], &bytes).unwrap();
+    set_changed(&files[0], was);
+    assert!(read(&cache, &paths, &cfg).is_none());
+    bytes[1000] ^= 0x01;
+    fs::write(&files[0], &bytes).unwrap();
+    set_changed(&files[0], was);
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // A byte added past the first 64 KiB, the time the same.
+    let was = changed_at(&files[1]);
+    let mut bytes = fs::read(&files[1]).unwrap();
+    bytes.push(0);
+    fs::write(&files[1], &bytes).unwrap();
+    set_changed(&files[1], was);
+    assert!(read(&cache, &paths, &cfg).is_none());
+    bytes.pop();
+    fs::write(&files[1], &bytes).unwrap();
+    set_changed(&files[1], was);
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // The copy damaged.
     let kept = cache.join(key(&paths, &cfg).unwrap());
     let mut raw = fs::read(&kept).unwrap();
     let mid = raw.len() / 2;
