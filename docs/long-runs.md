@@ -176,7 +176,7 @@ the clock fit takes the gap out before fitting, so a pause no longer reads
 as a huge sound-card error; rate and beat error are fitted per stretch and
 combined weighted by beats (where the beat error's sign turns over across
 a break, as sizes, given as positive, and then the slices' beat errors
-and `series`' are sizes too); no 10 s window, slice or `series` 2 s window reaches into a
+and `series`' are sizes too); no 10 s window, slice or 2 s window (`series`' or `long`'s amplitude, #636) reaches into a
 break's gap from either side (a slice that would, or that has a 2 s
 stretch with no beat in it, is left empty, rate, beat error and
 amplitude alike, rather than read from part of its span), and the gap runs from the last sound before the pause to where
