@@ -4,21 +4,26 @@
 use super::tests::{queued_capture, save_failure_fixture};
 use super::*;
 
-/// While a take is heard, Save's Keep in a Watch items are greyed and
-/// say why: a take goes into a watch once it ends, so a pick is never
-/// a silent no-op.
+/// A Quick Listen still heard is kept in a watch from Save's Keep in a
+/// Watch without stopping (#743): listening goes on, the take is the
+/// watch's from then, with its calibre, and Stop saves it into the watch.
 #[test]
-fn keep_in_a_watch_waits_for_the_take_to_end() {
+fn a_quick_listen_heard_is_kept_in_a_watch_and_goes_on() {
     let base = std::env::temp_dir().join(format!("tg-app-keep-live-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("Timegrapher Data");
     let mut lib = library::Library::create(&root).unwrap();
-    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let c = timegrapher_core::calibres::find("2824-2").expect("ETA 2824-2 in the table");
+    let mut pepsi = library::Watch::new("Pepsi");
+    pepsi.calibre = Some(c.calibre.clone());
+    lib.add(&pepsi).unwrap();
     drop(lib);
+    let takes = root.join("Pepsi").join(library::TAKES);
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     app.use_library(Some(root.clone()));
-    app.quick_listen = true;
+    assert!(app.quick_listen_ready(true));
+    assert!(app.calibre.is_empty());
     app.session.listen();
     let info = app.info("", 48000, 16);
     let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
@@ -73,6 +78,149 @@ fn keep_in_a_watch_waits_for_the_take_to_end() {
         .unwrap_or_else(|| panic!("{drawn:?}"))
         .1;
     assert!(drawn.iter().any(|t| t.0 == "New Watch…"), "{drawn:?}");
+    // Over the watch: what keeping it there does.
+    let mut said = false;
+    pass(&mut app, vec![egui::Event::PointerMoved(pepsi)]);
+    for _ in 0..8 {
+        let drawn = pass(&mut app, Vec::new());
+        said |= drawn.iter().any(|t| t.0 == KEEP_HEARD_HINT);
+    }
+    assert!(said, "the hover says listening goes on");
+    // A click on it: the take is Pepsi's, still heard, nothing saved yet.
+    pass(&mut app, click(pepsi));
+    pass(&mut app, Vec::new());
+    assert!(app.running(), "listening goes on");
+    assert!(!app.quick_listen && app.watch == "Pepsi");
+    assert_eq!(
+        app.open_watch().map(|e| e.watch.name.as_str()),
+        Some("Pepsi")
+    );
+    assert_eq!(app.calibre, c.calibre);
+    assert!(app.session.saved_to().is_none());
+    assert!(std::fs::read_dir(&takes).map_or(0, |d| d.count()) == 0);
+    // Stop saves it into Pepsi, as a take of Pepsi.
+    app.capture = None;
+    app.stop_listening();
+    app.wait_for_save();
+    assert_eq!(std::fs::read_dir(&takes).map_or(0, |d| d.count()), 1);
+    assert!(app
+        .session
+        .saved_to()
+        .is_some_and(|p| p.starts_with(&takes)));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Each text a frame draws, with its centre.
+fn drawn_at(out: &egui::FullOutput) -> Vec<(String, egui::Pos2)> {
+    out.shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                t.galley.rect.translate(t.pos.to_vec2()).center(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A click at `at`, pressed and let go within one frame.
+fn click_at(at: egui::Pos2) -> Vec<egui::Event> {
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    vec![egui::Event::PointerMoved(at), button(true), button(false)]
+}
+
+/// The Watch line's menu keeps a Quick Listen still heard in the watch
+/// picked there (#743, Trevor's HOLD): listening goes on, and the take is
+/// that watch's.
+#[test]
+fn a_quick_listen_heard_is_kept_in_a_watch_from_the_watch_line() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-line-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let _tx = queued_capture(&mut app, &base);
+    assert!(app.running() && app.quick_listen);
+    let ctx = theme_ctx();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        drawn_at(&ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.watch_line_menu(ui, false));
+        }))
+    };
+    pass(&mut app, Vec::new());
+    let drawn = pass(&mut app, Vec::new());
+    let at = drawn
+        .iter()
+        .find(|t| t.0 == "Pepsi")
+        .unwrap_or_else(|| panic!("{drawn:?}"))
+        .1;
+    pass(&mut app, click_at(at));
+    pass(&mut app, Vec::new());
+    assert!(app.running(), "listening goes on");
+    assert!(!app.quick_listen && app.watch == "Pepsi");
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi.as_str()));
+    app.capture = None;
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A recording played and still heard goes into a watch only once it
+/// ends: Save's Keep in a Watch items are greyed and say why, so a pick
+/// is never a silent no-op (Trevor's HOLD: kept from before #743).
+#[test]
+fn keep_in_a_watch_waits_for_a_played_recording_to_end() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-played-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let _tx = queued_capture(&mut app, &base);
+    app.input = Input::File;
+    app.opened_path = base.join("empty-input.wav").display().to_string();
+    assert!(app.running() && !app.quick_listen);
+    assert!(app.addable_take().is_some());
+    let ctx = theme_ctx();
+    let mut time = 0.0;
+    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        time += 0.25;
+        let input = egui::RawInput {
+            time: Some(time),
+            events,
+            ..Default::default()
+        };
+        drawn_at(&ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.save_menu(ui, 32.0));
+        }))
+    };
+    pass(&mut app, Vec::new());
+    // The Save button at the panel's top left: its menu opens.
+    pass(&mut app, click_at(egui::pos2(8.0 + 16.0, 8.0 + 16.0)));
+    let drawn = pass(&mut app, Vec::new());
+    let pepsi = drawn
+        .iter()
+        .find(|t| t.0 == "Pepsi")
+        .unwrap_or_else(|| panic!("{drawn:?}"))
+        .1;
     // Over the watch: greyed, it says why.
     let mut said = false;
     pass(&mut app, vec![egui::Event::PointerMoved(pepsi)]);
@@ -82,10 +230,45 @@ fn keep_in_a_watch_waits_for_the_take_to_end() {
     }
     assert!(said, "the hover says why");
     // A click on it keeps nothing and changes no watch.
-    pass(&mut app, click(pepsi));
+    pass(&mut app, click_at(pepsi));
     pass(&mut app, Vec::new());
     assert!(app.watch_open.is_none() && app.keep_back.is_none());
-    assert!(app.session.saved_to().is_none());
+    app.capture = None;
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A theme installed on a fresh context.
+fn theme_ctx() -> egui::Context {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    ctx
+}
+
+/// A take of a watch heard can't be moved to another watch: the Watch
+/// line's other watches are greyed until Stop, and a pick there does
+/// nothing.
+#[test]
+fn a_watchs_take_heard_keeps_its_watch() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-watch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    lib.add(&library::Watch::new("Diver")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let diver = lib.find("Diver").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let _tx = queued_capture(&mut app, &base);
+    assert!(app.running() && !app.quick_listen);
+    app.line_pick(Some(diver.clone()), false);
+    app.keep_in_watch(&diver);
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi.as_str()));
+    assert_eq!(app.watch, "Pepsi");
     app.capture = None;
     let _ = std::fs::remove_dir_all(&base);
 }

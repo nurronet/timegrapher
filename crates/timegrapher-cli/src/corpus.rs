@@ -13,7 +13,8 @@ use std::process::Command;
 use timegrapher_core::analysis::{self, AnalysisConfig};
 use timegrapher_core::audio;
 use timegrapher_core::library::fixed_text;
-use timegrapher_core::stream::{self, StreamConfig};
+use timegrapher_core::stream::StreamConfig;
+use timegrapher_core::take::{self, EntrySettings};
 
 /// The repository the release assets live in.
 pub const REPO: &str = "peterhudson/timegrapher-corpus";
@@ -218,12 +219,26 @@ pub fn smoke(root: &Path, c: &Corpus, filter: &[String]) -> Vec<Smoke> {
     {
         for f in &t.files {
             let path = takes_dir(root).join(&t.id).join(&f.name);
-            let cfg = StreamConfig::default();
-            let r =
-                std::panic::catch_unwind(|| stream::analyze_files(&[path.as_path()], &cfg, |_| {}));
+            // Opened as a recording with no session file is: through core
+            // `take`, on no clock but the card's (#514).
+            let settings = EntrySettings {
+                stream: StreamConfig::default(),
+                card_clock: true,
+                settle_s: None,
+            };
+            let r = std::panic::catch_unwind(|| {
+                take::open_files(
+                    std::slice::from_ref(&path),
+                    None,
+                    &settings,
+                    |_| Ok(None),
+                    |_| Ok(None),
+                    |_, _| {},
+                )
+            });
             let (outcome, beats, detail) = match r {
-                Ok(Ok(log)) => ("ran", Some(log.beats.len()), None),
-                Ok(Err(e)) => ("stopped", None, Some(e.to_string())),
+                Ok(Ok(opened)) => ("ran", Some(opened.log.beats.len()), None),
+                Ok(Err(e)) => ("stopped", None, Some(e)),
                 Err(p) => {
                     let msg = p
                         .downcast_ref::<String>()

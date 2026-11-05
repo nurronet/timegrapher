@@ -896,6 +896,9 @@ const WATCH_SIDE_MAX: f32 = 1100.0;
 const WATCHES_SIDE_BY_SIDE: f32 = 900.0;
 /// Why Keep in a Watch is greyed while a take is heard.
 const KEEP_AFTER_STOP: &str = "Stop listening first, then keep the take in a watch.";
+/// The hover on a watch that a Quick Listen still heard can be kept in.
+const KEEP_HEARD_HINT: &str = "Keep this take in this watch: listening goes on, the readings \
+     take the watch's calibre, lift angle and beat rate, and Stop saves it into the watch";
 /// Why a Positions Test's take takes no Position Brush.
 const POSITIONS_TAKE_PAINT: &str = "A Positions Test sets its own positions; paint a Listen take.";
 /// The hover on a test's setting it can't change while it runs.

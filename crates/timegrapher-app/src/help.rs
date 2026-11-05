@@ -142,6 +142,8 @@ pub const LISTEN: &[&str] = &[
     "Listen starts the microphone: with a watch picked in Watches, a new take of it, saved \
      into it at Stop; with none, or Unsorted Takes picked, Quick Listen, kept only if you \
      Save it. Stop lets go of the microphone and keeps everything on show.",
+    "A watch picked from Save or the Watch line while Quick Listen listens takes the take: \
+     listening goes on, and Stop saves it into that watch.",
     "Save keeps what is on show in one of your watches or in a folder. Average sets how \
      many seconds of beats each reading is worked out over: longer is steadier, shorter \
      follows changes sooner.",

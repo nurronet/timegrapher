@@ -46,6 +46,8 @@ pub const HELP: &[&str] = &[
      when you quit or start another take. A take saved into Unsorted is listed at the top \
      of the watches until you file it under a watch (right-click it, then File Under a \
      Watch) or delete it.",
+    "Keep in a Watch works while Quick Listen still listens: the take is that watch's from \
+     then, and Stop saves it into the watch.",
 ];
 
 /// How the list is sorted.

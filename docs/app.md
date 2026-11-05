@@ -128,7 +128,9 @@ line**: the watch picked, or **No Watch (Quick Listen)**, with ⏷. It is
 the one place on the Bench that says which watch a take goes into. Its
 menu has **No Watch (Quick Listen)**, then under **Recent** up to five
 watches, the one with the newest take first, then **New Watch…** and
-**Find in Watches…**. Another watch can't be picked while listening. The
+**Find in Watches…**. While a Quick Listen is listening, picking a watch
+there (or adding one with New Watch…) keeps the take in it and listening
+goes on; while a watch's take is listening, another can't be picked. The
 card is still the Calibre card: its hover and its **?** say so. With No
 Watch, the **Calibre** pop-up is on its figure row
 (its search covers the whole table, with **Manage Calibres…** at its
@@ -179,8 +181,12 @@ Watches view and starts a new session. It asks first only about what
 isn't Quick Listen's: changed masks on a recording opened, or a watch's
 unsaved details. One icon starts and stops it; there
 is no pause, and listening again starts a new take. Its take is not kept
-until it is saved: once it has stopped, **Keep in a Watch** saves it into
-the watch picked from the Save menu (or **New Watch…** there adds one
+until it is saved. While it is still listening, **Keep in a Watch** in
+the Save menu, or a watch on the Watch line, makes it that watch's take
+without stopping: the readings take the watch's calibre, lift angle and
+beat rate from then (a beat rate already heard stays), and Stop saves it
+into the watch as any take of it is. Once it has stopped, **Keep in a
+Watch** saves it into the watch picked from the Save menu (or **New Watch…** there adds one
 first, and the take is kept in it when the form's button is pressed),
 with the watch's calibre, lift angle and beat rate (a beat rate heard
 that differs from the watch's is kept as heard; a take kept in a watch
