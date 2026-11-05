@@ -90,7 +90,11 @@ pub fn take_spans(m: &Manifest, duration_s: f64) -> Option<Vec<(f64, f64)>> {
     // before ([`take::continues_position`]): one stretch, from the first
     // file's settling to the end, as `session` and the app read it (#1145).
     if m.recordings.iter().any(|e| e.file != first.file) {
-        let measured = m.measure_s.is_some() || m.recordings.iter().any(|e| e.measure_s.is_some());
+        // A measuring time, or a later file's own settling, reads less than
+        // the whole stretch: such a take is read whole, as before.
+        let measured = m.measure_s.is_some()
+            || m.recordings.iter().any(|e| e.measure_s.is_some())
+            || m.recordings[1..].iter().any(|e| e.settle_s.is_some());
         if measured
             || !m.recordings[1..]
                 .iter()
@@ -496,6 +500,13 @@ mod tests {
             read,
             [(take::SETTLE_S, 600.0), (600.0, 1200.0), (1200.0, 1800.0)]
         );
+        // A later file that settles on its own would be read twice over:
+        // the take is read whole instead.
+        let own = manifest(
+            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.flac\"\nposition = \"DU\"\nsettle_s = 40.0\n",
+        );
+        assert_eq!(take_spans(&own, 1200.0), None);
         // Entries that overlap would read their shared sound twice.
         let overlap = manifest(
             "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 500.0\n\

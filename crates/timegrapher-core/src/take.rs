@@ -383,7 +383,8 @@ pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
 
 /// The stretch entry `e` of the take `m` reads in a recording of
 /// `duration_s`, with `given_settle_s` the settling time the reader gives
-/// (after the entry's own, before the session file's), or why it reads
+/// (after the entry's own and the carrying on of a position
+/// ([`continues_position`]), before the session file's), or why it reads
 /// nothing. Every surface reads an entry from this window.
 pub fn reading_window(
     e: &RecordingEntry,
@@ -397,9 +398,10 @@ pub fn reading_window(
     let (start_s, stop_s) = span_of(e, duration_s).map_err(NoReading::Outside)?;
     let (settle, measure) = entry_times(e, m);
     // A file that carries on the one before in the same position was
-    // never handled at its start, so it does not settle again (#1145).
+    // never handled at its start, so it does not settle again (#1145),
+    // whatever settling the reader gives; only its own entry's stands.
     let carried_on = continues_position(e, m).then_some(0.0);
-    let settle = e.settle_s.or(given_settle_s).or(carried_on).or(settle);
+    let settle = e.settle_s.or(carried_on).or(given_settle_s).or(settle);
     let (from_s, to_s) = measured(start_s, stop_s, settle, measure);
     if from_s >= stop_s {
         return Err(NoReading::Unsettled {
@@ -1794,6 +1796,18 @@ mod tests {
         assert_eq!(from(2), SETTLE_S);
         // Its own settling still stands.
         assert_eq!(from(6), 40.0);
+        // A settling the reader gives (`session --settle`) settles each
+        // new position, not a file that carries one on.
+        let given = |i: usize| {
+            reading_window(&m.recordings[i], &m, Some(30.0), 600.0)
+                .unwrap()
+                .from_s
+        };
+        assert_eq!(
+            (given(0), given(1), given(2), given(5)),
+            (30.0, 0.0, 30.0, 30.0)
+        );
+        assert_eq!(given(6), 40.0);
     }
 
     /// A stretch that starts partway into its recording settles halfway
