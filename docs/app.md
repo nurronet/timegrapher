@@ -254,7 +254,7 @@ under it its calibre, beat rate, lift angle and added fields, with
   title, acting on the take picked; then the takes as a table, newest
   first: Started, Position (such as DU, or DU, CU, or All 6; Power Reserve or
   Positions Test for those tests, a test's positions in the row's hover), Length, Rate (s/d), Amplitude (°), Beat Error (ms, its size) and
-  Size (MB). The figures are the take's own reading, as `timegrapher
+  Size (MB), each unit on its own line under its title. The figures are the take's own reading, as `timegrapher
   session` reads its last position on the take's clock, the same one
   `timegrapher watches` gives: worked out from the take's sound the first
   time the list shows it (about a minute for a 9 hour take, the row

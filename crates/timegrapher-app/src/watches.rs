@@ -1053,15 +1053,16 @@ fn figures_hover(count: Option<usize>, reserve: bool) -> String {
     }
 }
 
-/// The takes table's headings, in [`take_cells`]' order.
-pub const TAKE_HEADS: [&str; 7] = [
-    "Started",
-    "Position",
-    "Length",
-    "Rate (s/d)",
-    "Amplitude (°)",
-    "Beat Error (ms)",
-    "Size (MB)",
+/// The takes table's headings, in [`take_cells`]' order: each name and
+/// its unit, drawn on its own line under it (Hugh's ruling on #1086).
+pub const TAKE_HEADS: [(&str, &str); 7] = [
+    ("Started", ""),
+    ("Position", ""),
+    ("Length", ""),
+    ("Rate", "s/d"),
+    ("Amplitude", "°"),
+    ("Beat Error", "ms"),
+    ("Size", "MB"),
 ];
 
 /// The take picked in `e`'s takes, if it is still there.
@@ -1239,15 +1240,7 @@ pub fn takes_table(
         let draw = |ui: &egui::Ui, rect, cells: &[String], color, dim, font: &egui::FontId| {
             draw_cells(ui, rect, cells, &widths, color, dim, font);
         };
-        let (head, _) = ui.allocate_exact_size(Vec2::new(w, row_h), Sense::hover());
-        draw(
-            ui,
-            head,
-            &TAKE_HEADS.map(String::from),
-            pal.text_secondary,
-            None,
-            &egui::FontId::proportional(11.5),
-        );
+        take_heads(ui, &widths, row_h, pal.text_secondary);
         for t in &e.takes {
             let dir = e.take_dir(t);
             let picked = cx.picked == Some(dir.as_path());
@@ -1355,7 +1348,10 @@ fn take_widths(ui: &egui::Ui, e: &WatchEntry, cx: &TakesContext, w: f32) -> Vec<
                             0.0
                         }
                 })
-                .fold(text_w(TAKE_HEADS[i], 11.5), f32::max)
+                .fold(
+                    text_w(TAKE_HEADS[i].0, 11.5).max(text_w(TAKE_HEADS[i].1, 11.5)),
+                    f32::max,
+                )
                 + 18.0
         })
         .collect();
@@ -1375,6 +1371,20 @@ fn text_width(ctx: &egui::Context, t: &str, size: f32, color: egui::Color32) -> 
             .size()
             .x
     })
+}
+
+/// The takes table's headings, `row_h` high for the names and a line
+/// more for their units under them.
+fn take_heads(ui: &mut egui::Ui, widths: &[f32], row_h: f32, ink: egui::Color32) {
+    let font = egui::FontId::proportional(11.5);
+    let line_h = ui.fonts_mut(|f| f.row_height(&font));
+    let w = ui.available_width();
+    let (head, _) = ui.allocate_exact_size(Vec2::new(w, row_h + line_h), Sense::hover());
+    let (names, units) = head.split_top_bottom_at_y(head.top() + row_h);
+    for (rect, part) in [(names, 0), (units, 1)] {
+        let cells = TAKE_HEADS.map(|h| if part == 0 { h.0 } else { h.1 }.to_string());
+        draw_cells(ui, rect, &cells, widths, ink, None, &font);
+    }
 }
 
 /// A row of the takes table, its `cells` in columns `widths` wide.
@@ -2373,7 +2383,9 @@ mod tests {
                 == 2,
             "{wide:?}"
         );
-        let w = 560.0;
+        // Narrow enough that the dates are cut short (the units' own line
+        // leaves the figure columns narrower than "Size (MB)" made them).
+        let w = 500.0;
         let texts = render(w);
         let find = |what: &str| {
             texts
@@ -2382,7 +2394,15 @@ mod tests {
                 .unwrap_or_else(|| panic!("{what}: {texts:?}"))
                 .1
         };
-        assert!(find("Size (MB)").right() <= w, "{texts:?}");
+        assert!(find("Size").right() <= w, "{texts:?}");
+        // Each unit on its own line under its name, right-aligned with it
+        // (Hugh's ruling on #1086).
+        for (name, unit) in [("Rate", "s/d"), ("Amplitude", "°"), ("Size", "MB")] {
+            let (n, u) = (find(name), find(unit));
+            assert!(u.top() >= n.bottom() - 1.0, "{name} over {unit}: {texts:?}");
+            assert!((u.right() - n.right()).abs() < 1.0, "{texts:?}");
+        }
+        assert!(!texts.iter().any(|t| t.0.contains('(')), "{texts:?}");
         assert!(find("1.4").right() <= w, "{texts:?}");
         let dates: Vec<_> = texts.iter().filter(|t| t.0.starts_with("202")).collect();
         assert_eq!(dates.len(), 2, "{texts:?}");
