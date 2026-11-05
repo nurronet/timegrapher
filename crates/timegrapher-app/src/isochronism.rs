@@ -615,9 +615,11 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
-/// The walk's steps from each dot to the next one core joins to it: the
-/// two points, and the two dots' times.
-fn steps(w: &WalkView) -> Vec<([f64; 2], [f64; 2], (f64, f64))> {
+/// A step of the walk: where it goes from and to, and the two dots' times.
+type Step = ([f64; 2], [f64; 2], (f64, f64));
+
+/// The walk's steps from each dot to the next one core joins to it.
+fn steps(w: &WalkView) -> Vec<Step> {
     w.dots
         .windows(2)
         .filter(|p| p[1].joined)
