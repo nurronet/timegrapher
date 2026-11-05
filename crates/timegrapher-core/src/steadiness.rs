@@ -2473,19 +2473,22 @@ pub(crate) fn side_grids(
 }
 
 /// The rate readings, and the amplitude and the beat error averaged into
-/// the same readings, as [`check`] tests them: `r` seconds each on true
-/// time, one grid.
-pub(crate) fn reading_grids(
+/// the same readings, as [`check`] tests them and counts them as
+/// "readings": `r` seconds each on true time, one grid, with `clock` and
+/// `breaks` as `check` is given them. With them, the beat error's source
+/// as `check` chose it over the 2 s windows, with its caveats. The app's
+/// Distributions pane counts these (#1144).
+pub fn reading_grids(
     log: &BeatLog,
     clock: Option<&ClockFit>,
     breaks: &[crate::breaks::Break],
     r: f64,
-) -> [Grid; 3] {
+) -> ([Grid; 3], crate::session::BeatErrorSelection) {
     let rate = rate_grid(&rate_windows(log, clock, breaks, r), r);
-    let [amp, be] = window_grids(log, clock, breaks);
-    let amp = rebin(&amp, rate.t0, r, rate.y.len());
-    let be = rebin(&be, rate.t0, r, rate.y.len());
-    [rate, amp, be]
+    let amp = windows_grid(log, clock, breaks, &|w| w.mean());
+    let (be, selected) = beat_error::grid(log, clock, breaks, None);
+    let [amp, be] = into_readings(&rate, &amp, &be, r);
+    ([rate, amp, be], selected)
 }
 
 /// The amplitude and the beat error windows averaged into the rate's
@@ -2499,25 +2502,6 @@ fn into_readings(rate: &Grid, amp: &Grid, be: &Grid, r: f64) -> [Grid; 2] {
         (rate.t0, rate.y.len())
     };
     [rebin(amp, t0, r, n), rebin(be, t0, r, n)]
-}
-
-/// The readings of `r` seconds each whose distributions [`check`] gives
-/// as "readings": the rate's, and the amplitude and the beat error
-/// averaged into them, on true time with `clock` and `breaks` as `check`
-/// is given them. With them, the beat error's source as `check` chose it
-/// over the 2 s windows, with its caveats. The app's Distributions pane
-/// counts these (#1144).
-pub fn distribution_readings(
-    log: &BeatLog,
-    clock: Option<&ClockFit>,
-    breaks: &[crate::breaks::Break],
-    r: f64,
-) -> ([Grid; 3], crate::session::BeatErrorSelection) {
-    let rate = rate_grid(&rate_windows(log, clock, breaks, r), r);
-    let amp = windows_grid(log, clock, breaks, &|w| w.mean());
-    let (be, selected) = beat_error::grid(log, clock, breaks, None);
-    let [amp, be] = into_readings(&rate, &amp, &be, r);
-    ([rate, amp, be], selected)
 }
 
 /// The rate readings [`check`] tests, `r` seconds each, on true time.

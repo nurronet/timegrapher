@@ -1695,11 +1695,11 @@ fn a_window_goes_in_the_cell_its_middle_lies_in() {
     assert_eq!(g.y[3], 270.0);
 }
 
-/// The readings [`distribution_readings`] gives the app's Distributions
+/// The readings [`reading_grids`] gives the app's Distributions
 /// pane are the ones `check` counts as "readings" (#1144): each of the
 /// three counts the same values to the same figures.
 #[test]
-fn distribution_readings_are_the_readings_check_counts() {
+fn reading_grids_are_the_readings_check_counts() {
     let s = crate::scenarios::find("rub").unwrap();
     let log = crate::scenarios::beat_log(&s, 1);
     let lc = crate::longterm::LongConfig {
@@ -1710,7 +1710,7 @@ fn distribution_readings_are_the_readings_check_counts() {
     let long = crate::longrun::analyse(&log, None, &lc);
     let r = check(&log, None, &long, &lc, &cfg);
     let (grids, selected) =
-        distribution_readings(&log, long.clock.as_ref(), &long.breaks, cfg.rate_reading_s);
+        reading_grids(&log, long.clock.as_ref(), &long.breaks, cfg.rate_reading_s);
     use crate::distribution::{AMPLITUDE, BEAT_ERROR, RATE};
     for (kind, g) in [RATE, AMPLITUDE, BEAT_ERROR].into_iter().zip(&grids) {
         let values: Vec<f64> = g.y.iter().copied().filter(|v| v.is_finite()).collect();

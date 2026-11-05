@@ -8,7 +8,7 @@ use crate::strength::{self, Grid, Strength};
 pub(super) type DistKey = (Revision, Position, u64);
 /// Core's readings for the Distributions pane (#1144): the rate's, and the
 /// amplitude and the beat error averaged into them, with the beat error's
-/// source ([`timegrapher_core::steadiness::distribution_readings`]).
+/// source ([`timegrapher_core::steadiness::reading_grids`]).
 pub(super) type DistReadings = (
     [timegrapher_core::longterm::Grid; 3],
     core_session::BeatErrorSelection,
@@ -222,9 +222,8 @@ impl TimegrapherApp {
         };
         let clock = clock.filter(|_| !joined); // A joined log is on it.
         let r = self.average_s;
-        let read = move || {
-            timegrapher_core::steadiness::distribution_readings(&log, clock.as_ref(), &breaks, r)
-        };
+        let read =
+            move || timegrapher_core::steadiness::reading_grids(&log, clock.as_ref(), &breaks, r);
         match ctx {
             Some(ctx) => {
                 let (tx, rx) = std::sync::mpsc::channel();
