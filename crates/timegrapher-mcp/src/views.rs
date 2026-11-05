@@ -192,7 +192,6 @@ pub fn profile_facts(profile: &Value) -> Option<Value> {
             s.get("beats").and_then(Value::as_u64).unwrap_or(0) as usize,
             f("unlock_ms"),
             f("drop_ms"),
-            f("amplitude_deg"),
         )))
     };
     Some(json!({
@@ -683,15 +682,15 @@ mod tests {
     #[test]
     fn a_profiles_facts_are_cores() {
         let p = json!({
-            "a": { "beats": 120, "unlock_ms": -0.27, "drop_ms": 1.2, "amplitude_deg": 281.4 },
-            "b": { "beats": 119, "unlock_ms": null, "drop_ms": 1.0, "amplitude_deg": null },
+            "a": { "beats": 120, "unlock_ms": -0.27, "drop_ms": 1.2 },
+            "b": { "beats": 119, "unlock_ms": null, "drop_ms": 1.0 },
         });
         assert_eq!(
             profile_facts(&p),
             Some(json!({
-                "names": ["Beats", "Unlock", "Drop", "Unlock to Drop", "Amplitude"],
-                "a": ["120", "−0.27 ms", "+1.20 ms", "1.47 ms", "281°"],
-                "b": ["119", "–", "+1.00 ms", "–", "out of range"],
+                "names": ["Beats", "Unlock", "Drop", "Unlock to Drop"],
+                "a": ["120", "−0.27 ms", "+1.20 ms", "1.47 ms"],
+                "b": ["119", "–", "+1.00 ms", "–"],
             }))
         );
         assert_eq!(profile_facts(&json!({ "a": {} })), None);

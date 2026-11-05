@@ -383,8 +383,7 @@ pub fn draw(
         Scale::Linear => (0.0, (top as f64 * 1.08).max(1e-6)),
         Scale::Decibels => (FLOOR_DB, 3.0),
     };
-    let facts: Vec<Option<[String; 4]>> =
-        profiles.iter().map(|p| p.as_ref().map(box_facts)).collect();
+    let facts: Vec<Option<[String; 4]>> = profiles.iter().map(|p| p.as_ref().map(facts)).collect();
     let boxes = fact_boxes(ui, &facts);
     // `axis`: the time axis under this side; stacked, Tock's serves both,
     // as their time runs together.
@@ -512,25 +511,11 @@ fn arrange(ui: &mut egui::Ui, opt: Options, side: impl Fn(&mut egui::Ui, usize, 
     }
 }
 
-/// The facts a side's box names: core's less the amplitude, which the
-/// Amplitude card, following the play head, already reads for the same
-/// moment with its ± (Norm, #1068 item 6: one fact, one place).
-fn box_facts(p: &TickProfile) -> [String; 4] {
-    let [beats, unlock, drop, gap, _amplitude] = facts(p);
-    [beats, unlock, drop, gap]
-}
-
-/// [`box_facts`]' names.
-fn box_names() -> [&'static str; 4] {
-    let [beats, unlock, drop, gap, _amplitude] = FACT_NAMES;
-    [beats, unlock, drop, gap]
-}
-
 /// Each side's facts box, its height set where it is drawn: the columns'
 /// widths are taken over both sides, so the two boxes match.
 fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
     let pal = theme::pal(ui);
-    let name_w = widest(ui, box_names().iter().copied());
+    let name_w = widest(ui, FACT_NAMES.iter().copied());
     let value_w = widest(
         ui,
         facts
@@ -539,7 +524,7 @@ fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
             .flat_map(|f| f.iter().map(String::as_str)),
     );
     // The row a short plot keeps, Unlock to Drop.
-    let short_name_w = widest(ui, box_names()[3..].iter().copied());
+    let short_name_w = widest(ui, FACT_NAMES[3..].iter().copied());
     let short_value_w = widest(
         ui,
         facts
@@ -553,7 +538,7 @@ fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
     let fact_box = |k: usize| {
         let held = here.with(("facts box", k));
         let rows = match &facts[k] {
-            Some(f) => box_names()
+            Some(f) => FACT_NAMES
                 .iter()
                 .zip(f)
                 .map(|(n, v)| (n.to_string(), v.clone()))
@@ -750,7 +735,7 @@ fn facts_hover(
     note: Option<&str>,
 ) {
     let (shown, r) = facts_here.layout(&resp.transform);
-    if shown.len() < box_names().len() || note.is_some() {
+    if shown.len() < FACT_NAMES.len() || note.is_some() {
         // Where no row is drawn, the corner a one-row box would take.
         let r = if shown.is_empty() {
             facts_here.corners(&resp.transform, 1).0
@@ -761,7 +746,7 @@ fn facts_hover(
             let all: Vec<String> = note
                 .map(str::to_string)
                 .into_iter()
-                .chain(box_names().iter().zip(f).map(|(n, v)| format!("{n}: {v}")))
+                .chain(FACT_NAMES.iter().zip(f).map(|(n, v)| format!("{n}: {v}")))
                 .collect();
             resp.response.clone().on_hover_text(all.join("\n"));
         }
@@ -1286,19 +1271,15 @@ mod tests {
             sound2_ms: None,
             sound3_ms: None,
         };
-        assert_eq!(
-            facts(&p),
-            ["40", "−7.64 ms", "−0.67 ms", "6.97 ms", "286°"].map(String::from)
-        );
         // The box leaves the amplitude to the Amplitude card, which reads
         // the same moment with its ± (Norm, #1068 item 6).
         assert_eq!(
-            box_facts(&p),
+            facts(&p),
             ["40", "−7.64 ms", "−0.67 ms", "6.97 ms"].map(String::from)
         );
-        assert!(!box_names().contains(&"Amplitude"));
-        assert_eq!(box_names()[3], "Unlock to Drop");
-        let names = |k: Vec<usize>| k.into_iter().map(|i| box_names()[i]).collect::<Vec<_>>();
+        assert!(!FACT_NAMES.contains(&"Amplitude"));
+        assert_eq!(FACT_NAMES[3], "Unlock to Drop");
+        let names = |k: Vec<usize>| k.into_iter().map(|i| FACT_NAMES[i]).collect::<Vec<_>>();
         // A short plot keeps Unlock to Drop.
         assert_eq!(names(keep_rows(80.0, 3)), ["Unlock to Drop"]);
         assert_eq!(keep_rows(150.0, 6), [0, 1, 2, 3]);
