@@ -11,7 +11,7 @@ use crate::theme;
 use eframe::egui::{self, RichText};
 use egui_plot::{Line, Plot, Points, VLine};
 use timegrapher_core::steadiness::IsochronismCurve;
-use timegrapher_core::steady_views::{WalkView, WALK_HINT, WALK_SINCE};
+use timegrapher_core::steady_views::{WalkView, WALK_HINT, WALK_KEY_START, WALK_SINCE};
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
 const GUTTER: f32 = 64.0;
@@ -299,7 +299,7 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32) {
     }
     ui.horizontal(|ui| {
         let small = |t: &str| RichText::new(t).small().color(pal.text_secondary);
-        ui.label(small("0 h"));
+        ui.label(small(WALK_KEY_START));
         crate::tfmap::ramp(ui, 120.0);
         ui.label(small(&w.last_text));
         ui.label(small(WALK_SINCE));
@@ -611,7 +611,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        for want in [WALK_HINT, "0 h", w.last_text.as_str(), WALK_SINCE] {
+        for want in [WALK_HINT, WALK_KEY_START, w.last_text.as_str(), WALK_SINCE] {
             assert!(texts.iter().any(|t| t == want), "{want}: {texts:?}");
         }
         assert!(
