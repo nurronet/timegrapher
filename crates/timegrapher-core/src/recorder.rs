@@ -1175,6 +1175,72 @@ impl Drop for SaveUpdate {
     }
 }
 
+/// The recordings in `take` whose `session.json` lists an hour still
+/// kept as a WAV: `take` itself, and the takes a session folder holds
+/// (`timegrapher record` makes one per position). These were saved before
+/// hours were kept as FLAC (#503), or stopped before one was converted.
+pub fn holding_wav(take: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![take.to_path_buf()];
+    if let Ok(entries) = fs::read_dir(take) {
+        let mut inner: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .map(|e| e.path())
+            .collect();
+        inner.sort();
+        dirs.extend(inner);
+    }
+    dirs.retain(|d| !wav_hours(d).is_empty());
+    dirs
+}
+
+/// The hours `session.json` in `dir` lists that are WAVs there now.
+fn wav_hours(dir: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(dir.join(take::RECORD)) else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    v["segments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s.as_str())
+        .filter(|n| crate::flac::is_wav(Path::new(n)) && is_sound(n))
+        .filter(|n| Path::new(n).components().count() == 1 && dir.join(n).is_file())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Keep each hour of the saved recording in `dir` that is still a WAV as
+/// FLAC, one at a time ([`crate::flac::keep_as_flac`]: encoded, checked
+/// sample for sample, then the WAV deleted), and name the FLAC in
+/// `session.json` (its `segments` and breaks) after each. An hour that
+/// cannot be converted stays a whole WAV, and the error says which.
+/// Returns how many hours were converted.
+pub fn keep_saved_as_flac(dir: &Path) -> Result<usize, String> {
+    let record = dir.join(take::RECORD);
+    let mut done = 0;
+    for wav in wav_hours(dir) {
+        let path = dir.join(&wav);
+        let flac =
+            crate::flac::keep_as_flac(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let flac = flac
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        // Only the names change: the file is otherwise as it was written.
+        let text = fs::read_to_string(&record).map_err(|e| format!("{}: {e}", record.display()))?;
+        let quoted = |n: &str| serde_json::Value::from(n).to_string();
+        let text = text.replace(&quoted(&wav), &quoted(&flac));
+        crate::library::write_atomic(&record, text.as_bytes())?;
+        done += 1;
+    }
+    Ok(done)
+}
+
 /// A new folder `name` under `parent`, or `name_2`, `name_3` and on when
 /// that is taken (a take started in the same second as another, with the
 /// same watch and position): never one that already exists, whose files a
@@ -2353,6 +2419,64 @@ mod tests {
             (2 * 8000, 2 * 8000)
         );
         assert!(!lock_path(&dir).exists());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_saved_take_holding_wavs_is_kept_as_flac_and_named_so() {
+        let (mut r, base) = save_fixture("saved-wavs");
+        // Saved as takes were before hours were kept as FLAC.
+        r.keep_flac = false;
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 30);
+        let dir = r.finish(None).unwrap();
+        let session = || fs::read_to_string(dir.join("session.json")).unwrap();
+        let before = session();
+        let samples = |n: &str| crate::audio::load(&dir.join(n)).unwrap().samples;
+        let heard = [samples("audio-001.wav"), samples("audio-002.wav")];
+        // A session folder holding it, as `timegrapher record` makes.
+        let outer = base.join("live");
+        assert_eq!(holding_wav(&outer), std::slice::from_ref(&dir));
+        assert_eq!(holding_wav(&dir), std::slice::from_ref(&dir));
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 2);
+        assert_eq!(samples("audio-001.flac"), heard[0]);
+        assert_eq!(samples("audio-002.flac"), heard[1]);
+        assert!(!dir.join("audio-001.wav").exists() && !dir.join("audio-002.wav").exists());
+        // session.json is as it was but for the names.
+        assert_eq!(
+            session(),
+            before
+                .replace("\"audio-001.wav\"", "\"audio-001.flac\"")
+                .replace("\"audio-002.wav\"", "\"audio-002.flac\"")
+        );
+        let v: serde_json::Value = serde_json::from_str(&session()).unwrap();
+        assert_eq!(v["breaks"][0]["segment"], "audio-002.flac");
+        // Nothing is left to do, and it reads as the take it was.
+        assert!(holding_wav(&outer).is_empty());
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 0);
+        let files = crate::recording_order::recordings_in(&dir, &[]).unwrap();
+        let refs: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+        assert_eq!(crate::breaks::of_files(&refs, None, 8000).unlisted, None);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_saved_hour_that_cannot_be_kept_as_flac_stays_a_wav_and_is_said() {
+        let (mut r, base) = save_fixture("saved-wav-fails");
+        r.keep_flac = false;
+        append_second(&mut r, 2);
+        let dir = r.finish(None).unwrap();
+        let before = fs::read(dir.join("session.json")).unwrap();
+        let wav = fs::read(dir.join("audio-001.wav")).unwrap();
+        fs::create_dir(dir.join("audio-001.flac.part")).unwrap();
+        let e = keep_saved_as_flac(&dir).unwrap_err();
+        assert!(e.contains("audio-001.wav"), "{e}");
+        assert_eq!(fs::read(dir.join("audio-001.wav")).unwrap(), wav);
+        assert!(!dir.join("audio-001.flac").exists());
+        assert_eq!(fs::read(dir.join("session.json")).unwrap(), before);
+        assert_eq!(holding_wav(&dir), std::slice::from_ref(&dir));
         fs::remove_dir_all(&base).unwrap();
     }
 }
