@@ -1,7 +1,7 @@
 # Fuzzing the file readers
 
-Four [`cargo fuzz`](https://rust-fuzz.github.io/book/cargo-fuzz.html)
-targets feed made-up files to the readers that take files from outside:
+Five [`cargo fuzz`](https://rust-fuzz.github.io/book/cargo-fuzz.html)
+targets feed made-up files to the readers that take files from outside, and made-up sound to the FLAC writer:
 
 | Target | Reads |
 | --- | --- |
@@ -9,6 +9,7 @@ targets feed made-up files to the readers that take files from outside:
 | `session_toml` | a take's `session.toml`, its checks, times, masks and settings |
 | `clock_log` | a clock log, then fits it |
 | `report_zip` | a report bundle's ZIP file (`archive::read_zip`) |
+| `flac_encode` | sound written as FLAC (`flac::encode`): it must decode to the same samples and be no bigger than them plain |
 
 They need a nightly toolchain and `cargo install cargo-fuzz`. They are not
 part of the workspace and do not run in CI: a run is long, and is meant to

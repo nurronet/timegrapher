@@ -13,6 +13,7 @@ use timegrapher_core::longrun::{self, LongReport};
 use timegrapher_core::longterm::{Component, LongConfig};
 use timegrapher_core::periodicity::{common_escape_wheels, standard_wheels, Wheel};
 use timegrapher_core::stream::{BeatLog, StreamConfig};
+use timegrapher_core::take_context::{Masks, TakeContext};
 use timegrapher_core::timefreq::size_number;
 use timegrapher_core::{audio, joined, take, timing};
 
@@ -320,10 +321,11 @@ pub(crate) struct Read {
     /// [`joined::pauses_unseen`] of a take read in stretches: read whole,
     /// the reading counts them itself.
     pub pauses_unseen: Option<timegrapher_core::measure::Caveat>,
-    /// The stretches masked by hand and left out, start and end.
+    /// The stretches left out, start and end, take seconds: masked by
+    /// hand, or a hole inside one position's run ([`TakeContext::spans`]).
     pub masked: Vec<(f64, f64)>,
     /// The take's stretches read, audio seconds, when it is read in
-    /// stretches ([`joined::take_spans`]): `log` and `breaks` are then
+    /// stretches ([`TakeContext::spans`]): `log` and `breaks` are then
     /// the stretches joined end to end, already on `clock`.
     pub stretches: Option<Vec<(f64, f64)>>,
 }
@@ -424,10 +426,14 @@ fn read_take(
             eprintln!("{note}");
         }
     }
-    let mut e = take::whole_take(&m).map_err(|e| format!("{}: {e}", manifest.display()))?;
+    // A clock log given names the take's clock for every entry, as the
+    // one clock log the whole take is read on.
+    let mut m = m;
     if let Some(log) = clock_args.log {
         let log = std::path::absolute(log).map_err(|err| format!("{}: {err}", log.display()))?;
-        e.clock = Some(log.display().to_string());
+        for e in &mut m.recordings {
+            e.clock = Some(log.display().to_string());
+        }
     }
     let settings = take::EntrySettings {
         stream: cfg.clone(),
@@ -435,42 +441,50 @@ fn read_take(
         settle_s: None,
     };
     let mut progress = Progress::new();
-    let opened = take::open_entry(
+    let (ctx, log) = TakeContext::open(
         &base,
         &m,
-        &e,
-        &settings,
+        settings,
+        Masks::Cut,
         take::usb,
         |first| take::correction_for(&m, first, clock_args.card_ppm, clock_args.device),
         |done, total| {
             let pct = 100.0 * done / total.max(f64::MIN_POSITIVE);
             progress.at(pct, Some(100.0), |d| fixed_text(d, 0), "%")
         },
-    )?;
+    )
+    .map_err(|e| format!("{}: {e}", manifest.display()))?;
     progress.end();
-    let log_path = e.clock.as_ref().map(|c| base.join(c));
-    let clock =
-        crate::clock_cmd::AppliedClock::of(opened.clock, opened.clock_ppm, opened.clock_source);
-    // Each entry from the end of its settling, as `session` and the app
-    // read it.
-    let stretches = joined::take_spans(&m, opened.log.duration_s);
-    let pauses_unseen = stretches.as_deref().and_then(|spans| {
-        joined::pauses_unseen(spans, &opened.breaks, clock.as_ref().map(|c| &c.fit))
-    });
+    let log_path = m
+        .recordings
+        .iter()
+        .find_map(|e| e.clock.as_ref())
+        .map(|c| base.join(c));
+    // Each entry's window, as `session` and the app read it, joined in
+    // take seconds; a hole inside one position's run cut as a mask is.
+    let stretches = ctx.spans(&m);
+    let files: Vec<PathBuf> = ctx.files.iter().map(|f| f.path.clone()).collect();
+    let clock = crate::clock_cmd::AppliedClock::of(ctx.clock, ctx.clock_ppm, ctx.clock_source);
+    let (mut log, mut breaks, mut masked) = (log, ctx.breaks, ctx.masked);
+    if let Some(s) = &stretches {
+        timegrapher_core::session::mask_log(&mut log, &s.holes);
+        masked.extend(&s.holes);
+        let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
+        masked = timegrapher_core::session::masked_spans(&pairs);
+    }
+    // Every stretch left out, masked by hand or a hole, is cut at both
+    // ends, as `session` cuts a mask (#1185): no reading spans one.
+    breaks.extend(timegrapher_core::clean::mask_breaks(&masked));
+    breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+    let stretches = stretches.map(|s| s.read);
+    let pauses_unseen = stretches
+        .as_deref()
+        .and_then(|spans| joined::pauses_unseen(spans, &breaks, clock.as_ref().map(|c| &c.fit)));
     let (log, breaks) = match &stretches {
-        Some(spans) => joined::join(
-            &opened.log,
-            spans,
-            &opened.breaks,
-            clock.as_ref().map(|c| &c.fit),
-        ),
-        None => (opened.log, opened.breaks),
+        Some(spans) => joined::join(&log, spans, &breaks, clock.as_ref().map(|c| &c.fit)),
+        None => (log, breaks),
     };
-    let name = opened
-        .files
-        .first()
-        .cloned()
-        .unwrap_or_else(|| base.clone());
+    let name = files.first().cloned().unwrap_or_else(|| base.clone());
     let wheels = m
         .wheels
         .iter()
@@ -480,7 +494,7 @@ fn read_take(
         })
         .collect();
     Ok(Read {
-        files: opened.files,
+        files,
         take: Some(manifest.to_path_buf()),
         name,
         cfg,
@@ -492,10 +506,10 @@ fn read_take(
         log,
         clock,
         breaks,
-        unlisted: opened.unlisted,
+        unlisted: ctx.unlisted,
         positions: joined::positions_caveat(&m),
         pauses_unseen,
-        masked: opened.masked,
+        masked,
         stretches,
     })
 }
@@ -1535,6 +1549,16 @@ mod take_tests {
             !r.log.beats.iter().any(|b| (29.0..37.0).contains(&b.time)),
             "a beat in the mask"
         );
+        // And it is cut at both ends, as `session` cuts it (#1185).
+        for at in [29.0, 37.0] {
+            assert!(
+                r.breaks
+                    .iter()
+                    .any(|b| (b.audio_s - at).abs() < 0.01 && b.gap_s == 0.0),
+                "no cut at {at}: {:?}",
+                r.breaks
+            );
+        }
         let clock = r.clock.unwrap();
         assert_eq!(clock.ppm, Some(-20.0));
         assert!(clock.from.contains("card_ppm"), "{}", clock.from);

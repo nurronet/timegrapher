@@ -1292,10 +1292,12 @@ impl Drop for SaveUpdate {
 }
 
 /// The recordings in `take` whose `session.json` lists an hour still
-/// kept as a WAV: `take` itself, and the takes a session folder holds
-/// (`timegrapher record` makes one per position). These were saved before
-/// hours were kept as FLAC (#503), or stopped before one was converted. A
-/// recording being made ([`in_use`]) is never listed.
+/// kept as a WAV, or kept as a [`crate::flac::bloated`] FLAC: `take`
+/// itself, and the takes a session folder holds (`timegrapher record`
+/// makes one per position). These were saved before hours were kept as
+/// FLAC (#503), stopped before one was converted, or converted before
+/// each block's size was checked. A recording being made ([`in_use`]) is
+/// never listed.
 pub fn holding_wav(take: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![take.to_path_buf()];
     if let Ok(entries) = fs::read_dir(take) {
@@ -1307,14 +1309,15 @@ pub fn holding_wav(take: &Path) -> Vec<PathBuf> {
         inner.sort();
         dirs.extend(inner);
     }
-    dirs.retain(|d| !wav_hours(d).is_empty());
+    dirs.retain(|d| !hours_to_keep(d).is_empty());
     dirs
 }
 
-/// The hours `session.json` in `dir` lists that are WAVs there now. None
-/// while it is being recorded ([`in_use`]): its open hour is a WAV the
-/// recorder is still writing, and its closed ones the recorder converts.
-fn wav_hours(dir: &Path) -> Vec<String> {
+/// The hours `session.json` in `dir` lists that are WAVs there now, or
+/// [`crate::flac::bloated`] FLACs. None while it is being recorded
+/// ([`in_use`]): its open hour is a WAV the recorder is still writing, and
+/// its closed ones the recorder converts.
+fn hours_to_keep(dir: &Path) -> Vec<String> {
     if in_use(dir) {
         return Vec::new();
     }
@@ -1329,8 +1332,11 @@ fn wav_hours(dir: &Path) -> Vec<String> {
         .into_iter()
         .flatten()
         .filter_map(|s| s.as_str())
-        .filter(|n| crate::flac::is_wav(Path::new(n)) && is_sound(n))
-        .filter(|n| Path::new(n).components().count() == 1 && dir.join(n).is_file())
+        .filter(|n| is_sound(n) && Path::new(n).components().count() == 1)
+        .filter(|n| {
+            let p = dir.join(n);
+            p.is_file() && (crate::flac::is_wav(&p) || crate::flac::bloated(&p))
+        })
         .map(str::to_string)
         .collect()
 }
@@ -1338,8 +1344,10 @@ fn wav_hours(dir: &Path) -> Vec<String> {
 /// Keep each hour of the saved recording in `dir` that is still a WAV as
 /// FLAC, one at a time ([`crate::flac::keep_as_flac`]: encoded, checked
 /// sample for sample, then the WAV deleted), and name the FLAC in
-/// `session.json` (its `segments` and breaks) after each. An hour that
-/// cannot be converted stays a whole WAV, and the error says which. A
+/// `session.json` (its `segments` and breaks) after each. An hour kept as
+/// a [`crate::flac::bloated`] FLAC is written again
+/// ([`crate::flac::shrink`]), under its own name. An hour that cannot be
+/// converted stays as it was, whole, and the error says which. A
 /// recording being made ([`in_use`]) is left alone. Returns how many hours
 /// were converted.
 pub fn keep_saved_as_flac(dir: &Path) -> Result<usize, String> {
@@ -1352,11 +1360,16 @@ pub fn keep_saved_as_flac(dir: &Path) -> Result<usize, String> {
 pub fn keep_saved_as_flac_unless(dir: &Path, stop: &dyn Fn() -> bool) -> Result<usize, String> {
     let record = dir.join(take::RECORD);
     let mut done = 0;
-    for wav in wav_hours(dir) {
+    for wav in hours_to_keep(dir) {
         if stop() {
             break;
         }
         let path = dir.join(&wav);
+        if !crate::flac::is_wav(&path) {
+            crate::flac::shrink(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            done += 1;
+            continue;
+        }
         let flac =
             crate::flac::keep_as_flac(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let flac = flac
@@ -2679,6 +2692,36 @@ mod tests {
         let files = crate::recording_order::recordings_in(&dir, &[]).unwrap();
         let refs: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
         assert_eq!(crate::breaks::of_files(&refs, None, 8000).unlisted, None);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_saved_hour_kept_as_a_bloated_flac_is_written_again_in_its_place() {
+        let (mut r, base) = save_fixture("saved-bloated");
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 30);
+        let dir = r.finish_as_flac(None).unwrap();
+        assert!(holding_wav(&dir).is_empty());
+        // Its second hour as flacenc wrote some before each block was
+        // checked: far bigger than its samples.
+        let hour = dir.join("audio-002.flac");
+        let samples = crate::flac::write_bloated(&hour);
+        let session = || fs::read_to_string(dir.join("session.json")).unwrap();
+        let before = session();
+        let big = fs::metadata(&hour).unwrap().len();
+        assert_eq!(holding_wav(&dir), std::slice::from_ref(&dir));
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 1);
+        assert!(fs::metadata(&hour).unwrap().len() < big / 2);
+        assert_eq!(
+            crate::audio::load(&hour).unwrap().samples.len(),
+            samples.len()
+        );
+        // The same file, name and session.json; nothing left to do.
+        assert_eq!(session(), before);
+        assert!(holding_wav(&dir).is_empty());
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 0);
         fs::remove_dir_all(&base).unwrap();
     }
 

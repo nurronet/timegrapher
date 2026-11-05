@@ -1468,6 +1468,7 @@ impl TimegrapherApp {
                 .filter_map(|(e, w)| {
                     timegrapher_core::take::listed_position(
                         e,
+                        m,
                         w.window.as_ref().ok().copied(),
                         w.offset_s,
                     )
@@ -1479,17 +1480,15 @@ impl TimegrapherApp {
                 timegrapher_core::take::listed_positions(m, entries, length)
             }
         };
-        let (out, settles) = timegrapher_core::take::positions_of(
-            listed
-                .into_iter()
-                .filter_map(|(start, from, to, p)| Some((start, from, to, Position::of_core(p)?))),
-        );
+        let (out, settles) = timegrapher_core::take::positions_of(listed.into_iter().filter_map(
+            |(start, from, to, p, carried)| Some((start, from, to, Position::of_core(p)?, carried)),
+        ));
         // What was recorded under any painting, loaded with the positions.
         self.pending_recorded = (!m.recorded.is_empty()).then(|| {
             timegrapher_core::take::positions_of(m.recorded.iter().filter_map(|r| {
                 let p = Position::from_name(&r.position)?;
                 let start = r.start_s.unwrap_or(0.0);
-                Some((start, start, r.end_s, p))
+                Some((start, start, r.end_s, p, false))
             }))
         });
         if let Some(&(_, p)) = out.first() {

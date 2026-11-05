@@ -14,6 +14,7 @@ libfuzzer-sys = "0.4"
 flate2 = "1"
 toml = "0.8"
 serde_json = "1"
+claxon = "0.4"
 timegrapher-core = { path = "../crates/timegrapher-core", default-features = false }
 
 [workspace]
@@ -42,6 +43,13 @@ bench = false
 [[bin]]
 name = "report_zip"
 path = "fuzz_targets/report_zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flac_encode"
+path = "fuzz_targets/flac_encode.rs"
 test = false
 doc = false
 bench = false

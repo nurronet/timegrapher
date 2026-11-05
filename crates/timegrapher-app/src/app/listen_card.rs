@@ -849,8 +849,9 @@ impl TimegrapherApp {
 
     /// The Calibre card's figure row: the Calibre pop-up, or a watch's
     /// calibre named where the watch sets it. Where the controls row is
-    /// too narrow for the beat rate beside the lift, the beat rates head
-    /// the Calibre menu, or for a watch with no calibre the title's menu.
+    /// too narrow for the beat rate beside the lift, the beat rates sit in a
+    /// Beat Rate submenu of the Calibre menu, or for a watch with no calibre
+    /// head the title's menu.
     pub(super) fn calibre_control(&mut self, ui: &mut egui::Ui) {
         if !self.take_shows_rate_and_lift() {
             return self.calibre_line(ui);
@@ -877,7 +878,7 @@ impl TimegrapherApp {
         } else {
             // Too narrow for both under the picker: the lift keeps the
             // controls row, since Auto finds the beat rate and nothing
-            // finds the lift, and the beat rates head this menu.
+            // finds the lift, and the beat rates go in a submenu here.
             let how = self.bph_hint();
             let mut first = |ui: &mut egui::Ui| {
                 let found = match (bph, heard) {
@@ -885,10 +886,19 @@ impl TimegrapherApp {
                     (Some(b), _) => format!("Beat Rate: {b} bph"),
                     _ => "Beat Rate: Auto".to_string(),
                 };
-                ui.label(RichText::new(found).small().color(pal.text_tertiary))
-                    .on_hover_text(how);
-                bph_choices(ui, &mut bph);
+                // One row under the search, its rates in a submenu, so the
+                // field and the calibres keep the menu's room at 800 wide.
                 ui.separator();
+                ui.menu_button(found, |ui| {
+                    // A beat rate picked closes the menu, as a calibre does.
+                    let was = bph;
+                    bph_choices(ui, &mut bph);
+                    if bph != was {
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(how);
             };
             self.cal
                 .picker_with(ui, &current, rate, "Not Set", Some(&mut first))
@@ -947,7 +957,7 @@ impl TimegrapherApp {
     /// The Calibre card's controls row: the lift angle, then the beat
     /// rate, each as text where the calibre sets it. Where the row is too
     /// narrow for both, the lift alone (nothing finds it, while Auto finds
-    /// the beat rate), the beat rates heading the Calibre menu.
+    /// the beat rate), the beat rates in a submenu of the Calibre menu.
     pub(super) fn rate_and_lift(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         let heard = self.live.as_ref().and_then(|l| l.bph());

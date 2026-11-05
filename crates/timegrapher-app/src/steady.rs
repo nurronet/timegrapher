@@ -54,6 +54,42 @@ pub enum View {
     Wavelet,
 }
 
+/// A switch in a Steadiness pane's toolbar: each pane keeps its own,
+/// and a pane not switched yet takes `unset`, the one value every pane
+/// shared before each kept its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PerPane {
+    pub set: std::collections::BTreeMap<View, bool>,
+    pub unset: bool,
+}
+
+impl PerPane {
+    pub fn new(set: Vec<(View, bool)>, unset: bool) -> Self {
+        PerPane {
+            set: set.into_iter().collect(),
+            unset,
+        }
+    }
+
+    /// Whether the switch is on in `view`'s pane.
+    pub fn on(&self, view: View) -> bool {
+        self.set.get(&view).copied().unwrap_or(self.unset)
+    }
+
+    /// Switch `view`'s pane to `on`. Only a change is noted, so the panes
+    /// never switched keep the default.
+    pub fn set(&mut self, view: View, on: bool) {
+        if on != self.on(view) {
+            self.set.insert(view, on);
+        }
+    }
+
+    /// The panes switched, as settings keep them.
+    pub fn saved(&self) -> Vec<(View, bool)> {
+        self.set.iter().map(|(v, on)| (*v, *on)).collect()
+    }
+}
+
 impl View {
     /// The STFT and Wavelet Maps: one map at a time, the choice shared.
     pub fn is_map(self) -> bool {
@@ -372,29 +408,7 @@ fn stats_line(c: &SeriesCheck) -> String {
 /// What a count of readings `step_s` long counts: "179 10 s readings";
 /// readings shorter than 10 s are windows, "880 2 s windows".
 fn counted(n: usize, step_s: f64) -> String {
-    format!("{n} {}", kind_of(step_s))
-}
-
-/// The Readings view's key: what a dot is and how many are drawn, and on
-/// a long series how many readings the bands hold: "10 s readings (179)",
-/// "10 s readings in 3000 bands (23400)".
-fn readings_key(step_s: f64, drawn: usize, read: usize, banded: bool) -> String {
-    if banded {
-        format!("{} in {drawn} bands ({read})", kind_of(step_s))
-    } else {
-        format!("{} ({drawn})", kind_of(step_s))
-    }
-}
-
-/// Readings `step_s` long: "10 s readings"; shorter than 10 s, "2 s
-/// windows".
-fn kind_of(step_s: f64) -> String {
-    let what = if step_s >= 10.0 - 1e-9 {
-        "readings"
-    } else {
-        "windows"
-    };
-    format!("{} {what}", secs(step_s))
+    format!("{n} {}", steady_views::readings_kind(step_s))
 }
 
 fn series_colour(k: SeriesKind, pal: &theme::Palette) -> Color32 {
@@ -1015,7 +1029,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     }
     // What a dot is, and how many are drawn, as Charts' key.
     let read: usize = drawn.iter().map(|d| d.count).sum();
-    let key = readings_key(g.step, drawn.len(), read, banded);
+    let key = steady_views::readings_key(g.step, drawn.len(), read, banded);
     let width = steady_views::chunk_s(g);
     let resp = plot.show(ui, |p| {
         grid.draw(p, pal);
@@ -1697,7 +1711,7 @@ pub struct Opts {
     /// The calibre's wheels marked on the period axis, or the reference
     /// periods when no wheel is known.
     pub wheels: bool,
-    /// The Info panel, beside the plots: one setting for every view.
+    /// The Info panel, beside the plots: each pane opens its own.
     pub info: bool,
 }
 
