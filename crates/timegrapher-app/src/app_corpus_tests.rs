@@ -507,9 +507,18 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// held to that only where a surface reads a run: a pull request's corpus
 /// cut is too short for one.
 const PANES_KNOWN: &[(&str, &str)] = &[
+    ("* rate readings", ENTRY_CUTS),
+    ("* amplitude readings", ENTRY_CUTS),
+    ("* beat_error readings", ENTRY_CUTS),
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
+
+/// #1166, in [`PANES_KNOWN`]: a take whose entries carry one position on
+/// across its files is cut at each entry in the app, read as one run by
+/// series, so its readings tile differently.
+const ENTRY_CUTS: &str = "#1166: the app cuts a take at each entry that carries on one \
+                          position, where series reads it as one run";
 
 /// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
 /// entries with their own `measure_s` and `settle_s`.
