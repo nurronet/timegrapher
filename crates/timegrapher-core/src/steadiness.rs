@@ -2428,20 +2428,23 @@ fn windows_grid(
             y: Vec::new(),
         };
     };
-    // On true time, so each gap is left empty.
-    let n = ((map(aw.last().unwrap().start_s) - map(w0.start_s)) / astep).round() as usize + 1;
+    // On true time, so each gap is left empty. Each window goes in the
+    // cell its middle lies in, as `Cuts::window_in` takes a window into a
+    // stretch. The cells start at the first window; one tiling from a
+    // fixed origin for every surface is #636's next step.
+    let t0 = map(w0.start_s);
+    let cell = |w: &crate::amplitude::AmplitudeWindow| {
+        ((holes.window_middle(w) - t0) / astep).floor().max(0.0) as usize
+    };
+    let n = aw.last().map_or(0, cell) + 1;
     let mut y = vec![f64::NAN; n];
     for w in holes.amplitude_windows(aw) {
-        let i = ((map(w.start_s) - map(w0.start_s)) / astep).round() as usize;
+        let i = cell(w);
         if i < n {
             y[i] = f(w).unwrap_or(f64::NAN);
         }
     }
-    Grid {
-        t0: map(w0.start_s),
-        step: astep,
-        y,
-    }
+    Grid { t0, step: astep, y }
 }
 
 /// The amplitude and beat error windows on true time, one grid point
