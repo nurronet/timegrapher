@@ -215,7 +215,7 @@ pub fn from_snippets(
         col.sort_unstable_by(|a, b| a.total_cmp(b));
         col.clone()
     };
-    let q = |c: &[f32], p: f64| c[((c.len() - 1) as f64 * p).round() as usize];
+    let q = crate::dsp::quantile_f32;
     // The same trimmed-mean template the amplitude measurement builds.
     let tmpl: Vec<f32> = (0..len)
         .map(|k| crate::dsp::trimmed_mean_f32(&mut sorted_at(k), TEMPLATE_TRIM))

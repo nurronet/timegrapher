@@ -669,9 +669,12 @@ mod tests {
         let at = |log| serde_json::to_value(Scale::of(&tf[0].values, log)).unwrap();
         assert_eq!(maps[0]["scale"]["linear"], at(false));
         assert_eq!(maps[0]["scale"]["log"], at(true));
+        // The top is core's 99.5th percentile of 0.002, 1 and 4,
+        // interpolated (#512): 0.99 of the way from 1 to 4.
+        let hi = 1.0 + 3.0 * (0.995 * 2.0 - 1.0);
         assert_eq!(
             maps[0]["scale"]["log"],
-            serde_json::json!({ "lo": 4.0 / 300.0, "hi": 4.0 })
+            serde_json::json!({ "lo": hi / 300.0, "hi": hi })
         );
     }
     use serde_json::json;

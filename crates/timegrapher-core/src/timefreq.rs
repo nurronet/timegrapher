@@ -97,7 +97,7 @@ impl Scale {
             return None;
         }
         v.sort_by(f64::total_cmp);
-        let hi = v[((v.len() - 1) as f64 * 0.995).round() as usize];
+        let hi = crate::dsp::quantile(&v, 0.995);
         if hi <= 0.0 {
             return None;
         }
@@ -842,7 +842,7 @@ fn red_noise_level(
                 return f64::NAN;
             }
             v.sort_by(|a, b| a.total_cmp(b));
-            v[((v.len() - 1) as f64 * 0.95).round() as usize]
+            crate::dsp::quantile(&v, 0.95)
         })
         .collect()
 }
@@ -1097,15 +1097,17 @@ mod tests {
 
     #[test]
     fn a_maps_scale_tops_at_the_size_most_cells_stay_under() {
-        // 1000 cells of 1 to 1000: the top is the 995th, so the brightest
-        // also stands for the five above it.
+        // 1000 cells of 1 to 1000: the top is core's 99.5th percentile,
+        // interpolated (#512): 0.995 of the way through, 995.005, so the
+        // brightest also stands for the five above it.
         let values: Vec<Vec<f64>> = (1..=1000).map(|v| vec![v as f64, f64::NAN]).collect();
         let s = Scale::of(&values, false).unwrap();
-        assert_eq!((s.lo, s.hi, s.log), (0.0, 995.0, false));
-        assert_eq!(s.at(497.5), 0.5);
+        assert_eq!((s.lo, s.log), (0.0, false));
+        assert!((s.hi - 995.005).abs() < 1e-9, "{}", s.hi);
+        assert!((s.at(s.hi / 2.0) - 0.5).abs() < 1e-12);
         assert_eq!(s.at(2000.0), 1.0);
         let l = Scale::of(&values, true).unwrap();
-        assert_eq!(l.lo, 995.0 / 300.0);
+        assert_eq!(l.lo, l.hi / 300.0);
         assert_eq!(l.at(1.0), 0.0);
         assert!(Scale::of(&[vec![f64::NAN]], false).is_none());
         assert!(Scale::of(&[vec![0.0]], true).is_none());

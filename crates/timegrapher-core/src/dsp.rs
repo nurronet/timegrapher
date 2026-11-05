@@ -267,13 +267,23 @@ pub fn median_variance_factor(k: usize) -> f64 {
 /// clusters does not jump from one to the other on a tiny change (#846).
 /// NaN when empty.
 pub fn quantile(sorted: &[f64], q: f64) -> f64 {
-    if sorted.is_empty() {
+    quantile_by(sorted.len(), |i| sorted[i], q)
+}
+
+/// [`quantile`] of `f32` values, by the same rule.
+pub fn quantile_f32(sorted: &[f32], q: f64) -> f32 {
+    quantile_by(sorted.len(), |i| f64::from(sorted[i]), q) as f32
+}
+
+/// [`quantile`] of `len` sorted values read by `at`, without copying them.
+fn quantile_by(len: usize, at: impl Fn(usize) -> f64, q: f64) -> f64 {
+    if len == 0 {
         return f64::NAN;
     }
-    let x = q.clamp(0.0, 1.0) * (sorted.len() - 1) as f64;
+    let x = q.clamp(0.0, 1.0) * (len - 1) as f64;
     let i = x.floor() as usize;
-    let j = (i + 1).min(sorted.len() - 1);
-    sorted[i] + (sorted[j] - sorted[i]) * (x - i as f64)
+    let j = (i + 1).min(len - 1);
+    at(i) + (at(j) - at(i)) * (x - i as f64)
 }
 
 /// [`quantile`] `q` of the finite values in `v`, in any order; `None`
