@@ -672,7 +672,7 @@ fn strip_overlays_drawn(
     if on[0] {
         overlays.push(strip::Overlay {
             name: "Amplitude",
-            short: "Amp.",
+            short: theme::short_name("Amplitude").unwrap_or("Amplitude"),
             unit: "°",
             color: pal.trace_amplitude,
             min_span: 10.0,

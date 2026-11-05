@@ -178,7 +178,7 @@ fn card_row(ui: &mut egui::Ui, rect: egui::Rect, salt: &str) -> egui::Ui {
 
 /// The title row: the caption, its limits in a chip, and the "?" in
 /// the corner. The caption is cut short before the chip is.
-fn card_title(
+pub(crate) fn card_title(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     caption: &str,
@@ -231,15 +231,24 @@ fn card_title(
             }
         }
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            // Too narrow for the whole caption (800 pt), its short form as
+            // the axes have it, the whole one on a hover, rather than a
+            // cut "Ampli…" that names nothing (#1061).
+            let short = theme::short_name(caption).filter(|_| caption_w > ui.available_width());
             let r = ui.add(
                 egui::Label::new(
-                    RichText::new(caption)
+                    RichText::new(short.unwrap_or(caption))
                         .font(theme::semibold(13.0))
                         .color(pal.text_secondary),
                 )
                 .truncate(),
             );
-            if let Some(h) = caption_hover {
+            let hover = match (short, caption_hover) {
+                (Some(_), Some(h)) => Some(format!("{caption}\n\n{h}")),
+                (Some(_), None) => Some(caption.to_string()),
+                (None, h) => h,
+            };
+            if let Some(h) = hover {
                 r.on_hover_text(h);
             }
         });

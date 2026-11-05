@@ -1058,6 +1058,16 @@ fn dialog_button(ui: &mut Ui, b: &DialogButton<'_>) -> bool {
     }
 }
 
+/// A reading's short name where its whole one has no room, as the axes
+/// name them (#1052): "Amp.", "B.E."; none for a name already short.
+pub fn short_name(name: &str) -> Option<&'static str> {
+    match name {
+        "Amplitude" => Some("Amp."),
+        "Beat Error" => Some("B.E."),
+        _ => None,
+    }
+}
+
 /// Grid marks for a plot, all of one step so every grid line and label is
 /// drawn alike: the first step of `ladder` (1, 2 and 5 times powers of ten
 /// when empty) at least `min_px` points apart. 80 points is what the plot

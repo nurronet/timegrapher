@@ -186,6 +186,45 @@ fn a_narrow_cards_words_show_whole() {
     }
 }
 
+/// A card too narrow for its caption (800 pt) names its reading by the
+/// short form the axes use, the whole caption on a hover, never a cut
+/// "Ampli…" (#1061); with room, the whole caption.
+#[test]
+fn a_narrow_cards_title_is_short_not_cut() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let title = |caption: &str, w: f32| {
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(w, 24.0));
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    readouts::card_title(ui, rect, caption, &["Help."], &[], None);
+                });
+            });
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .filter(|t| t != "?")
+                .collect::<Vec<_>>();
+        }
+        texts
+    };
+    // A card's title row at 800 pt, as Walter walked it.
+    for (caption, short) in [
+        ("Amplitude", "Amp."),
+        ("Beat Error", "B.E."),
+        ("Rate", "Rate"),
+    ] {
+        assert_eq!(title(caption, 76.0), [short], "{caption}");
+        assert_eq!(title(caption, 300.0), [caption]);
+    }
+}
+
 /// The texts a readings card's figure row paints in `rect`, and where.
 fn figure_texts(
     rect: egui::Rect,
