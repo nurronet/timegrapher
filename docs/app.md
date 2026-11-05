@@ -1594,8 +1594,9 @@ folder can't be moved while another copy has it open. The Watches view adds watc
     works as every search menu does (design guide, Search menus):
     - A click in the box never closes the menu.
     - ↑/↓ move the highlight from the first match, and Enter picks it.
-      With the box empty the highlight starts on the current calibre, so
-      Enter straight after opening keeps it.
+      With the box empty the highlight starts on the current calibre, or
+      on nothing when it isn't listed, so Enter straight after opening
+      never changes it.
     - A ⊗ clears the search, and so does Esc. Esc in an empty box closes
       the menu, and never the New Watch form behind it.
     - Tab stays in the menu. Empty, the menu offers Not

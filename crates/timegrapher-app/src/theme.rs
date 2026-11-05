@@ -2260,7 +2260,9 @@ pub fn icon_button(
 /// - Tab and Shift+Tab stay within the menu.
 pub struct MenuSearch {
     id: egui::Id,
-    highlight: usize,
+    /// The item lit, if any: none while the search is empty and the
+    /// current item isn't listed, until ↑/↓ or Tab.
+    highlight: Option<usize>,
     items: usize,
     moved: bool,
     /// The search was empty as the menu opened or was cleared: the
@@ -2313,15 +2315,15 @@ impl MenuSearch {
             )
         });
         let mut highlight = if opened {
-            0
+            None
         } else {
-            ui.data(|d| d.get_temp::<usize>(id)).unwrap_or(0)
+            ui.data(|d| d.get_temp::<Option<usize>>(id)).flatten()
         };
         if down {
-            highlight += 1;
+            highlight = Some(highlight.map_or(0, |h| h + 1));
         }
         if up {
-            highlight = highlight.saturating_sub(1);
+            highlight = Some(highlight.map_or(0, |h| h.saturating_sub(1)));
         }
         // The ⊗ at the right once there is text, the field filling the rest.
         let width = ui.available_width();
@@ -2352,12 +2354,17 @@ impl MenuSearch {
         }
         // A new search starts its highlight at the first match.
         if field.changed() || cleared {
-            highlight = 0;
+            highlight = Some(0);
         }
         if refocus {
             field.request_focus();
         }
+        // With the search empty, the current item is lit if it is listed,
+        // and otherwise nothing, so Enter never picks what wasn't chosen.
         let seek_current = typed.is_empty() && (opened || cleared || refocus) && !down && !up;
+        if seek_current {
+            highlight = None;
+        }
         MenuSearch {
             id,
             highlight,
@@ -2375,15 +2382,14 @@ impl MenuSearch {
         let text = ticked(on, words);
         // With nothing typed, the highlight starts on the current item.
         if self.seek_current && on {
-            self.highlight = self.items;
+            self.highlight = Some(self.items);
             self.seek_current = false;
         }
-        // Still looking for the current item: none lit before it.
-        let lit = !self.seek_current && self.items == self.highlight;
+        let lit = self.highlight == Some(self.items);
         let r = ui.add(egui::Button::selectable(lit, text).frame_when_inactive(lit));
         // Tab moves the one highlight too, so focus is never unseen.
         if r.gained_focus() && !lit {
-            self.highlight = self.items;
+            self.highlight = Some(self.items);
             ui.ctx().request_repaint();
         }
         self.items += 1;
@@ -2400,7 +2406,7 @@ impl MenuSearch {
     /// The end of the list: the highlight is kept for the next frame,
     /// never past the last item.
     pub fn finish(self, ui: &Ui) {
-        let highlight = self.highlight.min(self.items.saturating_sub(1));
+        let highlight = self.highlight.map(|h| h.min(self.items.saturating_sub(1)));
         ui.data_mut(|d| d.insert_temp(self.id, highlight));
     }
 }

@@ -236,7 +236,7 @@ A menu with a search field at its top over the list it filters, such as the Cali
 1. Opening it puts the caret in its search field, ready to type, and each open starts with an empty search.
 2. A click in the field places the caret or selects text, and never closes the menu. Search menus close on a click *outside* them; plain menus with no field close on any click.
 3. It closes on a pick, on Esc in an empty field, on a click outside it, or on a click on its button again.
-4. Typing filters the list live. The first match is highlighted, ↑/↓ move the highlight, and Enter picks it. With the search empty, the highlight starts on the current choice, so Enter straight after opening changes nothing. Tab into the list moves the highlight with the focus.
+4. Typing filters the list live. The first match is highlighted, ↑/↓ move the highlight, and Enter picks it. With the search empty, the highlight starts on the current choice, or on nothing if it isn't listed, so Enter straight after opening changes nothing. Tab into the list moves the highlight with the focus.
 5. Once the field has text, a ⊗ at its right clears it. Cmd/Ctrl+A selects all of it, and Delete clears it.
 6. Esc clears the text first. Esc on an empty field closes the menu with no change, and never the dialog behind it.
 7. Tab and Shift+Tab move within the menu (field, list, buttons) and never reach the window behind it.
