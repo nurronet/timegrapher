@@ -1303,6 +1303,28 @@ mod tests {
             "an hour of {} s for {heard_s} s heard and a {gap} s pause",
             r.hours[0].span_s
         );
+        // Read at the take's own lift, from the session file `record`
+        // writes in it: a smaller lift reads a smaller amplitude (#508).
+        let amplitude = |r: &power_reserve::Results| r.hours[0].amplitude_deg.unwrap();
+        fs::write(
+            dir.join(MANIFEST),
+            "bph = 28800\nlift = 40\nlift_known = true\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+        )
+        .unwrap();
+        let at_40 = reserve_results(
+            &dir,
+            "2026-10-27T18:00:00Z",
+            Position::parse("DU").unwrap(),
+            Some(28800),
+            power_reserve::Ending::ByHand,
+        )
+        .unwrap();
+        assert!(
+            amplitude(&at_40) < amplitude(&r) - 10.0,
+            "{} deg at a 40 deg lift, {} deg at the default",
+            amplitude(&at_40),
+            amplitude(&r)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
