@@ -401,8 +401,14 @@ pub fn analyze_files(
         cfg,
         prepare_threads(),
         |push| {
+            // Each file is decoded to its end, but no further file once
+            // the reading has stopped.
+            let mut wanted = true;
             for path in paths {
-                audio::stream(path, 1 << 16, &mut *push)?;
+                if !wanted {
+                    break;
+                }
+                audio::stream(path, 1 << 16, |block| wanted = wanted && push(block))?;
             }
             Ok(())
         },
@@ -414,8 +420,8 @@ pub fn analyze_files(
 /// exactly as [`analyze_files`] reads a file, so that a reading of a file
 /// and of the same audio in memory rest on the same beats.
 pub fn analyze_samples(samples: &[f32], sample_rate: u32, cfg: &StreamConfig) -> BeatLog {
-    let fed = |push: &mut dyn FnMut(&[f32])| {
-        samples.chunks(1 << 16).for_each(&mut *push);
+    let fed = |push: &mut dyn FnMut(&[f32]) -> bool| {
+        samples.chunks(1 << 16).all(push);
         Ok(())
     };
     analyze_fed(sample_rate, cfg, prepare_threads(), fed, |_| {})
@@ -445,7 +451,7 @@ fn analyze_fed(
     sample_rate: u32,
     cfg: &StreamConfig,
     threads: usize,
-    feed: impl FnOnce(&mut dyn FnMut(&[f32])) -> Result<(), AudioError> + Send,
+    feed: impl FnOnce(&mut dyn FnMut(&[f32]) -> bool) -> Result<(), AudioError> + Send,
     mut progress: impl FnMut(f64),
 ) -> Result<BeatLog, AudioError> {
     use std::sync::mpsc::sync_channel;
@@ -456,22 +462,32 @@ fn analyze_fed(
     let queued = QUEUED_PER_THREAD * threads;
     let (cut_tx, cut_rx) = sync_channel::<(usize, Prepared)>(queued);
     let (done_tx, done_rx) = sync_channel::<(usize, Prepared)>(queued);
-    let cut_rx = std::sync::Mutex::new(cut_rx);
+    // Owned by the preparing threads alone: once they have all stopped
+    // (the analysis panicked, or every one of them did), the cutter's
+    // sends fail and it stops, so nothing waits on it.
+    let cut_rx = std::sync::Arc::new(std::sync::Mutex::new(cut_rx));
     let total = std::thread::scope(|sc| {
         let cutter = sc.spawn(move || {
             let mut c = Cutter::new(fs, cfg);
             let mut n = 0;
-            // The analysis stopped (it never does early): nothing more is
-            // wanted.
+            // False once nothing more is wanted.
+            let wanted = std::cell::Cell::new(true);
             let mut send = |p: Prepared| {
-                let _ = cut_tx.send((n, p));
+                if wanted.get() && cut_tx.send((n, p)).is_err() {
+                    wanted.set(false);
+                }
                 n += 1;
             };
-            feed(&mut |block| c.push(block, &mut send))?;
+            feed(&mut |block| {
+                if wanted.get() {
+                    c.push(block, &mut send);
+                }
+                wanted.get()
+            })?;
             Ok::<usize, AudioError>(c.finish(&mut send))
         });
-        for _ in 0..threads {
-            let (rx, tx) = (&cut_rx, done_tx.clone());
+        for rx in std::iter::repeat_n(cut_rx, threads) {
+            let tx = done_tx.clone();
             sc.spawn(move || loop {
                 let next = rx.lock().expect("a preparing thread panicked").recv();
                 let Ok((i, mut c)) = next else { break };
@@ -490,7 +506,10 @@ fn analyze_fed(
             while let Some(c) = ready.remove(&next) {
                 st.chunk(&c);
                 next += 1;
-                progress(c.core_b.min(c.x0 as f64 / fs + c.x.len() as f64 / fs));
+                // The last chunk's end is reported once, below.
+                if c.core_b.is_finite() {
+                    progress(c.core_b);
+                }
             }
         }
         cutter.join().expect("the cutting thread panicked")
@@ -517,6 +536,13 @@ struct Prepared {
 
 impl Prepared {
     fn prepare(&mut self, fs: f64, cfg: &crate::dsp::EnvelopeConfig) {
+        // A preparing thread's panic, for the test that it comes out of
+        // the reading.
+        #[cfg(test)]
+        assert!(
+            !self.x.first().is_some_and(|v| v.is_nan()),
+            "test: a chunk failed"
+        );
         self.env = envelope(&self.x, fs, cfg);
         self.clipped = crate::diagnose::clipped_indices(&self.x, crate::analysis::CLIP_LEVEL);
     }
@@ -663,9 +689,9 @@ mod tests {
         let cut = (200.0 * fs) as usize;
         a.samples.drain(cut..cut + (3.3 * fs) as usize);
         let read = |threads: usize| {
-            let fed = |push: &mut dyn FnMut(&[f32])| {
+            let fed = |push: &mut dyn FnMut(&[f32]) -> bool| {
                 // Uneven blocks, as no decoder gives them.
-                a.samples.chunks(40_009).for_each(&mut *push);
+                a.samples.chunks(40_009).all(push);
                 Ok(())
             };
             analyze_fed(
@@ -713,6 +739,58 @@ mod tests {
             };
             assert!(bits(&one) == bits(&many), "{threads} threads");
         }
+    }
+
+    /// Whether `read` returns (panicking) within a minute: a panic while a
+    /// recording is read must come out of the reading, not leave it
+    /// waiting for ever (Trevor's probe, #1116).
+    fn returns_from(read: impl FnOnce() + Send + 'static) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(read));
+            let _ = tx.send(r.is_err());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(60)) == Ok(true)
+    }
+
+    /// A long take's worth of chunks, more than the queues hold.
+    fn fifteen_minutes() -> Vec<f32> {
+        generate(
+            &SynthConfig {
+                duration_s: 900.0,
+                ..Default::default()
+            },
+            |_| 270.0,
+            |_| 0.3,
+        )
+        .samples
+    }
+
+    #[test]
+    fn a_panic_in_the_analysis_comes_out_of_the_reading() {
+        let x = fifteen_minutes();
+        assert!(returns_from(move || {
+            let fed = |push: &mut dyn FnMut(&[f32]) -> bool| {
+                x.chunks(1 << 16).all(push);
+                Ok(())
+            };
+            let _ = analyze_fed(48_000, &StreamConfig::default(), 1, fed, |_| panic!("boom"));
+        }));
+    }
+
+    #[test]
+    fn a_panic_while_preparing_comes_out_of_the_reading() {
+        let mut x = fifteen_minutes();
+        // Every chunk's preparation panics ([`Prepared::prepare`] under
+        // test, on a chunk starting with NaN).
+        x.iter_mut().for_each(|v| *v = f32::NAN);
+        assert!(returns_from(move || {
+            let fed = |push: &mut dyn FnMut(&[f32]) -> bool| {
+                x.chunks(1 << 16).all(push);
+                Ok(())
+            };
+            let _ = analyze_fed(48_000, &StreamConfig::default(), 2, fed, |_| {});
+        }));
     }
 
     /// The envelope windows kept are the good beats' in the first
