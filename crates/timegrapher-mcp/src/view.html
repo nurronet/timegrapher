@@ -78,6 +78,8 @@ th { color: var(--text2); font-weight: 500; }
 .series-name .summary { font-weight: 400; color: var(--text2); }
 /* A series' caveat qualifies its finding, so it is no louder than it. */
 .series-caveat { font-size: 12.5px; color: var(--text2); margin: 0 0 2px; }
+.facts { margin: 0 0 4px; }
+.facts p { font-size: 12.5px; color: var(--text2); margin: 0; }
 .info { border-left: 2px solid var(--separator); padding: 0 0 2px 10px; margin: 6px 0 4px; }
 .info .series-name { white-space: normal; margin-top: 8px; }
 .headline { color: var(--text); font-size: 12.5px; margin: 0 0 2px; }
@@ -899,7 +901,8 @@ function scoreTicks(lo, hi, px, minPx) {
 // the label's own height.
 const NAME_CLEAR = 8;
 function xyChart(o) {
-  const W = chartWidth(), B = 20, R = 6;
+  // An x axis' name gets a row of its own under the tick labels.
+  const W = chartWidth(), B = o.xName ? 34 : 20, R = 6;
   // With its lines named, a plot keeps the lane's room above it, so it
   // never jumps as they come and go; a short one names them inside.
   const short = o.names && (o.height || 150) - 4 - B < MARKS.SHORT_PLOT;
@@ -938,13 +941,14 @@ function xyChart(o) {
   const nameBase = Math.min(T - 4, ...yt.filter(([, t]) => t).map(([v]) => sy(v) - 4 - NAME_CLEAR));
   yNames.forEach((t, i) => { ylabels += `<text x="${L - 5}" y="${nameBase - 14 * (yNames.length - 1 - i)}" text-anchor="end">${esc(t)}</text>`; });
   g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
-  // The x axis' name in the corner under the y labels, clear of the first x label.
-  if (o.xName) g += `<text x="${L - 10}" y="${H - 5}" text-anchor="end">${esc(o.xName)}</text>`;
+  // The x axis' name under its tick labels at the right, as the app's
+  // strip names its axes (#1052).
+  if (o.xName) g += `<text x="${L + plotW}" y="${H - 5}" text-anchor="end">${esc(o.xName)}</text>`;
   for (const [v, t] of xt) {
     inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
     const anchor = sx(v) - t.length * CHAR_W / 2 < L - 8 ? "start" : sx(v) + t.length * CHAR_W / 2 > W ? "end" : "middle";
-    g += `<text x="${sx(v)}" y="${H - 5}" text-anchor="${anchor}">${esc(t)}</text>`;
+    g += `<text x="${sx(v)}" y="${T + plotH + 15}" text-anchor="${anchor}">${esc(t)}</text>`;
   }
   const dash = (d) => d ? ` stroke-dasharray="${DASH[d]}"${DASH[d].startsWith("0 ") ? ` stroke-linecap="round"` : ""}` : "";
   for (const h of o.hlines || []) {
@@ -1041,6 +1045,9 @@ function xyChart(o) {
     });
   }
   g += `<g clip-path="url(#${area.id})">${inside}</g>`;
+  // Marks drawn over the plot on its scales, past its edge where a ring
+  // at an axis' end needs the room.
+  if (o.over) g += o.over(sx, sy);
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.title || "")}">${g}</svg></div>`;
 }
 
@@ -1453,7 +1460,7 @@ function steadyPlot(s, view, doc) {
         title: "Cycle", x: [0, f.period_s], y: [lo, hi],
         xTicks: (a, b, w) => linTicks(a, b, w, Math.min(80, w / 4), (t) => lagText(t), TIME_STEPS),
         yTicks: (a, b, h) => linTicks(a, b, h, 24, (y, st) => stepText(y, st, unit)),
-        dots: byTime.map((pts, k) => ({ pts, rgb: `rgb(${viridisRgb(0.15 + 0.75 * (bands > 1 ? k / (bands - 1) : 0.5)).join(",")})`, r: 1.4 })),
+        dots: byTime.map((pts, k) => ({ pts, rgb: `rgb(${timeRgb(bands > 1 ? k / (bands - 1) : 0.5).join(",")})`, r: 1.4 })),
         rects,
         lines: [{ pts: shape, color, width: 2 }],
         corner: { text: label },
@@ -1667,16 +1674,27 @@ const VIRIDIS = /*VIRIDIS*/null;
 // The maps drawn this time, painted once the page is in place.
 const mapPaints = [];
 
-// palette::viridis: the table at t, 0 to 1, between its points.
-function viridisRgb(t) {
-  const x = Math.min(Math.max(t, 0), 1) * (VIRIDIS.length - 1);
-  const i = Math.min(Math.floor(x), VIRIDIS.length - 2), f = x - i;
-  const a = VIRIDIS[i], b = VIRIDIS[i + 1];
+// Core palette::time_colour (Hugh's M3: viridis lifted into each theme)
+// read at evenly spaced points for each theme, put in by the server.
+const TIME_MAP = /*TIME_MAP*/null;
+
+// A colour table at t, 0 to 1, between its points.
+function tableRgb(table, t) {
+  const x = Math.min(Math.max(t, 0), 1) * (table.length - 1);
+  const i = Math.min(Math.floor(x), table.length - 2), f = x - i;
+  const a = table[i], b = table[i + 1];
   return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
 }
-// A colour key's ramp: viridis from 0 to 1 as gradient stops.
-function viridisStops() {
-  return Array.from({ length: 9 }, (_, i) => `rgb(${viridisRgb(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
+// palette::viridis: the maps' sizes.
+function viridisRgb(t) { return tableRgb(VIRIDIS, t); }
+// palette::time_colour: a time, in the page's theme (the Isochronism walk,
+// its key and the Cycle view's dots).
+function timeRgb(t) {
+  return tableRgb(TIME_MAP[document.documentElement.dataset.theme === "dark" ? "dark" : "light"], t);
+}
+// A colour key's ramp: a map from 0 to 1 as gradient stops.
+function rampStops(map) {
+  return Array.from({ length: 9 }, (_, i) => `rgb(${map(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
 }
 // timefreq::Scale::at: where size x falls, 0 to 1.
 function scaleAt(sc, x) {
@@ -1778,7 +1796,7 @@ function mapChart(m, doc, log) {
     <canvas class="map" data-map="${k}" width="${w}" height="${h}" style="left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px"></canvas>
     <svg class="map-layer" style="left:0;top:0" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${over}</svg>
   </div>
-  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
+  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${rampStops(viridisRgb)})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
   <p class="sub caption" data-map-read="${k}">Point at the map to read a cell.</p>`;
 }
 
@@ -1911,44 +1929,94 @@ function distributionCards(d) {
 // ---- The Isochronism card (#741) -----------------------------------------
 //
 // The rate against the amplitude as the take runs, one dot per stretch of
-// time coloured by when, on the Cycle view's viridis, joined in time order
-// where core says they are next to each other.
+// time coloured by when on core's time colour map, joined in time order
+// where core says they are next to each other (Hugh's look C).
 // The server sends core steady_views::walk_view: the points core merged,
-// each with its hover; nothing is merged or worded here.
+// each with its hover, the hour beads, the axes' round ends and the
+// curve's headline in lines; nothing is merged or worded here.
 
 // Core steady_views' walk words, put in by the server.
 const WALK_WORDS = /*WALK_WORDS*/null;
 
-// An axis from `lo` to `hi` about `px` long whose ends are ticks: steps of
-// 1, 2 and 5 at least `minPx` apart, the ends rounded out to a step.
-function roundAxis(lo, hi, px, minPx) {
-  if (!(hi > lo)) { lo -= 1; hi += 1; }
-  const { step } = gridFor(lo, hi, px, minPx);
-  const ends = [Math.floor(lo / step + 1e-9) * step, Math.ceil(hi / step - 1e-9) * step];
-  const ticks = [];
-  for (let k = Math.round(ends[0] / step); k * step <= ends[1] + step * 1e-9; k++) ticks.push([+(k * step).toFixed(10), axisLabel(k * step, step)]);
-  return { ends, ticks };
+// The walk's plot: as tall as it is wide, within these bounds (Hugh's F2).
+const WALK_PLOT = { MIN: 280, MAX: 420 };
+
+// An axis' ticks from the server's (core walk_axes) round ends and step,
+// bare numbers with a true minus (Hugh's F1).
+function walkTicks([lo, hi, step]) {
+  const out = [];
+  for (let k = Math.round(lo / step); k * step <= hi + step * 1e-9; k++) {
+    out.push([+(k * step).toFixed(10), axisLabel(k * step, step).replace("-", "\u2212")]);
+  }
+  return out;
+}
+
+// Where a bead's name goes: square to the trail at dot `i`, on the side
+// with more room from the other dots, `off` px out, and how it is
+// anchored there (the app's isochronism::bead_side).
+function beadSide(P, i, off) {
+  const a = P[Math.max(i - 1, 0)], b = P[Math.min(i + 1, P.length - 1)];
+  let [nx, ny] = [-(b[1] - a[1]), b[0] - a[0]];
+  const len = Math.hypot(nx, ny);
+  [nx, ny] = len > 0 ? [nx / len, ny / len] : [0, -1];
+  const room = (sgn) => Math.min(...P.map(([x, y]) => Math.hypot(x - (P[i][0] + 16 * sgn * nx), y - (P[i][1] + 16 * sgn * ny))));
+  if (room(-1) > room(1)) [nx, ny] = [-nx, -ny];
+  const anchor = nx > 0.5 ? "start" : nx < -0.5 ? "end" : "middle";
+  const dy = ny > 0.5 ? 9 : ny < -0.5 ? 0 : 4;
+  return { x: P[i][0] + off * nx, y: P[i][1] + off * ny + dy, anchor };
+}
+
+// The walk as Hugh's look C draws it (Peter, 11-05): a 2 px trail through
+// the dots in time order, each step shading from its first dot's colour to
+// its last's and lifted wherever core says a dot is not joined; the dots
+// over it; a ring at each of core's hour beads; a ring at the start and a
+// large dot at the end; then their names.
+function walkMarks(w, sx, sy) {
+  const dots = w.dots, rgb = (t) => `rgb(${timeRgb(t).join(",")})`;
+  const P = dots.map((d) => [sx(d.amplitude_deg), sy(d.rate_s_per_day)]);
+  const id = "walk" + (++clipCount), f = (v) => v.toFixed(1);
+  let defs = "", trail = "", marks = "", names = "";
+  dots.forEach((d, i) => {
+    if (!i || !d.joined) return;
+    const [a, b] = [P[i - 1], P[i]];
+    defs += `<linearGradient id="${id}s${i}" gradientUnits="userSpaceOnUse" x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(b[0])}" y2="${f(b[1])}"><stop offset="0" stop-color="${rgb(dots[i - 1].when)}"/><stop offset="1" stop-color="${rgb(d.when)}"/></linearGradient>`;
+    trail += `<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(b[0])}" y2="${f(b[1])}" stroke="url(#${id}s${i})" stroke-width="2" stroke-linecap="round"/>`;
+  });
+  // Each dot says its own hover, over a target wider than the dot.
+  dots.forEach((d, i) => {
+    marks += `<g><title>${esc(d.hover)}</title><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="6" fill="transparent"/><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="2.5" fill="${rgb(d.when)}"/></g>`;
+  });
+  const ring = (i, r) => `<circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="${r}" fill="var(--card)" stroke="${rgb(dots[i].when)}" stroke-width="2.5" pointer-events="none"/>`;
+  const name = (x, y, anchor, text) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" style="fill:var(--text);font-size:12px">${esc(text)}</text>`;
+  for (const b of w.beads || []) {
+    marks += ring(b.dot, 5);
+    const at = beadSide(P, b.dot, 11);
+    names += name(at.x, at.y, at.anchor, b.text);
+  }
+  const last = P.length - 1;
+  marks += ring(0, 7);
+  marks += `<circle cx="${f(P[last][0])}" cy="${f(P[last][1])}" r="6.5" fill="${rgb(dots[last].when)}" stroke="var(--card)" stroke-width="2" pointer-events="none"/>`;
+  names += name(P[0][0] - 10, P[0][1] - 10, "end", WALK_WORDS.start);
+  names += name(P[last][0], P[last][1] + 22, "middle", w.last_text);
+  return `<defs>${defs}</defs><g>${trail}</g>${marks}${names}`;
 }
 
 function walkCard(w) {
   if (!w || !w.dots || !w.dots.length) return "";
-  const W = WALK_WORDS, dots = w.dots;
-  const amp = dots.map((d) => d.amplitude_deg), rate = dots.map((d) => d.rate_s_per_day);
-  // The plot's size less its axes, near enough to choose the steps by.
-  const x = roundAxis(Math.min(...amp), Math.max(...amp), chartWidth() - 70, 60);
-  const y = roundAxis(Math.min(...rate), Math.max(...rate), 150, 24);
+  const W = WALK_WORDS, [amp, rate] = w.axes;
+  // Square, within bounds, at the card's width less the rate axis.
+  const side = Math.max(WALK_PLOT.MIN, Math.min(chartWidth() - 70, WALK_PLOT.MAX));
   const chart = xyChart({
-    title: W.title, x: x.ends, y: y.ends, height: 180,
-    xName: `${W.amp_name} (${W.amp_unit})`, yName: `${W.rate_name}\n(${W.rate_unit})`,
-    xTicks: () => x.ticks, yTicks: () => y.ticks,
+    title: W.title, x: [amp[0], amp[1]], y: [rate[0], rate[1]], height: side + 38,
+    xName: `${W.amp_name} ${W.amp_unit}`, yName: `${W.rate_name}\n${W.rate_unit}`,
+    xTicks: () => walkTicks(amp), yTicks: () => walkTicks(rate),
     hlines: [{ y: 0, color: "--axis" }],
-    // Joined only where core says the points are next to each other: a
-    // left-out stretch or a break lifts the pen.
-    joins: [{ pts: dots.flatMap((d, i) => i && !d.joined ? [[NaN, NaN], [d.amplitude_deg, d.rate_s_per_day]] : [[d.amplitude_deg, d.rate_s_per_day]]), color: "--axis", width: 1 }],
-    dots: dots.map((d) => ({ pts: [[d.amplitude_deg, d.rate_s_per_day]], hovers: [d.hover], rgb: `rgb(${viridisRgb(d.when).join(",")})`, r: 3 })),
+    over: (sx, sy) => walkMarks(w, sx, sy),
   });
-  return `<div class="card"><h2>${esc(W.title)}</h2><p class="hint">${esc(W.hint)}</p>${chart}
-    <div class="map-key"><span>${esc(W.key_start)}</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
+  // The curve's headline, one fact a line, in core's words (Hugh's F4).
+  const facts = (w.summary || []).map((t) => `<p>${esc(t)}</p>`).join("");
+  return `<div class="card"><h2>${esc(W.title)}</h2>${facts ? `<div class="facts">${facts}</div>` : ""}<p class="hint">${esc(W.hint)}</p>${chart}
+    <div class="map-key"><span>${esc(W.key_start)}</span><span class="ramp" style="background:linear-gradient(to right, ${rampStops(timeRgb)})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
 }
 
 function seriesView(doc, extra, limits, seriesLimits) {
