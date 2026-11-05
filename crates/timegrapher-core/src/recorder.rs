@@ -839,6 +839,16 @@ impl Recorder {
         }
         Ok(self.dir.clone())
     }
+
+    /// [`Recorder::finish`], keeping the hour still being written as FLAC
+    /// too, so every hour of the take is: for a recording that ends here,
+    /// as `timegrapher record` does. Waits for its conversion (about 20 s
+    /// for a whole hour at 48 kHz). An hour that cannot be converted stays
+    /// a whole WAV.
+    pub fn finish_as_flac(mut self, result: Option<serde_json::Value>) -> io::Result<PathBuf> {
+        self.close_segment()?;
+        self.finish(result)
+    }
 }
 
 /// A recorder let go without [`Recorder::finish`] (a new session, a
@@ -2309,6 +2319,40 @@ mod tests {
                 .len(),
             8000
         );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_take_finished_as_flac_holds_every_hour_as_flac() {
+        let (mut r, base) = save_fixture("finish-as-flac");
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 30);
+        append_second(&mut r, 31);
+        let dir = r.finish_as_flac(None).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+        assert_eq!(
+            v["segments"],
+            serde_json::json!(["audio-001.flac", "audio-002.flac"])
+        );
+        assert_eq!(v["breaks"][0]["segment"], "audio-002.flac");
+        assert!(v["ended_utc"].is_string());
+        let sounds: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.starts_with("audio-"))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        assert_eq!(sounds, ["audio-001.flac", "audio-002.flac"]);
+        let len = |n: &str| crate::audio::load(&dir.join(n)).unwrap().samples.len();
+        assert_eq!(
+            (len("audio-001.flac"), len("audio-002.flac")),
+            (2 * 8000, 2 * 8000)
+        );
+        assert!(!lock_path(&dir).exists());
         fs::remove_dir_all(&base).unwrap();
     }
 }
