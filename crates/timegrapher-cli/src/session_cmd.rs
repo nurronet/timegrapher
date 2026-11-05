@@ -1012,18 +1012,12 @@ fn whole_take_run(c: &Ctx) -> Result<Option<power_reserve::Results>, String> {
         |first| take::correction_for(c.m, first, None, None),
         |_, _| {},
     )?;
-    let positions: Vec<&str> = ctx
-        .entries
-        .iter()
-        .filter_map(|w| w.position)
-        .map(Position::common)
-        .collect();
     Ok(power_reserve::from_long_take(
         &log,
         ctx.clock.as_ref(),
         &ctx.breaks,
         &ctx.masked,
-        &positions,
+        &positions_listed(c),
         "",
         !ctx.files.is_empty(),
     ))
