@@ -511,6 +511,9 @@ impl TimegrapherApp {
             amplitude_odd_deg: r.amplitude_odd_deg,
             beat_error_unlock_ms: r.beat_error_unlock_ms,
             beat_error_ms: r.beat_error_ms,
+            rate_error_s_per_day: r.rate_error_s_per_day,
+            amplitude_error_deg: r.amplitude_error_deg,
+            beat_error_unlock_error_ms: r.beat_error_unlock_error_ms,
             heard: r.watch_heard,
         });
         out

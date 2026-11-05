@@ -751,6 +751,9 @@ mod tests {
                 amplitude_odd_deg: None,
                 beat_error_unlock_ms: (i != 1).then_some(0.2),
                 beat_error_ms: Some(0.8),
+                rate_error_s_per_day: None,
+                amplitude_error_deg: None,
+                beat_error_unlock_error_ms: None,
                 heard: true,
             })
             .collect();

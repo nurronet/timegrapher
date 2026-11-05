@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::strength::{self, Grid, Strength};
+use timegrapher_core::figure_text::{base_digits, figure, true_minus};
 
 impl TimegrapherApp {
     /// The Charts pane: a chart for each reading shown, one above the
@@ -9,11 +10,45 @@ impl TimegrapherApp {
     pub(super) fn charts_pane(&mut self, ui: &mut egui::Ui) {
         let shown = self.chart_series;
         self.note_need(ui, Pane::Charts, STACKED_MIN_H);
-        self.charts_drawn = stacked(ui, shown, STACKED_MIN_H, |ui, k| self.chart(ui, k));
+        let mut moved = false;
+        self.charts_drawn = stacked(ui, shown, STACKED_MIN_H, |ui, k| {
+            moved |= self.chart(ui, k);
+        });
+        self.charts_fit = !moved;
     }
 
-    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) {
+    /// The pane's one way back to the whole session, in its toolbar as
+    /// the Paper Strip's Fit is: on while the charts show it all, turned
+    /// off by a pan or a zoom (Walter's walk of #1057: a button on every
+    /// chart wrapped over its title and lines, #1063).
+    pub(super) fn charts_fit_switch(&mut self, ui: &mut egui::Ui) {
+        let mut fit = self.charts_fit;
+        let hint = if self.running() {
+            "Show the whole session on the charts and keep following new readings. Scrolling, \
+             dragging or zooming a chart's time turns it off; double-clicking a chart turns it \
+             on."
+        } else {
+            "Show the whole session on the charts. Scrolling, dragging or zooming a chart's \
+             time turns it off; double-clicking a chart turns it on."
+        };
         let pal = theme::pal(ui);
+        if theme::tool_switch(ui, Icon::Fit, pal.accent, "Fit", &mut fit, hint) && fit {
+            self.charts_to_live = true;
+            ui.ctx().request_repaint();
+        }
+    }
+
+    /// One reading's chart, and whether it was moved off the whole
+    /// session.
+    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) -> bool {
+        let pal = theme::pal(ui);
+        // A lane over the plot for the chart's name and its lines' key,
+        // so neither sits on the lines (Walter's walk of #1057, #1063).
+        let font = egui::TextStyle::Small.resolve(ui.style());
+        let (lane, _) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), font.size + 6.0),
+            egui::Sense::hover(),
+        );
         let average = self.average_s;
         let (series, unit, decimals) = chart_lines(reading, &self.trend, average, pal);
         let (mut plot, grid) = chart_plot(reading);
@@ -46,17 +81,18 @@ impl TimegrapherApp {
         let painter = ui.painter_at(frame);
         let t = resp.transform;
         paint_y_labels(ui, &t, unit);
-        // Which reading this chart is, in its colour, at its top left.
-        painter.text(
-            frame.left_top() + Vec2::new(6.0, 3.0),
+        // Which reading this chart is, in its colour, over its top left,
+        // and its lines' key over its top right, in the lane above it.
+        let above = egui::Rect::from_min_max(egui::pos2(frame.left(), lane.top()), frame.max);
+        ui.painter().text(
+            above.left_top() + Vec2::new(0.0, 3.0),
             egui::Align2::LEFT_TOP,
             steady::title(reading),
-            egui::TextStyle::Small.resolve(ui.style()),
+            font,
             colour,
         );
-        // Its lines' key at its top right, beside the lines it names.
         let only = steady::SERIES.map(|k| k == reading);
-        paint_key(&painter, frame, &chart_key(only, pal), ui, pal);
+        paint_key(ui.painter(), above, &chart_key(only, pal), ui, pal);
         let at = |x| egui::pos2(t.position_from_point_x(x), frame.top());
         let test = self.in_test();
         if test {
@@ -95,11 +131,17 @@ impl TimegrapherApp {
             }
         }
         let running = self.running();
-        if moved {
-            self.chart_back_button(ui, resp.response.rect.left_top(), running);
-        }
         if let Some(x) = hover {
-            chart_hover(resp.response, x, &lookup, (unit, decimals), running);
+            let trend = &self.trend;
+            chart_hover(
+                ui,
+                frame,
+                (x, trend),
+                &lookup,
+                (unit, decimals),
+                reading,
+                running,
+            );
         }
         if let Some(at) = click {
             if at.x > 0.0 {
@@ -107,33 +149,7 @@ impl TimegrapherApp {
                 self.strip_end = Some(at.x);
             }
         }
-    }
-
-    /// Follow Live, or Show Whole Session once stopped, on a chart moved
-    /// off the whole session: how to get back, on the chart itself.
-    fn chart_back_button(&mut self, ui: &mut egui::Ui, top_left: egui::Pos2, running: bool) {
-        let at = top_left + Vec2::new(60.0, 4.0);
-        // Say how to get back, on the chart itself.
-        let label = if running {
-            "Follow Live"
-        } else {
-            "Show Whole Session"
-        };
-        let b = ui.put(
-            egui::Rect::from_min_size(at, Vec2::new(150.0, 24.0)),
-            theme::primary(ui, label).min_size(Vec2::new(0.0, 24.0)),
-        );
-        if b.on_hover_text(if running {
-            "Back to the whole session, following new beats as they come in. \
-             Double-clicking a chart does the same."
-        } else {
-            "Back to the whole session. Double-clicking a chart does the same."
-        })
-        .clicked()
-        {
-            self.charts_to_live = true;
-            ui.ctx().request_repaint();
-        }
+        moved
     }
 }
 
@@ -168,6 +184,7 @@ fn chart_lines(
                     fields::duration(average)
                 ),
                 pts: pick(|p| p.rate_s_per_day),
+                se: |p| p.rate_error_s_per_day,
                 color: pal.trace_rate,
                 style: solid,
                 key: pal.trace_rate,
@@ -175,13 +192,14 @@ fn chart_lines(
                 main: true,
             }],
             " s/d",
-            1,
+            base_digits::RATE,
         ),
         SeriesKind::Amplitude => (
             vec![
                 ChartLine {
                     name: "Average Amplitude".into(),
                     pts: pick(|p| p.amplitude_deg),
+                    se: |p| p.amplitude_error_deg,
                     color: pal.trace_amplitude,
                     style: solid,
                     key: pal.trace_amplitude,
@@ -191,6 +209,7 @@ fn chart_lines(
                 ChartLine {
                     name: "Amplitude from Tick".into(),
                     pts: pick(|p| p.amplitude_even_deg),
+                    se: |p| p.amplitude_error_deg,
                     color: pal.trace_amplitude,
                     style: LineStyle::Dashed { length: 6.0 },
                     key: pal.tick,
@@ -200,6 +219,7 @@ fn chart_lines(
                 ChartLine {
                     name: "Amplitude from Tock".into(),
                     pts: pick(|p| p.amplitude_odd_deg),
+                    se: |p| p.amplitude_error_deg,
                     color: pal.trace_amplitude,
                     style: LineStyle::Dashed { length: 6.0 },
                     key: pal.tock,
@@ -208,13 +228,14 @@ fn chart_lines(
                 },
             ],
             "°",
-            0,
+            base_digits::AMPLITUDE,
         ),
         SeriesKind::BeatError => (
             vec![
                 ChartLine {
                     name: "From the Unlock".into(),
                     pts: pick(|p| p.beat_error_unlock_ms.map(f64::abs)),
+                    se: |p| p.beat_error_unlock_error_ms,
                     color: pal.trace_beat_error,
                     style: solid,
                     key: pal.trace_beat_error,
@@ -224,6 +245,7 @@ fn chart_lines(
                 ChartLine {
                     name: "From the Drop".into(),
                     pts: pick(|p| p.beat_error_ms.map(f64::abs)),
+                    se: |_| None,
                     color: pal.trace_beat_error.gamma_multiply(0.6),
                     style: LineStyle::dashed_dense(),
                     key: pal.trace_beat_error.gamma_multiply(0.6),
@@ -232,7 +254,7 @@ fn chart_lines(
                 },
             ],
             " ms",
-            2,
+            base_digits::BEAT_ERROR,
         ),
     }
 }
@@ -395,25 +417,60 @@ fn keep_in(lo: f64, hi: f64, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
     }
 }
 
-/// The tooltip at the pointer: its time and every line's value there.
+/// A line's value at `x` as the values box writes it: the point there
+/// to the decimals of the ± of the reading it is, as its card showed it,
+/// or with none the figure's `base` decimals (#510 K3, #1063).
+pub(super) fn line_value(
+    pts: &[[f64; 2]],
+    se: fn(&TrendPoint) -> Option<f64>,
+    (x, trend): (f64, &[TrendPoint]),
+    base: usize,
+    signed: bool,
+) -> Option<String> {
+    let [t, v] = pts[nearest_at(pts, x)?];
+    let at = trend.partition_point(|p| p.t < t);
+    let se = trend.get(at).and_then(se);
+    Some(true_minus(&figure(v, se, base, signed)))
+}
+
+/// The values box for the pointer's time: its time and every line's
+/// value there, each figure to the decimals the cards write it to
+/// (`figure_text`, #1063): to its ±'s decimals, or with none its base
+/// decimals. It hangs from the chart's top beside the pointer, so it
+/// never covers the time labels along the bottom.
 fn chart_hover(
-    response: egui::Response,
-    x: f64,
+    ui: &egui::Ui,
+    frame: egui::Rect,
+    (x, trend): (f64, &[TrendPoint]),
     lookup: &[ChartLine],
-    (unit, decimals): (&str, usize),
+    (unit, base): (&str, usize),
+    reading: SeriesKind,
     running: bool,
 ) {
-    response.on_hover_ui_at_pointer(|ui| {
+    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
+        return;
+    };
+    let signed = reading == SeriesKind::Rate;
+    egui::Tooltip::always_open(
+        ui.ctx().clone(),
+        ui.layer_id(),
+        egui::Id::new(("chart values", steady::title(reading))),
+        egui::PopupAnchor::Position(egui::pos2(pointer.x + 12.0, frame.top())),
+    )
+    .show(|ui| {
         ui.set_max_width(300.0);
         ui.label(RichText::new(length_text(x)).strong());
-        for ChartLine { name, pts, key, .. } in lookup {
-            let v = value_at(pts, x);
+        for ChartLine {
+            name, pts, key, se, ..
+        } in lookup
+        {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("■").color(*key));
-                ui.label(match v {
-                    Some(v) => format!("{name}: {v:.decimals$}{unit}"),
-                    None => format!("{name}: none"),
-                });
+                let value = line_value(pts, *se, (x, trend), base, signed);
+                ui.label(format!(
+                    "{name}: {}",
+                    value.map_or("none".into(), |v| v + unit)
+                ));
             });
         }
         ui.label(

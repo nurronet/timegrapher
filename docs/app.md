@@ -1205,9 +1205,13 @@ around the pointer, and zoomed out to the whole take it shows the whole
 session again; the
 vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
-Once a chart has been panned or zoomed a **Follow Live** button
-(**Show Whole Session** for a recording) appears on it and does the same,
-and the box at the pointer lists these controls. Clicking a moment shows it on the strip and in the
+The pane's **Fit** switch, in its toolbar as on the Paper Strip, is on
+while the charts show the whole session; a pan or a zoom turns it off,
+and turning it on does what a double click does. The box of values
+hangs from the chart's top beside the pointer, clear of the time labels,
+writes each figure to the decimals its card does, and lists these
+controls. Each chart's name and its lines' key sit in a lane above it,
+off the lines. Clicking a moment shows it on the strip and in the
 readings. The scale holds every value in view, so no point is drawn
 off the chart. Beat error is charted as a
 size, as on its card. Changing the averaging time or the

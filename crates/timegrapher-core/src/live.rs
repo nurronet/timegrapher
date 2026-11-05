@@ -1339,6 +1339,13 @@ pub struct TrendReading {
     pub amplitude_odd_deg: Option<f64>,
     pub beat_error_unlock_ms: Option<f64>,
     pub beat_error_ms: Option<f64>,
+    /// Each figure's standard error, as its card shows it after "±", so
+    /// a chart writes a point to the decimals its card does (#510 K3,
+    /// #1063): the rate's, the amplitude's (Tick's and Tock's take the
+    /// same, as on the card) and the beat error from the unlock's.
+    pub rate_error_s_per_day: Option<f64>,
+    pub amplitude_error_deg: Option<f64>,
+    pub beat_error_unlock_error_ms: Option<f64>,
     /// The beats were spaced like a watch's, not scattered like noise.
     pub heard: bool,
 }
@@ -1385,6 +1392,9 @@ impl TrendReading {
                 amplitude_odd_deg: None,
                 beat_error_unlock_ms: None,
                 beat_error_ms: None,
+                rate_error_s_per_day: None,
+                amplitude_error_deg: None,
+                beat_error_unlock_error_ms: None,
                 heard: false,
             };
         }
@@ -1396,6 +1406,9 @@ impl TrendReading {
             amplitude_odd_deg: r.amplitude_odd_deg,
             beat_error_unlock_ms: r.beat_error_unlock_ms,
             beat_error_ms: r.beat_error_ms,
+            rate_error_s_per_day: r.rate_error_s_per_day,
+            amplitude_error_deg: r.amplitude_error_deg,
+            beat_error_unlock_error_ms: r.beat_error_unlock_error_ms,
             heard: r.beats_used > 0 && r.watch_heard,
         }
     }

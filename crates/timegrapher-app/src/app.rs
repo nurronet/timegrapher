@@ -1625,6 +1625,9 @@ struct ChartLine {
     under: Option<Color32>,
     /// The reading itself, drawn heavier than the lines beside it.
     main: bool,
+    /// A point's ±, as its card shows it, to write the point's value to
+    /// the decimals the card does (#1063).
+    se: fn(&TrendPoint) -> Option<f64>,
 }
 
 /// The rate over each 2 seconds of beats, on a grid from the first beat,
@@ -2174,6 +2177,9 @@ pub struct TimegrapherApp {
     /// beats: set by the button, applied by every chart on the next frame.
     charts_to_live: bool,
     charts_to_live_now: bool,
+    /// Whether the charts show the whole session, as the pane's Fit
+    /// switch shows (#1063).
+    charts_fit: bool,
     /// The averaging time each chart last drew with: a new one rescales
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
@@ -2652,6 +2658,7 @@ impl TimegrapherApp {
             readings_pinned: true,
             charts_to_live: false,
             charts_to_live_now: false,
+            charts_fit: true,
             chart_average_drawn: Default::default(),
             capture: None,
             live: None,
@@ -3067,6 +3074,8 @@ impl TimegrapherApp {
             Pane::Charts => theme::pane_toolbar(ui, title, help::CHARTS, |ui| {
                 steady::series_switches(ui, &mut self.chart_series);
                 theme::bar_gap(ui);
+                self.charts_fit_switch(ui);
+                theme::bar_gap(ui);
                 self.export_button(ui, pane);
             }),
             _ => return false,
@@ -3411,10 +3420,16 @@ fn segments(points: &[[f64; 2]]) -> Vec<Vec<[f64; 2]>> {
     out
 }
 
-/// The value of the point nearest `x` in points sorted by x: none in a gap
-/// in the line ([`strip::gap_before`]), or further past either end than
-/// the step beside it.
+/// The value of the point [`nearest_at`] `x`.
+#[cfg(test)]
 fn value_at(points: &[[f64; 2]], x: f64) -> Option<f64> {
+    nearest_at(points, x).map(|i| points[i][1])
+}
+
+/// Which point is nearest `x` in points sorted by x: none in a gap in the
+/// line ([`strip::gap_before`]), or further past either end than the step
+/// beside it.
+fn nearest_at(points: &[[f64; 2]], x: f64) -> Option<usize> {
     let n = points.len();
     let i = points.partition_point(|p| p[0] < x);
     let step = |j: usize| points[j][0] - points[j - 1][0];
@@ -3427,7 +3442,7 @@ fn value_at(points: &[[f64; 2]], x: f64) -> Option<f64> {
         _ if x - points[i - 1][0] < points[i][0] - x => i - 1,
         _ => i,
     };
-    Some(points[near][1])
+    Some(near)
 }
 
 /// The Watch settings a take is read with.
