@@ -813,7 +813,17 @@ let steadyView = null;
 // scale, and the FFT's rate as the beat timing in ms.
 // steady::TIME_BANDS: the Cycle view's dots, coloured by when they came.
 const TIME_BANDS = 12;
-let fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
+// A switch in a view's toolbar changes only that view (Hugh, 11-05), as
+// the app's panes do: each view keeps its own, from these at first.
+const SWITCH_DEFAULTS = { fftTiming: false, mapsLog: false, showWheels: true, showInfo: false };
+let { fftTiming, mapsLog, showWheels, showInfo } = SWITCH_DEFAULTS;
+const viewSwitches = {};
+// Put the switches the current view shows away, and take out `view`'s.
+function switchView(view) {
+  viewSwitches[steadyView] = { fftTiming, mapsLog, showWheels, showInfo };
+  ({ fftTiming, mapsLog, showWheels, showInfo } = viewSwitches[view] || SWITCH_DEFAULTS);
+  steadyView = view;
+}
 
 // steady::secs: "45 s", "12 min", "2.5 h".
 function secs(t) {
@@ -1596,7 +1606,7 @@ function steadinessCard(doc) {
   if (!series.length) return "";
   const has = { readings: (s) => s.views && s.views.readings, periods: (s) => s.views && s.views.search, cycle: (s) => s.views && s.views.fold, spectrum: (s) => spectrumOf(doc, s), stft: () => !!doc.time_frequency, wavelet: () => !!doc.time_frequency };
   const offered = STEADY_VIEWS.filter(([key]) => !has[key] || series.some(has[key]));
-  if (!offered.some(([k]) => k === steadyView)) steadyView = offered[0][0];
+  if (!offered.some(([k]) => k === steadyView)) switchView(offered[0][0]);
   // A series too short for the tests has no autocorrelation: no plot.
   const tested = (s) => !!s.autocorrelation;
   const drawn = series.some(tested);
@@ -1649,7 +1659,7 @@ const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a
 
 function wireSteadiness(root) {
   for (const b of root.querySelectorAll("button[data-steady]")) {
-    b.addEventListener("click", () => { steadyView = b.dataset.steady; redraw(); });
+    b.addEventListener("click", () => { switchView(b.dataset.steady); redraw(); });
   }
   for (const b of root.querySelectorAll("button[data-switch]")) {
     b.addEventListener("click", () => {
@@ -1975,7 +1985,8 @@ function walkMarks(w, sx, sy) {
   const dots = w.dots, rgb = (t) => `rgb(${timeRgb(t).join(",")})`;
   const P = dots.map((d) => [sx(d.amplitude_deg), sy(d.rate_s_per_day)]);
   const id = "walk" + (++clipCount), f = (v) => v.toFixed(1);
-  let defs = "", trail = "", marks = "", names = "";
+  let defs = `<filter id="${id}plate" x="-0.06" y="-0.1" width="1.12" height="1.2"><feFlood style="flood-color:var(--card);flood-opacity:0.85"/><feComposite in="SourceGraphic"/></filter>`;
+  let trail = "", marks = "", names = "";
   dots.forEach((d, i) => {
     if (!i || !d.joined) return;
     const [a, b] = [P[i - 1], P[i]];
@@ -1987,9 +1998,9 @@ function walkMarks(w, sx, sy) {
     marks += `<g><title>${esc(d.hover)}</title><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="6" fill="transparent"/><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="2.5" fill="${rgb(d.when)}"/></g>`;
   });
   const ring = (i, r) => `<circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="${r}" fill="var(--card)" stroke="${rgb(dots[i].when)}" stroke-width="2.5" pointer-events="none"/>`;
-  // Each name on a halo of the card's colour, as the app's (#1155), so a
-  // trail behind it never runs through the text.
-  const name = (x, y, anchor, text) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" paint-order="stroke" stroke="var(--card)" stroke-opacity="0.85" stroke-width="4" stroke-linejoin="round" style="fill:var(--text);font-size:12px">${esc(text)}</text>`;
+  // Each name on a plate of the card's colour at 85%, a little past the
+  // text, as the app's (#1155), so a trail behind it never runs through it.
+  const name = (x, y, anchor, text) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" filter="url(#${id}plate)" style="fill:var(--text);font-size:12px">${esc(text)}</text>`;
   for (const b of w.beads || []) {
     marks += ring(b.dot, 5);
     const at = beadSide(P, b.dot, 11);

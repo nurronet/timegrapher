@@ -96,8 +96,9 @@ test("the start is a named ring, the end a large dot named with its hour, each b
   assert.equal((out.match(/r="5" fill="var\(--card\)" stroke="[^"]+" stroke-width="2.5"/g) || []).length, 2, "a ring per bead");
   assert.ok(out.includes(`r="6.5" fill="${rgb(1)}" stroke="var(--card)" stroke-width="2"`), "the end's dot");
   for (const name of ["Start", "38 h", "12 h", "24 h"]) {
-    assert.ok(new RegExp(`paint-order="stroke" stroke="var\\(--card\\)" stroke-opacity="0.85" stroke-width="4" stroke-linejoin="round" style="fill:var\\(--text\\);font-size:12px">${name}</text>`).test(out), `${name} on a halo`);
+    assert.ok(new RegExp(`filter="url\\(#walk\\d+plate\\)" style="fill:var\\(--text\\);font-size:12px">${name}</text>`).test(out), `${name} on a plate`);
   }
+  assert.ok(/<filter id="walk\d+plate"[^>]*><feFlood style="flood-color:var\(--card\);flood-opacity:0.85"\/><feComposite in="SourceGraphic"\/><\/filter>/.test(out), "the plate: the card's colour at 85%");
 });
 
 test("the end's hour goes 14 px off the trail on its roomier side, as a bead's does", () => {
