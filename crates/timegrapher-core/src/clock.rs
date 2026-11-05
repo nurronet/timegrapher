@@ -12,10 +12,24 @@ use crate::dsp::{median, robust_sd};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// What a clock `ppm` slow (negative: fast) does to a rate, s/d: the
-/// rate read on it less the true rate, to first order.
+/// What a clock `ppm` fast (negative: slow) does to a rate, s/d: the
+/// rate read on it less the true rate, to first order. A fast clock's
+/// second is short, so a watch read on it reads slow.
 pub fn rate_error_s_per_day(ppm: f64) -> f64 {
-    ppm * 1e-6 * 86400.0
+    -ppm * 1e-6 * 86400.0
+}
+
+/// True seconds in one second of a clock `ppm` fast (negative: slow). This
+/// is the definition of a clock's ppm, and the one place its sign is
+/// turned into a scale (#657): one second of a clock 20 ppm fast is
+/// exactly 1 − 20e-6 true seconds.
+pub fn card_scale(ppm: f64) -> f64 {
+    1.0 - ppm * 1e-6
+}
+
+/// The clock's error, ppm fast, from its [`card_scale`].
+pub fn ppm_of_scale(scale: f64) -> f64 {
+    (1.0 - scale) * 1e6
 }
 
 /// The fitted mapping from audio time to true time.
@@ -26,8 +40,8 @@ pub struct ClockFit {
     pub rejected: usize,
     /// Span of the log, seconds.
     pub span_s: f64,
-    /// How much faster true time runs than the sound card, ppm. Positive
-    /// means the sound card is slow, so uncorrected rates read too fast.
+    /// How fast the sound card's clock runs, ppm: positive means it gains
+    /// on true time, so uncorrected rates read too slow.
     pub ppm: f64,
     /// The same as a rate error, s/d: subtract it from an uncorrected rate.
     pub rate_error_s_per_day: f64,
@@ -56,7 +70,7 @@ pub struct ClockFit {
     pub withheld: Option<Withheld>,
     /// For a take with no clock log whose USB lines set the rate over a
     /// correction known for its input ([`ClockFit::usb_over_correction`]):
-    /// that correction, ppm slow, left out of the rates.
+    /// that correction, ppm fast, left out of the rates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub correction_set_aside_ppm: Option<f64>,
     /// For each of `breaks`, the audio seconds of the log's last entry
@@ -118,7 +132,7 @@ pub struct Withheld {
     pub reason: &'static str,
 }
 
-/// A sound card's error, ppm slow, with its standard error `sd` where it
+/// A sound card's error, ppm fast, with its standard error `sd` where it
 /// has one, as every surface writes it: signed, to the decimals its ±
 /// calls for from the clock's base ([`crate::figure_text::figure_with_pm`],
 /// #510 K3), so a ± too small to show at the cap reads `<0.001`, never
@@ -144,7 +158,7 @@ impl Withheld {
         )
     }
 
-    /// What was measured, ppm slow, as [`ppm_pm_text`] writes it: with no
+    /// What was measured, ppm fast, as [`ppm_pm_text`] writes it: with no
     /// ± when there were too few entries for their scatter to say how sure
     /// the line is.
     pub fn ppm_text(&self) -> String {
@@ -163,7 +177,7 @@ impl Withheld {
 /// computer's crystal can be tens of ppm off (30 ppm is 2.6 s/d).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SourcesDisagree {
-    /// ppm the card runs slow by the USB lines: the rates are corrected by
+    /// ppm the card runs fast by the USB lines: the rates are corrected by
     /// this.
     pub usb_ppm: f64,
     /// ppm by the other measure, and its standard error (0 for a
@@ -464,7 +478,7 @@ impl ClockFit {
     }
 
     /// Correct rates by the card's error read from the recording's USB
-    /// lines (`ppm`, slow positive), keeping the log only for its breaks;
+    /// lines (`ppm`, fast positive), keeping the log only for its breaks;
     /// what the log measured goes in [`ClockFit::withheld`] with reason
     /// `usb_lines`. The lines time the card against the host's USB clock
     /// to about 0.1 ppm in ten minutes, where a log of an entry a minute
@@ -547,7 +561,7 @@ impl ClockFit {
     }
 
     /// Keep the breaks, and map audio time onto true time at a card
-    /// `ppm` slow between them, through the middle of the fitted line;
+    /// `ppm` fast between them, through the middle of the fitted line;
     /// what the log measured (its first measurement, if held before) goes
     /// in `withheld` with `reason`.
     fn hold(&mut self, reason: &'static str, ppm: f64) {
@@ -559,7 +573,7 @@ impl ClockFit {
             reason,
         });
         self.withheld = Some(Withheld { reason, ..log });
-        let b = 1.0 + ppm * 1e-6;
+        let b = card_scale(ppm);
         if let (Some(&(x0, _)), Some(&(x1, _))) = (self.knots.first(), self.knots.last()) {
             let m = (x0 + x1) / 2.0;
             let y = self.map_gapless(m);
@@ -631,8 +645,8 @@ impl ClockFit {
             points: p.len(),
             rejected: total - p.len(),
             span_s: span,
-            ppm: (b - 1.0) * 1e6,
-            rate_error_s_per_day: rate_error_s_per_day((b - 1.0) * 1e6),
+            ppm: ppm_of_scale(b),
+            rate_error_s_per_day: rate_error_s_per_day(ppm_of_scale(b)),
             ppm_sd: b_sd * 1e6,
             residual_ms: 0.0,
             tracks_drift,
@@ -664,12 +678,12 @@ impl ClockFit {
         Ok(fit)
     }
 
-    /// The fit for a sound card known to be `ppm` slow (negative: fast)
+    /// The fit for a sound card known to be `ppm` fast (negative: slow)
     /// over a run of `duration_s`: one straight line, no breaks. Built
     /// directly rather than from synthetic entries, which past about 13
     /// hours sit far enough apart to read as pauses in listening.
     pub fn fixed(ppm: f64, duration_s: f64) -> ClockFit {
-        let b = 1.0 + ppm * 1e-6;
+        let b = card_scale(ppm);
         let d = duration_s.max(3.0);
         ClockFit {
             points: 3,
@@ -691,7 +705,7 @@ impl ClockFit {
     }
 
     /// The fit for a take with no clock log, `duration_s` long, whose USB
-    /// lines measure the card `usb_ppm` slow, where a correction
+    /// lines measure the card `usb_ppm` fast, where a correction
     /// (`correction_ppm`) is also known for its input: the USB lines set
     /// the rate ([`ClockFit::fixed`]), as they time the card on this take,
     /// and the correction is kept beside it for
@@ -1168,6 +1182,34 @@ fn columns_guessed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The clock's sign and scale, defined once (#657): one second of a
+    /// card `ppm` fast is exactly 1 − ppm·1e-6 true seconds, and a log or
+    /// USB lines from a card 20 ppm fast read +20.
+    #[test]
+    fn a_fast_card_reads_positive_and_its_scale_is_exact() {
+        for ppm in [-50.0, 0.0, 50.0] {
+            assert_eq!(card_scale(ppm), 1.0 - ppm * 1e-6);
+            assert!((ppm_of_scale(card_scale(ppm)) - ppm).abs() < 1e-9);
+            assert!((rate_error_s_per_day(ppm) + ppm * 0.0864).abs() < 1e-12);
+        }
+        // A fast card's second is short: a watch read on it reads slow.
+        assert!(rate_error_s_per_day(50.0) < 0.0);
+        let pairs: Vec<(f64, f64)> = (0..=60)
+            .map(|i| {
+                let audio = i as f64 * 60.0;
+                (audio, 1.7e9 + audio * (1.0 - 20e-6))
+            })
+            .collect();
+        let fit = ClockFit::new(&pairs).unwrap();
+        assert!((fit.ppm - 20.0).abs() < 1e-3, "{}", fit.ppm);
+        assert!((fit.rate_error_s_per_day + 1.728).abs() < 1e-3);
+        // A watch 5 s/d fast on true time reads 5 − 1.728 on the card, and
+        // is corrected back to 5.
+        let heard = (1.0 + 5.0 / 86400.0) * (1.0 - 20e-6) * 86400.0 - 86400.0;
+        let back = crate::clockstore::correct_rate(heard, fit.ppm);
+        assert!((back - 5.0).abs() < 1e-3, "{back}");
+    }
     use crate::synth::Rng;
 
     #[test]
@@ -1183,7 +1225,7 @@ mod tests {
             .collect();
         pairs[50].1 += 0.4;
         let fit = ClockFit::new(&pairs).unwrap();
-        assert!((fit.ppm - 20.0).abs() < 0.5, "{}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.5, "{}", fit.ppm);
         assert_eq!(fit.rejected, 1);
         assert!((fit.rate_error_s_per_day - 1.728).abs() < 0.05);
         assert!(fit.ppm_sd > 0.0 && fit.ppm_sd < 0.2, "{}", fit.ppm_sd);
@@ -1191,7 +1233,7 @@ mod tests {
         assert!(!fit.tracks_drift);
     }
 
-    /// `n` entries `every` audio seconds from a card `ppm` slow, with
+    /// `n` entries `every` audio seconds from a card `ppm` fast, with
     /// `jitter_s` of timestamp noise, and a pause of `pause_s` after entry
     /// `pause_after` (none when 0).
     fn noisy_log(
@@ -1213,7 +1255,7 @@ mod tests {
                     0.0
                 };
                 let noise = jitter_s * rng.normal();
-                (audio, 1.7e9 + audio * (1.0 + ppm * 1e-6) + gap + noise)
+                (audio, 1.7e9 + audio * card_scale(ppm) + gap + noise)
             })
             .collect()
     }
@@ -1222,7 +1264,7 @@ mod tests {
     fn a_short_noisy_log_leaves_the_rate_as_heard() {
         // As on a 42 s take: 6 entries with tens of ms of jitter, from a
         // card 6 ppm slow. The line through them is hundreds of ppm out.
-        let pairs = noisy_log(6, 8.4, 6.0, 0.027, 0, 0.0, 7);
+        let pairs = noisy_log(6, 8.4, -6.0, 0.027, 0, 0.0, 7);
         let measured = ClockFit::new(&pairs).unwrap();
         assert!(measured.ppm_sd > 100.0, "{}", measured.ppm_sd);
         let fit = ClockFit::for_rates(&pairs).unwrap();
@@ -1255,7 +1297,7 @@ mod tests {
 
         // Enough entries, but over two minutes they measure the error only
         // to over a hundred ppm.
-        let fit = ClockFit::for_rates(&noisy_log(15, 10.0, 6.0, 0.027, 0, 0.0, 8)).unwrap();
+        let fit = ClockFit::for_rates(&noisy_log(15, 10.0, -6.0, 0.027, 0, 0.0, 8)).unwrap();
         let w = fit.withheld.unwrap();
         assert_eq!(w.reason, "unsure");
         assert!(w.ppm_sd > MAX_SD_PPM, "{w:?}");
@@ -1290,35 +1332,35 @@ unix_s,frames
 
     #[test]
     fn unsure_says_what_for_rates_would_withhold() {
-        let short = ClockFit::new(&noisy_log(6, 8.4, 6.0, 0.027, 0, 0.0, 7)).unwrap();
+        let short = ClockFit::new(&noisy_log(6, 8.4, -6.0, 0.027, 0, 0.0, 7)).unwrap();
         assert_eq!(short.unsure().unwrap().reason, "few_entries");
         assert_eq!(
             short.unsure(),
-            ClockFit::for_rates(&noisy_log(6, 8.4, 6.0, 0.027, 0, 0.0, 7))
+            ClockFit::for_rates(&noisy_log(6, 8.4, -6.0, 0.027, 0, 0.0, 7))
                 .unwrap()
                 .withheld
         );
-        let long = ClockFit::new(&noisy_log(361, 10.0, 6.0, 0.002, 0, 0.0, 9)).unwrap();
+        let long = ClockFit::new(&noisy_log(361, 10.0, -6.0, 0.002, 0, 0.0, 9)).unwrap();
         assert!(long.unsure().is_none());
-        assert!(ClockFit::fixed(20.0, 60.0).unsure().is_none());
+        assert!(ClockFit::fixed(-20.0, 60.0).unsure().is_none());
     }
 
     #[test]
     fn a_long_log_corrects_the_rate() {
         // An hour of entries every 10 s, 2 ms of jitter: the 6 ppm is
         // measured to about 0.1 ppm and applied.
-        let pairs = noisy_log(361, 10.0, 6.0, 0.002, 0, 0.0, 9);
+        let pairs = noisy_log(361, 10.0, -6.0, 0.002, 0, 0.0, 9);
         let fit = ClockFit::for_rates(&pairs).unwrap();
         assert!(fit.corrects());
         assert!(fit.withheld.is_none());
-        assert!((fit.ppm - 6.0).abs() < 0.5, "{}", fit.ppm);
+        assert!((fit.ppm + 6.0).abs() < 0.5, "{}", fit.ppm);
         assert!(serde_json::to_value(&fit)
             .unwrap()
             .get("withheld")
             .is_none());
         // Half an hour of entries a minute apart with 34 ms of jitter, as
         // the corpus's 30 min takes have: measured to about 13 ppm, applied.
-        let fit = ClockFit::for_rates(&noisy_log(30, 60.0, 22.0, 0.034, 0, 0.0, 12)).unwrap();
+        let fit = ClockFit::for_rates(&noisy_log(30, 60.0, -22.0, 0.034, 0, 0.0, 12)).unwrap();
         assert!(fit.corrects(), "{:?}", fit.withheld);
         assert!(
             fit.ppm_sd > 5.0 && fit.ppm_sd < MAX_SD_PPM,
@@ -1326,7 +1368,7 @@ unix_s,frames
             fit.ppm_sd
         );
         // A well-measured card close to right is applied too.
-        let fit = ClockFit::for_rates(&noisy_log(361, 10.0, 0.3, 0.002, 0, 0.0, 10)).unwrap();
+        let fit = ClockFit::for_rates(&noisy_log(361, 10.0, -0.3, 0.002, 0, 0.0, 10)).unwrap();
         assert!(fit.corrects(), "{:?}", fit.withheld);
     }
 
@@ -1384,7 +1426,7 @@ unix_s,frames
     fn a_withheld_correction_keeps_the_pause() {
         // 15 noisy entries with a 30 s pause after the 8th: no correction,
         // but the audio after the pause still maps 30 s later.
-        let pairs = noisy_log(15, 10.0, 6.0, 0.027, 7, 30.0, 11);
+        let pairs = noisy_log(15, 10.0, -6.0, 0.027, 7, 30.0, 11);
         let mut fit = ClockFit::for_rates(&pairs).unwrap();
         assert!(!fit.corrects());
         assert_eq!(fit.breaks.len(), 1);
@@ -1434,10 +1476,11 @@ unix_s,frames
             .expect("lines found");
         let decoded = crate::audio::load(&part).unwrap();
         assert_eq!(Some(read), crate::usbclock::measure(&decoded.samples, fs));
-        // As main read them before decoding stopped at the budget (#726).
+        // As main read them before decoding stopped at the budget (#726),
+        // ppm fast since #657.
         assert_eq!(
             (read.ppm, read.lines, read.spread_ppm),
-            (20.00130185628095, 3, 0.007482800956921665)
+            (-20.00130185628095, 3, 0.007482800956921665)
         );
         assert_eq!(usb_lines(&[]), Ok(None));
         std::fs::remove_dir_all(&dir).ok();
@@ -1448,37 +1491,37 @@ unix_s,frames
         // An exact log, an entry a minute for half an hour, with the card
         // 20 ppm slow; USB lines put it 100 ppm off that (another
         // computer's USB clock), or within 5 ppm of it.
-        let exact = noisy_log(31, 60.0, 20.0, 0.0, 0, 0.0, 1);
+        let exact = noisy_log(31, 60.0, -20.0, 0.0, 0, 0.0, 1);
         let rated = |pairs: &[(f64, f64)], usb: f64| {
             let mut fit = ClockFit::for_rates(pairs).unwrap();
             fit.rate_from_usb(usb);
             fit
         };
-        let fit = rated(&exact, 120.0);
+        let fit = rated(&exact, -120.0);
         let d = fit.sources_disagree().expect("100 ppm apart");
-        assert_eq!(d.usb_ppm, 120.0);
-        assert!((d.log_ppm - 20.0).abs() < 1e-3, "{}", d.log_ppm);
+        assert_eq!(d.usb_ppm, -120.0);
+        assert!((d.log_ppm + 20.0).abs() < 1e-3, "{}", d.log_ppm);
         assert!(d.log_ppm_sd < 1e-3, "{}", d.log_ppm_sd);
         assert_eq!(
             d.note(),
-            "the USB lines measure the sound card at +120.0 ppm and the clock log at +20.000 ± <0.001 ppm; the rates are corrected by the USB lines"
+            "the USB lines measure the sound card at -120.0 ppm and the clock log at -20.000 ± <0.001 ppm; the rates are corrected by the USB lines"
         );
         // The correction is the USB lines' all the same.
-        assert_eq!(fit.ppm, 120.0);
+        assert_eq!(fit.ppm, -120.0);
         assert!(fit.corrects());
         // Lines and log that agree, to within 5 ppm: nothing said.
-        assert_eq!(rated(&exact, 24.0).sources_disagree(), None);
-        assert_eq!(rated(&exact, 16.0).sources_disagree(), None);
+        assert_eq!(rated(&exact, -24.0).sources_disagree(), None);
+        assert_eq!(rated(&exact, -16.0).sources_disagree(), None);
         // A log that would not correct on its own says nothing either way:
         // too few entries, or too unsure.
-        assert_eq!(rated(&exact[..9], 120.0).sources_disagree(), None);
-        let unsure = noisy_log(15, 10.0, 6.0, 0.027, 0, 0.0, 8);
+        assert_eq!(rated(&exact[..9], -120.0).sources_disagree(), None);
+        let unsure = noisy_log(15, 10.0, -6.0, 0.027, 0, 0.0, 8);
         assert!(!ClockFit::for_rates(&unsure).unwrap().corrects());
-        assert_eq!(rated(&unsure, 120.0).sources_disagree(), None);
+        assert_eq!(rated(&unsure, -120.0).sources_disagree(), None);
         // A half-hour log an entry a minute with 34 ms of jitter measures
         // the card to about 13 ppm: USB lines 16 ppm off it are within its
         // scatter, 40 ppm off are not.
-        let half_hour = noisy_log(30, 60.0, 22.0, 0.034, 0, 0.0, 12);
+        let half_hour = noisy_log(30, 60.0, -22.0, 0.034, 0, 0.0, 12);
         let log = ClockFit::for_rates(&half_hour).unwrap();
         assert!(log.corrects() && log.ppm_sd > 8.0, "{}", log.ppm_sd);
         assert_eq!(rated(&half_hour, log.ppm + 16.0).sources_disagree(), None);
@@ -1495,14 +1538,14 @@ unix_s,frames
     #[test]
     fn usb_lines_set_the_rate_and_the_log_keeps_its_pause() {
         // A withheld log (15 noisy entries, a 30 s pause after the 8th):
-        // the USB lines' 19.5 ppm sets the rate, the pause stays.
-        let pairs = noisy_log(15, 10.0, 6.0, 0.027, 7, 30.0, 11);
+        // the USB lines' card 19.5 ppm slow sets the rate, the pause stays.
+        let pairs = noisy_log(15, 10.0, -6.0, 0.027, 7, 30.0, 11);
         let mut fit = ClockFit::for_rates(&pairs).unwrap();
         let log = fit.withheld.unwrap();
-        fit.rate_from_usb(19.5);
+        fit.rate_from_usb(-19.5);
         assert!(fit.corrects());
-        assert_eq!(fit.ppm, 19.5);
-        assert_eq!(fit.rate_error_s_per_day, rate_error_s_per_day(19.5));
+        assert_eq!(fit.ppm, -19.5);
+        assert_eq!(fit.rate_error_s_per_day, rate_error_s_per_day(-19.5));
         assert_eq!(fit.breaks.len(), 1);
         let w = fit.withheld.unwrap();
         assert_eq!(w.reason, "usb_lines");
@@ -1522,17 +1565,17 @@ unix_s,frames
             gap_s: 0.2,
         }]);
         assert!(fit.corrects());
-        assert_eq!(fit.ppm, 19.5);
+        assert_eq!(fit.ppm, -19.5);
         assert_eq!(fit.withheld.unwrap().reason, "usb_lines");
         assert!((fit.map(50.0) - fit.map(40.0) - 10.0 * (1.0 + 19.5e-6)).abs() < 1e-9);
 
         // A log that would correct on its own gives way too: an hour
-        // measured at 6 ppm, the lines at 19.5.
-        let mut fit = ClockFit::for_rates(&noisy_log(361, 10.0, 6.0, 0.002, 0, 0.0, 9)).unwrap();
-        fit.rate_from_usb(19.5);
+        // measured 6 ppm slow, the lines 19.5 ppm slow.
+        let mut fit = ClockFit::for_rates(&noisy_log(361, 10.0, -6.0, 0.002, 0, 0.0, 9)).unwrap();
+        fit.rate_from_usb(-19.5);
         assert!(fit.corrects());
-        assert_eq!(fit.ppm, 19.5);
-        assert!((fit.withheld.unwrap().ppm - 6.0).abs() < 0.5);
+        assert_eq!(fit.ppm, -19.5);
+        assert!((fit.withheld.unwrap().ppm + 6.0).abs() < 0.5);
         let json = serde_json::to_value(&fit).unwrap();
         assert_eq!(json["withheld"]["reason"], "usb_lines");
     }
@@ -1595,7 +1638,7 @@ unix_s,frames
             .collect();
         let fit = ClockFit::new(&pairs).unwrap();
         assert!(fit.breaks.is_empty());
-        assert!((fit.ppm - 21.11).abs() < 1e-6, "{}", fit.ppm);
+        assert!((fit.ppm + 21.11).abs() < 1e-6, "{}", fit.ppm);
         for a in [0.0, 8100.0, 72_000.0, 144_000.0, 144_600.0] {
             assert!((fit.map(a) - a * k).abs() < 1e-6, "{a}");
         }
@@ -1605,7 +1648,7 @@ unix_s,frames
     fn a_fixed_correction_holds_over_40_hours() {
         let d = 40.0 * 3600.0;
         let k = 1.0 + 21.11e-6;
-        let fit = ClockFit::fixed(21.11, d);
+        let fit = ClockFit::fixed(-21.11, d);
         assert!(fit.breaks.is_empty() && !fit.tracks_drift);
         assert!((fit.rate_error_s_per_day - 21.11e-6 * 86400.0).abs() < 1e-9);
         for a in [0.0, 8100.0, d / 2.0, d, d + 600.0] {
@@ -1614,7 +1657,7 @@ unix_s,frames
         // Over two hours it matches the fit of the same three entries.
         let short =
             ClockFit::new(&[(0.0, 0.0), (3600.0, 3600.0 * k), (7200.0, 7200.0 * k)]).unwrap();
-        let fixed = ClockFit::fixed(21.11, 7200.0);
+        let fixed = ClockFit::fixed(-21.11, 7200.0);
         assert!((short.ppm - fixed.ppm).abs() < 1e-6);
         assert!((short.map(5000.0) - fixed.map(5000.0)).abs() < 1e-9);
     }
@@ -1633,7 +1676,7 @@ unix_s,frames
             tr.push(480, at);
         }
         let fit = tr.fit().expect("fit");
-        assert!((fit.ppm - 20.0).abs() < 0.3, "{} ppm", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.3, "{} ppm", fit.ppm);
         assert!(fit.ppm_sd < 0.3, "{} ppm sd", fit.ppm_sd);
         assert!((tr.audio_s() - 1200.0).abs() < 1e-9);
     }
@@ -1711,7 +1754,7 @@ unix_s,frames
             })
             .collect();
         let fit = ClockFit::new(&pairs).unwrap();
-        assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.1, "ppm {}", fit.ppm);
         assert_eq!(fit.breaks.len(), 1);
         assert!((fit.breaks[0].audio_s - 300.0).abs() < 1e-9);
         assert!(
@@ -1818,7 +1861,7 @@ unix_s,frames
         );
         assert!((fit.map(300.05) - (300.05 * k + 60.0)).abs() < 1e-3);
         assert!((fit.map(299.95) - 299.95 * k).abs() < 1e-3);
-        assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.1, "ppm {}", fit.ppm);
         // Listed at its frame, the same break is matched and stays put.
         let mut placed = fit.clone();
         placed.place_breaks(&[Break {
@@ -1846,7 +1889,7 @@ unix_s,frames
         }));
         let mut fit = ClockFit::new(&pairs).unwrap();
         assert!(fit.breaks.is_empty());
-        assert!((fit.ppm - 20.0).abs() > 100.0, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() > 100.0, "ppm {}", fit.ppm);
         fit.place_breaks(&[Break {
             audio_s: 300.0,
             gap_s: 0.2,
@@ -1854,7 +1897,7 @@ unix_s,frames
         assert_eq!(fit.breaks.len(), 1, "{:?}", fit.breaks);
         assert!((fit.breaks[0].audio_s - 300.0).abs() < 1e-9);
         assert!((fit.breaks[0].gap_s - 0.2).abs() < 1e-3, "{:?}", fit.breaks);
-        assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.1, "ppm {}", fit.ppm);
         assert!((fit.map(200.0) - 200.0 * k).abs() < 1e-3);
         assert!((fit.map(400.0) - (400.0 * k + 0.2)).abs() < 1e-3);
         // A second placing finds nothing more to do.
@@ -1892,7 +1935,7 @@ unix_s,frames
         let at: Vec<f64> = fit.breaks.iter().map(|b| b.audio_s).collect();
         assert_eq!(at, [150.0, 300.0], "{:?}", fit.breaks);
         assert!((fit.breaks[1].gap_s - 0.2).abs() < 1e-3, "{:?}", fit.breaks);
-        assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.1, "ppm {}", fit.ppm);
     }
 
     #[test]
@@ -1948,7 +1991,7 @@ unix_s,frames
             "{:?}",
             fit.breaks
         );
-        assert!((fit.ppm - 20.0).abs() < 0.1, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.1, "ppm {}", fit.ppm);
     }
 
     #[test]
@@ -1969,7 +2012,7 @@ unix_s,frames
         assert_eq!(fit.breaks.len(), 1, "{:?}", fit.breaks);
         assert!(fit.breaks[0].gap_s >= 0.0, "{:?}", fit.breaks);
         assert!(fit.map(300.0) >= fit.map(300.0 - 1e-6), "{:?}", fit.breaks);
-        assert!((fit.ppm - 20.0).abs() < 0.5, "ppm {}", fit.ppm);
+        assert!((fit.ppm + 20.0).abs() < 0.5, "ppm {}", fit.ppm);
     }
 
     #[test]

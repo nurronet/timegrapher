@@ -65,7 +65,7 @@ each folder expands at its argument position. The same expansion is used by
 
 A take's folder (one holding a `session.toml`), given alone, is read as a
 take, as `session` and the app read it: its beat rate, lift angle, escape
-wheel teeth, calibre and wheels, its `card_ppm`, the clock log its entries
+wheel teeth, calibre and wheels, its `card_ppm_fast`, the clock log its entries
 name and every entry's `masked` stretches, with `--bph`, `--lift`,
 `--calibre`, `--escape-teeth`, `--clock` and `long`'s `--card-ppm` and `--device` given
 first. A take of one recording whose entries name their positions is read
@@ -157,7 +157,7 @@ log measured with `reason` `usb_lines`.
 Without a log, `long` uses the card's error stored with `timegrapher
 clock` (see [agent-interface.md](agent-interface.md#clock)): the one for
 `--device NAME`, else the one for the input the recording's sidecar or
-`session.json` names. `--card-ppm N` gives the error directly. A stored
+`session.json` names. `--card-ppm N` gives the error directly, ppm fast (negative: slow). A stored
 error is one steady number, so it cannot follow drift; the report says
 which correction was used, and `summary.json`'s `input.settings.clock_correction`
 records it.

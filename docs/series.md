@@ -522,8 +522,8 @@ but corrects nothing: `ppm` and `rate_error_s_per_day` are 0 and
 `withheld` gives what it measured, `ppm`, `ppm_sd`, `points`, `span_s`
 and `reason` (`few_entries` or `unsure`). The same rules hold in `long`,
 `session` and the power reserve reader.
-Positive ppm means the card runs slow and uncorrected rates read fast;
-`rate_error_s_per_day` is ppm × 0.0864. For a log that follows drift, these
+Positive ppm means the card runs fast and uncorrected rates read slow;
+`rate_error_s_per_day` is −ppm × 0.0864. For a log that follows drift, these
 numbers summarize the fit; its time mapping need not be one uniform
 correction. These fields do not claim calibration uncertainty or accuracy.
 

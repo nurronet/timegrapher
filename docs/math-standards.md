@@ -151,11 +151,11 @@ The **take's clock** is the one clock a take's readings are made on, picked once
 | 1 | **Clock log rated by USB lines** | The log gives the pauses and steps; the USB lines give the card's steady error. |
 | 2 | **Clock log** (`clock.csv`): pairs of audio seconds and system time, written while recording | A fitted line, so drift and steps are followed. |
 | 3 | **USB lines**: faint 1 kHz lines a USB microphone picks up from the computer's bus | One steady error, read from the sound itself. |
-| 4 | **Known correction**: `card_ppm` in `session.toml`, else the one kept for that input (`clocks.json`) | One steady error over the take. |
+| 4 | **Known correction**: `card_ppm_fast` in `session.toml`, else the one kept for that input (`clocks.json`) | One steady error over the take. |
 | 5 | **None** | Readings stay on the card's clock, with a caveat. |
 
 - **One clock per take**, picked by `take::clock_from` (take.rs:51). The one exception is `regress`, which reads on the card's clock to match its references.
-- **Signs:** ppm is positive when the sound card runs fast, (f − f₀)/f₀, the usual convention (decided 29 Oct; the code flips from today's + slow before release, #657).
+- **Signs:** ppm is positive when the sound card runs fast, the usual convention (decided 29 Oct, #657). One second of a card `ppm` fast is exactly (1 − ppm·10⁻⁶) true seconds (`clock::card_scale`, the definition); the clock log's slope and the USB lines both go through it. Files written before #657 (`clocks.json` `/1`, `analysis.json` `/1`) are read with the sign changed; a session file's old `card_ppm` is refused.
 
 ---
 
@@ -296,7 +296,7 @@ What each figure needs before it is shown today, and what happens when data is m
 
 - **A clock log is applied** only from 10 entries with an SE of 20 ppm (1.7 s/d) or less (`clock.rs:169-176`).
 - **Sources disagree** when the USB lines and the log are 5 ppm (0.43 s/d) and 2 SE apart (`clock.rs:160`). With no clock log, the USB lines are weighed against a stated or kept correction instead: the caveat fires when the two are more than 5 ppm apart, with no SE test, since a correction carries no scatter of its own (decided 29 Oct, #635). #635 brings the code to the order in section 3.
-- **ppm to s/d:** 1 ppm is 0.0864 s/d (`clock::rate_error_s_per_day`). A rate is corrected exactly, (1 + r/86400)/(1 + ppm·10⁻⁶) (`clockstore.rs:70`).
+- **ppm to s/d:** 1 ppm is 0.0864 s/d (`clock::rate_error_s_per_day`). A rate is corrected exactly, (1 + r/86400)/(1 − ppm·10⁻⁶) (`clockstore::correct_rate`); a card `ppm` fast makes rates read slow by ppm × 0.0864 s/d.
 - **Live** corrects the rate by the mean ppm over the span, after the fit (`live.rs:961`). For a straight-line clock this matches mapping each beat.
 - **Breach:** Power Reserve hours are cut every 3,600 s of sound-card time, not true time (`power_reserve.rs:255`, #642).
 

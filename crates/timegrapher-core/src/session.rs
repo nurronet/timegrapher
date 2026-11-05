@@ -987,7 +987,7 @@ pub fn measure_masked(
     m
 }
 
-/// A clock fit for a sound card known to be `ppm` slow (negative: fast),
+/// A clock fit for a sound card known to be `ppm` fast (negative: slow),
 /// for recordings made without a clock log on a card calibrated before.
 pub fn fixed_clock(ppm: f64, duration_s: f64) -> Option<ClockFit> {
     Some(ClockFit::fixed(ppm, duration_s))
@@ -1727,6 +1727,14 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
     out
 }
 
+/// The message for a session file's old `card_ppm`, ppm slow (#657).
+pub const OLD_CARD_PPM: &str = "card_ppm is now card_ppm_fast, positive when the sound card \
+     runs fast: write card_ppm_fast with the old value's sign changed";
+
+fn refuse_card_ppm<'de, D: serde::Deserializer<'de>>(_: D) -> Result<Option<()>, D::Error> {
+    Err(serde::de::Error::custom(OLD_CARD_PPM))
+}
+
 /// What a session file describes: the watch and its recordings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1754,9 +1762,20 @@ pub struct Manifest {
     pub settle_s: Option<f64>,
     /// Seconds to measure after settling (default: the rest of the recording).
     pub measure_s: Option<f64>,
-    /// A known sound-card error for recordings with no clock log: ppm slow
-    /// (negative: fast).
+    /// A known sound-card error for recordings with no clock log: ppm fast
+    /// (negative: slow), as [`crate::clock::card_scale`] defines it.
+    #[serde(rename = "card_ppm_fast")]
     pub card_ppm: Option<f64>,
+    /// Refused: session files written before #657 gave the error as
+    /// `card_ppm`, ppm slow. A file that still does is not read, so a
+    /// saved take never changes meaning unseen.
+    #[serde(
+        default,
+        rename = "card_ppm",
+        deserialize_with = "refuse_card_ppm",
+        skip_serializing
+    )]
+    pub old_card_ppm: Option<()>,
     /// Run the beat-shape measurement on each recording (default true).
     pub shape: Option<bool>,
     /// Run the periodic-change search on each recording (default true).
@@ -1806,7 +1825,7 @@ impl Manifest {
             crate::input_domain::escape_teeth(value).map_err(|e| format!("escape_teeth: {e}"))?;
         }
         if let Some(value) = self.card_ppm {
-            crate::input_domain::card_ppm(value).map_err(|e| format!("card_ppm: {e}"))?;
+            crate::input_domain::card_ppm(value).map_err(|e| format!("card_ppm_fast: {e}"))?;
         }
         Ok(())
     }
@@ -1864,6 +1883,21 @@ pub struct KnownFault {
 #[cfg(test)]
 mod manifest_input_tests {
     use super::*;
+
+    /// A session file written before #657 gave the card's error as
+    /// `card_ppm`, ppm slow: it is refused, saying how to write it now,
+    /// rather than read with its meaning turned over.
+    #[test]
+    fn an_old_card_ppm_is_refused_with_how_to_write_it() {
+        let e = toml::from_str::<Manifest>("card_ppm = 19.3\n")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains(OLD_CARD_PPM), "{e}");
+        let m: Manifest = toml::from_str("card_ppm_fast = -19.3\n").unwrap();
+        assert_eq!(m.card_ppm, Some(-19.3));
+        let text = toml::to_string(&m).unwrap();
+        assert!(text.contains("card_ppm_fast = -19.3"), "{text}");
+    }
 
     /// A window belongs to the stretch holding its midpoint, the start in
     /// and the end out, so two stretches that meet share none (#632).
@@ -1986,8 +2020,8 @@ mod manifest_input_tests {
                 .starts_with("lift:"));
         }
         for value in [
-            -1_000_000.0,
-            -1_000_001.0,
+            1_000_000.0,
+            1_000_001.0,
             f64::NAN,
             f64::INFINITY,
             f64::NEG_INFINITY,
@@ -1999,7 +2033,7 @@ mod manifest_input_tests {
             assert!(invalid
                 .validate_analysis_inputs()
                 .unwrap_err()
-                .starts_with("card_ppm:"));
+                .starts_with("card_ppm_fast:"));
         }
     }
 
@@ -2007,7 +2041,7 @@ mod manifest_input_tests {
     fn consumed_manifest_domains_preserve_defaults_valid_extremes_and_context() {
         Manifest::default().validate_analysis_inputs().unwrap();
         for value in [10.0, 52.0, 90.0] {
-            for ppm in [-999_999.999_999_999_9, -12.5, -0.0, 0.0, 12.5, f64::MAX] {
+            for ppm in [999_999.999_999_999_9, 12.5, 0.0, -0.0, -12.5, -f64::MAX] {
                 let m = Manifest {
                     bph: Some(u32::MAX),
                     lift: Some(value),

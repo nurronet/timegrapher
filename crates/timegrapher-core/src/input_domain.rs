@@ -34,11 +34,12 @@ pub fn lift_deg(value: f64) -> Result<f64, String> {
     }
 }
 
-/// A clock scale must advance time: correction divides by 1 + ppm * 1e-6.
+/// A clock scale must advance time: correction divides by
+/// [`crate::clock::card_scale`], 1 - ppm * 1e-6.
 pub fn card_ppm(value: f64) -> Result<f64, String> {
-    let factor = 1.0 + value * 1e-6;
+    let factor = crate::clock::card_scale(value);
     if !value.is_finite() || !factor.is_finite() || factor <= 0.0 {
-        Err("card ppm must be finite with 1 + ppm * 1e-6 greater than zero".into())
+        Err("card ppm must be finite and under 1000000 (the card's clock must run)".into())
     } else {
         Ok(value)
     }
@@ -105,12 +106,12 @@ mod tests {
             f64::NAN,
             f64::INFINITY,
             f64::NEG_INFINITY,
-            -1_000_000.0,
-            -1_000_001.0,
+            1_000_000.0,
+            1_000_001.0,
         ] {
             assert!(card_ppm(value).is_err());
         }
-        for value in [-999_999.999_999_999_9, -12.5, -0.0, 0.0, 12.5, f64::MAX] {
+        for value in [999_999.999_999_999_9, 12.5, 0.0, -0.0, -12.5, -f64::MAX] {
             assert_eq!(card_ppm(value).unwrap().to_bits(), value.to_bits());
         }
     }

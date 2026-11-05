@@ -865,7 +865,10 @@ mod tests {
             assert!((h[0].span_s - 3600.0).abs() < 1e-3, "{ppm}: {h:?}");
             assert!((h[1].span_s - 3600.0).abs() < 1e-3, "{ppm}: {h:?}");
             let total: f64 = h.iter().map(|x| x.span_s).sum();
-            assert!((total - 7400.0 * (1.0 + ppm * 1e-6)).abs() < 1e-3, "{ppm}");
+            assert!(
+                (total - 7400.0 * crate::clock::card_scale(ppm)).abs() < 1e-3,
+                "{ppm}"
+            );
         }
     }
 

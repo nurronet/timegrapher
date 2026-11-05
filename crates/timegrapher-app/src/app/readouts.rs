@@ -701,7 +701,7 @@ impl TimegrapherApp {
         steady::reading_breaks(self.take_breaks.clone().unwrap_or_default(), log)
     }
 
-    /// The take's own clock error the readings are corrected by, ppm slow:
+    /// The take's own clock error the readings are corrected by, ppm fast:
     /// none where its clock log measures the clock too loosely to correct
     /// by (core's `ClockFit::corrects`).
     pub(super) fn take_rate_ppm(&self) -> Option<f64> {
@@ -744,7 +744,7 @@ impl TimegrapherApp {
                 ));
             }
             let ppm = format!("{:.1}", f.ppm.abs());
-            let way = if f.ppm >= 0.0 { "slow" } else { "fast" };
+            let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let from = self
                 .take_clock_source
                 .as_deref()
@@ -799,14 +799,14 @@ impl TimegrapherApp {
             format!(
                 "{:.1} ppm {}",
                 ppm.abs(),
-                if ppm >= 0.0 { "slow" } else { "fast" }
+                if ppm >= 0.0 { "fast" } else { "slow" }
             )
         };
         if let Some(f) = measured {
-            let slow = if f.ppm >= 0.0 { "slow" } else { "fast" };
+            let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let mut hint = format!(
                 "Timed against the computer's clock over {} of listening, this input's \
-                 clock runs {:.1} ± {:.1} ppm {slow}: {:+.1} seconds per day on every rate. \
+                 clock runs {:.1} ± {:.1} ppm {way}: {:+.1} seconds per day on every rate. \
                  Keep it to show the corrected rate as True Clock from now on; the command \
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
@@ -905,7 +905,7 @@ impl TimegrapherApp {
                 self.info_msg(format!(
                     "Kept this input's clock, {:.1} ppm {}, in {}",
                     d.ppm.abs(),
-                    if d.ppm >= 0.0 { "slow" } else { "fast" },
+                    if d.ppm >= 0.0 { "fast" } else { "slow" },
                     p.display()
                 ));
                 self.put_input_clock(Some(d));

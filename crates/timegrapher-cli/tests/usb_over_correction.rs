@@ -46,10 +46,10 @@ fn analyze(file: &std::path::Path, card_ppm: &str) -> Value {
 #[test]
 fn analyze_reads_the_usb_lines_over_a_given_correction_and_says_when_they_disagree() {
     let file = recording();
-    let doc = analyze(&file, "5");
+    let doc = analyze(&file, "-5");
     let clock = &doc["clock"];
     assert!(
-        (clock["ppm"].as_f64().unwrap() - 20.0).abs() < 0.5,
+        (clock["ppm"].as_f64().unwrap() + 20.0).abs() < 0.5,
         "{clock}"
     );
     assert!(clock["from"].as_str().unwrap().contains("USB"), "{clock}");
@@ -60,10 +60,10 @@ fn analyze_reads_the_usb_lines_over_a_given_correction_and_says_when_they_disagr
         .find(|c| c["code"] == "clock_sources_disagree")
         .unwrap_or_else(|| panic!("{}", doc["caveats"]));
     assert_eq!(caveat["against"], "correction");
-    assert_eq!(caveat["log_ppm"], 5.0);
+    assert_eq!(caveat["log_ppm"], -5.0);
     // Within 5 ppm of the lines, the correction is not said.
-    let doc = analyze(&file, "18");
-    assert!((doc["clock"]["ppm"].as_f64().unwrap() - 20.0).abs() < 0.5);
+    let doc = analyze(&file, "-18");
+    assert!((doc["clock"]["ppm"].as_f64().unwrap() + 20.0).abs() < 0.5);
     assert!(
         !doc["caveats"]
             .as_array()

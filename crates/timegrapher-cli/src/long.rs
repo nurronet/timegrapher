@@ -331,7 +331,7 @@ pub(crate) struct Read {
 /// Read `files` for `long` and `series`. A take's folder (one holding a
 /// `session.toml`) is opened as every surface opens a take
 /// ([`take::open_entry`] on [`take::whole_take`]): its beat rate, lift
-/// angle, escape teeth, calibre and wheels, `card_ppm`, clock log and
+/// angle, escape teeth, calibre and wheels, `card_ppm_fast`, clock log and
 /// masks, with the flags given first. Anything else is read as sound
 /// files, one continuous recording.
 pub(crate) fn read(
@@ -904,9 +904,9 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
         (Some(c), Some(note)) => println!(
             "Clock        sound card {} ppm {} than true time, so uncorrected rates read {} s/d {}; corrected with the steady error {note}",
             fixed_text(c.ppm.abs(), 2),
-            if c.ppm >= 0.0 { "slower" } else { "faster" },
+            if c.ppm >= 0.0 { "faster" } else { "slower" },
             fixed_text(c.rate_error_s_per_day.abs(), 2),
-            if c.ppm >= 0.0 { "fast" } else { "slow" },
+            if c.ppm >= 0.0 { "slow" } else { "fast" },
         ),
         (Some(c), None) if !c.corrects() => println!(
             "Clock        not calibrated: {}",
@@ -915,9 +915,9 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
         (Some(c), None) => println!(
             "Clock        sound card {} ppm {} than NTP time, so uncorrected rates read {} s/d {}; corrected from {} entries, {} ms rms{}",
             fixed_text(c.ppm.abs(), 2),
-            if c.ppm >= 0.0 { "slower" } else { "faster" },
+            if c.ppm >= 0.0 { "faster" } else { "slower" },
             fixed_text(c.rate_error_s_per_day.abs(), 2),
-            if c.ppm >= 0.0 { "fast" } else { "slow" },
+            if c.ppm >= 0.0 { "slow" } else { "fast" },
             c.points,
             fixed_text(c.residual_ms, 1),
             if c.tracks_drift { ", drift followed" } else { "" }
@@ -1510,7 +1510,7 @@ mod take_tests {
     fn a_take_folder_is_read_with_its_session_file() {
         let dir = take(
             "settings",
-            "bph = 28800\nlift = 49\nescape_teeth = 20\ncard_ppm = 20.0\n\
+            "bph = 28800\nlift = 49\nescape_teeth = 20\ncard_ppm_fast = -20.0\n\
              wheels = { \"third wheel\" = 450.0 }\n\n\
              [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nend_s = 60.0\nmasked = [[49.0, 57.0]]\n\n\
              [[recording]]\nfile = \"take.wav\"\nposition = \"CU\"\nstart_s = 60.0\nmasked = [[49.0, 57.0]]\n",
@@ -1536,7 +1536,7 @@ mod take_tests {
             "a beat in the mask"
         );
         let clock = r.clock.unwrap();
-        assert_eq!(clock.ppm, Some(20.0));
+        assert_eq!(clock.ppm, Some(-20.0));
         assert!(clock.from.contains("card_ppm"), "{}", clock.from);
         assert_eq!(r.clock_log, None);
         let _ = fs::remove_dir_all(&dir);
@@ -1548,7 +1548,7 @@ mod take_tests {
     fn a_take_folder_is_read_on_its_clock_log() {
         let dir = take(
             "clock",
-            "card_ppm = 20.0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nclock = \"clock.csv\"\n",
+            "card_ppm_fast = -20.0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nclock = \"clock.csv\"\n",
         );
         let r = read_take(&dir);
         let clock = r.clock.unwrap();
