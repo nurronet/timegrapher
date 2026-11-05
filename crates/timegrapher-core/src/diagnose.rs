@@ -143,11 +143,9 @@ fn db(x: f64) -> f64 {
     20.0 * x.max(1e-10).log10()
 }
 
+/// The mean of `v`, 0 for none: core's one mean (`dsp::mean_of`, #512).
 fn mean(v: &[f32]) -> f64 {
-    if v.is_empty() {
-        return 0.0;
-    }
-    v.iter().map(|&x| x as f64).sum::<f64>() / v.len() as f64
+    crate::dsp::mean_of(v.iter().map(|&x| f64::from(x))).unwrap_or(0.0)
 }
 
 fn count_clipped(x: &[f32], clip_level: f32) -> usize {

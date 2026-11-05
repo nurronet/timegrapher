@@ -25,9 +25,9 @@ pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices 
             let values = selected.values.iter().map(|(_, value)| *value);
             Some(PositionValue {
                 position: p,
-                rate_s_per_day: mean(rs.iter().filter_map(|f| f.1)),
-                amplitude_deg: mean(rs.iter().filter_map(|f| f.2)),
-                beat_error_ms: mean(values),
+                rate_s_per_day: mean_of(rs.iter().filter_map(|f| f.1)),
+                amplitude_deg: mean_of(rs.iter().filter_map(|f| f.2)),
+                beat_error_ms: mean_of(values),
                 beat_error_source: selected.beat_error_source,
                 beat_error_sources: selected.beat_error_sources,
                 caveats: source_caveats(&selected, rs.iter().copied()),
@@ -52,10 +52,10 @@ pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices 
     let all = |_: Position| true;
     let vert = |p: Position| p.is_vertical();
     let hor = |p: Position| !p.is_vertical();
-    let xh = mean(rate(&hor).into_iter());
-    let xv = mean(rate(&vert).into_iter());
-    let ah = mean(amp(&hor).into_iter());
-    let av = mean(amp(&vert).into_iter());
+    let xh = mean_of(rate(&hor).into_iter());
+    let xv = mean_of(rate(&vert).into_iter());
+    let ah = mean_of(amp(&hor).into_iter());
+    let av = mean_of(amp(&vert).into_iter());
     let get = |p: Position| {
         positions
             .iter()
@@ -70,7 +70,7 @@ pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices 
     let beat_errors: Vec<_> = selected.values.iter().map(|(_, value)| *value).collect();
     StateIndices {
         wind_h,
-        x: mean(rate(&all).into_iter()),
+        x: mean_of(rate(&all).into_iter()),
         xh,
         xv,
         d_rate: spread(rate(&all).into_iter()),
@@ -80,8 +80,8 @@ pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices 
         dvh_rate: xv.zip(xh).map(|(v, h)| v - h),
         dvh_amplitude: av.zip(ah).map(|(v, h)| v - h),
         di: get(Position::H6).zip(get(Position::CH)).map(|(a, b)| a - b),
-        amplitude_mean: mean(amp(&all).into_iter()),
-        beat_error_mean: mean(beat_errors.iter().copied()),
+        amplitude_mean: mean_of(amp(&all).into_iter()),
+        beat_error_mean: mean_of(beat_errors.iter().copied()),
         d_beat_error: spread(beat_errors.iter().copied()),
         beat_error_source: selected.beat_error_source,
         beat_error_sources: selected.beat_error_sources,
