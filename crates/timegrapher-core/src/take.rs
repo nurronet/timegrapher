@@ -356,6 +356,13 @@ impl From<EntryError> for String {
     }
 }
 
+/// Whether a session entry's `file` names the take's whole folder
+/// (".", "./" or nothing) rather than one of its sound files: the one
+/// spelling check for every reader.
+pub fn names_whole_folder(file: &str) -> bool {
+    matches!(file, "." | "./" | "")
+}
+
 /// Whether session entry `e` of the take `m` carries on the entry listed
 /// just before it: the next file of one recording in the same position,
 /// read from its start after the one before was read to its end. The
@@ -375,10 +382,9 @@ pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
     let position = |r: &RecordingEntry| r.position.as_deref().and_then(session::Position::parse);
     // An entry for the take's whole folder is not a file the next one
     // carries on from: the first file of the folder still settles.
-    let whole = |f: &str| matches!(f, "." | "./" | "");
     before.file != e.file
-        && !whole(&e.file)
-        && !whole(&before.file)
+        && !names_whole_folder(&e.file)
+        && !names_whole_folder(&before.file)
         && position(e).is_some()
         && position(before) == position(e)
         && e.start_s.is_none()
