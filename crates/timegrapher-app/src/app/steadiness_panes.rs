@@ -199,7 +199,14 @@ impl TimegrapherApp {
         let pal = theme::pal(ui);
         self.steady_working(ui);
         match &self.steady {
-            Some((_, s)) => isochronism::ui(ui, s.report.isochronism.as_ref()),
+            Some((_, s)) => {
+                let walk = s
+                    .report
+                    .walk
+                    .as_ref()
+                    .and_then(timegrapher_core::steady_views::walk_view);
+                isochronism::ui(ui, s.report.isochronism.as_ref(), walk.as_ref());
+            }
             None if self.steady_job.is_some() => {}
             None => {
                 ui.label(

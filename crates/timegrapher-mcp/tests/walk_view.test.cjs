@@ -13,7 +13,7 @@ const VIRIDIS = JSON.parse(palette.match(/pub const VIRIDIS: \[\[u8; 3\]; 17\] =
 const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
 const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
 const WALK_WORDS = {
-  title: coreStr("WALK_TITLE"), hint: coreStr("WALK_HINT"), since: coreStr("WALK_SINCE"),
+  title: coreStr("WALK_TITLE"), hint: coreStr("WALK_HINT"), since: coreStr("WALK_SINCE"), key_start: coreStr("WALK_KEY_START"),
   rate_name: coreStr("WALK_RATE_NAME"), rate_unit: coreStr("WALK_RATE_UNIT"),
   amp_name: coreStr("WALK_AMP_NAME"), amp_unit: coreStr("WALK_AMP_UNIT"),
 };

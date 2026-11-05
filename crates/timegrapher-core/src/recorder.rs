@@ -536,9 +536,10 @@ impl Recorder {
     /// Note sound lost from a live input, `gap_s` true seconds of it, as
     /// [`crate::breaks::GapWatch`] finds it: the next block written starts
     /// a break listed with that gap, and the clock log adds no line before
-    /// it.
+    /// it. Sound lost more than once with no block between adds up, so
+    /// a drop and the gap found after it are one break of both (#1051).
     pub fn sound_lost(&mut self, gap_s: f64) {
-        self.lost_s = Some(gap_s);
+        self.lost_s = Some(self.lost_s.unwrap_or(0.0) + gap_s);
         self.last_clock = None;
     }
 

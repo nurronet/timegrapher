@@ -461,6 +461,8 @@ pub const WALK_AMP_UNIT: &str = "°";
 /// begun at full wind from one whose `wind_h` was left at its default, so
 /// the hours are from the take's start (Hugh).
 pub const WALK_SINCE: &str = "since start";
+/// The colour key's left end: the take's start.
+pub const WALK_KEY_START: &str = "0 h";
 
 /// One point of the Isochronism card: hours since the take's start, its
 /// amplitude and rate, and its hover.

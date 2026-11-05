@@ -165,6 +165,11 @@ pub struct GapWatch {
     /// A [`Live::Glitch`] given back, with no block since: another before
     /// the next block is the same moment, not a second break.
     glitched: bool,
+    /// A [`Live::Dropped`] given back: the recorder logs the first block
+    /// let through after it, so that block's offset becomes the line. Until
+    /// then the line before the drop stays, so a rise that comes with the
+    /// drop (a suspend) is still judged (#1051).
+    relog: bool,
 }
 
 /// What [`GapWatch`] holds back after a rise, in stream order: a block,
@@ -205,6 +210,7 @@ impl GapWatch {
             line: None,
             held: Vec::new(),
             glitched: false,
+            relog: false,
         }
     }
 
@@ -274,15 +280,18 @@ impl GapWatch {
 
     fn give(&mut self, l: Live, out: &mut Vec<Live>) {
         if matches!(l, Live::Dropped(_)) {
-            // The recorder logs the first block after a break.
-            self.line = None;
+            // The recorder logs the first block after a break; the line
+            // before it stays the reference until then, since the lost
+            // frames already count as audio (#1051).
+            self.relog = true;
         }
         out.push(l);
     }
 
     fn let_through(&mut self, b: Block, off: f64, end_s: f64, out: &mut Vec<Live>) {
-        if crate::recorder::clock_line_due(end_s, self.line.map(|l| l.1), b.at) {
+        if self.relog || crate::recorder::clock_line_due(end_s, self.line.map(|l| l.1), b.at) {
             self.line = Some((off, b.at));
+            self.relog = false;
         }
         out.push(Live::Block(b));
     }
@@ -892,6 +901,36 @@ mod tests {
             let lose = |w: &mut GapWatch| w.lost(100);
             assert_eq!(told_run(&arrive, at, &lose), want, "a drop at {at}");
         }
+    }
+
+    /// A drop told just before the first late block after a suspend,
+    /// when nothing is held yet, hides neither the gap nor its backlog: the
+    /// line before the drop stays the reference, so the rise is judged as
+    /// with a glitch there, and the drop is listed in its own place
+    /// (#1051). The 10 s suspend before block 50 and its backlog in blocks
+    /// 50 to 69 as above; the drop is 0.1 s.
+    #[test]
+    fn a_drop_at_the_first_late_block_hides_no_gap() {
+        let arrive = |k: usize| match k {
+            0..50 => 0.1 * (k + 1) as f64,
+            50..70 => 17.0,
+            _ => 0.1 * (k + 1) as f64 + 10.0,
+        };
+        let lose = |w: &mut GapWatch| w.lost(100);
+        assert_eq!(
+            told_run(&arrive, 50, &lose),
+            [(50, -3.0), (50, 9.9), (70, -1.0)]
+        );
+        // The issue's run: arrivals after the drop shift by its 0.1 s, so
+        // the gap is the suspend's whole 10 s.
+        let shifted = |k: usize| arrive(k) + if k >= 50 { 0.1 } else { 0.0 };
+        assert_eq!(
+            told_run(&shifted, 50, &lose),
+            [(50, -3.0), (50, 10.0), (70, -1.0)]
+        );
+        // A drop with no suspend is a break and nothing more.
+        let steady = |k: usize| 0.1 * (k + 1) as f64 + if k >= 50 { 0.1 } else { 0.0 };
+        assert_eq!(told_run(&steady, 50, &lose), [(50, -3.0)]);
     }
 
     /// Behind blocks held after a small rise that is no break (one block

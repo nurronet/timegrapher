@@ -90,7 +90,7 @@ fn score_words() -> String {
 fn walk_words() -> String {
     use timegrapher_core::steady_views as v;
     json!({
-        "title": v::WALK_TITLE, "hint": v::WALK_HINT, "since": v::WALK_SINCE,
+        "title": v::WALK_TITLE, "hint": v::WALK_HINT, "since": v::WALK_SINCE, "key_start": v::WALK_KEY_START,
         "rate_name": v::WALK_RATE_NAME, "rate_unit": v::WALK_RATE_UNIT,
         "amp_name": v::WALK_AMP_NAME, "amp_unit": v::WALK_AMP_UNIT,
     })
