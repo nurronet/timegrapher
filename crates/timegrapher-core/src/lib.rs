@@ -21,6 +21,7 @@ pub mod clean;
 pub mod clock;
 pub mod clockstore;
 pub mod confidence;
+pub mod cores;
 pub mod cusum;
 pub mod diagnose;
 pub mod distribution;
