@@ -321,7 +321,8 @@ pub(crate) struct Read {
     /// [`joined::pauses_unseen`] of a take read in stretches: read whole,
     /// the reading counts them itself.
     pub pauses_unseen: Option<timegrapher_core::measure::Caveat>,
-    /// The stretches masked by hand and left out, start and end.
+    /// The stretches left out, start and end, take seconds: masked by
+    /// hand, or a hole inside one position's run ([`TakeContext::spans`]).
     pub masked: Vec<(f64, f64)>,
     /// The take's stretches read, audio seconds, when it is read in
     /// stretches ([`TakeContext::spans`]): `log` and `breaks` are then
@@ -460,16 +461,26 @@ fn read_take(
         .find_map(|e| e.clock.as_ref())
         .map(|c| base.join(c));
     // Each entry's window, as `session` and the app read it, joined in
-    // take seconds.
+    // take seconds; a hole inside one position's run cut as a mask is.
     let stretches = ctx.spans(&m);
     let files: Vec<PathBuf> = ctx.files.iter().map(|f| f.path.clone()).collect();
     let clock = crate::clock_cmd::AppliedClock::of(ctx.clock, ctx.clock_ppm, ctx.clock_source);
-    let pauses_unseen = stretches.as_deref().and_then(|spans| {
-        joined::pauses_unseen(spans, &ctx.breaks, clock.as_ref().map(|c| &c.fit))
-    });
+    let (mut log, mut breaks, mut masked) = (log, ctx.breaks, ctx.masked);
+    if let Some(s) = &stretches {
+        timegrapher_core::session::mask_log(&mut log, &s.holes);
+        breaks.extend(timegrapher_core::clean::mask_breaks(&s.holes));
+        breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+        masked.extend(&s.holes);
+        let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
+        masked = timegrapher_core::session::masked_spans(&pairs);
+    }
+    let stretches = stretches.map(|s| s.read);
+    let pauses_unseen = stretches
+        .as_deref()
+        .and_then(|spans| joined::pauses_unseen(spans, &breaks, clock.as_ref().map(|c| &c.fit)));
     let (log, breaks) = match &stretches {
-        Some(spans) => joined::join(&log, spans, &ctx.breaks, clock.as_ref().map(|c| &c.fit)),
-        None => (log, ctx.breaks),
+        Some(spans) => joined::join(&log, spans, &breaks, clock.as_ref().map(|c| &c.fit)),
+        None => (log, breaks),
     };
     let name = files.first().cloned().unwrap_or_else(|| base.clone());
     let wheels = m
@@ -496,7 +507,7 @@ fn read_take(
         unlisted: ctx.unlisted,
         positions: joined::positions_caveat(&m),
         pauses_unseen,
-        masked: ctx.masked,
+        masked,
         stretches,
     })
 }

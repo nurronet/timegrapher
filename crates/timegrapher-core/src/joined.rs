@@ -8,7 +8,7 @@ use crate::beats::Beat;
 use crate::breaks::{self, Break};
 use crate::clock::ClockFit;
 use crate::measure::Caveat;
-use crate::session::{Manifest, RecordingEntry};
+use crate::session::Manifest;
 use crate::stream::BeatLog;
 use crate::take;
 
@@ -73,71 +73,6 @@ pub fn pauses_unseen(
         .collect();
     let count = clock?.unseen(&inside);
     (count > 0).then_some(Caveat::PausesUnseen { count })
-}
-
-/// The stretches of a take that are read, audio seconds, in time order:
-/// each entry's from the end of its settling, as `timegrapher session`
-/// reads it ([`take::reading_window`]), on a take whose entries are all one
-/// recording `duration_s` long and name their positions. None when that
-/// leaves the whole recording, when two entries' stretches overlap, or
-/// when the entries are not like that: the take is then read whole.
-pub fn take_spans(m: &Manifest, duration_s: f64) -> Option<Vec<(f64, f64)>> {
-    let first = m.recordings.first()?;
-    if m.recordings.iter().any(|e| e.position.is_none()) {
-        return None;
-    }
-    // Files one after another in one position, each carrying on the one
-    // before ([`take::continues_position`]): one stretch, from the first
-    // file's settling to the end, as `session` and the app read it (#1145).
-    // An entry for the whole folder, which `session` reads as a reading of
-    // its own, only says the position: the stretch settles from the first
-    // file's entry.
-    let whole = |e: &RecordingEntry| take::names_whole_folder(&e.file);
-    let files: Vec<&RecordingEntry> = m.recordings.iter().filter(|e| !whole(e)).collect();
-    let mixed = !files.is_empty() && files.len() < m.recordings.len();
-    if mixed || m.recordings.iter().any(|e| e.file != first.file) {
-        let (head, rest) = files.split_first()?;
-        let position = |e: &RecordingEntry| {
-            e.position
-                .as_deref()
-                .and_then(crate::session::Position::parse)
-        };
-        // A whole-folder entry in another position, or naming a stretch or
-        // a settling of its own, says more than the position: read whole.
-        let folder_says_more = m.recordings.iter().filter(|e| whole(e)).any(|e| {
-            position(e) != position(head)
-                || e.start_s.is_some()
-                || e.end_s.is_some()
-                || e.settle_s.is_some()
-        });
-        // A measuring time, or a later file's own settling, reads less than
-        // the whole stretch: such a take is read whole, as before.
-        let measured = m.measure_s.is_some()
-            || m.recordings.iter().any(|e| e.measure_s.is_some())
-            || rest.iter().any(|e| e.settle_s.is_some());
-        if folder_says_more || measured || !rest.iter().all(|e| take::continues_position(e, m)) {
-            return None;
-        }
-        let w = take::reading_window(head, m, None, duration_s).ok()?;
-        return (w.from_s > 0.0).then(|| vec![(w.from_s, duration_s)]);
-    }
-    let mut spans: Vec<(f64, f64)> = m
-        .recordings
-        .iter()
-        .filter_map(|e| take::reading_window(e, m, None, duration_s).ok())
-        .map(|w| (w.from_s, w.to_s))
-        .filter(|(a, b)| b > a)
-        .collect();
-    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
-    // Entries that overlap disagree about where the watch was; joined, the
-    // sound they share would be read twice.
-    if spans.windows(2).any(|w| w[1].0 < w[0].1) {
-        return None;
-    }
-    match spans.as_slice() {
-        [(a, b)] if *a <= 0.0 && *b >= duration_s => None,
-        _ => Some(spans),
-    }
 }
 
 /// The beats counted across a join, `between` beats as the times give it:
@@ -461,103 +396,6 @@ mod tests {
         );
     }
 
-    /// A take recorded in one position is read from the end of its
-    /// settling, as `session` reads it; one the app saved from its start
-    /// (`settle_s = 0`), or one whose entries name no position, whole.
-    #[test]
-    fn a_take_is_read_from_the_end_of_each_settling() {
-        let one = manifest("[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n");
-        assert_eq!(
-            take_spans(&one, 3600.0),
-            Some(vec![(take::SETTLE_S, 3600.0)])
-        );
-        let two = manifest(
-            "settle_s = 30.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 600.0\n",
-        );
-        assert_eq!(
-            take_spans(&two, 1200.0),
-            Some(vec![(30.0, 600.0), (630.0, 1200.0)])
-        );
-        let from_start =
-            manifest("[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nsettle_s = 0.0\n");
-        assert_eq!(take_spans(&from_start, 3600.0), None);
-        let unnamed = manifest("[[recording]]\nfile = \"a.flac\"\n");
-        assert_eq!(take_spans(&unnamed, 3600.0), None);
-        let files = manifest(
-            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"b.flac\"\nposition = \"CU\"\n",
-        );
-        assert_eq!(take_spans(&files, 3600.0), None);
-        // Files one after another in one position settle once, at the
-        // start, as session and the app read them (#1145).
-        let parts = manifest(
-            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"b.flac\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"c.flac\"\nposition = \"dial up\"\n",
-        );
-        assert_eq!(
-            take_spans(&parts, 1800.0),
-            Some(vec![(take::SETTLE_S, 1800.0)])
-        );
-        // The same stretch `session` reads, file by file, laid end to end:
-        // the first from its settling, the others whole.
-        let read: Vec<(f64, f64)> = parts
-            .recordings
-            .iter()
-            .enumerate()
-            .map(|(i, e)| {
-                let w = take::reading_window(e, &parts, None, 600.0).unwrap();
-                (600.0 * i as f64 + w.from_s, 600.0 * i as f64 + w.to_s)
-            })
-            .collect();
-        assert_eq!(
-            read,
-            [(take::SETTLE_S, 600.0), (600.0, 1200.0), (1200.0, 1800.0)]
-        );
-        // A later file that settles on its own would be read twice over:
-        // the take is read whole instead.
-        let own = manifest(
-            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"b.flac\"\nposition = \"DU\"\nsettle_s = 40.0\n",
-        );
-        assert_eq!(take_spans(&own, 1200.0), None);
-        // A whole-folder entry before the files (as dd3235_DU_30min lists
-        // them) says the position only: the stretch settles from the first
-        // file, as the app reads it.
-        let folder_first = manifest(
-            "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"b.flac\"\nposition = \"DU\"\n",
-        );
-        assert_eq!(
-            take_spans(&folder_first, 1800.0),
-            Some(vec![(take::SETTLE_S, 1800.0)])
-        );
-        // One file alone after it, the rest of the folder unlisted, too.
-        let one_file = manifest(
-            "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n",
-        );
-        assert_eq!(
-            take_spans(&one_file, 1800.0),
-            Some(vec![(take::SETTLE_S, 1800.0)])
-        );
-        // In another position, it is read whole.
-        let elsewhere = manifest(
-            "[[recording]]\nfile = \".\"\nposition = \"CU\"\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n",
-        );
-        assert_eq!(take_spans(&elsewhere, 1800.0), None);
-        // Entries that overlap would read their shared sound twice.
-        let overlap = manifest(
-            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 500.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nstart_s = 400.0\n",
-        );
-        assert_eq!(take_spans(&overlap, 900.0), None);
-    }
-
     fn cut(audio_s: f64, gap_s: f64) -> Break {
         Break { audio_s, gap_s }
     }
@@ -742,38 +580,6 @@ mod tests {
     fn a_stretch_of_no_length_adds_no_join() {
         let spans = [(10.0, 40.0), (50.0, 50.0)];
         assert_eq!(joined_duration(&spans, 200.0, None), 30.0);
-    }
-
-    /// Entries whose stretches only touch, one ending where the next
-    /// starts after its settling, share no sound and are read joined; an
-    /// entry left with nothing after its settling, or that measures for no
-    /// time, adds no stretch (#756).
-    #[test]
-    fn stretches_that_only_touch_are_read_joined() {
-        let touch = manifest(
-            "settle_s = 30.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 570.0\n",
-        );
-        assert_eq!(
-            take_spans(&touch, 1200.0),
-            Some(vec![(30.0, 600.0), (600.0, 1200.0)])
-        );
-        let settled_out = manifest(
-            "settle_s = 30.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 600.0\nend_s = 630.0\n",
-        );
-        assert_eq!(take_spans(&settled_out, 1200.0), Some(vec![(30.0, 600.0)]));
-        let measured_none = manifest(
-            "settle_s = 30.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
-             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 600.0\nmeasure_s = 0.0\n",
-        );
-        assert_eq!(
-            take_spans(&measured_none, 1200.0),
-            Some(vec![(30.0, 600.0)])
-        );
     }
 
     /// Only a pause strictly inside a stretch can be one the joined

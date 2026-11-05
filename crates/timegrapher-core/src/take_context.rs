@@ -55,6 +55,20 @@ pub enum Masks {
     Kept,
 }
 
+/// The stretches of a take `series` and `long` read ([`TakeContext::spans`]),
+/// take seconds, in time order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Stretches {
+    /// The stretches read, joined end to end where they change position.
+    pub read: Vec<(f64, f64)>,
+    /// What is left out inside a stretch, between two entries in one
+    /// position: cut like a stretch masked by hand, at its width in true
+    /// time, not joined.
+    pub holes: Vec<(f64, f64)>,
+    /// Each stretch's position.
+    at: Vec<Option<Position>>,
+}
+
 /// A take, opened once: what every surface reads it from.
 pub struct TakeContext {
     /// 0 when opened. Nothing here changes a context once opened; a
@@ -271,78 +285,103 @@ impl TakeContext {
     /// from) read from its window ([`EntryWindow::window`]), so `series`
     /// and `long` read exactly what `session` reads of each entry, joined.
     /// A file that carries on the one before it in the same position
-    /// ([`take::continues_position`]) runs on from it as one stretch. An
-    /// entry for the take's whole folder, beside entries for its files,
-    /// that says no more than their position reads on from the first
-    /// file's settling to the take's end.
+    /// ([`take::continues_position`]) runs on from it as one stretch. What
+    /// is left out between two entries in one position is a hole in that
+    /// run, kept at its width in true time as a mask is
+    /// ([`Stretches::holes`]); between two positions the stretches are
+    /// joined. An entry for the take's whole folder, beside entries for
+    /// its files, that says no more than their position reads on from the
+    /// first file's settling to the take's end.
     /// None, and the take read whole, when an entry names no position,
     /// when two entries' stretches overlap (they disagree about where the
     /// watch was, and joined the sound they share would be read twice),
-    /// or when the one stretch is the whole take.
-    pub fn spans(&self, m: &Manifest) -> Option<Vec<(f64, f64)>> {
+    /// or when the one stretch is the whole take and holds no hole.
+    pub fn spans(&self, m: &Manifest) -> Option<Stretches> {
         if m.recordings.iter().any(|e| e.position.is_none()) {
             return None;
         }
-        let folder = |e: &RecordingEntry| take::names_whole_folder(&e.file);
-        let first_file = m.recordings.iter().find(|e| !folder(e));
-        // A whole-folder entry beside the files' entries only says their
-        // position when it is the first file's and names nothing more.
-        let says_only_position = |e: &RecordingEntry| {
-            first_file.is_some_and(|f| {
-                e.position == f.position
-                    && e.start_s.is_none()
-                    && e.end_s.is_none()
-                    && e.settle_s.is_none()
-                    && e.measure_s.is_none()
-            })
-        };
-        let total = self
-            .files
-            .iter()
-            .map(|f| f.offset_s + f.duration_s)
-            .fold(0.0, f64::max);
-        let window = |w: &EntryWindow| w.window.as_ref().ok().map(|w| (w.from_s, w.to_s));
-        // Such an entry reads the take on from the first file's settling to
-        // its end, as `session` reads the folder (#1145); the files' own
-        // stretches inside that are read there.
-        let whole: Option<(f64, f64)> = m
-            .recordings
-            .iter()
-            .any(|e| folder(e) && says_only_position(e))
-            .then(|| {
-                let at = m.recordings.iter().position(|e| !folder(e))?;
-                window(&self.entries[at]).map(|(a, _)| (a, total))
-            })
-            .flatten();
-        let inside_whole =
-            |(a, b): (f64, f64)| whole.is_some_and(|(wa, wb)| a >= wa - EDGE_S && b <= wb + EDGE_S);
-        let mut read: Vec<(f64, f64, bool)> = m
-            .recordings
-            .iter()
-            .zip(&self.entries)
-            .filter(|(e, _)| !(folder(e) && says_only_position(e)))
-            .filter_map(|(e, w)| {
-                let (a, b) = window(w)?;
-                (b > a && !inside_whole((a, b))).then(|| (a, b, take::continues_position(e, m)))
-            })
-            .chain(whole.map(|(a, b)| (a, b, false)))
-            .collect();
-        read.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut spans: Vec<(f64, f64)> = Vec::with_capacity(read.len());
-        for (a, b, carries_on) in read {
-            match spans.last_mut() {
+        let mut out = Stretches::default();
+        for (a, b, carries_on, at) in self.windows_read(m) {
+            match out.read.last_mut() {
                 Some(last) if a < last.1 - EDGE_S => return None,
                 // The file's start is where the one before it ends, to the
                 // rounding of the two lengths in seconds.
                 Some(last) if carries_on && a <= last.1 + EDGE_S => last.1 = b,
-                _ => spans.push((a, b)),
+                Some(last) if out.at.last() == Some(&at) => {
+                    if a > last.1 + EDGE_S {
+                        out.holes.push((last.1, a));
+                    }
+                    last.1 = b;
+                }
+                _ => {
+                    out.read.push((a, b));
+                    out.at.push(at);
+                }
             }
         }
-        match spans.as_slice() {
+        let total = self.length_s();
+        match out.read.as_slice() {
             [] => None,
-            [(a, b)] if *a <= 0.0 && *b >= total - EDGE_S => None,
-            _ => Some(spans),
+            [(a, b)] if *a <= 0.0 && *b >= total - EDGE_S && out.holes.is_empty() => None,
+            _ => Some(out),
         }
+    }
+
+    /// The take's length, seconds: where its last recording ends.
+    fn length_s(&self) -> f64 {
+        self.files
+            .iter()
+            .map(|f| f.offset_s + f.duration_s)
+            .fold(0.0, f64::max)
+    }
+
+    /// Each entry's window that reads something, in time order, with
+    /// whether its file carries on the one before it and its position.
+    /// An entry for the folder that only says the first file's position
+    /// reads from that file's settling to the take's end, as `session`
+    /// reads the folder (#1145); the files' own windows inside it are
+    /// read there.
+    fn windows_read(&self, m: &Manifest) -> Vec<(f64, f64, bool, Option<Position>)> {
+        let folder = |e: &RecordingEntry| take::names_whole_folder(&e.file);
+        let first_file = m.recordings.iter().position(|e| !folder(e));
+        let says_only_position = |e: &RecordingEntry| {
+            folder(e)
+                && first_file.is_some_and(|f| {
+                    e.position == m.recordings[f].position
+                        && e.start_s.is_none()
+                        && e.end_s.is_none()
+                        && e.settle_s.is_none()
+                        && e.measure_s.is_none()
+                })
+        };
+        let position = |e: &RecordingEntry| e.position.as_deref().and_then(Position::parse);
+        let window = |w: &EntryWindow| w.window.as_ref().ok().map(|w| (w.from_s, w.to_s));
+        let total = self.length_s();
+        let whole = m
+            .recordings
+            .iter()
+            .find(|e| says_only_position(e))
+            .and_then(|e| {
+                let (a, _) = window(&self.entries[first_file?])?;
+                Some((a, total, false, position(e)))
+            });
+        let inside_whole = |a: f64, b: f64| {
+            whole.is_some_and(|(wa, wb, _, _)| a >= wa - EDGE_S && b <= wb + EDGE_S)
+        };
+        let mut read: Vec<_> = m
+            .recordings
+            .iter()
+            .zip(&self.entries)
+            .filter(|(e, _)| !says_only_position(e))
+            .filter_map(|(e, w)| {
+                let (a, b) = window(w)?;
+                (b > a && !inside_whole(a, b))
+                    .then(|| (a, b, take::continues_position(e, m), position(e)))
+            })
+            .chain(whole)
+            .collect();
+        read.sort_by(|a, b| a.0.total_cmp(&b.0));
+        read
     }
 
     /// The take's breaks with a cut, of no gap, wherever its readings are
