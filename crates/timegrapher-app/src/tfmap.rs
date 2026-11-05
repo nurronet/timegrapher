@@ -297,6 +297,21 @@ fn key_ends(s: Scale) -> (String, String) {
     }
 }
 
+/// A colour key's bar, `width` wide: viridis from its start to its end.
+pub fn ramp(ui: &mut egui::Ui, width: f32) {
+    let (r, _) = ui.allocate_exact_size(Vec2::new(width, 10.0), egui::Sense::hover());
+    let n = 60;
+    for i in 0..n {
+        let x0 = r.left() + r.width() * i as f32 / n as f32;
+        let x1 = r.left() + r.width() * (i + 1) as f32 / n as f32;
+        ui.painter().rect_filled(
+            egui::Rect::from_x_y_ranges(x0..=x1 + 0.5, r.y_range()),
+            0.0,
+            viridis(i as f32 / (n - 1) as f32),
+        );
+    }
+}
+
 /// Under the map: the colours from the smallest size to the largest, and
 /// an empty swatch for cells not read.
 fn key_row(ui: &mut egui::Ui, m: &TimeFrequency, s: Scale, pal: &theme::Palette) {
@@ -306,17 +321,7 @@ fn key_row(ui: &mut egui::Ui, m: &TimeFrequency, s: Scale, pal: &theme::Palette)
         ui.add_space(6.0);
         let (lo, hi) = key_ends(s);
         ui.label(small(lo));
-        let (r, _) = ui.allocate_exact_size(Vec2::new(120.0, 10.0), egui::Sense::hover());
-        let n = 60;
-        for i in 0..n {
-            let x0 = r.left() + r.width() * i as f32 / n as f32;
-            let x1 = r.left() + r.width() * (i + 1) as f32 / n as f32;
-            ui.painter().rect_filled(
-                egui::Rect::from_x_y_ranges(x0..=x1 + 0.5, r.y_range()),
-                0.0,
-                viridis(i as f32 / (n - 1) as f32),
-            );
-        }
+        ramp(ui, 120.0);
         ui.label(small(hi));
         ui.add_space(12.0);
         let (e, _) = ui.allocate_exact_size(Vec2::new(14.0, 10.0), egui::Sense::hover());
