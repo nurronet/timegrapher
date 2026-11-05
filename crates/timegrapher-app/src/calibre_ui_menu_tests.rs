@@ -357,7 +357,7 @@ fn tab_stays_within_the_calibre_menu() {
     crate::theme::install(&ctx);
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
     let behind = std::cell::RefCell::new(Vec::new());
-    let mut run = |c: &mut Calibres, events: Vec<egui::Event>| {
+    let run = |c: &mut Calibres, events: Vec<egui::Event>| {
         ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen),
