@@ -932,16 +932,16 @@ measurements of the same averaged sound, not single beats, so they sit
 near but not exactly on each other. A sound is missing when it can't be
 told apart from its neighbour (a soft unlock merged into the impulse,
 say). Each plot carries its side's facts in its top-left corner, over
-the quiet lead-in before the unlock: Beats, Unlock, Drop, Unlock to Drop
-and Amplitude, a row each, the values with their units. The box is the
+the quiet lead-in before the unlock: Beats, Unlock, Drop and Unlock to
+Drop, a row each, the values with their units. The amplitude isn't
+there: the Amplitude card reads the same moment, with its ±. The box is the
 same on both plots, so Tick and Tock compare row against row, and it
 sits under the band and the line, so a spike that runs into it still
-shows. On a plot under 100 points tall it keeps Unlock to Drop and
-Amplitude (fewer if even those don't fit), and hovering it gives all
-five. There the box takes the top right corner where the trace runs
-under the left and not the right; where the trace runs under both
-corners it keeps fewer rows, Amplitude last, and none where even one
-would sit on the trace, so the picture comes first. A plot that would be under 100 points with its names outside
+shows. On a plot under 100 points tall it keeps Unlock to Drop alone,
+and hovering it gives all four. There the box takes the top right
+corner where the trace runs under the left and not the right; where the
+trace runs under both corners it keeps fewer rows, Unlock to Drop last,
+and none where even one would sit on the trace, so the picture comes first. A plot that would be under 100 points with its names outside
 takes them in: the edges' names sit along its top on the plot's
 background, one row, under the trace (Unlock starts right of its line
 where the facts box has the corner, and a name that would crowd the one

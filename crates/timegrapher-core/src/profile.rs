@@ -29,8 +29,11 @@ impl Side {
 }
 
 /// The facts on each side of a Tick and Tock profile, in [`facts`]' order,
-/// as every surface names them (#510).
-pub const FACT_NAMES: [&str; 5] = ["Beats", "Unlock", "Drop", "Unlock to Drop", "Amplitude"];
+/// as every surface names them (#510). No amplitude: the Amplitude card
+/// reads the same moment with its ±, and the profile's own figure from
+/// the median sound, with none, was a second copy beside it (Norm, #1068
+/// item 6).
+pub const FACT_NAMES: [&str; 4] = ["Beats", "Unlock", "Drop", "Unlock to Drop"];
 
 /// A time from the reference point as the Profile words it: "−0.27 ms".
 pub fn ms_text(v: f64) -> String {
@@ -38,13 +41,8 @@ pub fn ms_text(v: f64) -> String {
 }
 
 /// One side's facts with their units, in [`FACT_NAMES`]' order: "–" for
-/// an edge not found, "out of range" for an amplitude that isn't plausible.
-pub fn facts_of(
-    beats: usize,
-    unlock_ms: Option<f64>,
-    drop_ms: Option<f64>,
-    amplitude_deg: Option<f64>,
-) -> [String; 5] {
+/// an edge not found.
+pub fn facts_of(beats: usize, unlock_ms: Option<f64>, drop_ms: Option<f64>) -> [String; 4] {
     let ms = |v: Option<f64>| v.map_or("–".to_string(), ms_text);
     [
         beats.to_string(),
@@ -54,13 +52,12 @@ pub fn facts_of(
             (Some(u), Some(d)) => format!("{:.2} ms", d - u),
             _ => "–".to_string(),
         },
-        amplitude_deg.map_or("out of range".to_string(), |a| format!("{a:.0}°")),
     ]
 }
 
 /// [`facts_of`] a side.
-pub fn facts(p: &TickProfile) -> [String; 5] {
-    facts_of(p.beats, p.unlock_ms, p.drop_ms, p.amplitude_deg)
+pub fn facts(p: &TickProfile) -> [String; 4] {
+    facts_of(p.beats, p.unlock_ms, p.drop_ms)
 }
 
 /// One side's typical sound with the engine's marks. Times are ms from the
