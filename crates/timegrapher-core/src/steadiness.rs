@@ -2066,7 +2066,7 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
             }
         }
         Lead::ShiftingMean => format!("{cap} {}.", shifts_text(s)),
-                Lead::Drifting => {
+        Lead::Drifting => {
             let t = s.trend.as_ref().unwrap();
             if let Some((at, v)) = t.turn.filter(|_| t.curve_explained > t.explained + 0.05) {
                 return format!(
