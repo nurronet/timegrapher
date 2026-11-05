@@ -256,7 +256,7 @@ fn blocks(samples: &[Sample], p: &Params) -> (Vec<Block>, f64) {
 fn mixture(y: &[f64]) -> ([f64; 2], f64, f64, Vec<f64>) {
     let mut s: Vec<f64> = y.to_vec();
     s.sort_by(|a, b| a.total_cmp(b));
-    let q = |f: f64| s[((s.len() - 1) as f64 * f).round() as usize];
+    let q = |f: f64| crate::dsp::quantile(&s, f);
     // The starts are fitted side by side; the best is kept as when they
     // were fitted in turn (the first of equals).
     crate::cores::on_every_core(&[(0.2, 0.8), (0.05, 0.5), (0.5, 0.95)], |&(a, b)| {

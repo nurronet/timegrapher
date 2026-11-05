@@ -185,11 +185,7 @@ pub fn fold_columns(f: &longterm::Fold) -> Vec<Option<[f64; 3]>> {
                 return None;
             }
             v.sort_by(f64::total_cmp);
-            let q = |p: f64| {
-                let x = (v.len() - 1) as f64 * p;
-                let (i, t) = (x.floor() as usize, x.fract());
-                v[i] + (v[(i + 1).min(v.len() - 1)] - v[i]) * t
-            };
+            let q = |p: f64| crate::dsp::quantile(&v, p);
             Some([q(0.25), q(0.5), q(0.75)])
         })
         .collect()
