@@ -3,7 +3,7 @@
 //! hour's part can be converted beside a running recording.
 
 use crate::audio::AudioError;
-use flacenc::component::{BitRepr, Stream};
+use flacenc::component::{BitRepr, Frame, FrameHeader, FrameOffset, Stream};
 use flacenc::error::Verify;
 use flacenc::source::{Context, Fill, FrameBuf};
 use std::fs::File;
@@ -22,12 +22,43 @@ fn failed(e: impl std::fmt::Debug) -> AudioError {
     AudioError::Unsupported(format!("FLAC encoder: {e:?}"))
 }
 
+/// The highest sample rate flacenc 0.5 takes in a stream's info, though
+/// FLAC holds rates up to 655,350 Hz (#1175). A faster stream is made at
+/// this rate, and its info and frames are given the true one as written
+/// ([`header`], [`at_rate`]).
+const FLACENC_MAX_RATE: u32 = 96_000;
+
 /// "fLaC" and the stream info block, as `stream` (with no frames) gives
-/// them: the same length whatever the figures in it.
-fn header(stream: &Stream) -> Result<Vec<u8>, AudioError> {
+/// them, with `rate` as its sample rate: the same length whatever the
+/// figures in it.
+fn header(stream: &Stream, rate: u32) -> Result<Vec<u8>, AudioError> {
     let mut sink = flacenc::bitsink::ByteSink::new();
     stream.write(&mut sink).map_err(failed)?;
-    Ok(sink.as_slice().to_vec())
+    let mut bytes = sink.as_slice().to_vec();
+    // The stream info's 20-bit sample rate starts 18 bytes in: after
+    // "fLaC", the block's own header, and the block and frame sizes.
+    let (Some(b), true) = (bytes.get_mut(18..21), rate < 1 << 20) else {
+        return Err(failed(format!("sample rate {rate}")));
+    };
+    b[0] = (rate >> 12) as u8;
+    b[1] = (rate >> 4) as u8;
+    b[2] = (b[2] & 0x0f) | ((rate & 0x0f) as u8) << 4;
+    Ok(bytes)
+}
+
+/// `frame`, frame `n` of a stream of `bps`-bit samples, with `rate` as
+/// the sample rate its header names: flacenc names the stream info's.
+fn at_rate(frame: Frame, rate: u32, bps: usize, n: usize) -> Result<Frame, AudioError> {
+    let (head, subframes) = frame.into_parts();
+    let head = FrameHeader::new(
+        head.block_size(),
+        head.channel_assignment().clone(),
+        bps,
+        rate as usize,
+        FrameOffset::Frame(n as u32),
+    )
+    .map_err(failed)?;
+    Frame::new(head, subframes.into_iter()).map_err(failed)
 }
 
 /// Write a FLAC stream of `format` to `out`, from interleaved samples
@@ -61,9 +92,11 @@ pub fn encode<W: Write + Seek>(
     plain.subframe_coding.use_lpc = false;
     let plain = plain.into_verified().map_err(|(_, e)| failed(e))?;
     let block = cfg.block_size;
-    let mut stream = Stream::new(format.sample_rate as usize, ch, bps).map_err(failed)?;
+    let rate = format.sample_rate;
+    let mut stream = Stream::new(rate.min(FLACENC_MAX_RATE) as usize, ch, bps).map_err(failed)?;
     let start = out.stream_position().map_err(AudioError::Io)?;
-    out.write_all(&header(&stream)?).map_err(AudioError::Io)?;
+    out.write_all(&header(&stream, rate)?)
+        .map_err(AudioError::Io)?;
     let mut fill = (
         FrameBuf::with_size(ch, block).map_err(failed)?,
         Context::new(bps, ch),
@@ -91,6 +124,7 @@ pub fn encode<W: Write + Seek>(
             frame = flacenc::encode_fixed_size_frame(&plain, &fill.0, n, stream.stream_info())
                 .map_err(failed)?;
         }
+        let frame = at_rate(frame, rate, bps, n)?;
         stream.stream_info_mut().update_frame_info(&frame);
         let mut sink = flacenc::bitsink::ByteSink::new();
         frame.write(&mut sink).map_err(failed)?;
@@ -109,7 +143,8 @@ pub fn encode<W: Write + Seek>(
     }
     let end = out.stream_position().map_err(AudioError::Io)?;
     out.seek(SeekFrom::Start(start)).map_err(AudioError::Io)?;
-    out.write_all(&header(&stream)?).map_err(AudioError::Io)?;
+    out.write_all(&header(&stream, rate)?)
+        .map_err(AudioError::Io)?;
     out.seek(SeekFrom::Start(end)).map_err(AudioError::Io)?;
     Ok(frames)
 }
@@ -415,9 +450,14 @@ mod tests {
     /// A WAV of `frames` frames of `channels` channels at `bits`, every
     /// sample different and reaching both ends of the range.
     fn wav(path: &Path, frames: usize, channels: u16, bits: u16) -> Vec<i32> {
+        wav_at(path, frames, channels, bits, 48000)
+    }
+
+    /// [`wav`] at `rate` samples a second.
+    fn wav_at(path: &Path, frames: usize, channels: u16, bits: u16, rate: u32) -> Vec<i32> {
         let spec = hound::WavSpec {
             channels,
-            sample_rate: 48000,
+            sample_rate: rate,
             bits_per_sample: bits,
             sample_format: hound::SampleFormat::Int,
         };
@@ -489,6 +529,85 @@ mod tests {
             }
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A take recorded faster than 96 kHz, flacenc's own limit, is kept as
+    /// FLAC too, at its own rate in the stream info and in every frame's
+    /// header, up to FLAC's 655,350 Hz (#1175). Above that it stays WAV.
+    #[test]
+    fn a_wav_faster_than_96_khz_becomes_a_flac_at_its_own_rate() {
+        let dir = scratch("fast");
+        for (rate, channels, bits) in [
+            (96_000, 1, 24),
+            (176_400, 2, 16),
+            (192_000, 1, 24),
+            (384_000, 1, 16),
+            (655_350, 2, 24),
+        ] {
+            let w = dir.join(format!("a-{rate}.wav"));
+            let samples = wav_at(&w, 10_000, channels, bits, rate);
+            let f = flac_path(&w);
+            assert_eq!(encode_wav(&w, &f).unwrap(), 10_000, "{rate}");
+            assert!(same_samples(&w, &f).unwrap(), "{rate}");
+            let mut r = claxon::FlacReader::open(&f).unwrap();
+            assert_eq!(r.streaminfo().sample_rate, rate);
+            let back: Vec<i32> = r.samples().map(Result::unwrap).collect();
+            assert_eq!(back, samples, "{rate}");
+            // Each frame's header names the rate as the stream info does.
+            assert_eq!(header_rates(&std::fs::read(&f).unwrap()), vec![rate; 3]);
+        }
+        let w = dir.join("too-fast.wav");
+        wav_at(&w, 1_000, 1, 16, 700_000);
+        assert!(encode_wav(&w, &flac_path(&w)).is_err());
+        assert!(w.exists() && !flac_path(&w).exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The sample rate each frame header of the FLAC `bytes` names, read
+    /// as the format lays a header out: the sync code, then the block
+    /// size and rate tags, the frame number (UTF-8 coded), any block size
+    /// and rate bytes the tags call for, and a CRC-8 over all of it, which
+    /// must check.
+    fn header_rates(bytes: &[u8]) -> Vec<u32> {
+        let crc8 = |b: &[u8]| {
+            b.iter().fold(0u8, |c, &x| {
+                (0..8).fold(
+                    c ^ x,
+                    |c, _| if c & 0x80 != 0 { c << 1 ^ 0x07 } else { c << 1 },
+                )
+            })
+        };
+        let mut out = Vec::new();
+        for at in 42..bytes.len().saturating_sub(16) {
+            if bytes[at] != 0xff || bytes[at + 1] != 0xf8 {
+                continue;
+            }
+            let (block_tag, rate_tag) = (bytes[at + 2] >> 4, bytes[at + 2] & 0x0f);
+            let mut i = at + 4 + bytes[at + 4].leading_ones().max(1) as usize;
+            i += match block_tag {
+                6 => 1,
+                7 => 2,
+                _ => 0,
+            };
+            let (rate, extra) = match rate_tag {
+                2 => (176_400, 0),
+                3 => (192_000, 0),
+                10 => (48_000, 0),
+                11 => (96_000, 0),
+                12 => (u32::from(bytes[i]) * 1000, 1),
+                13 => (u32::from(u16::from_be_bytes([bytes[i], bytes[i + 1]])), 2),
+                14 => (
+                    u32::from(u16::from_be_bytes([bytes[i], bytes[i + 1]])) * 10,
+                    2,
+                ),
+                _ => continue,
+            };
+            i += extra;
+            if crc8(&bytes[at..i]) == bytes[i] {
+                out.push(rate);
+            }
+        }
+        out
     }
 
     #[test]

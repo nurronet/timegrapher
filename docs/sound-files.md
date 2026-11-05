@@ -67,8 +67,12 @@ added hiss) were all within 0.08% of plain. A fuzz target
 
 ## Known limits
 
-- **Above 96 kHz no FLAC is written** (#1175): flacenc refuses those rates.
-  Such a take's hours stay WAV, whole and readable.
+- **Above 655,350 Hz no FLAC is written**: FLAC's frame headers can't name
+  a faster rate. Such a take's hours stay WAV, whole and readable.
+  flacenc itself takes rates only up to 96 kHz, so a faster stream is made
+  at 96 kHz and its stream info and every frame header are given the true
+  rate as they are written (#1175); the FLAC is then checked sample for
+  sample against the WAV, as every FLAC is.
 - **32-bit integer and floating-point WAVs stay WAV** (#1176). The recorder
   never writes them, so they come only from files copied into a take.
 
@@ -76,6 +80,7 @@ added hiss) were all within 0.08% of plain. A fuzz target
 
 - `flac::tests::loud_24_bit_sound_is_never_kept_bigger_than_plain`
 - `flac::tests::a_bloated_flac_is_written_again_with_the_same_samples`
+- `flac::tests::a_wav_faster_than_96_khz_becomes_a_flac_at_its_own_rate`
 - `recorder::tests::a_saved_hour_kept_as_a_bloated_flac_is_written_again_in_its_place`
 - `tests/flac_real_sound.rs`: one second of a public corpus take (CC0) at
   every level up to clipping, 16- and 24-bit, mono and stereo.
