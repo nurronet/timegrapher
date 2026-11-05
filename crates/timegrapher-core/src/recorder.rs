@@ -1228,9 +1228,19 @@ fn wav_hours(dir: &Path) -> Vec<String> {
 /// recording being made ([`in_use`]) is left alone. Returns how many hours
 /// were converted.
 pub fn keep_saved_as_flac(dir: &Path) -> Result<usize, String> {
+    keep_saved_as_flac_unless(dir, &|| false)
+}
+
+/// [`keep_saved_as_flac`], asking `stop` before each hour: when it says
+/// so, the hours not yet converted are left as WAVs, for another time (a
+/// take opened in the app while its hours are kept, #503).
+pub fn keep_saved_as_flac_unless(dir: &Path, stop: &dyn Fn() -> bool) -> Result<usize, String> {
     let record = dir.join(take::RECORD);
     let mut done = 0;
     for wav in wav_hours(dir) {
+        if stop() {
+            break;
+        }
         let path = dir.join(&wav);
         let flac =
             crate::flac::keep_as_flac(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -2467,6 +2477,34 @@ mod tests {
         let files = crate::recording_order::recordings_in(&dir, &[]).unwrap();
         let refs: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
         assert_eq!(crate::breaks::of_files(&refs, None, 8000).unlisted, None);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_take_opened_while_its_hours_are_kept_stops_at_the_next_hour() {
+        let (mut r, base) = save_fixture("saved-wavs-stopped");
+        r.keep_flac = false;
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 30);
+        let dir = r.finish(None).unwrap();
+        // Opened after the first hour is kept.
+        let asked = std::cell::Cell::new(0);
+        let stop = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 1
+        };
+        assert_eq!(keep_saved_as_flac_unless(&dir, &stop).unwrap(), 1);
+        assert!(dir.join("audio-001.flac").exists() && dir.join("audio-002.wav").exists());
+        // Half kept, its files are still the take's segments, in order,
+        // and the rest is left for another time.
+        let files = crate::recording_order::recordings_in(&dir, &[]).unwrap();
+        let refs: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+        assert!(crate::breaks::are_take_segments(&refs));
+        assert!(!crate::breaks::are_take_segments(&refs[1..]));
+        assert_eq!(holding_wav(&dir), std::slice::from_ref(&dir));
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 1);
         fs::remove_dir_all(&base).unwrap();
     }
 

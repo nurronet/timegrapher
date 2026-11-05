@@ -67,16 +67,22 @@ pub(crate) fn kept<T>(
     mut read: impl FnMut(&Path) -> Result<T, AudioError>,
 ) -> Result<T, AudioError> {
     match read(path) {
-        Err(e) if not_found(&e) && crate::flac::is_wav(path) => {
-            let flac = crate::flac::flac_path(path);
-            if flac.is_file() {
-                read(&flac)
-            } else {
-                Err(e)
-            }
-        }
+        Err(e) if not_found(&e) => match kept_path(path) {
+            Some(flac) => read(&flac),
+            None => Err(e),
+        },
         r => r,
     }
+}
+
+/// The FLAC that `path` was kept as, when `path` names a WAV that is no
+/// longer there and that FLAC is ([`kept`]'s rule, for a reader of its
+/// own such as the app's Scope).
+pub fn kept_path(path: &Path) -> Option<std::path::PathBuf> {
+    if !crate::flac::is_wav(path) || path.exists() {
+        return None;
+    }
+    Some(crate::flac::flac_path(path)).filter(|f| f.is_file())
 }
 
 fn to_mono(interleaved: Vec<f32>, channels: usize) -> Vec<f32> {

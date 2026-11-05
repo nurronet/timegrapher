@@ -1489,6 +1489,35 @@ fn saved_wav_hours_are_kept_as_flac_at_start_up() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// The take on show is never converted from under its analysis: its
+/// hours stay WAVs, for the next start (Peter's 65 h take, #503).
+#[test]
+fn the_take_on_show_keeps_its_wavs_for_another_time() {
+    let (base, root, take, _) = wav_library("open");
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.opened_path = take.display().to_string();
+    app.session.set_state(session::State::Analysed);
+    app.keep_saved_wavs();
+    wav_keep_ends(&mut app);
+    assert!(take.join("audio-001.wav").is_file());
+    assert!(!take.join("audio-001.flac").exists());
+    assert!(app.message.is_none(), "{:?}", app.message);
+    // A session folder on show holds the take: it is left too (Trevor).
+    app.opened_path = take.parent().unwrap().display().to_string();
+    app.keep_saved_wavs();
+    wav_keep_ends(&mut app);
+    assert!(take.join("audio-001.wav").is_file());
+    assert!(!take.join("audio-001.flac").exists());
+    // Closed, the next start keeps it.
+    app.session.set_state(session::State::Idle);
+    app.keep_saved_wavs();
+    wav_keep_ends(&mut app);
+    assert!(take.join("audio-001.flac").is_file());
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// With another copy of the app holding the library (read-only here),
 /// nothing is converted: that copy does it, and two never convert the
 /// same hour at once.

@@ -2536,3 +2536,37 @@ fn break_text(gap: f64, dropped: bool) -> String {
         )
     }
 }
+
+/// Where the order the files are joined in disagrees with when they were
+/// written: a file whose modification time is earlier than the one before
+/// it by more than that file's own length. Said so the order can be
+/// checked, not changed.
+pub(super) fn order_warning(files: &[PathBuf]) -> Option<String> {
+    let segments: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+    if timegrapher_core::breaks::are_take_segments(&segments) {
+        return None;
+    }
+    let when = |f: &PathBuf| std::fs::metadata(f).and_then(|m| m.modified()).ok();
+    let length = |f: &PathBuf| {
+        timegrapher_core::audio::info(f)
+            .ok()
+            .and_then(|i| i.frames.map(|n| n as f64 / i.sample_rate.max(1) as f64))
+    };
+    for pair in files.windows(2) {
+        let (Some(a), Some(b)) = (when(&pair[0]), when(&pair[1])) else {
+            continue;
+        };
+        let Ok(back) = a.duration_since(b) else {
+            continue;
+        };
+        if back.as_secs_f64() > length(&pair[0]).unwrap_or(0.0) {
+            return Some(format!(
+                "{} was written before {}, which comes ahead of it: check the order the files \
+                 are joined in.",
+                file_name(&pair[1]),
+                file_name(&pair[0])
+            ));
+        }
+    }
+    None
+}
