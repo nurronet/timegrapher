@@ -333,15 +333,81 @@ impl TimegrapherApp {
         }
         // Never a folder dialog at a Stop: only where Save… needs none.
         // A Quick Listen take kept already takes the sound since too.
+        if self.kept_take() {
+            self.save_again();
+        }
+    }
+
+    /// Whether the take on the microphone is kept, so Stop saves it with
+    /// no question and, while listening, its sound is added to its folder
+    /// as it comes ([`TimegrapherApp::stream_tick`]): a Quick Listen take
+    /// once saved, or a watch's own take.
+    pub(super) fn kept_take(&self) -> bool {
         let into_watch = if self.quick_listen {
             self.session.saved_to().is_some()
         } else {
             self.open_watch().is_some()
         };
         let quiet = self.session.saved_to().is_some() || self.watch_takes_dir().is_some();
-        if into_watch && quiet && self.session.allows(Action::Save) {
-            self.save_again();
+        into_watch && quiet && self.session.allows(Action::Save)
+    }
+
+    /// Whether the take being heard records into its folder as it goes: a
+    /// kept take ([`TimegrapherApp::kept_take`]) while the microphone is
+    /// listening, but not a Positions Test's or a Power Reserve Test's,
+    /// which are saved as they end.
+    pub(super) fn streams(&self) -> bool {
+        self.session.mic()
+            && self.session.state() == session::State::Listening
+            && self.session.recording_fault().is_none()
+            && !self.positions_take
+            && self.reserve.is_none()
+            && self.kept_take()
+    }
+
+    /// A save the user asked for being written: one of a take recording
+    /// into its folder as it goes doesn't count, as it is waited for.
+    pub(super) fn saving_asked(&self) -> bool {
+        self.saving
+            .as_ref()
+            .is_some_and(|s| s.streamed == Streamed::No)
+    }
+
+    /// Where a take recording into its folder is kept, as the Save icon
+    /// says it: Unsorted Takes, the watch's name, or the folder's.
+    pub(super) fn kept_place(&self) -> String {
+        if let Some(e) = self.open_watch() {
+            return e.watch.name.clone();
         }
+        let parent = self.session.saved_to().and_then(Path::parent);
+        let unsorted = match &self.library {
+            Ok(Some(l)) => l.unsorted_dir().ok(),
+            _ => None,
+        };
+        match parent {
+            Some(p) if unsorted.as_deref() == Some(p) => "Unsorted Takes".to_string(),
+            Some(p) => p.file_name().map_or_else(
+                || p.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            ),
+            None => String::new(),
+        }
+    }
+
+    /// While a kept take is heard, add its sound since the last save to
+    /// its folder every [`STREAM_EVERY_S`] of sound, quietly, so a crash
+    /// or a power cut costs only seconds. A save that fails says so, and
+    /// the next is tried a minute later.
+    pub(super) fn stream_tick(&mut self) {
+        if self.saving.is_some()
+            || self.stream_wait.is_some_and(|t| t.elapsed() < STREAM_RETRY)
+            || !self.streams()
+            || self.session.unsaved_s() < STREAM_EVERY_S
+        {
+            return;
+        }
+        self.stream_wait = None;
+        self.save_again_as(Streamed::Yes);
     }
 
     /// Carry on listening after a pause, in the same session.
@@ -698,20 +764,27 @@ impl TimegrapherApp {
     /// question. The first time, Save… saves into the watch picked in the
     /// Watches view, else asks where.
     pub(super) fn save_again(&mut self) {
+        self.save_again_as(Streamed::No);
+    }
+
+    /// [`TimegrapherApp::save_again`], or a save of a take recording into
+    /// its folder as it goes, which says nothing when it is done.
+    fn save_again_as(&mut self, streamed: Streamed) {
         if self.refuse_faulted_recording() || self.saving_busy() {
             return;
         }
         match self.session.saved_to().and_then(|p| p.parent()) {
             Some(parent) => {
                 let parent = parent.to_path_buf();
-                self.save_into(&parent);
-                // Into a take in a watch, its row then reads what was saved.
+                self.save_into_as(&parent, streamed);
+                // Into a take in a watch, its row then reads what was saved
+                // (a take recording into its folder: at the end).
                 if let Some(s) = &mut self.saving {
-                    s.rescan = true;
+                    s.rescan = streamed == Streamed::No;
                 }
             }
             None => match self.watch_takes_dir() {
-                Some(takes) => self.save_into_watch(&takes),
+                Some(takes) => self.save_into_watch(&takes, streamed),
                 None => self.save_recording(),
             },
         }
@@ -720,7 +793,7 @@ impl TimegrapherApp {
     /// Save the session as a new take in a watch's `takes`, named by when
     /// it started (in this computer's time) and its one position, if it
     /// used only one.
-    fn save_into_watch(&mut self, takes: &Path) {
+    fn save_into_watch(&mut self, takes: &Path, streamed: Streamed) {
         let positions: Vec<timegrapher_core::session::Position> = self
             .take_manifest()
             .recordings
@@ -740,7 +813,7 @@ impl TimegrapherApp {
         if let Some(name) = dir.file_name() {
             r.name_first_copy(name.to_owned());
         }
-        self.save_into(takes);
+        self.save_into_as(takes, streamed);
         if let Some(s) = &mut self.saving {
             s.rescan = true;
         }
@@ -767,6 +840,10 @@ impl TimegrapherApp {
     /// is written on a thread of its own ([`Saving`]): listening carries
     /// on, and the window with it.
     pub(super) fn save_into(&mut self, parent: &Path) {
+        self.save_into_as(parent, Streamed::No);
+    }
+
+    fn save_into_as(&mut self, parent: &Path, streamed: Streamed) {
         if self.refuse_faulted_recording() || self.saving_busy() {
             return;
         }
@@ -797,7 +874,11 @@ impl TimegrapherApp {
         files.extend(kept.iter().map(|(n, b)| (*n, b.as_slice())));
         // With no new full-wind result (including a 24-hour half), preserve
         // the earlier result file for comparison, as Save Again always has.
-        let pending = match r.begin_save(parent, &self.calibre, result.as_ref(), &files) {
+        let begun = match streamed {
+            Streamed::No => r.begin_save(parent, &self.calibre, result.as_ref(), &files),
+            Streamed::Yes => r.begin_stream_save(parent, &self.calibre, result.as_ref(), &files),
+        };
+        let pending = match begun {
             Ok(p) => p,
             Err(e) => return self.error(format!("Saving the recording failed: {e}")),
         };
@@ -817,6 +898,7 @@ impl TimegrapherApp {
                     secs,
                     metadata,
                     rescan: false,
+                    streamed,
                 })
             }
             Err(e) => self.error(format!("Saving the recording failed: {e}")),
@@ -843,6 +925,15 @@ impl TimegrapherApp {
     /// While a save is being written, say so and refuse what would start
     /// another or throw the sound it is copying away.
     pub(super) fn saving_busy(&mut self) -> bool {
+        // A take recording into its folder: its few seconds are written
+        // first, then what was asked for goes ahead.
+        if self
+            .saving
+            .as_ref()
+            .is_some_and(|s| s.streamed == Streamed::Yes)
+        {
+            self.wait_for_save();
+        }
         if self.saving.is_none() {
             return false;
         }
@@ -871,11 +962,13 @@ impl TimegrapherApp {
                 if let Some(r) = self.session.recorder.as_mut() {
                     r.note_saved(&copy);
                 }
-                self.info_msg(format!(
-                    "Saved {} of sound in {}",
-                    length_text(s.secs),
-                    copy.dir.display()
-                ));
+                if s.streamed == Streamed::No {
+                    self.info_msg(format!(
+                        "Saved {} of sound in {}",
+                        length_text(s.secs),
+                        copy.dir.display()
+                    ));
+                }
                 self.save_dir = s.parent.display().to_string();
                 self.session.mark_saved(s.secs, copy.dir, s.metadata);
                 if s.rescan {
@@ -884,9 +977,25 @@ impl TimegrapherApp {
                     }
                 }
             }
-            Ok(Err(e)) => self.error(format!("Saving the recording failed: {e}")),
-            Err(_) => self.error("Saving the recording failed: it stopped part way".into()),
+            Ok(Err(e)) => self.save_failed(s.streamed, &s.dest, e.to_string()),
+            Err(_) => self.save_failed(s.streamed, &s.dest, "it stopped part way".into()),
         }
+    }
+
+    /// A save that failed says so. A take recording into its folder tries
+    /// again a minute later, its sound kept here meanwhile; a quit waiting
+    /// on the save stays open.
+    fn save_failed(&mut self, streamed: Streamed, dest: &Path, e: String) {
+        self.close_after_save = false;
+        if streamed == Streamed::Yes {
+            self.stream_wait = Some(Instant::now());
+            return self.error(format!(
+                "Couldn't add the sound to {}: {e}. It is kept here, and tried again in a \
+                 minute.",
+                dest.display()
+            ));
+        }
+        self.error(format!("Saving the recording failed: {e}"))
     }
 
     /// While the session is being kept as its analysis alone, say so and
@@ -2034,6 +2143,7 @@ impl TimegrapherApp {
 
         self.poll_analysis_save();
         self.poll_saving();
+        self.stream_tick();
         self.poll_batch();
 
         self.hold_anchor();

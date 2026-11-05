@@ -937,6 +937,10 @@ const SAVE_HINT: &str = "Save the sound of this session so far, with its clock l
      that can't ask (on macOS, Cmd+Q, the app menu or the Dock) keeps it when there is \
      more than 5 s of it, to offer back at the next start.";
 
+/// A take recording into its folder, as the Save icon's hover says it.
+const RECORDING_IN_HINT: &str = "while listening, its sound is added to its take every few \
+     seconds, and Stop or quitting adds the last of it";
+
 const SAVING_HINT: &str = "Saving now: wait until the sound so far is copied into its take";
 
 const SAVE_AS_HINT: &str = "Save the session so far as a new take, in a folder you choose; \
@@ -1804,7 +1808,26 @@ struct Saving {
     metadata: session::MetadataSnapshot,
     /// Read the library again once it is written: a new take in a watch.
     rescan: bool,
+    /// A take recording into its folder as it goes, which says nothing
+    /// when it is done.
+    streamed: Streamed,
 }
+
+/// Whether a save is one of a take recording into its folder as it goes
+/// ([`TimegrapherApp::stream_tick`]).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Streamed {
+    No,
+    Yes,
+}
+
+/// A kept take's sound is added to its folder each time this much more
+/// has been heard: a crash or a power cut costs no more.
+const STREAM_EVERY_S: f64 = 5.0;
+
+/// After a failed save of a take recording into its folder, the next is
+/// tried this much later.
+const STREAM_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl Drop for AnalysisSave {
     fn drop(&mut self) {
@@ -2274,6 +2297,12 @@ pub struct TimegrapherApp {
     analysis_save: Option<AnalysisSave>,
     /// Saving the session's sound, while the copy is written.
     saving: Option<Saving>,
+    /// When a save of a take recording into its folder last failed, until
+    /// the next is tried.
+    stream_wait: Option<Instant>,
+    /// Quitting once the save that ends a take recording into its folder
+    /// is written.
+    close_after_save: bool,
     /// Kept as its analysis alone: the 2 s profiles in its sound's place.
     no_sound: Option<Vec<analysis_take::StretchProfiles>>,
     /// Where this session's analysis was last kept without its sound, and
@@ -2712,6 +2741,8 @@ impl TimegrapherApp {
             sound_at: None,
             analysis_save: None,
             saving: None,
+            stream_wait: None,
+            close_after_save: false,
             no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
@@ -4175,6 +4206,22 @@ impl eframe::App for TimegrapherApp {
                     .into(),
             );
         }
+        // Closing the window on a take recording into its folder: Stop,
+        // which saves the last seconds, then close once that is written.
+        // Nothing is unsaved, so nothing is asked.
+        if ctx.input(|i| i.viewport().close_requested())
+            && self.library_moving.is_none()
+            && self.streams()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.stop_listening();
+            self.close_after_save = true;
+        }
+        if self.close_after_save && self.saving.is_none() {
+            self.close_after_save = false;
+            self.may_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         // Closing the window while a save is written waits for it: the
         // take would be left half copied.
         if ctx.input(|i| i.viewport().close_requested())
@@ -4248,10 +4295,16 @@ impl eframe::App for TimegrapherApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // A take recording into its folder takes its last seconds too.
+        let streamed = self.streams();
         self.stop();
         // A save being written finishes first: quitting part way would
         // leave half a take, and the sound it copies is let go below.
         self.wait_for_save();
+        if streamed && self.kept_take() {
+            self.save_again();
+            self.wait_for_save();
+        }
         // Sound the user hasn't been asked about is kept for the next start
         // to offer back: on macOS, Cmd+Q and Quit in the app menu or the
         // Dock quit without the window's close being asked first, and

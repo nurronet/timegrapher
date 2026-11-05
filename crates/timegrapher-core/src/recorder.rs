@@ -157,6 +157,10 @@ pub struct Recorder {
     /// The folder name the first copy was saved under, so Save Again lands
     /// in the same place.
     saved_name: Option<std::ffi::OsString>,
+    /// The hour still being written as the last save left it in the copy,
+    /// and its length there: the next save into the same copy adds only
+    /// what came since ([`Recorder::begin_stream_save`]).
+    grown: Option<(PathBuf, u64)>,
     /// Held locked while recording ([`in_use`]), beside the folder rather
     /// than in it, so a save never copies it.
     lock: Option<File>,
@@ -248,6 +252,7 @@ impl Recorder {
             breaks: Vec::new(),
             notes: Vec::new(),
             saved_name: None,
+            grown: None,
             lock,
         };
         r.write_session(None, None)?;
@@ -680,6 +685,33 @@ impl Recorder {
         result: Option<&serde_json::Value>,
         required_files: &[(&str, &[u8])],
     ) -> io::Result<PendingSave> {
+        self.begin_save_ending(parent, calibre, result, required_files, true)
+    }
+
+    /// [`Recorder::begin_save`] for a take whose copy is kept up to date
+    /// every few seconds while it records: the clock log takes no line of
+    /// its own for the save, so it keeps the cadence it has unsaved (a
+    /// save's own line would add one every few seconds), and the copy's
+    /// log ends at its last line on that cadence. Into the copy saved
+    /// before, the hour still being written gets only the sound since.
+    pub fn begin_stream_save(
+        &mut self,
+        parent: &Path,
+        calibre: &str,
+        result: Option<&serde_json::Value>,
+        required_files: &[(&str, &[u8])],
+    ) -> io::Result<PendingSave> {
+        self.begin_save_ending(parent, calibre, result, required_files, false)
+    }
+
+    fn begin_save_ending(
+        &mut self,
+        parent: &Path,
+        calibre: &str,
+        result: Option<&serde_json::Value>,
+        required_files: &[(&str, &[u8])],
+        log_end: bool,
+    ) -> io::Result<PendingSave> {
         let mut names = std::collections::BTreeSet::new();
         for &(name, _) in required_files {
             let mut parts = Path::new(name).components();
@@ -700,7 +732,9 @@ impl Recorder {
             }
         }
         // The copy's clock log ends where its sound does.
-        self.log_last_block()?;
+        if log_end {
+            self.log_last_block()?;
+        }
         let name = self
             .saved_name
             .clone()
@@ -731,7 +765,13 @@ impl Recorder {
         // Enumerate the hours explicitly: a missing one must not disappear
         // from read_dir and turn an incomplete take into a success.
         for n in &self.segments {
-            files.push(self.pending_segment(n)?);
+            let mut f = self.pending_segment(n)?;
+            // Only a streamed save grows the copy in place: Save and Save
+            // Again stage every file, as before.
+            if !log_end {
+                f.grow_from = self.grown_from(&dest.join(f.name()), &f);
+            }
+            files.push(f);
         }
         // The other files, but any sound file the hours left (a WAV beside
         // its FLAC, a FLAC being written).
@@ -758,6 +798,8 @@ impl Recorder {
                 head,
                 held: None,
                 as_flac: false,
+                open_sound: false,
+                grow_from: None,
             });
         }
         let mut written = vec![(take::RECORD.to_string(), session.into_bytes())];
@@ -799,6 +841,8 @@ impl Recorder {
                 head,
                 held: None,
                 as_flac: false,
+                open_sound: true,
+                grow_from: None,
             });
         }
         let mut source = self.dir.join(name);
@@ -813,13 +857,25 @@ impl Recorder {
             len,
             head: Vec::new(),
             held: Some(held),
+            open_sound: false,
+            grow_from: None,
         })
+    }
+
+    /// Where the copy at `to` of the hour still being written, `f`, already
+    /// holds what the last save left there: its length then, when the
+    /// hour has only grown since and that length is past the start a save
+    /// writes again.
+    fn grown_from(&self, to: &Path, f: &PendingFile) -> Option<u64> {
+        let (path, len) = self.grown.as_ref()?;
+        (f.open_sound && path == to && *len >= f.head.len() as u64 && *len <= f.len).then_some(*len)
     }
 
     /// Note a copy [`PendingSave::write`] wrote, so Save Again saves into
     /// it.
     pub fn note_saved(&mut self, copy: &SavedCopy) {
         self.saved_name = Some(copy.name.clone());
+        self.grown = copy.grown.clone();
     }
 
     /// Close the files, saving `result` (the readings at the end) with the
@@ -899,6 +955,11 @@ struct PendingFile {
     held: Option<File>,
     /// A closed WAV, which the copy holds as FLAC.
     as_flac: bool,
+    /// The hour still being written.
+    open_sound: bool,
+    /// Its copy's length after the last save into the same copy, when
+    /// only the sound since needs adding ([`Recorder::grown_from`]).
+    grow_from: Option<u64>,
 }
 
 impl PendingFile {
@@ -969,6 +1030,8 @@ pub struct SavedCopy {
     /// The copy's folder, as the caller spelled its parent.
     pub dir: PathBuf,
     name: std::ffi::OsString,
+    /// The hour still being written as copied, and its length there.
+    grown: Option<(PathBuf, u64)>,
 }
 
 impl PendingSave {
@@ -990,9 +1053,18 @@ impl PendingSave {
         mut before: impl FnMut(SaveStep, &Path) -> io::Result<()>,
     ) -> io::Result<SavedCopy> {
         let mut update = SaveUpdate::new(&self.parent, &self.dest)?;
+        let mut grown = None;
         for f in &self.files {
             let file = f.name();
             let to = self.dest.join(&file);
+            if f.open_sound {
+                grown = Some((to.clone(), f.len));
+            }
+            if f.grow_from
+                .is_some_and(|from| grow_in_place(f, from, &to).unwrap_or(false))
+            {
+                continue;
+            }
             let there = match fs::symlink_metadata(&to) {
                 Ok(m) if !m.is_file() => {
                     return Err(io::Error::new(
@@ -1028,8 +1100,42 @@ impl PendingSave {
         Ok(SavedCopy {
             dir: self.dest,
             name: self.name,
+            grown,
         })
     }
+}
+
+/// Add to `to`, the copy of the hour still being written as the last save
+/// left it (`from` bytes long), the sound since: the bytes from there up
+/// to the hour's length at the start of the save, then its first bytes as
+/// they were then, which hold its header with the new length. False, with
+/// `to` untouched, where the copy is no longer as that save left it: the
+/// whole hour is then copied as on a first save.
+///
+/// Written in place, not staged: the sound already in the copy stays put
+/// and a few seconds' more is added, where staging would copy the whole
+/// hour again every few seconds. Stopped part way, the copy's header still
+/// gives the length before, so it reads as it did.
+fn grow_in_place(f: &PendingFile, from: u64, to: &Path) -> io::Result<bool> {
+    let mut out = fs::OpenOptions::new().write(true).open(to)?;
+    if out.metadata()?.len() != from {
+        return Ok(false);
+    }
+    let mut source = File::open(&f.source)?;
+    source.seek(io::SeekFrom::Start(from))?;
+    out.seek(io::SeekFrom::Start(from))?;
+    let rest = f.len - from;
+    let copied = io::copy(&mut source.take(rest), &mut out)?;
+    if copied != rest {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!("{} got shorter during the save", f.source.display()),
+        ));
+    }
+    out.seek(io::SeekFrom::Start(0))?;
+    out.write_all(&f.head)?;
+    out.sync_data()?;
+    Ok(true)
 }
 
 /// Copy `f` as it was at the start of the save: its first bytes as they
@@ -1523,6 +1629,93 @@ mod tests {
                 (e.file_name(), fs::read(e.path()).unwrap())
             })
             .collect()
+    }
+
+    /// A take kept up to date while it records: each save into the copy
+    /// adds the sound since to the hour still being written, in place,
+    /// and the copy reads as the recording did at each save. The clock log
+    /// takes no line for the saves, so it reads as it would unsaved.
+    #[test]
+    fn a_streamed_save_adds_the_sound_since_in_place() {
+        let (mut r, base) = save_fixture("streamed");
+        let parent = base.join("saved");
+        let mut lines = Vec::new();
+        // The copy's file, by its identity on disk: the same file grown,
+        // not a new one put in its place.
+        let mut file_id = None;
+        for second in 2..=20 {
+            append_second(&mut r, second);
+            let copy = r
+                .begin_stream_save(&parent, "", None, &[])
+                .unwrap()
+                .write()
+                .unwrap();
+            r.note_saved(&copy);
+            let wav = copy.dir.join("audio-001.wav");
+            let (path, len) = r.grown.clone().expect("the open hour noted");
+            assert_eq!(
+                (path, len),
+                (wav.clone(), fs::metadata(&wav).unwrap().len())
+            );
+            let saved = crate::audio::load(&wav).unwrap();
+            assert_eq!(saved.samples.len() as u64, second * 8000, "at {second} s");
+            // The same bytes as the recording's own hour at the save.
+            r.flush().unwrap();
+            let live = fs::read(r.dir().join("audio-001.wav")).unwrap();
+            assert_eq!(fs::read(&wav).unwrap(), live, "at {second} s");
+            let id = file_identity(&wav);
+            assert_eq!(
+                *file_id.get_or_insert(id),
+                id,
+                "grown in place at {second} s"
+            );
+            lines.push(fs::read_to_string(copy.dir.join("clock.csv")).unwrap());
+        }
+        // The copy's log is the recording's own, lines on its cadence only:
+        // a line a second over the first 3 s, then every 10 s.
+        let clock = lines.last().unwrap();
+        let pairs = crate::clock::parse_log(clock, 8000, 2).unwrap();
+        assert_eq!(pairs.len(), 4, "{clock}");
+        // A copy changed behind the save's back is copied whole again.
+        let wav = base
+            .join("saved")
+            .join(r.saved_name.clone().unwrap())
+            .join("audio-001.wav");
+        let mut f = fs::OpenOptions::new().append(true).open(&wav).unwrap();
+        f.write_all(&[0; 7]).unwrap();
+        drop(f);
+        append_second(&mut r, 21);
+        let copy = r
+            .begin_stream_save(&parent, "", None, &[])
+            .unwrap()
+            .write()
+            .unwrap();
+        r.note_saved(&copy);
+        r.flush().unwrap();
+        assert_eq!(
+            fs::read(&wav).unwrap(),
+            fs::read(r.dir().join("audio-001.wav")).unwrap()
+        );
+        if let Some(id) = file_identity(&wav) {
+            assert_ne!(Some(id), file_id.flatten(), "copied whole");
+        }
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Which file `p` is on disk (a new file put in its place is
+    /// another), where the system says: Windows may give a file put in
+    /// another's place the other's creation time.
+    fn file_identity(p: &Path) -> Option<u64> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Some(fs::metadata(p).unwrap().ino())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = p;
+            None
+        }
     }
 
     /// A save copies the recording as it stood when it began, though the

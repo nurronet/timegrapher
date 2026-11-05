@@ -533,7 +533,10 @@ impl TimegrapherApp {
 
     pub(super) fn save_menu(&mut self, ui: &mut egui::Ui, size: f32) {
         let pal = theme::pal(ui);
-        let can = self.session.allows(Action::Save) && self.saving.is_none();
+        let can = self.session.allows(Action::Save) && !self.saving_asked();
+        // A take recording into its folder: the icon says where, and there
+        // is no Save Again.
+        let recording_in = self.streams().then(|| self.kept_place());
         // The watch with the newest take first.
         let watches: Vec<(String, String)> = match &self.library {
             Ok(Some(l)) if l.read_only.is_none() => self.recent_watches(),
@@ -547,7 +550,15 @@ impl TimegrapherApp {
         let mut picked = None;
         let (mut new, mut folder, mut unsorted, mut marks) = (false, false, false, false);
         ui.add_enabled_ui(can || changes || self.addable_take().is_some(), |ui| {
-            let button = theme::icon_button(ui, Icon::Save, size, 8, pal.accent, false, false);
+            let button = theme::icon_button(
+                ui,
+                Icon::Save,
+                size,
+                8,
+                pal.accent,
+                false,
+                recording_in.is_some(),
+            );
             let saved = self.session.saved_to().is_some();
             egui::Popup::menu(&button)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
@@ -583,7 +594,14 @@ impl TimegrapherApp {
                         let keeps = !listening || self.quick_listen;
                         save_menu_watches(ui, &watches, keeps, can, &mut picked, &mut new);
                     }
+                    if let Some(place) = &recording_in {
+                        ui.label(
+                            RichText::new(format!("Saving to {place}")).color(pal.text_secondary),
+                        )
+                        .on_hover_text(RECORDING_IN_HINT);
+                    }
                     if can
+                        && recording_in.is_none()
                         && ui
                             .button(if saved {
                                 "Save Again"
@@ -596,12 +614,16 @@ impl TimegrapherApp {
                         folder = true;
                     }
                 });
-            button
-                .on_hover_text(
+            match &recording_in {
+                Some(place) => {
+                    button.on_hover_text(format!("Saving to {place}: {RECORDING_IN_HINT}"))
+                }
+                None => button.on_hover_text(
                     "Save: keep this in one of your watches, as a take of it, or as a take \
                      in a folder you choose",
-                )
-                .on_disabled_hover_text("Nothing to save yet, or a save is under way");
+                ),
+            }
+            .on_disabled_hover_text("Nothing to save yet, or a save is under way");
         });
         if marks {
             self.save_marks();

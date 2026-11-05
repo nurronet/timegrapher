@@ -215,3 +215,88 @@ fn a_second_tap_on_stop_starts_nothing() {
     app.capture = None;
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A Quick Listen kept in Unsorted Takes records into it as it goes (Peter,
+/// 5 Nov): each [`STREAM_EVERY_S`] more of sound is added to the take with
+/// no Save Again, the Save menu says where it is saving and has no Save
+/// Again, the status bar says it is saved, and Stop adds the last of it
+/// with no question.
+#[test]
+fn a_kept_quick_listen_records_into_its_take() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    let mut heard = 0;
+    let mut hear = |r: &mut Recorder, s: u64| {
+        r.write(&timegrapher_core::capture::Block {
+            samples: vec![0.0; 48000 * s as usize],
+            at: start + std::time::Duration::from_secs(heard),
+        })
+        .unwrap();
+        heard += s;
+    };
+    hear(&mut r, 3);
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    // Not kept yet: nothing is saved as it goes.
+    assert!(!app.streams());
+    app.stream_tick();
+    assert!(app.saving.is_none());
+    // Kept in Unsorted Takes, as the Save menu's Unsorted Takes does.
+    assert!(app.saves_into_unsorted());
+    app.save_again();
+    app.wait_for_save();
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let wav = take.join("audio-001.wav");
+    let samples = |p: &std::path::Path| timegrapher_core::audio::load(p).unwrap().samples.len();
+    assert_eq!(samples(&wav), 3 * 48000);
+    assert!(
+        app.streams(),
+        "a kept Quick Listen heard records into its take"
+    );
+    assert_eq!(app.kept_place(), "Unsorted Takes");
+    // Under STREAM_EVERY_S more: not yet.
+    hear(app.session.recorder.as_mut().unwrap(), 4);
+    app.stream_tick();
+    assert!(app.saving.is_none());
+    // Past it: the sound since is added, saying nothing.
+    hear(app.session.recorder.as_mut().unwrap(), 2);
+    app.message = None;
+    app.stream_tick();
+    assert!(app.saving.is_some(), "a save of the sound since");
+    app.wait_for_save();
+    assert!(app.message.is_none(), "{:?}", app.message);
+    assert_eq!(samples(&wav), 9 * 48000);
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(app.unsaved_s() < 1.0);
+    // Nothing to save again: File > Save is dimmed, saying where it saves.
+    assert!(!app.menu_enabled(menus::MenuCommand::Save));
+    // The status bar: saved, its hover saying where to.
+    {
+        let pal = theme::LIGHT;
+        let r = app.session.recorder.as_ref().unwrap();
+        let (text, _, hover) = app.recording_state(r, &pal);
+        assert_eq!(text, "Saved");
+        assert!(hover.starts_with("Saving to Unsorted Takes:"), "{hover}");
+    }
+    // Stop adds the last of it, with no question.
+    hear(app.session.recorder.as_mut().unwrap(), 2);
+    app.stop_listening();
+    assert!(app.confirm.is_none());
+    app.wait_for_save();
+    assert!(!app.streams());
+    assert!(!app.needs_save_confirmation());
+    let flac = take.join("audio-001.flac");
+    let kept = if flac.exists() { flac } else { wav };
+    assert_eq!(samples(&kept), 11 * 48000);
+    let _ = std::fs::remove_dir_all(&base);
+}
