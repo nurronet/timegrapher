@@ -220,13 +220,15 @@ fn analyse_read(
         .first()
         .map_or(2.0, |w| w.end_s - w.start_s);
     let astep = step.max(amp_w);
-    let (at, av): (Vec<f64>, Vec<f64>) = log
-        .amplitude_windows
+    // The windows a reading may use, each at its middle on true time: one
+    // that reaches into a break's gap is left out, as Steadiness and every
+    // reading leave it (#636).
+    let windows = holes.amplitude_windows(&log.amplitude_windows);
+    let (at, av): (Vec<f64>, Vec<f64>) = windows
         .iter()
         .filter_map(|w| Some((map((w.start_s + w.end_s) / 2.0), w.mean()?)))
         .unzip();
-    let (ut, uv): (Vec<f64>, Vec<f64>) = log
-        .amplitude_windows
+    let (ut, uv): (Vec<f64>, Vec<f64>) = windows
         .iter()
         .filter_map(|w| Some((map((w.start_s + w.end_s) / 2.0), w.beat_error_unlock_ms?)))
         .unzip();
@@ -400,11 +402,11 @@ mod tests {
                 _ => None,
             })
         };
-        let (reading, long) = caveats(120.0);
+        let (reading, long) = caveats(-120.0);
         for c in [&reading, &long] {
             let (usb, log_ppm, sd) = disagree(c).unwrap_or_else(|| panic!("{c:?}"));
-            assert_eq!(usb, 120.0);
-            assert!((log_ppm - 20.0).abs() < 0.01, "{log_ppm}");
+            assert_eq!(usb, -120.0);
+            assert!((log_ppm + 20.0).abs() < 0.01, "{log_ppm}");
             assert!(sd < 0.01, "{sd}");
         }
         let json = serde_json::to_value(&reading).unwrap();
@@ -412,10 +414,10 @@ mod tests {
             json.as_array()
                 .unwrap()
                 .iter()
-                .any(|c| c["code"] == "clock_sources_disagree" && c["usb_ppm"] == 120.0),
+                .any(|c| c["code"] == "clock_sources_disagree" && c["usb_ppm"] == -120.0),
             "{json}"
         );
-        let (reading, long) = caveats(23.0);
+        let (reading, long) = caveats(-23.0);
         assert_eq!(disagree(&reading), None, "{reading:?}");
         assert_eq!(disagree(&long), None, "{long:?}");
     }
@@ -591,6 +593,70 @@ mod tests {
         let single = timing::fit_pieces(&beats, 18000, &[100.0 - 1e-6]).unwrap();
         assert!((ours.rate_s_per_day - single.rate_s_per_day).abs() < 1e-9);
         assert!((ours.rate_s_per_day + 0.864).abs() < 0.01, "{ours:?}");
+    }
+
+    /// A window that reaches across a break is culled from the long run's
+    /// amplitude, never kept, as Steadiness and every reading leave it
+    /// out (#636): the window over a 30 s pause at 201 s, read 999°, moves
+    /// no cell of the grid.
+    #[test]
+    fn a_window_across_a_break_is_left_out_of_the_amplitude() {
+        let beats: Vec<Beat> = (0..2000)
+            .map(|i| Beat {
+                time: i as f64 * 0.2 + 0.05,
+                index: i,
+                quality: 1.0,
+            })
+            .collect();
+        let amplitude_windows = (0..200)
+            .map(|k| {
+                let start_s = k as f64 * 2.0;
+                let deg = if start_s == 200.0 { 999.0 } else { 250.0 };
+                crate::amplitude::AmplitudeWindow {
+                    start_s,
+                    end_s: start_s + 2.0,
+                    even_deg: Some(deg),
+                    odd_deg: Some(deg),
+                    beat_error_ms: None,
+                    beat_error_unlock_ms: Some(0.3),
+                    even_unlock_ms: None,
+                    odd_unlock_ms: None,
+                    even_drop_ms: None,
+                    odd_drop_ms: None,
+                }
+            })
+            .collect();
+        let log = BeatLog {
+            sample_rate: 48000,
+            duration_s: 400.0,
+            bph: 18000,
+            lift_deg: 52.0,
+            beats,
+            amplitude_windows,
+            clipped_beats: vec![],
+            clipped_samples: 0,
+            jumps: vec![],
+            sided: vec![],
+            by_count: vec![],
+            snippets: Vec::new(),
+        };
+        let breaks = [Break {
+            audio_s: 201.0,
+            gap_s: 30.0,
+        }];
+        let r = analyse_with_breaks(&log, None, &breaks, &LongConfig::default());
+        let read: Vec<f64> = r
+            .amplitude
+            .grid
+            .y
+            .iter()
+            .copied()
+            .filter(|v| v.is_finite())
+            .collect();
+        assert!(read.len() > 150, "{}", read.len());
+        assert!(read.iter().all(|&v| v == 250.0), "{read:?}");
+        let sliced: Vec<f64> = r.slices.iter().filter_map(|s| s.amplitude_deg).collect();
+        assert!(sliced.iter().all(|&v| v == 250.0), "{sliced:?}");
     }
 
     #[test]

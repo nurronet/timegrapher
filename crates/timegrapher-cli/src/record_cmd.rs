@@ -45,10 +45,8 @@ use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
 use timegrapher_core::power_reserve;
 use timegrapher_core::recorder::{self, Recorder, SessionInfo};
 use timegrapher_core::session::{self, Manifest, Position};
-use timegrapher_core::stream::{self, StreamConfig};
 use timegrapher_core::take::{self, MANIFEST};
 use timegrapher_core::timing::Anchor;
-use timegrapher_core::{analyze, AnalysisConfig};
 
 #[derive(Clone)]
 pub struct Options {
@@ -536,29 +534,36 @@ fn reserve_results(
     ending: power_reserve::Ending,
 ) -> Result<power_reserve::Results, String> {
     use power_reserve::Results;
-    let files = timegrapher_core::recording_order::recordings_in(dir, &[])
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut cfg = StreamConfig::default();
-    cfg.analysis.bph = bph;
-    let paths: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-    let mut log = stream::analyze_files(&paths, &cfg, |_| {})
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let info = audio::info(paths[0]).map_err(|e| format!("{}: {e}", paths[0].display()))?;
-    // Its clock and breaks, as every command opens a take. A clock log
-    // that cannot be read leaves the results on the sound card's clock.
-    let log_path = dir.join(take::CLOCK_LOG);
-    let mut clock = crate::clock_cmd::resolve(
-        log_path.is_file().then_some(log_path.as_path()),
-        &info,
-        log.duration_s,
-        || crate::clock_cmd::usb(&files),
-        || crate::clock_cmd::correction(&files[0], None, None),
+    // Opened as every command opens a take (`take::open_entry` on its own
+    // session file): its beats, clock log and breaks. A take with no
+    // session file is read as its sound alone.
+    let manifest = dir.join(MANIFEST);
+    let listed = match manifest.is_file() {
+        true => Some(crate::session_cmd::load_manifest_file(&manifest)?.0),
+        false => None,
+    };
+    let (base, m, entry) = take::whole_entry(dir, listed.as_ref())?;
+    let given = take::Given {
+        bph,
+        lift_deg: None,
+    };
+    let settings = take::EntrySettings {
+        stream: take::stream_settings(&m, None, given),
+        card_clock: false,
+        settle_s: None,
+    };
+    let opened = take::open_entry(
+        &base,
+        &m,
+        &entry,
+        &settings,
+        take::usb,
+        |first| take::correction_for(&m, first, None, None),
+        |_, _| {},
     )
-    .ok()
-    .flatten()
-    .map(|a| a.fit);
-    let breaks = take::breaks(&mut log, take::Listed::Files(&paths), clock.as_mut()).breaks;
-    let beat_s = 3600.0 / f64::from(log.bph.max(1));
+    .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let (log, clock, breaks) = (opened.log, opened.clock, opened.breaks);
+    let beat_s = power_reserve::beat_s(Some(log.bph));
     let heard = power_reserve::heard(&log.beats, beat_s);
     let mut r = Results::of(&heard, ending, started, pos.common(), true, |s| {
         clock.as_ref().map_or(s, |c| c.map(s))
@@ -805,22 +810,8 @@ fn live(
 }
 
 fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
-    // The first hour, as kept: its FLAC once converted.
-    let first = dir.join("audio-001.wav");
-    let wav = timegrapher_core::recording_order::recordings_in(&first, &[])?.remove(0);
-    // Whether a regular beat was found, and clipping, over the whole take,
-    // as `analyze` reports them, which a short take still gets.
-    let a = audio::load(&wav).map_err(|e| format!("{}: {e}", wav.display()))?;
-    let mut cfg = AnalysisConfig {
-        bph: set.bph,
-        ..Default::default()
-    };
-    cfg.amplitude.lift_deg = set.lift;
-    cfg.lift_known = set.lift_known;
-    let whole = analyze(&a, &cfg).summary;
-    // The readings as `session` will take them: the take saved, read as
-    // every surface reads a take, with its clock log, breaks and masks,
-    // after the same settling time.
+    // The take saved, opened as every surface opens a take, with its clock
+    // log, breaks and masks.
     let path = dir.join(MANIFEST);
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -833,9 +824,39 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         card_clock: false,
         settle_s: set.settle_s,
     };
-    let read = take::measure_entry(dir, &m, e, &settings, take::usb, |first| {
-        take::correction_for(&m, first, None, None)
-    });
+    let opened = take::open_entry(
+        dir,
+        &m,
+        e,
+        &settings,
+        take::usb,
+        |first| take::correction_for(&m, first, None, None),
+        |_, _| {},
+    )?;
+    // Whether a regular beat was found, and clipping, over the whole take,
+    // which a short take still gets.
+    let log = &opened.log;
+    let whole = session::measure_masked(
+        log,
+        opened.clock.as_ref(),
+        &opened.breaks,
+        &opened.masked,
+        0.0,
+        log.duration_s,
+    );
+    let clipping = Clipping::of(
+        log.clipped_samples,
+        log.clipped_beats.len(),
+        log.beats.len(),
+        // A take `record` just saved has its sound: never read as silence.
+        opened
+            .peak
+            .ok_or_else(|| format!("{}: no sound to read the peak level from", dir.display()))?,
+    );
+    let (whole_bph, whole_s) = (log.bph, log.duration_s);
+    // The readings as `session` will take them: after the same settling
+    // time.
+    let read = take::measure_opened(opened, &m, e, &settings);
     // Readings only when the stretch read alone hears the watch too; a
     // take not much longer than its settling may leave too little.
     let check = |from_s: f64, to_s: f64, bph: u32, m: Option<&session::Measurement>| {
@@ -861,7 +882,7 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
             rate_s_per_day: m.and_then(|m| m.rate_s_per_day),
             amplitude_deg: m.and_then(|m| m.amplitude_deg),
             beat_error_ms: m.and_then(|m| m.beat_error_signed()),
-            clipping: whole.clipping,
+            clipping,
         }
     };
     match read {
@@ -870,10 +891,10 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
             Ok(check(m.start_s, m.end_s, r.log.bph, Some(m)))
         }
         // Nothing to read once settled: the take is kept, with no readings.
-        Err(take::EntryError::NoReading(_)) => {
-            let (from, to) = take::measured(0.0, a.duration(), set.settle_s, None);
-            Ok(check(from, to, whole.bph, None))
-        }
+        // Its one entry names the whole take, so its settling runs to the
+        // take's end and the stretch read is empty there, whichever of
+        // the reader's or the session file's settling it was.
+        Err(take::EntryError::NoReading(_)) => Ok(check(whole_s, whole_s, whole_bph, None)),
         Err(take::EntryError::Failed(why)) => Err(why),
     }
 }
@@ -1115,6 +1136,7 @@ fn say_break(lost: &breaks::Live) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use timegrapher_core::stream::{self, StreamConfig};
 
     #[test]
     fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
@@ -1192,6 +1214,43 @@ mod tests {
         );
         fs::write(dir.join(MANIFEST), text).unwrap();
         check(dir, set)
+    }
+
+    /// A take that settles to its end, by its session file's own
+    /// `settle_s`, is checked over an empty stretch at its end, as
+    /// `session` reads nothing of it: not over the reader's default
+    /// settling (#294).
+    #[test]
+    fn a_take_that_settles_to_its_end_is_checked_over_nothing() {
+        let dir = std::env::temp_dir().join(format!("tg-record-unsettled-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let watch = timegrapher_core::synth::generate(
+            &timegrapher_core::synth::SynthConfig {
+                duration_s: 30.0,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        );
+        audio::write_wav(&dir.join("audio-001.wav"), &watch).unwrap();
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: None,
+        };
+        let text = format!(
+            "{}\n[[recording]]\nfile = \".\"\nposition = \"DU\"\nsettle_s = 60\n",
+            header(&set)
+        );
+        fs::write(dir.join(MANIFEST), text).unwrap();
+        let c = check(&dir, &set).unwrap();
+        assert_eq!((c.from_s, c.to_s), (30.0, 30.0));
+        assert_eq!(c.rate_s_per_day, None);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     /// A noisy recording gives a percentage only when its beat rate was supplied.
@@ -1291,6 +1350,83 @@ mod tests {
             (r.hours[0].span_s - (heard_s + gap)).abs() < 1.0,
             "an hour of {} s for {heard_s} s heard and a {gap} s pause",
             r.hours[0].span_s
+        );
+        // Read at the take's own lift, from the session file `record`
+        // writes in it: a smaller lift reads a smaller amplitude (#508).
+        let amplitude = |r: &power_reserve::Results| r.hours[0].amplitude_deg.unwrap();
+        fs::write(
+            dir.join(MANIFEST),
+            "bph = 28800\nlift = 40\nlift_known = true\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+        )
+        .unwrap();
+        let at_40 = reserve_results(
+            &dir,
+            "2026-10-27T18:00:00Z",
+            Position::parse("DU").unwrap(),
+            Some(28800),
+            power_reserve::Ending::ByHand,
+        )
+        .unwrap();
+        assert!(
+            amplitude(&at_40) < amplitude(&r) - 10.0,
+            "{} deg at a 40 deg lift, {} deg at the default",
+            amplitude(&at_40),
+            amplitude(&r)
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The quick check hears the whole take, every hour of it, not the
+    /// first alone (#508): clipping in a later hour is counted, at the
+    /// take's peak level, as `analyze` counts it in that hour.
+    #[test]
+    fn the_quick_check_counts_clipping_in_a_later_hour() {
+        use timegrapher_core::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-record-whole-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = SynthConfig {
+            duration_s: 60.0,
+            ..Default::default()
+        };
+        let quiet = generate(&cfg, |_| 280.0, |_| 0.0);
+        let loud = audio::Audio {
+            samples: quiet
+                .samples
+                .iter()
+                .map(|v| (v * 40.0).clamp(-1.0, 1.0))
+                .collect(),
+            sample_rate: quiet.sample_rate,
+        };
+        audio::write_wav(&dir.join("audio-001.wav"), &quiet).unwrap();
+        audio::write_wav(&dir.join("audio-002.wav"), &loud).unwrap();
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: Some(0.0),
+        };
+        let c = check_saved(&dir, &set).unwrap();
+        // The loud hour as read back from its file, alone.
+        let read_back = audio::load(&dir.join("audio-002.wav")).unwrap();
+        let alone =
+            timegrapher_core::analyze(&read_back, &timegrapher_core::AnalysisConfig::default());
+        let hour = alone.summary.clipping;
+        assert!(hour.beats > 0, "no clipping in the loud hour");
+        assert!(
+            c.clipping.beats.abs_diff(hour.beats) <= 2,
+            "{} clipped beats in the take, {} in its loud hour",
+            c.clipping.beats,
+            hour.beats
+        );
+        assert_eq!(c.clipping.peak_dbfs, hour.peak_dbfs);
+        assert!(
+            c.from_s == 0.0 && c.to_s > 110.0,
+            "{} to {} s",
+            c.from_s,
+            c.to_s
         );
         let _ = fs::remove_dir_all(&dir);
     }

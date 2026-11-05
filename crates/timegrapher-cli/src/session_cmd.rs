@@ -331,8 +331,10 @@ fn init(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         "settle_s = {}\n",
         o.settle.unwrap_or(take::SETTLE_S)
     ));
-    t.push_str("# known sound-card error, ppm slow, for recordings without a clock log\n");
-    t.push_str("# card_ppm = 0.0\n");
+    t.push_str(
+        "# known sound-card error, ppm fast (negative: slow), for recordings without a clock log\n",
+    );
+    t.push_str("# card_ppm_fast = 0.0\n");
     for f in &files {
         let name = rel(f, &dir);
         t.push_str("\n[[recording]]\n");
@@ -480,7 +482,8 @@ pub(crate) fn listing_of(file: &Path) -> Result<Option<(Manifest, PathBuf)>, Str
 }
 
 /// The session file `session_file` with only its entries naming `file`,
-/// and the folder they are read from; none when no entry names it.
+/// and the folder they are read from; none when no entry names it. Each
+/// kept entry settles as it does in the whole session file.
 fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, PathBuf)>, String> {
     let (mut m, base, _) = load_manifest_file(session_file)?;
     // An entry names the file when its sound is that file alone: as a
@@ -494,6 +497,18 @@ fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, Path
             _ => false,
         }
     };
+    // An entry carrying on the position of the one before it, in another
+    // file, settles as session reads it, though that one is not kept here
+    // (`take::continues_position`).
+    let carried: Vec<bool> = m
+        .recordings
+        .iter()
+        .map(|e| take::continues_position(e, &m))
+        .collect();
+    // An entry's own settling still comes first.
+    for (e, _) in m.recordings.iter_mut().zip(carried).filter(|(_, c)| *c) {
+        e.settle_s = e.settle_s.or(Some(0.0));
+    }
     m.recordings.retain(same);
     Ok((!m.recordings.is_empty()).then_some((m, base)))
 }
@@ -691,7 +706,7 @@ fn read_one_inner(
     (
         Reading,
         Option<crate::regress_provenance::ReadContext>,
-        Option<power_reserve::Results>,
+        EntryRun,
     ),
     take::EntryError,
 > {
@@ -721,7 +736,14 @@ fn read_one_inner(
     }
     let cycles = cycles_of(c, &read);
     let shape = shape_of(e, c, &read)?;
-    let run = long_run_of(c, &read);
+    // A take of one entry is read whole here; one of several is read
+    // whole once, after all of them ([`whole_take_run`], #1150).
+    let run = if c.m.recordings.len() == 1 {
+        long_run_of(c, &read)
+    } else {
+        None
+    };
+    let heard_s = read.log.duration_s;
     let take::EntryRead {
         files,
         log,
@@ -785,29 +807,27 @@ fn read_one_inner(
             reference: e.reference.clone(),
         },
         context,
-        run,
+        (run, heard_s),
     ))
 }
 
-/// A reading, and the run of its entry when that is a long take's.
-type ReadRun = (Reading, Option<power_reserve::Results>);
+/// The run of an entry when it is a take of its own and a long one, and
+/// the seconds of sound it holds.
+type EntryRun = (Option<power_reserve::Results>, f64);
+
+/// A reading, with its entry's [`EntryRun`].
+type ReadRun = (Reading, EntryRun);
 
 /// The run of an entry that is a long take in the session's one position,
 /// read as a Power Reserve Test's run (core
 /// [`power_reserve::from_long_take`]), as the app reads it.
 fn long_run_of(c: &Ctx, read: &take::EntryRead) -> Option<power_reserve::Results> {
-    let positions: Vec<&str> =
-        c.m.recordings
-            .iter()
-            .filter_map(|e| position_of(e).ok())
-            .map(Position::common)
-            .collect();
     power_reserve::from_long_take(
         &read.log,
         read.clock.as_ref(),
         &read.breaks,
         &read.masked,
-        &positions,
+        &positions_listed(c),
         "",
         read.kept.is_none(),
     )
@@ -934,16 +954,20 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
 
 /// Every entry of the session file read: an entry with nothing to read is
 /// left out, with a note, and the report lists it.
-/// With them, the first long take's run ([`long_run_of`]).
+/// With them, the take's run when it is a long one: a take of one entry
+/// from that entry's read ([`long_run_of`]), one of several read whole
+/// once ([`whole_take_run`]), as the app opens it (#1150).
 fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
     let mut readings = Vec::new();
     let mut left_out = Vec::new();
     let mut long_run = None;
+    let mut heard_s = 0.0;
     for e in &m.recordings {
         match read_one_or_left_out(e, ctx)? {
-            Ok((r, run)) => {
+            Ok((r, (run, s))) => {
                 readings.push(r);
                 long_run = long_run.or(run);
+                heard_s += s;
             }
             Err(l) => {
                 if ctx.tty {
@@ -954,7 +978,74 @@ fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
             }
         }
     }
+    // No run is that long in less sound: the take is read again only when
+    // it could hold one.
+    if m.recordings.len() > 1 && heard_s >= power_reserve::LONG_TAKE_S {
+        long_run = whole_take_run(ctx)?;
+    }
     Ok((readings, left_out, long_run))
+}
+
+/// The run of the take `c` names read whole, once, as its take context
+/// (core [`TakeContext`]: every recording end to end, each entry's masks
+/// at its recording's offset), when it is a long take in one position
+/// ([`power_reserve::from_long_take`]): a take of several entries is one
+/// run however its files are listed, as the app opens a take's folder
+/// (#1150), cut where the take's readings are cut. None for a take whose entries name more than one clock log,
+/// which core can't read whole.
+///
+/// [`TakeContext`]: timegrapher_core::take_context::TakeContext
+fn whole_take_run(c: &Ctx) -> Result<Option<power_reserve::Results>, String> {
+    use timegrapher_core::take_context::{Masks, TakeContext};
+    let mut clocks: Vec<&str> =
+        c.m.recordings
+            .iter()
+            .filter_map(|e| e.clock.as_deref())
+            .collect();
+    clocks.sort_unstable();
+    clocks.dedup();
+    if clocks.len() > 1 {
+        return Ok(None);
+    }
+    let (cfg, _) = stream_config(c)?;
+    let settings = take::EntrySettings {
+        stream: cfg,
+        card_clock: c.card_clock,
+        settle_s: c.o.settle,
+    };
+    if !c.quiet {
+        eprintln!("analysing the take whole for its run");
+    }
+    let (ctx, log) = TakeContext::open(
+        c.base,
+        c.m,
+        settings,
+        Masks::Cut,
+        take::usb,
+        |first| take::correction_for(c.m, first, None, None),
+        |_, _| {},
+    )?;
+    // Cut where the take's readings are cut, as the app cuts the take it
+    // opens.
+    let breaks = ctx.reading_breaks(c.m);
+    Ok(power_reserve::from_long_take(
+        &log,
+        ctx.clock.as_ref(),
+        &breaks,
+        &ctx.masked,
+        &positions_listed(c),
+        "",
+        !ctx.files.is_empty(),
+    ))
+}
+
+/// The positions the take's entries name, as core names them.
+fn positions_listed(c: &Ctx) -> Vec<&'static str> {
+    c.m.recordings
+        .iter()
+        .filter_map(|e| position_of(e).ok())
+        .map(Position::common)
+        .collect()
 }
 
 /// The readings, the entries left out, and a long take's run.
@@ -1199,10 +1290,12 @@ fn print_notes(s: &Session) {
         "BE is beat error as a size; which beat is longer is not shown, because it depends on the beat the analysis locked on first."
     );
     println!(
-        "Readings leave out the settling time at the start of each position, as record's quick check does. That check uses the session file's settle_s (20 s when the file has none, as this summary does) and none of --settle, --bph, --lift, --calibre, a reading's own settle_s, measure_s, start_s, end_s, a clock log, card_ppm or a restart in listening, so a reading that uses one of these can differ from it."
+        "Readings leave out the settling time at the start of each position, as record's quick check does. That check uses the session file's settle_s (20 s when the file has none, as this summary does) and none of --settle, --bph, --lift, --calibre, a reading's own settle_s, measure_s, start_s, end_s, a clock log, card_ppm_fast or a restart in listening, so a reading that uses one of these can differ from it."
     );
     if s.readings.iter().any(|r| r.measurement.calibrated) {
-        println!("The sound card's clock is corrected where a clock log or card_ppm is given.");
+        println!(
+            "The sound card's clock is corrected where a clock log or card_ppm_fast is given."
+        );
     }
     if s.readings.iter().any(|r| r.wind_h.is_none()) {
         println!(
@@ -1277,6 +1370,41 @@ fn print_findings(r: &SessionReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `analyze FILE` reads a file's entry over the stretch `session`
+    /// reads it over: one carrying on the position of the file before it
+    /// settles no more, and one with its own settling keeps it (#1145).
+    #[test]
+    fn a_files_entry_alone_settles_as_in_the_whole_session_file() {
+        let dir = std::env::temp_dir().join(format!("tg-listing-settle-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let audio = timegrapher_core::audio::Audio {
+            sample_rate: 100,
+            samples: vec![0.0; 6000],
+        };
+        for f in ["a.wav", "b.wav", "g.wav"] {
+            timegrapher_core::audio::write_wav(&dir.join(f), &audio).unwrap();
+        }
+        let text = "[[recording]]\nfile = 'a.wav'\nposition = 'DU'\n\n\
+                    [[recording]]\nfile = 'b.wav'\nposition = 'DU'\n\n\
+                    [[recording]]\nfile = 'g.wav'\nposition = 'DU'\nsettle_s = 40.0\n";
+        let session_file = dir.join(take::MANIFEST);
+        fs::write(&session_file, text).unwrap();
+        let whole: Manifest = toml::from_str(text).unwrap();
+        let from = |e: &RecordingEntry, m: &Manifest| {
+            take::reading_window(e, m, None, 60.0).unwrap().from_s
+        };
+        let mut read = Vec::new();
+        for (i, f) in ["a.wav", "b.wav", "g.wav"].iter().enumerate() {
+            let (alone, _) = listing_in(&dir.join(f), &session_file).unwrap().unwrap();
+            let e = &alone.recordings[0];
+            assert_eq!(from(e, &alone), from(&whole.recordings[i], &whole), "{f}");
+            read.push(from(e, &alone));
+        }
+        assert_eq!(read, [take::SETTLE_S, 0.0, 40.0]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn options(bph: Option<u32>, lift: Option<f64>, calibre: Option<&str>) -> Options {
         Options {
@@ -1543,7 +1671,7 @@ mod tests {
             ("lift=nan", "lift"),
             ("lift_angle=0", "lift"),
             ("escape_teeth=0", "escape_teeth"),
-            ("card_ppm=-1000000", "card_ppm"),
+            ("card_ppm_fast=1000000", "card_ppm_fast"),
         ] {
             let m: Manifest = toml::from_str(text).unwrap();
             assert!(m
@@ -1551,7 +1679,7 @@ mod tests {
                 .unwrap_err()
                 .starts_with(&format!("{field}:")));
         }
-        let text="calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm=0\ntolerance=\"old\"\n[limits]\nrate=99\n";
+        let text="calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm_fast=0\ntolerance=\"old\"\n[limits]\nrate=99\n";
         let m: Manifest = toml::from_str(text).unwrap();
         m.validate_analysis_inputs().unwrap();
         assert_eq!(m.lift, Some(52.0));
@@ -1790,8 +1918,9 @@ mod tests {
         // from, as the app's clock line does (#714).
         let json = serde_json::to_value(&usb).unwrap();
         let ppm = json["clock_ppm"].as_f64().unwrap();
-        // The card runs 20 ppm slow: positive, as every clock ppm is today.
-        assert!((ppm - 20.0).abs() < 0.5, "{json}");
+        // The card runs 20 ppm slow: negative, as every clock ppm is
+        // positive when the card runs fast (#657).
+        assert!((ppm + 20.0).abs() < 0.5, "{json}");
         let source = json["clock_source"].as_str().unwrap();
         assert!(source.contains("USB lines"), "{source}");
         let _ = fs::remove_dir_all(&dir);

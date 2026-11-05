@@ -227,7 +227,9 @@ pub const STRIP: &[&str] = &[
 
 pub const PROFILE: &[&str] = &[
     "The typical sound of a tick (blue) and a tock (deep orange): the line is the beats' \
-     typical loudness, the band where the middle 80% fall. Time runs in ms from the drop.",
+     typical loudness, the band where the middle 80% fall. Time runs in ms from the drop. On a \
+     take kept without its sound, the line is the average of the 2 s profiles kept in the \
+     Average Over window and the band the range of their bands.",
     "A line from the top is an edge: Unlock, Drop or Peak. Amplitude comes from unlock to \
      drop, the beat error from the unlocks. A bar across the curve marks where an edge meets \
      it; a ring on the curve is a sound: Unlock, Impulse or Drop Sound. Hover a name, line \
@@ -330,10 +332,11 @@ pub static ISOCHRONISM: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
      {ISO_MIN_READINGS} readings in each, which a session of some hours from full wind gives. It comes \
      from the same tests as Steadiness, which the command line runs too."
         ),
-        "Under it, the walk shows the rate against the amplitude stretch by stretch through \
-     the session, each dot coloured by its time from the start, from dark to bright as the \
-     key says. The faint line joins the dots in time order and breaks wherever a stretch was \
-     masked or the session broke. Hover a dot for its time, amplitude and rate."
+        "View in the toolbar picks the curve or the walk. The walk shows the rate against the \
+     amplitude stretch by stretch through the session, each dot coloured by its time from the start, from dark to bright as the \
+     key says. A trail shading from each dot's colour to the next's joins them in time order and breaks wherever \
+     a stretch was masked or the session broke. A ring marks the start, a large dot the end, and a ring each \
+     12 hours. Hover a dot for its time, amplitude and rate."
             .into(),
     ])
 });

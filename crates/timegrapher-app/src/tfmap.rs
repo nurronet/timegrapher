@@ -6,9 +6,10 @@
 
 use crate::marks::{self, Rank};
 use crate::steady::{wheel_lines, Turn, WheelLine};
+use crate::strength;
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
-use egui_plot::{LineStyle, Plot, PlotImage, PlotPoint};
+use egui_plot::{LineStyle, Plot};
 use timegrapher_core::library::length_text;
 use timegrapher_core::periodicity::Wheel;
 use timegrapher_core::timefreq::{size_number, TimeFrequency};
@@ -18,6 +19,14 @@ pub use timegrapher_core::timefreq::Scale;
 /// Viridis at `t`, 0 to 1 (clamped), from the core's table.
 pub fn viridis(t: f32) -> Color32 {
     let c = timegrapher_core::palette::viridis(t);
+    Color32::from_rgb(c.r, c.g, c.b)
+}
+
+/// The time colour map at `t`, 0 to 1, in the dark theme or the light:
+/// core's [`time_colour`](timegrapher_core::palette::time_colour), for
+/// every mark coloured by its time.
+pub fn time_colour(dark: bool, t: f32) -> Color32 {
+    let c = timegrapher_core::palette::time_colour(t, dark);
     Color32::from_rgb(c.r, c.g, c.b)
 }
 
@@ -121,11 +130,14 @@ fn measure_name(m: &TimeFrequency) -> &'static str {
     }
 }
 
-/// The key's title, with the unit its numbers are in: "Timing Swing (ms)".
-pub fn key_title(m: &TimeFrequency) -> String {
-    let unit = match m.unit {
-        "deg" => "°",
-        u => u,
+/// The key's title, with the unit its numbers are in: "Timing Swing (ms)",
+/// or "(dB)" on the dB scale, whose top end then gives its size with its
+/// unit (Walter's walk of #1152).
+pub fn key_title(m: &TimeFrequency, log: bool) -> String {
+    let unit = match (log, m.unit) {
+        (true, _) => "dB",
+        (false, "deg") => "°",
+        (false, u) => u,
     };
     format!("{} ({unit})", measure_name(m))
 }
@@ -211,15 +223,14 @@ pub fn draw(
         .default_x_bounds(0.0f64.min(left), x_hi)
         .default_y_bounds(bottom, top)
         .show(ui, |p| {
-            grid.draw_under(p, pal);
-            p.image(
-                PlotImage::new(
-                    "map",
-                    tex.id(),
-                    PlotPoint::new(left + width / 2.0, (top + bottom) / 2.0),
-                    Vec2::new(width as f32, (top - bottom) as f32),
-                )
-                .highlight(false),
+            grid.draw_map(
+                p,
+                pal,
+                strength::Picture {
+                    texture: tex.id(),
+                    min: [left, bottom],
+                    max: [left + width, top],
+                },
             );
             wheel_rows(p, &lines, pal);
             // The map fills the plot, so only its axes are drawn, over it.
@@ -277,8 +288,9 @@ fn wheel_rows(p: &mut egui_plot::PlotUi<'_>, lines: &[WheelLine], pal: &theme::P
 pub const KEY_H: f32 = 22.0;
 
 /// The words at the key's two ends. In dB the darkest is its level below
-/// the brightest, 0 dB: a swing is a size, so twenty times its log.
-fn key_ends(s: Scale) -> (String, String) {
+/// the brightest, 0 dB: a swing is a size, so twenty times its log; the
+/// brightest says its size with its unit, which the title no longer gives.
+fn key_ends(m: &TimeFrequency, s: Scale) -> (String, String) {
     if s.log {
         let db = 20.0 * (s.lo / s.hi).log10();
         (
@@ -286,7 +298,7 @@ fn key_ends(s: Scale) -> (String, String) {
             format!(
                 "{}, {} and above",
                 crate::steady::db_label(0.0),
-                size_number(s.hi)
+                size_text(m, s.hi)
             ),
         )
     } else {
@@ -297,8 +309,8 @@ fn key_ends(s: Scale) -> (String, String) {
     }
 }
 
-/// A colour key's bar, `width` wide: viridis from its start to its end.
-pub fn ramp(ui: &mut egui::Ui, width: f32) {
+/// A colour key's bar, `width` wide: `map` from its start to its end.
+pub fn ramp(ui: &mut egui::Ui, width: f32, map: impl Fn(f32) -> Color32) {
     let (r, _) = ui.allocate_exact_size(Vec2::new(width, 10.0), egui::Sense::hover());
     let n = 60;
     for i in 0..n {
@@ -307,7 +319,7 @@ pub fn ramp(ui: &mut egui::Ui, width: f32) {
         ui.painter().rect_filled(
             egui::Rect::from_x_y_ranges(x0..=x1 + 0.5, r.y_range()),
             0.0,
-            viridis(i as f32 / (n - 1) as f32),
+            map(i as f32 / (n - 1) as f32),
         );
     }
 }
@@ -317,11 +329,11 @@ pub fn ramp(ui: &mut egui::Ui, width: f32) {
 fn key_row(ui: &mut egui::Ui, m: &TimeFrequency, s: Scale, pal: &theme::Palette) {
     ui.horizontal(|ui| {
         let small = |t: String| RichText::new(t).small().color(pal.text_secondary);
-        ui.label(RichText::new(key_title(m)).small().color(pal.text));
+        ui.label(RichText::new(key_title(m, s.log)).small().color(pal.text));
         ui.add_space(6.0);
-        let (lo, hi) = key_ends(s);
+        let (lo, hi) = key_ends(m, s);
         ui.label(small(lo));
-        ramp(ui, 120.0);
+        ramp(ui, 120.0, viridis);
         ui.label(small(hi));
         ui.add_space(12.0);
         let (e, _) = ui.allocate_exact_size(Vec2::new(14.0, 10.0), egui::Sense::hover());
@@ -429,12 +441,15 @@ mod tests {
             hi: 3.0,
             log: true,
         };
+        let m = map(vec![vec![1.0]], vec![10.0], None);
         assert_eq!(
-            key_ends(s),
-            ("−50 dB".to_string(), "0 dB, 3.0 and above".to_string())
+            key_ends(&m, s),
+            ("−50 dB".to_string(), "0 dB, 3.0° and above".to_string())
         );
+        // The title says dB, not the swing's unit, beside dB ends (Walter).
+        assert_eq!(key_title(&m, true), "Amplitude Swing (dB)");
         let s = Scale { log: false, ..s };
-        assert_eq!(key_ends(s).1, "3.0 and above");
+        assert_eq!(key_ends(&m, s).1, "3.0 and above");
     }
 
     /// The key says what its colour measures, with the unit: the rate's
@@ -442,13 +457,63 @@ mod tests {
     #[test]
     fn the_key_names_what_its_colour_measures() {
         let mut m = map(vec![vec![1.0]], vec![10.0], None);
-        assert_eq!(key_title(&m), "Amplitude Swing (°)");
+        assert_eq!(key_title(&m, false), "Amplitude Swing (°)");
         m.series = "rate";
         m.unit = "ms";
-        assert_eq!(key_title(&m), "Timing Swing (ms)");
+        assert_eq!(key_title(&m, false), "Timing Swing (ms)");
         assert_eq!(size_text(&m, 1.83), "1.8 ms");
         assert_eq!(size_number(0.123), "0.12");
         m.series = "beat_error";
-        assert_eq!(key_title(&m), "Beat Error Swing (ms)");
+        assert_eq!(key_title(&m, false), "Beat Error Swing (ms)");
+    }
+
+    /// The map's picture is painted over the plot's background, not under
+    /// it: egui_plot's own image item paints first of all, so the opaque
+    /// background hid every cell (Walter, 11-05).
+    #[test]
+    fn the_map_is_drawn_over_its_background() {
+        let m = map(
+            vec![vec![1.0, 2.0, 3.0]; 3],
+            vec![600.0, 900.0, 1200.0],
+            Some(300.0),
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let bg = ctx.style().visuals.extreme_bg_color;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let label = |v: f64| format!("{v}");
+                draw(
+                    ui,
+                    Plot::new("map"),
+                    egui::Id::new("map"),
+                    &m,
+                    3600.0,
+                    false,
+                    None,
+                    label,
+                    label,
+                );
+            });
+        });
+        let at =
+            |want: &dyn Fn(&egui::Shape) -> bool| out.shapes.iter().position(|c| want(&c.shape));
+        let background = at(&|s| matches!(s, egui::Shape::Rect(r) if r.fill == bg))
+            .expect("the plot's background");
+        let picture = at(
+            &|s| matches!(s, egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default()),
+        )
+        .expect("the map's picture");
+        assert!(
+            picture > background,
+            "picture {picture}, background {background}"
+        );
     }
 }

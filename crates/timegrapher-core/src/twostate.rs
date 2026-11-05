@@ -256,12 +256,15 @@ fn blocks(samples: &[Sample], p: &Params) -> (Vec<Block>, f64) {
 fn mixture(y: &[f64]) -> ([f64; 2], f64, f64, Vec<f64>) {
     let mut s: Vec<f64> = y.to_vec();
     s.sort_by(|a, b| a.total_cmp(b));
-    let q = |f: f64| s[((s.len() - 1) as f64 * f).round() as usize];
-    [(0.2, 0.8), (0.05, 0.5), (0.5, 0.95)]
-        .iter()
-        .map(|&(a, b)| mixture_from(y, [q(a), q(b)]))
-        .reduce(|best, f| if f.2 > best.2 { f } else { best })
-        .unwrap()
+    let q = |f: f64| crate::dsp::quantile(&s, f);
+    // The starts are fitted side by side; the best is kept as when they
+    // were fitted in turn (the first of equals).
+    crate::cores::on_every_core(&[(0.2, 0.8), (0.05, 0.5), (0.5, 0.95)], |&(a, b)| {
+        mixture_from(y, [q(a), q(b)])
+    })
+    .into_iter()
+    .reduce(|best, f| if f.2 > best.2 { f } else { best })
+    .unwrap()
 }
 
 /// [`mixture`] from one start, the two levels at `mu`.
@@ -520,17 +523,23 @@ fn find_one_sided(out: &mut TwoState, samples: &[Sample], p: &Params) {
         .filter_map(|s| s.tick.zip(s.tock))
         .filter(|q| q.0.is_finite() && q.1.is_finite())
         .collect();
-    let swapped: Vec<(f64, f64)> = sides.iter().map(|q| (q.1, q.0)).collect();
-    out.tick_split_alone = split_alone(&sides, p);
-    out.tock_split_alone = split_alone(&swapped, p);
     let edges: Vec<(f64, f64)> = samples
         .iter()
         .filter_map(|s| s.tick_unlock_ms.zip(s.tock_unlock_ms))
         .filter(|q| q.0.is_finite() && q.1.is_finite())
         .collect();
-    let swapped: Vec<(f64, f64)> = edges.iter().map(|q| (q.1, q.0)).collect();
-    out.tick_edge_split_alone = split_alone(&edges, p);
-    out.tock_edge_split_alone = split_alone(&swapped, p);
+    let swap = |v: &[(f64, f64)]| v.iter().map(|q| (q.1, q.0)).collect::<Vec<_>>();
+    // The four tests side by side, each as on its own.
+    let all = [swap(&sides), swap(&edges), sides, edges];
+    let [tock, tock_edge, tick, tick_edge] =
+        crate::cores::on_every_core(&all, |v| split_alone(v, p))[..]
+    else {
+        unreachable!("four tests")
+    };
+    out.tick_split_alone = tick;
+    out.tock_split_alone = tock;
+    out.tick_edge_split_alone = tick_edge;
+    out.tock_edge_split_alone = tock_edge;
     if let (Some(t), Some(k)) = (out.tick_change, out.tock_change) {
         let (a, b) = (t.abs().min(k.abs()), t.abs().max(k.abs()));
         out.one_sided = t * k < 0.0

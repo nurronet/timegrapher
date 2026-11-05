@@ -215,7 +215,7 @@ pub fn from_snippets(
         col.sort_unstable_by(|a, b| a.total_cmp(b));
         col.clone()
     };
-    let q = |c: &[f32], p: f64| c[((c.len() - 1) as f64 * p).round() as usize];
+    let q = crate::dsp::quantile_f32;
     // The same trimmed-mean template the amplitude measurement builds.
     let tmpl: Vec<f32> = (0..len)
         .map(|k| crate::dsp::trimmed_mean_f32(&mut sorted_at(k), TEMPLATE_TRIM))
@@ -442,8 +442,10 @@ pub enum ProfileAt {
 
 /// The Tick Tock Profile for the Average Over window of `window_s`
 /// seconds ending at `end` (#979, the math guide's method): the stretches
-/// kept whole within it, never shorter than one stretch, less those that
-/// reach into a mask (`masked`, cleaned as
+/// kept in it, never shorter than one stretch, by #636's one rule (a
+/// stretch's midpoint in the window, [`crate::session::window_in`]), so
+/// a window of one stretch always holds one wherever it ends; less those
+/// that reach into a mask (`masked`, cleaned as
 /// [`crate::session::masked_spans`] cleans them) or across a break, are
 /// averaged side by side, weighted by their beats, on the time axis they
 /// were kept on (each aligned on its own drop). Stretches whose curves
@@ -468,7 +470,7 @@ pub fn profile_at(
     let every = crate::analysis_take::PROFILE_EVERY_S;
     let from = end - window_s.max(every);
     let whole = |p: &&crate::analysis_take::StretchProfiles| {
-        p.end_s <= end + 1e-9 && p.end_s - every >= from - 1e-9
+        crate::session::window_span_in(p.end_s - every, p.end_s, from, end)
     };
     let clean = |p: &&crate::analysis_take::StretchProfiles| {
         let start = p.end_s - every;
@@ -743,6 +745,20 @@ mod tests {
         assert_eq!(count(one_side), [5, 4]);
         // Shorter than a stretch: the one stretch ending there.
         assert_eq!(count(at((20.0, 0.5), &[], &[])), [1, 1]);
+        // Off the 2 s grid, a stretch belongs where its midpoint is (#636,
+        // Walter): one in 2 s, five in 10 s, wherever the window ends.
+        assert_eq!(count(at((19.3, 2.0), &[], &[])), [1, 1]);
+        assert_eq!(count(at((19.3, 10.0), &[], &[])), [5, 5]);
+        let ProfileAt::Averaged(sides) = at((19.3, 2.0), &[], &[]) else {
+            panic!("no profile");
+        };
+        let s = sides[0].as_ref().unwrap();
+        assert_eq!((s.from_s, s.to_s), (18.0, 20.0));
+        // That one stretch masked: masked.
+        assert!(matches!(
+            at((19.3, 2.0), &[(19.5, 19.8)], &[]),
+            ProfileAt::Masked
+        ));
         // A mask in 13 to 13.5 s and a break at 15.5 s cull 12-14 and 14-16.
         let brk = crate::breaks::Break {
             audio_s: 15.5,

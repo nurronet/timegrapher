@@ -556,7 +556,7 @@ fn applicable_invalid_manifest_stops_actual_open_entrypoints_before_audio() {
         ("lift=nan", "lift"),
         ("lift_angle=0", "lift"),
         ("escape_teeth=0", "escape_teeth"),
-        ("card_ppm=-1000000", "card_ppm"),
+        ("card_ppm_fast=1000000", "card_ppm_fast"),
     ] {
         std::fs::write(
             root.join(MANIFEST),
@@ -613,7 +613,7 @@ fn valid_absent_and_unrelated_manifests_keep_actual_open_paths() {
         },
     )
     .unwrap();
-    let valid = "lift_angle=52\nlift_known=false\ncard_ppm=0\n[[recording]]\nfile=\"watch.wav\"\nposition=\"DU\"\n";
+    let valid = "lift_angle=52\nlift_known=false\ncard_ppm_fast=0\n[[recording]]\nfile=\"watch.wav\"\nposition=\"DU\"\n";
     let unrelated = "bph=0\nlift=nan\n[[recording]]\nfile=\"other.wav\"\nposition=\"DU\"\n";
     for text in [None, Some(valid), Some(unrelated)] {
         let manifest = root.join(MANIFEST);
@@ -723,4 +723,72 @@ fn a_setting_changed_while_a_take_opens_holds() {
     app.rebuild_trend();
     assert_eq!(app.trend, shown);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A take opened from a folder of several sound files, whose session file
+/// lists each file with its own position and masks in seconds into that
+/// file, puts each where its file starts on the strip, as `session`
+/// reads each file; masks saved go back to the file they are over, in its
+/// own seconds (#1154).
+#[test]
+fn a_folder_takes_later_files_land_where_they_start() {
+    let dir = std::env::temp_dir().join(format!("tg-folder-parts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // Two files of 60 s each: the strip runs 0 to 120 s.
+    let audio = timegrapher_core::audio::Audio {
+        sample_rate: 100,
+        samples: vec![0.0; 6000],
+    };
+    timegrapher_core::audio::write_wav(&dir.join("a.wav"), &audio).unwrap();
+    timegrapher_core::audio::write_wav(&dir.join("b.wav"), &audio).unwrap();
+    std::fs::write(
+        dir.join(MANIFEST),
+        "watch = 'W'\nbph = 28800\nlift = 52.0\n\n\
+         [[recording]]\nfile = 'a.wav'\nposition = 'DU'\n\n\
+         [[recording]]\nfile = 'b.wav'\nposition = 'DD'\nmasked = [[5.0, 10.0]]\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.open_recording(&dir, false);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(
+        app.session.stretches(),
+        [(0.0, Position::DialUp), (60.0, Position::DialDown)]
+    );
+    // Each file settles over its own start, as session reads it.
+    assert_eq!(app.session.settles(), [(0.0, 20.0), (60.0, 80.0)]);
+    assert_eq!(app.masked, [(65.0, 70.0)]);
+    // A mask across the join is kept by both files, each its part.
+    app.mask(55.0, 62.0);
+    app.save_marks();
+    let saved: Manifest =
+        toml::from_str(&std::fs::read_to_string(dir.join(MANIFEST)).unwrap()).unwrap();
+    let masks: Vec<(&str, Vec<[f64; 2]>)> = saved
+        .recordings
+        .iter()
+        .map(|e| (e.file.as_str(), e.masked.clone()))
+        .collect();
+    assert_eq!(
+        masks,
+        [
+            ("a.wav", vec![[55.0, 60.0]]),
+            ("b.wav", vec![[0.0, 2.0], [5.0, 10.0]]),
+        ]
+    );
+    // Opened again, the strip is as it was saved.
+    let mut again = TimegrapherApp::with_devices(Vec::new(), None);
+    again.open_recording(&dir, false);
+    let t = Instant::now();
+    while again.batch.is_some() && t.elapsed().as_secs() < 60 {
+        again.poll();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(again.masked, [(55.0, 62.0), (65.0, 70.0)]);
+    drop((app, again));
+    std::fs::remove_dir_all(dir).unwrap();
 }

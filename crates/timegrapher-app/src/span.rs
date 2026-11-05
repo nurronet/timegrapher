@@ -56,6 +56,9 @@ pub fn read(files: &[PathBuf], from_s: f64, len_s: f64) -> Result<Span, String> 
 
 /// Frames `lo..hi` of one file, mixed to mono, full scale ±1.
 fn frames(path: &Path, lo: u64, hi: u64) -> Result<Vec<f32>, String> {
+    // A WAV kept as FLAC since it was listed is read as its FLAC (#503).
+    let kept = audio::kept_path(path);
+    let path = kept.as_deref().unwrap_or(path);
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -255,6 +258,27 @@ mod tests {
             }
         }
         assert!(read(&files, 200.0, 1.0).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A WAV listed before it was kept as FLAC is read as the FLAC (#503).
+    #[test]
+    fn a_wav_kept_as_flac_is_read_from_the_flac() {
+        let dir = std::env::temp_dir().join(format!("tg-span-twin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        excerpt::write_flac(&dir.join("audio-001.flac"), &tone(8000 * 3, 1)).unwrap();
+        let wav = dir.join("audio-001.wav");
+        assert!(!wav.exists());
+        let got = frames(&wav, 8000, 8100).unwrap();
+        assert_eq!(
+            got,
+            frames(&dir.join("audio-001.flac"), 8000, 8100).unwrap()
+        );
+        assert_eq!(got.len(), 100);
+        // With neither there, the error names the file asked for.
+        std::fs::remove_file(dir.join("audio-001.flac")).unwrap();
+        assert!(frames(&wav, 0, 10).is_err());
+        assert_eq!(audio::kept_path(&wav), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

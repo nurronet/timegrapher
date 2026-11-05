@@ -342,7 +342,7 @@ fn rate_amplitude_line(x: &timegrapher_core::amplitude_slope::CrossCorrelation) 
         x.readings,
         fixed_text(x.effective_readings, 0),
         match (x.s_per_day_per_deg, x.s_per_day_per_deg_se) {
-            (Some(b), Some(se)) => timegrapher_core::amplitude_slope::slope_pm_text(b, se, 3),
+            (Some(b), Some(se)) => timegrapher_core::amplitude_slope::slope_pm_text(b, se),
             _ => "no slope".into(),
         },
         p_text(x.p_value)
@@ -578,7 +578,29 @@ mod tests {
              240° to 300°."
         );
     }
-    use crate::clock_cmd::resolve as resolve_clock;
+    use crate::clock_cmd::AppliedClock;
+    use std::path::Path;
+    use timegrapher_core::take;
+
+    /// The clock core reads (`take::read_clock`) from the clock `log`, the
+    /// USB lines and the correction, as `series` applies it.
+    fn resolve_clock(
+        log: Option<&Path>,
+        info: &audio::AudioInfo,
+        total_s: f64,
+        usb: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+        correction: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+    ) -> Result<Option<AppliedClock>, String> {
+        let text = log.map(fs::read_to_string).transpose().unwrap();
+        let c = take::read_clock(
+            (text.as_deref(), log),
+            (info.sample_rate, info.bytes_per_frame),
+            total_s,
+            usb,
+            correction,
+        )?;
+        Ok(AppliedClock::of(c.fit, c.ppm, c.source))
+    }
     use std::fs;
     use timegrapher_core::audio;
     use timegrapher_core::clock::{self, ClockFit};
@@ -647,9 +669,12 @@ mod tests {
         let at = |log| serde_json::to_value(Scale::of(&tf[0].values, log)).unwrap();
         assert_eq!(maps[0]["scale"]["linear"], at(false));
         assert_eq!(maps[0]["scale"]["log"], at(true));
+        // The top is core's 99.5th percentile of 0.002, 1 and 4,
+        // interpolated (#512): 0.99 of the way from 1 to 4.
+        let hi = 1.0 + 3.0 * (0.995 * 2.0 - 1.0);
         assert_eq!(
             maps[0]["scale"]["log"],
-            serde_json::json!({ "lo": 4.0 / 300.0, "hi": 4.0 })
+            serde_json::json!({ "lo": hi / 300.0, "hi": hi })
         );
     }
     use serde_json::json;
@@ -807,7 +832,7 @@ mod tests {
                 doc.as_object_mut().unwrap().remove("clock").unwrap(),
                 json!({
                     "ppm": ppm,
-                    "rate_error_s_per_day": ppm * 1e-6 * 86400.0,
+                    "rate_error_s_per_day": -ppm * 1e-6 * 86400.0,
                     "from": from,
                     "tracks_drift": false,
                 })
@@ -862,7 +887,7 @@ mod tests {
             serde_json::to_value(&expected).unwrap()
         );
         assert_eq!(applied.fit.map(150.0), expected.map(150.0));
-        assert!((applied.fit.ppm - 12.5).abs() < 1e-6);
+        assert!((applied.fit.ppm + 12.5).abs() < 1e-6);
         let doc = report_document(&report(), Some(&applied)).unwrap();
         assert_eq!(
             doc["clock"],

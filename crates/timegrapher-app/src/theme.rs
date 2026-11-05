@@ -348,6 +348,11 @@ pub fn help(ui: &mut Ui, title: &str, paragraphs: &[&str]) -> Response {
     help_with_key(ui, title, paragraphs, &[])
 }
 
+/// The side of a [`help`] "?" button: what a title row leaves for it.
+pub fn help_size() -> f32 {
+    16.0
+}
+
 /// [`help`], ending with a key to a toolbar: each icon drawn beside its
 /// name, so a picture that can't be guessed can be looked up.
 pub fn help_with_key(
@@ -357,7 +362,7 @@ pub fn help_with_key(
     key: &[(Icon, String)],
 ) -> Response {
     let p = pal(ui);
-    let size = Vec2::splat(16.0);
+    let size = Vec2::splat(help_size());
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let fill = if open {
@@ -2072,6 +2077,9 @@ pub enum Icon {
     Fit,
     Highlighter,
     Info,
+    /// Isochronism's views: the curve, and the walk.
+    IsoCurve,
+    IsoWalk,
 }
 
 /// What an alert says about itself: a warning (a triangle in the text

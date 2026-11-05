@@ -124,8 +124,8 @@ enum Command {
         /// sidecar is used when one is stored.
         #[arg(long)]
         device: Option<String>,
-        /// Correct the rate for a sound card this many ppm slow (negative
-        /// if fast), instead of a stored correction.
+        /// Correct the rate for a sound card this many ppm fast (negative
+        /// if slow), instead of a stored correction.
         #[arg(long, allow_hyphen_values = true, value_parser = parse_card_ppm)]
         card_ppm: Option<f64>,
         /// Print the summary as JSON instead of text.
@@ -202,8 +202,8 @@ enum Command {
         /// this input (see `clock`).
         #[arg(long)]
         device: Option<String>,
-        /// Without a clock log: correct for a sound card this many ppm slow
-        /// (negative if fast).
+        /// Without a clock log: correct for a sound card this many ppm fast
+        /// (negative if slow).
         #[arg(long, allow_hyphen_values = true, value_parser = parse_card_ppm)]
         card_ppm: Option<f64>,
         /// Beat rate in beats per hour (guessed if omitted).
@@ -711,7 +711,7 @@ enum ClockAction {
         #[arg(long)]
         save: bool,
     },
-    /// Store a known error by hand: ppm slow, negative if fast.
+    /// Store a known error by hand: ppm fast, negative if slow.
     Set {
         device: String,
         #[arg(allow_hyphen_values = true, value_parser = parse_card_ppm)]
@@ -1593,7 +1593,7 @@ fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, Stri
                     true
                 ),
                 fixed_text(ppm.abs(), base_digits::CLOCK),
-                if *ppm >= 0.0 { "slow" } else { "fast" },
+                if *ppm >= 0.0 { "fast" } else { "slow" },
                 figure(f.rate_s_per_day, rate_se, base_digits::RATE, true)
             ),
             None => println!(
@@ -1741,8 +1741,9 @@ struct TrendOut {
 }
 
 /// The readings over time as the app's charts read them: the file opened
-/// whole (core's `take::open_entry` on `take::whole_entry`: its beats,
-/// clock, breaks and the masks of the session file's entries naming it),
+/// whole as its take's context (core's `TakeContext` on `take::whole_entry`:
+/// its beats, clock, breaks, the masks of the session file's entries
+/// naming it and each entry's window),
 /// cut where the app cuts a take's readings (its breaks, moves and
 /// settling ends, `take::reading_cuts`), on the take's clock where it
 /// corrects, then core's trend, each reading averaged over `average_s`
@@ -1754,13 +1755,17 @@ struct TrendOut {
 fn write_trend(file: &Path, cfg: &AnalysisConfig, t: &TrendOut) -> Result<(), String> {
     use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
     use timegrapher_core::take;
+    use timegrapher_core::take_context::{Masks, TakeContext};
     let p = &t.path;
     let average_s = t.average_s;
     // A session file that can't be read leaves the file read alone, as
     // the whole file's own reading is; `take` says why.
     let listing = session_cmd::listing_of(file).ok().flatten();
-    let entries = listing.as_ref().map_or(&[][..], |(m, _)| &m.recordings[..]);
-    let (base, m, entry) = take::whole_entry(file, listing.as_ref().map(|(m, _)| m))?;
+    let (base, mut m, entry) = take::whole_entry(file, listing.as_ref().map(|(m, _)| m))?;
+    // A file no session file lists is a take of one entry naming it.
+    if m.recordings.is_empty() {
+        m.recordings.push(entry);
+    }
     let settings = take::EntrySettings {
         stream: StreamConfig {
             analysis: cfg.clone(),
@@ -1769,21 +1774,16 @@ fn write_trend(file: &Path, cfg: &AnalysisConfig, t: &TrendOut) -> Result<(), St
         card_clock: false,
         settle_s: None,
     };
-    let opened = take::open_entry(
+    let (ctx, log) = TakeContext::open(
         &base,
         &m,
-        &entry,
-        &settings,
+        settings,
+        Masks::Cut,
         take::usb,
         |first| take::correction_for(&m, first, t.card_ppm, t.device.as_deref()),
         |_, _| {},
     )?;
-    let length_s = timegrapher_core::audio::info(file)
-        .ok()
-        .and_then(|i| Some(i.frames? as f64 / f64::from(i.sample_rate)))
-        .unwrap_or(f64::INFINITY);
-    let (stretches, settles) =
-        take::positions_of(take::listed_positions(&m, entries, length_s).into_iter());
+    let (stretches, settles) = take::positions_of(ctx.listed_positions(&m).into_iter());
     let changes: Vec<f64> = stretches.iter().map(|s| s.0).collect();
     // Every beat of the file, however long, not only the day a live
     // listen keeps.
@@ -1792,10 +1792,10 @@ fn write_trend(file: &Path, cfg: &AnalysisConfig, t: &TrendOut) -> Result<(), St
         max_beats: usize::MAX,
         ..Default::default()
     };
-    let mut live = LiveAnalyzer::from_log(opened.log, live_cfg);
-    live.set_breaks(take::reading_cuts(&opened.breaks, &changes, &settles));
-    live.set_masked(&opened.masked);
-    let clock = opened.clock.as_ref().filter(|c| c.corrects());
+    let mut live = LiveAnalyzer::from_log(log, live_cfg);
+    live.set_breaks(take::reading_cuts(&ctx.breaks, &changes, &settles));
+    live.set_masked(&ctx.masked);
+    let clock = ctx.clock.as_ref().filter(|c| c.corrects());
     live.set_rate_clock(clock);
     let trend = live.trend(average_s);
     // The rates' clock: the correction's ppm, blank on the card's.
@@ -1953,7 +1953,7 @@ mod numeric_input_tests {
             argv.push("--escape-teeth=0".into());
             assert!(Cli::try_parse_from(argv).is_err(), "{command}: zero teeth");
         }
-        for value in ["NaN", "inf", "-inf", "-1000000", "-1000001"] {
+        for value in ["NaN", "inf", "-inf", "1000000", "1000001"] {
             for command in ["analyze", "long"] {
                 let mut argv = args(command);
                 argv.push(format!("--card-ppm={value}"));

@@ -136,8 +136,7 @@ pub(super) fn grid(
 ) -> (Grid, BeatErrorSelection) {
     let cuts = Cuts::new(clock, breaks, &[]);
     let in_span = |w: &crate::amplitude::AmplitudeWindow| {
-        let time = cuts.true_time((w.start_s + w.end_s) / 2.0);
-        span.is_none_or(|(from, to)| time >= from && time < to)
+        span.is_none_or(|(from, to)| cuts.window_in(w, from, to))
     };
     let selected = crate::session::select_beat_errors(
         cuts.amplitude_windows(&log.amplitude_windows)

@@ -10,7 +10,8 @@ use std::time::SystemTime;
 use timegrapher_core::audio;
 use timegrapher_core::clock::{self, ClockFit};
 use timegrapher_core::clockstore::{self, ClockStore, DeviceClock};
-use timegrapher_core::library::{fixed_text, signed_text};
+use timegrapher_core::figure_text::{base_digits, figure, figure_with_pm};
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::recorder::utc;
 use timegrapher_core::take;
 
@@ -128,22 +129,24 @@ fn list(json: bool) -> Result<(), String> {
 
 /// One line about a stored correction.
 pub fn describe(d: &DeviceClock) -> String {
-    let sd = d
-        .ppm_sd
-        .map(|s| format!(" ± {}", fixed_text(s, 2)))
-        .unwrap_or_default();
     let span = if d.span_s > 0.0 {
         format!(" over {} min", fixed_text(d.span_s / 60.0, 0))
     } else {
         String::new()
     };
     format!(
-        "{}: {}{sd} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
+        "{}: {} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
         d.device,
-        fixed_text(d.ppm.abs(), 2),
-        if d.ppm >= 0.0 { "slow" } else { "fast" },
-        d.rate_error_s_per_day().abs(),
+        // Each to its ±'s decimals (#510 K3).
+        figure_with_pm(d.ppm.abs(), d.ppm_sd, base_digits::CLOCK, false),
         if d.ppm >= 0.0 { "fast" } else { "slow" },
+        figure(
+            d.rate_error_s_per_day().abs(),
+            d.ppm_sd.map(|s| clock::rate_error_s_per_day(s).abs()),
+            base_digits::RATE,
+            false
+        ),
+        if d.ppm >= 0.0 { "slow" } else { "fast" },
         d.how_text(),
         d.measured_utc
     )
@@ -217,12 +220,11 @@ fn report(
 /// Why a measurement is not stored: what it measured, and the rule.
 fn refusal(d: &DeviceClock, w: &clock::Withheld) -> String {
     format!(
-        "not stored: {} entries over {} s measure '{}' at {} ± {} ppm; a stored correction needs {} entries or more and a standard error of at most {} ppm (as a take's own log does to correct its rates)",
+        "not stored: {} entries over {} s measure '{}' at {} ppm; a stored correction needs {} entries or more and a standard error of at most {} ppm (as a take's own log does to correct its rates)",
         w.points,
         fixed_text(w.span_s, 0),
         d.device,
-        signed_text(w.ppm, 1),
-        fixed_text(w.ppm_sd, 1),
+        w.ppm_text(),
         clock::MIN_POINTS,
         fixed_text(clock::MAX_SD_PPM, 0)
     )
@@ -257,10 +259,9 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
             next += 60.0;
             if let Some(f) = tr.fit() {
                 eprintln!(
-                    "{:>5} min  {} ± {} ppm",
+                    "{:>5} min  {} ppm",
                     fixed_text(tr.audio_s() / 60.0, 1),
-                    signed_text(f.ppm, 2),
-                    fixed_text(f.ppm_sd, 2)
+                    clock::ppm_pm_text(f.ppm, Some(f.ppm_sd))
                 );
             }
         }
@@ -289,77 +290,23 @@ pub struct AppliedClock {
     pub from: String,
 }
 
-/// The clock for a take `total_s` long, read as `info` says: from the clock
-/// `log` when there is one, with the recording's `usb` lines setting its
-/// rate; else the USB lines, else a `correction` known for the input
-/// ([`take::clock_from`]). A log makes a correction unneeded, so
-/// `correction` is only asked for without one.
-pub fn resolve(
-    log: Option<&Path>,
-    info: &audio::AudioInfo,
-    total_s: f64,
-    usb: impl FnOnce() -> Result<Option<(f64, String)>, String>,
-    correction: impl FnOnce() -> Result<Option<(f64, String)>, String>,
-) -> Result<Option<AppliedClock>, String> {
-    let text = match log {
-        Some(path) => {
-            Some(fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?)
-        }
-        None => None,
-    };
-    let correction = match log {
-        Some(_) => None,
-        None => correction()?,
-    };
-    let usb = usb()?;
-    let fit = take::clock(
-        text.as_deref(),
-        info.sample_rate,
-        info.bytes_per_frame,
-        usb.as_ref().map(|(ppm, _)| *ppm),
-        correction.as_ref().map(|(ppm, _)| *ppm),
-        total_s,
-    )
-    .map_err(|e| match log {
-        Some(path) => format!("{}: {e}", path.display()),
-        None => e,
-    })?;
-    let source = take::clock_from(
-        log.is_some(),
-        usb.as_ref().map(|(ppm, _)| *ppm),
-        correction.as_ref().map(|(ppm, _)| *ppm),
-    );
-    Ok(applied(fit, source, usb, correction, log))
-}
-
-/// The clock `fit` read from `source`, with the rate the USB lines or the
-/// correction give and where it came from in words.
-pub fn applied(
-    fit: Option<ClockFit>,
-    source: Option<take::ClockFrom>,
-    usb: Option<(f64, String)>,
-    correction: Option<(f64, String)>,
-    log: Option<&Path>,
-) -> Option<AppliedClock> {
-    let source = source?;
-    let ppm = match source {
-        take::ClockFrom::Log => None,
-        take::ClockFrom::LogRatedByUsb | take::ClockFrom::Usb => usb.as_ref().map(|(p, _)| *p),
-        take::ClockFrom::Correction => correction.as_ref().map(|(p, _)| *p),
-    };
-    let from = take::clock_source_text(
-        source,
-        usb.as_ref().map(|(_, f)| f.as_str()),
-        correction.as_ref().map(|(_, f)| f.as_str()),
-        log,
-    );
-    fit.map(|fit| AppliedClock { fit, ppm, from })
+impl AppliedClock {
+    /// The clock core read (`take::open_entry`, `take::read_clock`): its
+    /// `fit`, the USB lines' or correction's `ppm`, and its `source` in
+    /// words; none on the sound card's clock.
+    pub fn of(fit: Option<ClockFit>, ppm: Option<f64>, source: Option<String>) -> Option<Self> {
+        fit.map(|fit| AppliedClock {
+            fit,
+            ppm,
+            from: source.unwrap_or_default(),
+        })
+    }
 }
 
 /// The correction to apply to a recording, and the sound card's error
 /// read from its USB lines, each with its source text, as core reads
 /// them for every surface.
-pub use take::{correction, usb};
+pub use take::correction;
 
 #[cfg(test)]
 #[expect(
@@ -410,7 +357,7 @@ mod tests {
         assert_eq!(saved.get(&measured.device), Some(&measured));
         // A store that becomes invalid after preflight must not be overwritten.
         ClockStore::load().unwrap();
-        let invalid = r#"{"schema":"timegrapher.clocks/1","devices":[{"device":"late invalid","ppm":-1000000,"span_s":0,"measured_utc":"later","source":"set"}]}"#;
+        let invalid = r#"{"schema":"timegrapher.clocks/2","devices":[{"device":"late invalid","ppm":1000000,"span_s":0,"measured_utc":"later","source":"set"}]}"#;
         fs::write(&path, invalid).unwrap();
         assert!(report(&measured, &fit, true, true, json!({}))
             .unwrap_err()

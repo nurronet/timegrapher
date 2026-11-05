@@ -55,6 +55,8 @@ pub mod base_digits {
     pub const JITTER: usize = 0;
     /// Clock, ppm.
     pub const CLOCK: usize = 1;
+    /// Slope of the rate against the amplitude, s/d per degree.
+    pub const SLOPE: usize = 2;
 }
 
 /// How many decimals a figure is written to (#510 K3, "decimals follow

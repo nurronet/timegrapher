@@ -397,8 +397,8 @@ a reading (1.4826·MAD/√2, so an event's edge inside a reading barely
 moves it), times the sum of the squared weights (about 0.232 for five
 windows). It comes
 with a ± that allows for correlated readings, and is withheld below a
-reliability of 0.5. It is a going-together, not a cause: the
-temperature is not logged, and a take in several positions carries a
+reliability of 0.5. It is a going-together, not a cause: anything else
+that changes over the take moves with it, and a take in several positions carries a
 `positions` caveat. A quadratic through the bins gives the curve, and the amplitude where it turns (where the
 rate changes least) when that is inside the range. On a short take the
 amplitude covers only a few degrees and the curve is mostly noise; a
@@ -522,8 +522,8 @@ but corrects nothing: `ppm` and `rate_error_s_per_day` are 0 and
 `withheld` gives what it measured, `ppm`, `ppm_sd`, `points`, `span_s`
 and `reason` (`few_entries` or `unsure`). The same rules hold in `long`,
 `session` and the power reserve reader.
-Positive ppm means the card runs slow and uncorrected rates read fast;
-`rate_error_s_per_day` is ppm × 0.0864. For a log that follows drift, these
+Positive ppm means the card runs fast and uncorrected rates read slow;
+`rate_error_s_per_day` is −ppm × 0.0864. For a log that follows drift, these
 numbers summarize the fit; its time mapping need not be one uniform
 correction. These fields do not claim calibration uncertainty or accuracy.
 

@@ -5,7 +5,7 @@ use crate::audio::Audio;
 use crate::beats::{self, Beat};
 use crate::confidence::{Confidence, Doubts};
 use crate::dsp::percentile;
-use crate::dsp::{envelope, median_of, EnvelopeConfig};
+use crate::dsp::{envelope, EnvelopeConfig};
 use crate::measure::NoWatchReason;
 use crate::periodicity::{self, Component, Series};
 use crate::timing::{self, TimingFit, WindowFit};
@@ -33,7 +33,7 @@ impl Default for AnalysisConfig {
             bph: None,
             envelope: EnvelopeConfig::default(),
             amplitude: AmplitudeConfig::default(),
-            rate_window_s: 10.0,
+            rate_window_s: crate::measure::RATE_WINDOW_S,
             amplitude_window_s: 2.0,
             escape_teeth: crate::take::ESCAPE_TEETH,
             lift_known: false,
@@ -186,16 +186,25 @@ impl Clipping {
             idx.get(k).is_some_and(|&i| i <= c + post)
         };
         let n = beats.iter().filter(|b| hit(b)).count();
-        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs())) as f64;
+        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs()));
+        Clipping::of(idx.len(), n, beats.len(), peak)
+    }
+
+    /// The clipping of `samples` clipped samples and `clipped` clipped
+    /// beats of the `beats` found, with `peak` the loudest sample's size
+    /// (full scale 1): as [`Self::measure`] counts it in a recording, or a
+    /// streamed reading ([`crate::stream::BeatLog::clipped_samples`] and
+    /// `clipped_beats`) counts it in a whole take.
+    pub fn of(samples: usize, clipped: usize, beats: usize, peak: f32) -> Clipping {
         Clipping {
-            samples: idx.len(),
-            beats: n,
-            beat_fraction: if beats.is_empty() {
+            samples,
+            beats: clipped,
+            beat_fraction: if beats == 0 {
                 0.0
             } else {
-                n as f64 / beats.len() as f64
+                clipped as f64 / beats as f64
             },
-            peak_dbfs: 20.0 * peak.max(1e-10).log10(),
+            peak_dbfs: 20.0 * f64::from(peak).max(1e-10).log10(),
         }
     }
 
@@ -288,17 +297,14 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         watch_heard,
         overall: fits.overall,
         beat_error_source: None,
-        beat_error_unlock_ms: timing::median_signed(
-            fits.clear.iter().filter_map(|w| w.beat_error_unlock_ms),
-            fits.turned,
-        ),
+        beat_error_unlock_ms: fits.figures.beat_error_unlock_ms,
         rate_p05: percentile(&rates, 0.05),
         rate_p95: percentile(&rates, 0.95),
         jitter_us: heard.jitter_us,
         timing_scatter_fraction: beats::timing_scatter_fraction(heard.jitter_us, bph),
-        amplitude_deg: median_of(fits.clear.iter().filter_map(|w| w.mean())),
-        amplitude_even_deg: median_of(fits.clear.iter().filter_map(|w| w.even_deg)),
-        amplitude_odd_deg: median_of(fits.clear.iter().filter_map(|w| w.odd_deg)),
+        amplitude_deg: fits.figures.amplitude_deg,
+        amplitude_even_deg: fits.figures.amplitude_even_deg,
+        amplitude_odd_deg: fits.figures.amplitude_odd_deg,
         amplitude_se_deg,
         amplitude_even_se_deg: se(&|w| w.even_deg),
         amplitude_odd_se_deg: se(&|w| w.odd_deg),
@@ -412,10 +418,13 @@ fn assess_take(
 struct Fits {
     /// The amplitude windows clear of the jumps.
     clear: Vec<AmplitudeWindow>,
-    /// Rate and beat error over the whole take, fitted piece by piece.
+    /// Rate and beat error over the whole take, fitted piece by piece,
+    /// and the clear windows' figures, as every reading of a stretch takes
+    /// them ([`crate::session::stretch_fits`]).
     overall: Option<TimingFit>,
     /// Whether the beat error's sign turns between pieces.
     turned: bool,
+    figures: crate::session::WindowFigures,
     /// Each beat's timing residual.
     residuals: Vec<f64>,
     /// The rate windows from `from_s` on.
@@ -456,8 +465,11 @@ fn fit_take(
         .into_iter()
         .cloned()
         .collect();
-    let overall = timing::fit_pieces(beats, bph, &cuts);
-    let turned = timing::sign_turns(beats, bph, &cuts);
+    let crate::session::StretchFits {
+        fit: overall,
+        turned,
+        figures,
+    } = crate::session::stretch_fits(beats, Some(bph), &cuts, &clear.iter().collect::<Vec<_>>());
     let residuals =
         timing::residuals_pieces(beats, &cuts).unwrap_or_else(|| vec![f64::NAN; beats.len()]);
     let part = crate::session::window_part_s(amplitude_windows);
@@ -474,6 +486,7 @@ fn fit_take(
         clear,
         overall,
         turned,
+        figures,
         residuals,
         rate_windows,
     }

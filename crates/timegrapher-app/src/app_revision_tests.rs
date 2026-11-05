@@ -164,14 +164,14 @@ fn an_analysis_only_take_reads_its_own_clock() {
     );
     let wav = a.join("audio-001.wav");
     timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
-    // A log of 13 entries 10 s apart on a card `ppm` slow.
+    // A log of 13 entries 10 s apart on a card `ppm` fast.
     let log = |ppm: f64| {
         let mut log = String::from("unix_s,frames\n");
         for k in 0..13 {
             let audio_s = 10.0 * k as f64;
             log += &format!(
                 "{:.6},{}\n",
-                1_700_000_000.0 + audio_s * (1.0 + ppm * 1e-6),
+                1_700_000_000.0 + audio_s * timegrapher_core::clock::card_scale(ppm),
                 (audio_s * audio.sample_rate as f64) as u64
             );
         }
@@ -184,7 +184,7 @@ fn an_analysis_only_take_reads_its_own_clock() {
             if audio { "" } else { "audio = false\n" }
         )
     };
-    std::fs::write(a.join("clock.csv"), log(50.0)).unwrap();
+    std::fs::write(a.join("clock.csv"), log(-50.0)).unwrap();
     std::fs::write(a.join(MANIFEST), manifest(true)).unwrap();
     // The same sound kept as its analysis, with a log of its own.
     let stored = analysis_take::measure(
@@ -196,11 +196,11 @@ fn an_analysis_only_take_reads_its_own_clock() {
     )
     .unwrap();
     analysis_take::write(&b, &stored).unwrap();
-    std::fs::write(b.join("clock.csv"), log(10.0)).unwrap();
+    std::fs::write(b.join("clock.csv"), log(-10.0)).unwrap();
     std::fs::write(b.join(MANIFEST), manifest(false)).unwrap();
     let ppm = |app: &TimegrapherApp| app.take_clock.as_ref().map(|f| f.ppm);
     let mut app = reopened(&a);
-    assert!((ppm(&app).expect("a's log") - 50.0).abs() < 1.0);
+    assert!((ppm(&app).expect("a's log") + 50.0).abs() < 1.0);
     app.start_batch(&b);
     let t = Instant::now();
     while app.batch.is_some() && t.elapsed().as_secs() < 120 {
@@ -209,13 +209,13 @@ fn an_analysis_only_take_reads_its_own_clock() {
     }
     assert!(app.live.is_some(), "{:?}", app.message);
     assert!(
-        (ppm(&app).expect("b's own log") - 10.0).abs() < 1.0,
+        (ppm(&app).expect("b's own log") + 10.0).abs() < 1.0,
         "{:?}",
         ppm(&app)
     );
     // Opened fresh, the same.
     let app = reopened(&b);
-    assert!((ppm(&app).expect("b's own log") - 10.0).abs() < 1.0);
+    assert!((ppm(&app).expect("b's own log") + 10.0).abs() < 1.0);
     let _ = std::fs::remove_dir_all(&base);
 }
 
@@ -280,7 +280,7 @@ fn a_takes_usb_lines_set_its_rate() {
     assert_eq!(app.take_rate_ppm(), None, "the log alone is too loose");
     let app = reopened(&lined);
     let ppm = app.take_rate_ppm().expect("set by the lines");
-    assert!((ppm - 19.5).abs() < 0.2, "{ppm}");
+    assert!((ppm + 19.5).abs() < 0.2, "{ppm}");
     let rate = card(&app);
     let want = timegrapher_core::clockstore::correct_rate(heard, ppm);
     assert!((rate - want).abs() < 0.05, "{rate} {want}");
@@ -302,7 +302,7 @@ fn a_takes_usb_lines_set_its_rate() {
         "{source}"
     );
     // The figure the lines measured, as the hover prints it, and the source.
-    let said = format!("clock, {ppm:.1} ppm slow, {source},");
+    let said = format!("clock, {:.1} ppm slow, {source},", ppm.abs());
     assert!(words.contains(&said), "{words} {said}");
     assert!(words.contains("The clock log's 5 entries"), "{words}");
     let _ = std::fs::remove_dir_all(&base);

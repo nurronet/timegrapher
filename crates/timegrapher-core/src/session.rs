@@ -18,8 +18,8 @@ use crate::beats::Beat;
 use crate::breaks::Break;
 use crate::clean::Cuts;
 use crate::clock::ClockFit;
-use crate::dsp::median;
 use crate::dsp::percentile;
+use crate::dsp::{mean_of, median_of};
 use crate::longrun::LongReport;
 use crate::periodicity::Wheel;
 use crate::shape::{ShapeReport, SideReport};
@@ -457,7 +457,7 @@ pub fn window_in(w: &AmplitudeWindow, from_s: f64, to_s: f64) -> bool {
 }
 
 /// Midpoint membership for measured and nominal amplitude windows alike.
-fn window_span_in(start: f64, end: f64, from_s: f64, to_s: f64) -> bool {
+pub(crate) fn window_span_in(start: f64, end: f64, from_s: f64, to_s: f64) -> bool {
     let mid = (start + end) / 2.0;
     mid >= from_s && mid < to_s
 }
@@ -487,16 +487,46 @@ pub fn window_figures(wins: &[&AmplitudeWindow], turned: bool) -> WindowFigures 
     }
 }
 
+/// A stretch's timing fit and window figures, as every reading of a
+/// stretch takes them: saved (`session`), whole (`analyze`) and live
+/// (#512, one engine reads a stretch).
+#[derive(Debug, Clone)]
+pub struct StretchFits {
+    /// Rate and beat error, fitted piece by piece between the cuts
+    /// ([`timing::fit_pieces`]); none with no beat rate.
+    pub fit: Option<timing::TimingFit>,
+    /// Whether the beat error's sign turns between pieces
+    /// ([`timing::sign_turns`]).
+    pub turned: bool,
+    /// The amplitude windows' figures, the unlock beat error as sizes
+    /// where it turns ([`window_figures`]).
+    pub figures: WindowFigures,
+}
+
+/// [`StretchFits`] of a stretch's `beats` (true time, in order) at `bph`,
+/// cut at `cuts`, and of its amplitude windows `wins`: the one way a
+/// reading of a stretch is fitted (#512).
+pub fn stretch_fits(
+    beats: &[Beat],
+    bph: Option<u32>,
+    cuts: &[f64],
+    wins: &[&AmplitudeWindow],
+) -> StretchFits {
+    let turned = bph.is_some_and(|bph| timing::sign_turns(beats, bph, cuts));
+    StretchFits {
+        fit: bph.and_then(|bph| timing::fit_pieces(beats, bph, cuts)),
+        turned,
+        figures: window_figures(wins, turned),
+    }
+}
+
 /// The length of the parts a stretch's windows must be whole in, seconds:
 /// its amplitude windows' length, else 2 s.
 pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
-/// Rate and timing-scatter fits use ten seconds to collect enough beats.
-const RATE_WINDOW_S: f64 = 10.0;
-/// Half-window spacing keeps the existing overlapping rate-reading grid.
-const RATE_WINDOW_STEP_S: f64 = 5.0;
+use crate::measure::{RATE_WINDOW_S, RATE_WINDOW_STEP_S};
 
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
@@ -567,11 +597,6 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
         }
     }
     None
-}
-
-fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| median(&mut w))
 }
 
 /// [`watch_lead_s`] for the stretch of `log` from `from_s` to `to_s`
@@ -719,14 +744,20 @@ pub fn measure_masked(
     let in_range: Vec<Beat> = log.beats[stretch_beats(&log.beats, from_s, to_s)].to_vec();
     let beats = holes.beats(&in_range);
     let cuts = holes.fit_cuts(&beats);
-    let fit = timing::fit_pieces(&beats, log.bph, &cuts);
-    let turned = timing::sign_turns(&beats, log.bph, &cuts);
     let (from_t, to_t) = (map(from_s), map(to_s));
     let part = window_part_s(&log.amplitude_windows);
     let windows = scatter_windows(&holes, &beats, log.bph, from_t, to_t, part);
     let rates: Vec<f64> = windows.iter().map(|w| w.fit.rate_s_per_day).collect();
     let rate_samples: Vec<twostate::Sample> = holes
-        .windows(&beats, log.bph, from_t, to_t, 10.0, 10.0, part)
+        .windows(
+            &beats,
+            log.bph,
+            from_t,
+            to_t,
+            RATE_WINDOW_S,
+            RATE_WINDOW_S,
+            part,
+        )
         .iter()
         .map(|w| twostate::Sample {
             start_s: w.start_s,
@@ -736,7 +767,11 @@ pub fn measure_masked(
         })
         .collect();
     let amp = stretch_windows(&holes, &log.amplitude_windows, from_s, to_s);
-    let figures = window_figures(&amp, turned);
+    let StretchFits {
+        fit,
+        turned,
+        figures,
+    } = stretch_fits(&beats, Some(log.bph), &cuts, &amp);
     let amps: Vec<f64> = amp.iter().filter_map(|w| w.mean()).collect();
     // On true time, as the rate samples are, so a pause is a hole in the
     // two-state blocks.
@@ -952,7 +987,7 @@ pub fn measure_masked(
     m
 }
 
-/// A clock fit for a sound card known to be `ppm` slow (negative: fast),
+/// A clock fit for a sound card known to be `ppm` fast (negative: slow),
 /// for recordings made without a clock log on a card calibrated before.
 pub fn fixed_clock(ppm: f64, duration_s: f64) -> Option<ClockFit> {
     Some(ClockFit::fixed(ppm, duration_s))
@@ -1235,11 +1270,6 @@ pub struct SessionReport {
     pub findings: Vec<Finding>,
 }
 
-fn mean(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| w.iter().sum::<f64>() / w.len() as f64)
-}
-
 fn spread(v: impl Iterator<Item = f64>) -> Option<f64> {
     let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
     if w.len() < 2 {
@@ -1434,7 +1464,7 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             // The positions with a rate in both states, so each mean is
             // over the same positions.
             let common = |s: &StateIndices, o: &StateIndices| {
-                mean(
+                mean_of(
                     s.positions
                         .iter()
                         .filter(|v| {
@@ -1697,6 +1727,14 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
     out
 }
 
+/// The message for a session file's old `card_ppm`, ppm slow (#657).
+pub const OLD_CARD_PPM: &str = "card_ppm is now card_ppm_fast, positive when the sound card \
+     runs fast: write card_ppm_fast with the old value's sign changed";
+
+fn refuse_card_ppm<'de, D: serde::Deserializer<'de>>(_: D) -> Result<Option<()>, D::Error> {
+    Err(serde::de::Error::custom(OLD_CARD_PPM))
+}
+
 /// What a session file describes: the watch and its recordings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1724,9 +1762,20 @@ pub struct Manifest {
     pub settle_s: Option<f64>,
     /// Seconds to measure after settling (default: the rest of the recording).
     pub measure_s: Option<f64>,
-    /// A known sound-card error for recordings with no clock log: ppm slow
-    /// (negative: fast).
+    /// A known sound-card error for recordings with no clock log: ppm fast
+    /// (negative: slow), as [`crate::clock::card_scale`] defines it.
+    #[serde(rename = "card_ppm_fast")]
     pub card_ppm: Option<f64>,
+    /// Refused: session files written before #657 gave the error as
+    /// `card_ppm`, ppm slow. A file that still does is not read, so a
+    /// saved take never changes meaning unseen.
+    #[serde(
+        default,
+        rename = "card_ppm",
+        deserialize_with = "refuse_card_ppm",
+        skip_serializing
+    )]
+    pub old_card_ppm: Option<()>,
     /// Run the beat-shape measurement on each recording (default true).
     pub shape: Option<bool>,
     /// Run the periodic-change search on each recording (default true).
@@ -1776,7 +1825,7 @@ impl Manifest {
             crate::input_domain::escape_teeth(value).map_err(|e| format!("escape_teeth: {e}"))?;
         }
         if let Some(value) = self.card_ppm {
-            crate::input_domain::card_ppm(value).map_err(|e| format!("card_ppm: {e}"))?;
+            crate::input_domain::card_ppm(value).map_err(|e| format!("card_ppm_fast: {e}"))?;
         }
         Ok(())
     }
@@ -1834,6 +1883,21 @@ pub struct KnownFault {
 #[cfg(test)]
 mod manifest_input_tests {
     use super::*;
+
+    /// A session file written before #657 gave the card's error as
+    /// `card_ppm`, ppm slow: it is refused, saying how to write it now,
+    /// rather than read with its meaning turned over.
+    #[test]
+    fn an_old_card_ppm_is_refused_with_how_to_write_it() {
+        let e = toml::from_str::<Manifest>("card_ppm = 19.3\n")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains(OLD_CARD_PPM), "{e}");
+        let m: Manifest = toml::from_str("card_ppm_fast = -19.3\n").unwrap();
+        assert_eq!(m.card_ppm, Some(-19.3));
+        let text = toml::to_string(&m).unwrap();
+        assert!(text.contains("card_ppm_fast = -19.3"), "{text}");
+    }
 
     /// A window belongs to the stretch holding its midpoint, the start in
     /// and the end out, so two stretches that meet share none (#632).
@@ -1956,8 +2020,8 @@ mod manifest_input_tests {
                 .starts_with("lift:"));
         }
         for value in [
-            -1_000_000.0,
-            -1_000_001.0,
+            1_000_000.0,
+            1_000_001.0,
             f64::NAN,
             f64::INFINITY,
             f64::NEG_INFINITY,
@@ -1969,7 +2033,7 @@ mod manifest_input_tests {
             assert!(invalid
                 .validate_analysis_inputs()
                 .unwrap_err()
-                .starts_with("card_ppm:"));
+                .starts_with("card_ppm_fast:"));
         }
     }
 
@@ -1977,7 +2041,7 @@ mod manifest_input_tests {
     fn consumed_manifest_domains_preserve_defaults_valid_extremes_and_context() {
         Manifest::default().validate_analysis_inputs().unwrap();
         for value in [10.0, 52.0, 90.0] {
-            for ppm in [-999_999.999_999_999_9, -12.5, -0.0, 0.0, 12.5, f64::MAX] {
+            for ppm in [999_999.999_999_999_9, 12.5, 0.0, -0.0, -12.5, -f64::MAX] {
                 let m = Manifest {
                     bph: Some(u32::MAX),
                     lift: Some(value),

@@ -5,6 +5,11 @@
 //! the last bit. Both read through core, so any difference is logic
 //! written twice.
 //!
+//! Each take opened whole reads in its panes what the command line
+//! reads for it too: the Distributions pane's distributions are `series`'s,
+//! and the Power Reserve pane's run from a long take is `session`'s.
+//! Gaps still open are listed, each with its issue.
+//!
 //! The same holds for core's synthetic edge takes, written afresh.
 //!
 //! Needs the corpus (`TIMEGRAPHER_CORPUS`, its audio fetched) and a built
@@ -78,6 +83,14 @@ fn opened(dir: &Path) -> TimegrapherApp {
 
 /// `timegrapher session --json` for the take: its readings, by label.
 fn session_readings(cli: &Path, dir: &Path) -> Vec<serde_json::Value> {
+    session_json(cli, dir)["readings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// `timegrapher session --json` for the take.
+fn session_json(cli: &Path, dir: &Path) -> serde_json::Value {
     let out = std::env::temp_dir().join(format!(
         "tg-app-corpus-{}-{}",
         dir.file_name().unwrap().to_string_lossy(),
@@ -98,8 +111,7 @@ fn session_readings(cli: &Path, dir: &Path) -> Vec<serde_json::Value> {
         "session {dir:?}: {}",
         String::from_utf8_lossy(&run.stderr)
     );
-    let json: serde_json::Value = serde_json::from_slice(&run.stdout).expect("session JSON");
-    json["readings"].as_array().cloned().unwrap_or_default()
+    serde_json::from_slice(&run.stdout).expect("session JSON")
 }
 
 /// Where the app's whole-take reading and the command line's differ, in
@@ -152,41 +164,13 @@ const KNOWN: &[(&str, &str)] = &[(
          its end",
 )];
 
-/// Runs `work` on each item, on as many threads as the machine has, and
-/// returns what it gives in the items' order.
-fn on_every_core<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(items.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    let mut mine = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { break };
-                        mine.push((i, work(item)));
-                    }
-                    mine
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("a worker finishes"))
-            .collect()
-    });
-    done.sort_by_key(|(i, _)| *i);
-    done.into_iter().map(|(_, r)| r).collect()
-}
-
 /// Each recording the takes under `root` list, read on the app's cards and
 /// by `timegrapher session`, compared: what differs and is not on `known`,
 /// or is on it and no longer differs. Takes, and then recordings, are read
 /// side by side, one to a core, so the whole corpus fits CI's time.
 fn compare(root: &Path, cli: &Path, known: &[(&str, &str)]) -> Vec<String> {
     let ids = takes(root);
-    let readings = on_every_core(&ids, |id| {
+    let readings = timegrapher_core::cores::on_every_core(&ids, |id| {
         session_readings(cli, &root.join("takes").join(id))
     });
     let entries: Vec<(String, serde_json::Value)> = ids
@@ -213,7 +197,7 @@ fn compare(root: &Path, cli: &Path, known: &[(&str, &str)]) -> Vec<String> {
         })
         .collect();
     let named: Vec<_> = entries.iter().zip(names).collect();
-    let found = on_every_core(&named, |((id, reading), name)| {
+    let found = timegrapher_core::cores::on_every_core(&named, |((id, reading), name)| {
         let label = label(reading);
         let name = name.clone();
         let app = opened(&root.join("takes").join(id).join(label));
@@ -363,7 +347,7 @@ fn split_entries_clock_probe(metadata: &str, folder: bool) {
     };
     let mut app = opened(&path);
     let clock = app.take_clock.as_ref().expect("the app retains the clock");
-    assert!((clock.ppm - 20.0).abs() < 0.1);
+    assert!((clock.ppm + 20.0).abs() < 0.1);
     assert_eq!(clock.breaks.len(), 1);
     assert!((clock.breaks[0].gap_s - 60.0).abs() < 0.01);
     for (position, reading) in [Position::DialUp, Position::DialDown]
@@ -403,4 +387,191 @@ fn split_entries_clock_folder_truncated_metadata() {
 #[test]
 fn split_entries_clock_folder_missing_metadata() {
     split_entries_clock_probe("missing", true);
+}
+
+/// `timegrapher series --json` for the take.
+fn series_json(cli: &Path, dir: &Path) -> serde_json::Value {
+    let run = std::process::Command::new(cli)
+        .arg("series")
+        .arg(dir)
+        .arg("--json")
+        .output()
+        .expect("the command line runs");
+    assert!(
+        run.status.success(),
+        "series {dir:?}: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    serde_json::from_slice(&run.stdout).expect("series JSON")
+}
+
+/// The figures of a distribution that the app draws and `series` writes:
+/// its count, quantiles, bins and peaks (not its step, which `series`
+/// gives on the corrected clock).
+fn dist_figures(d: &serde_json::Value) -> serde_json::Value {
+    let keys = [
+        "n", "median", "p10", "p90", "edges", "counts", "below", "above", "peaks",
+    ];
+    keys.iter()
+        .map(|k| ((*k).to_string(), d[k].clone()))
+        .collect()
+}
+
+/// The figures of two distributions that differ, the app's then
+/// `series`'s, in words.
+fn figures_apart(ours: Option<&serde_json::Value>, theirs: Option<&serde_json::Value>) -> String {
+    let (Some(a), Some(b)) = (ours, theirs) else {
+        return format!("{ours:?} in the app, {theirs:?} from series");
+    };
+    let short = |v: &serde_json::Value| v.to_string().chars().take(80).collect::<String>();
+    a.as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, v)| b.get(k.as_str()) != Some(v))
+        .map(|(k, v)| {
+            format!(
+                "{k} {} in the app, {} from series",
+                short(v),
+                short(&b[k.as_str()])
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Where the app's panes for the whole take, opened as one recording,
+/// differ from the command line's: each distribution the Distributions
+/// pane draws, against `series`, and the run the Power Reserve pane reads
+/// from a long take, against `session`. Each as `(what, how)`; `what` is
+/// `id`, then the series and its values ("readings" or "2 s"), or
+/// "power reserve". With them, whether either surface read a run.
+fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool) {
+    use timegrapher_core::distribution as dist;
+    let dir = root.join("takes").join(id);
+    let mut app = opened(&dir);
+    let series = series_json(cli, &dir);
+    let mut out = Vec::new();
+    let theirs = series["distributions"]["overall"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for (k, short) in [
+        (SeriesKind::Rate, false),
+        (SeriesKind::Amplitude, false),
+        (SeriesKind::Amplitude, true),
+        (SeriesKind::BeatError, false),
+        (SeriesKind::BeatError, true),
+    ] {
+        let (values, kind, _, label, _) = app.hist_values(k, short, &theme::DARK);
+        let step = if short {
+            dist::STRETCH_S
+        } else {
+            app.average_s
+        };
+        let ours = dist::distribution(&values, kind, label, step)
+            .map(|d| dist_figures(&serde_json::to_value(d).unwrap()));
+        let other = theirs
+            .iter()
+            .find(|d| d["series"] == kind.series && d["values"] == label)
+            .map(dist_figures);
+        if ours != other {
+            out.push((
+                format!("{id} {} {label}", kind.series),
+                figures_apart(ours.as_ref(), other.as_ref()),
+            ));
+        }
+    }
+    app.reserve_from_long_take();
+    let ours = app
+        .reserve
+        .as_ref()
+        .and_then(|t| t.results.as_ref())
+        .map(|r| serde_json::to_value(r).unwrap())
+        .unwrap_or(serde_json::Value::Null);
+    let theirs = session_json(cli, &dir)["power_reserve"].clone();
+    let run = !ours.is_null() || !theirs.is_null();
+    if ours != theirs {
+        out.push((
+            format!("{id} power reserve"),
+            format!("{ours} in the app, {theirs} from session"),
+        ));
+    }
+    (out, run)
+}
+
+/// Pane figures the app still reads differently from the command line,
+/// with the issue that tracks each. A name starting `* ` stands for every
+/// take; each entry must still differ on at least one take, so the list
+/// only shrinks as the app is fixed. A take's "power reserve" entry is
+/// held to that only where a surface reads a run: a pull request's corpus
+/// cut is too short for one.
+const PANES_KNOWN: &[(&str, &str)] = &[
+    (
+        "* rate readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    (
+        "* amplitude readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    (
+        "* beat_error readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    ("ym42_CR_long amplitude 2 s", MEASURE),
+    ("ym42_CR_long beat_error 2 s", MEASURE),
+];
+
+/// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
+/// entries with their own `measure_s` and `settle_s`.
+const MEASURE: &str = "#1156: series reads a take whose entries give their own \
+                       measure_s or a later file's settle_s whole, not session's windows";
+
+/// Whether the difference `what` is the known gap `known`.
+fn is_known(known: &str, what: &str) -> bool {
+    known
+        .strip_prefix("* ")
+        .map_or(known == what, |rest| what.ends_with(&format!(" {rest}")))
+}
+
+/// For each corpus take, opened whole in the app as File > Open Recording
+/// opens it, the Distributions pane's distributions are `series`'s, and
+/// the Power Reserve pane's run from a long take is `session`'s (#514).
+/// Both read through core, so any difference is logic written twice.
+#[test]
+fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
+    let Some((root, cli)) = corpus_and_cli() else {
+        return;
+    };
+    let ids = takes(&root);
+    assert!(!ids.is_empty(), "no take to compare in {root:?}");
+    let read = timegrapher_core::cores::on_every_core(&ids, |id| pane_differences(id, &root, &cli));
+    let with_run: Vec<&str> = ids
+        .iter()
+        .zip(&read)
+        .filter(|(_, (_, run))| *run)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _)| d).collect();
+    let mut wrong = Vec::new();
+    for (what, how) in &found {
+        match PANES_KNOWN.iter().find(|(k, _)| is_known(k, what)) {
+            Some((_, why)) => eprintln!("{what}: differs, as known ({why}): {how}"),
+            None => wrong.push(format!("{what}: {how}")),
+        }
+    }
+    for (known, _) in PANES_KNOWN {
+        let held = known
+            .strip_suffix(" power reserve")
+            .is_none_or(|id| with_run.contains(&id));
+        if held && !found.iter().any(|(what, _)| is_known(known, what)) {
+            wrong.push(format!("{known}: now the same; take it off PANES_KNOWN"));
+        }
+    }
+    eprintln!("{} takes compared", ids.len());
+    assert!(
+        wrong.is_empty(),
+        "the app's panes and the command line differ:\n{}",
+        wrong.join("\n")
+    );
 }

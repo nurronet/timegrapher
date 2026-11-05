@@ -1337,151 +1337,6 @@ pub fn wheel_for(period: f64, wheels: &[Wheel]) -> Option<String> {
         .map(|w| w.name.clone())
 }
 
-/// The cycle a `periodic` headline would rest on. Candidates come from
-/// the two-state finder (a low level that comes back on a period), from
-/// a repeat in the autocorrelation and from the period search; each is
-/// tested by folding the readings at it, and the one whose cycle explains
-/// the most is kept when that is enough. A period shorter than three
-/// readings cannot show in the readings and is left to the period search
-/// report. With `fine` given, the folds and the autocorrelation's
-/// candidates come from its shorter windows.
-fn cycle(
-    s: &SeriesCheck,
-    g: &Grid,
-    fine: Option<&Grid>,
-    wheels: &[Wheel],
-    cfg: &Config,
-) -> Option<Cycle> {
-    let fine_ac = fine.map(|f| detrended_autocorrelation(f, cfg));
-    let ac = fine_ac.as_ref().or(s.autocorrelation.as_ref());
-    let g = fine.unwrap_or(g);
-    let d = longterm::detrend(g, longterm::DETREND_S);
-    let mut cands: Vec<(f64, CycleSource)> = Vec::new();
-    if let Some(t) = &s.two_state {
-        if t.repeating_levels() {
-            if let Some(p) = t.period_s {
-                cands.push((refine(&d, p, 0.05), CycleSource::TwoState));
-            }
-        }
-    }
-    // In the pane, the autocorrelation only refines a cycle the period
-    // search kept: its peaks carry no p-value for Holm's correction (#659).
-    let ac = ac.filter(|_| cfg.acf_alone || s.period.is_some());
-    if let Some(l) = ac.and_then(|a| a.repeat_lag_s) {
-        // The lag is only as fine as one reading: try around it.
-        cands.push((refine(&d, l, 0.2), CycleSource::Autocorrelation));
-    }
-    // Every later peak of the autocorrelation above three times its 95% band, even one
-    // too weak to count as a repeat on its own: the fold below decides. The
-    // band at a lag is [`band_at_lag`], from the pairs `band_by_lag` was read
-    // from.
-    if let Some(a) = ac {
-        let ng = d.y.len() as f64;
-        let band_at =
-            |k: usize| band_at_lag((1.96 / a.band_by_lag[k]).powi(2), a.lag_s[k] / d.step, ng);
-        for k in 2..a.r.len().saturating_sub(1) {
-            if a.r[k] >= a.r[k - 1]
-                && a.r[k] > a.r[k + 1]
-                && band_at(k).is_some_and(|b| a.r[k] >= 3.0 * b)
-            {
-                cands.push((refine(&d, a.lag_s[k], 0.2), CycleSource::Autocorrelation));
-            }
-        }
-    }
-    if let Some(p) = &s.period {
-        for &q in std::iter::once(&p.period_s).chain(&p.other_periods_s) {
-            cands.push((refine(&d, q, 0.01), CycleSource::PeriodSearch));
-        }
-    }
-    let at = |p: f64, src: CycleSource| cycle_at(&d, p, src, wheels);
-    // Folding at five turns of a cycle explains as much as folding at one,
-    // and the autocorrelation's lag grid can favour the multiple (a 48 s
-    // cycle in 10 s readings lines up best at 240 s). Each candidate is
-    // first reduced to its shortest whole fraction that explains at least
-    // 85% as much; then the strongest wins. Reducing first keeps a slower,
-    // stronger cycle from being swapped for a weaker fraction of another.
-    let reduce = |best: Cycle| -> Cycle {
-        // A fraction of a fraction too (540 s to 180 s to 60 s).
-        let mut chosen = best;
-        while let Some(c) = (2..=8u32)
-            .rev()
-            .map(|k| chosen.period_s / k as f64)
-            .filter(|&p| p >= 3.0 * g.step)
-            .map(|p| at(refine(&d, p, 0.03), chosen.source))
-            .find(|c| c.explained >= 0.85 * chosen.explained)
-        {
-            chosen = c;
-        }
-        // When the longer period still wins, the shorter cycle inside it
-        // can be the stronger single cycle: its shape changes from turn to
-        // turn and repeats every few turns. Name it when it explains at
-        // least half as much on its own, fits three or more times (half the
-        // period would catch the cycle's own second harmonic) and is at
-        // least 30 s (faster lines are the timing search's, in ms).
-        if let Some(inner) = (3..=8u32)
-            .map(|k| chosen.period_s / k as f64)
-            .filter(|&p| p >= 3.0 * g.step && p >= crate::longrun::TIMING_UNIT_BELOW_S)
-            .map(|p| at(refine(&d, p, 0.03), chosen.source))
-            .max_by(|a, b| a.explained.total_cmp(&b.explained))
-        {
-            if inner.explained >= 0.5 * chosen.explained {
-                chosen.inner_period_s = Some(inner.period_s);
-                chosen.inner_explained = Some(inner.explained);
-                chosen.turns = Some((chosen.period_s / inner.period_s).round() as u32);
-            }
-        }
-        chosen
-    };
-    cands
-        .into_iter()
-        // At least three turns for the period search, which tests its own
-        // significance; five for the others.
-        .filter(|(p, src)| {
-            let turns = if *src == CycleSource::PeriodSearch {
-                3.0
-            } else {
-                5.0
-            };
-            *p >= 3.0 * g.step && *p <= g.span() / turns
-        })
-        .map(|(p, src)| at(p, src))
-        .filter(|c| c.explained >= cfg.periodic_min_explained)
-        .map(|c| {
-            // A line the period search lists stays itself when reducing
-            // would move it onto a fast line's alias or its turns: the
-            // fraction then holds the alias, not the line.
-            let r = reduce(c.clone());
-            let listed = |p| slow_search_line(p, g.step, d.span(), s.period.as_ref());
-            if listed(c.period_s)
-                && !listed(r.period_s)
-                && alias_of_fast_line(r.period_s, g.step, d.span(), s.period.as_ref()).is_some()
-            {
-                c
-            } else {
-                r
-            }
-        })
-        .filter(|c| c.explained >= cfg.periodic_min_explained)
-        .filter(|c| clears_alias(c.period_s, c.explained, &d, s.period.as_ref()))
-        .map(|mut c| {
-            // At a turn and a half or more of an alias, the fold holds the
-            // alias too: its share and size are given net of the alias's own
-            // fold. On the alias itself the two cannot be parted.
-            if let Some(a) = alias_of_fast_line(c.period_s, g.step, d.span(), s.period.as_ref()) {
-                if c.period_s / a >= 1.25 {
-                    let (rest, kept) = without_fold(&d, refine(&d, a, 0.03));
-                    let (e, ptp) = sized(&rest, c.period_s);
-                    c.explained = e * kept;
-                    c.peak_to_peak = ptp;
-                }
-            }
-            c
-        })
-        .filter(|c| c.explained >= cfg.periodic_min_explained)
-        .max_by(|a, b| a.explained.total_cmp(&b.explained))
-        .map(|c| half_cycle(&c, &d, s.period.as_ref(), wheels, cfg).unwrap_or(c))
-}
-
 /// Whether a cycle of `period` stands apart from a fast line's alias.
 /// The alias itself is set aside, and so is a whole number of its turns
 /// unless the cycle explains clearly more than folding at the alias does
@@ -2573,20 +2428,23 @@ fn windows_grid(
             y: Vec::new(),
         };
     };
-    // On true time, so each gap is left empty.
-    let n = ((map(aw.last().unwrap().start_s) - map(w0.start_s)) / astep).round() as usize + 1;
+    // On true time, so each gap is left empty. Each window goes in the
+    // cell its middle lies in, as `Cuts::window_in` takes a window into a
+    // stretch. The cells start at the first window; one tiling from a
+    // fixed origin for every surface is #636's next step.
+    let t0 = map(w0.start_s);
+    let cell = |w: &crate::amplitude::AmplitudeWindow| {
+        ((holes.window_middle(w) - t0) / astep).floor().max(0.0) as usize
+    };
+    let n = aw.last().map_or(0, cell) + 1;
     let mut y = vec![f64::NAN; n];
     for w in holes.amplitude_windows(aw) {
-        let i = ((map(w.start_s) - map(w0.start_s)) / astep).round() as usize;
+        let i = cell(w);
         if i < n {
             y[i] = f(w).unwrap_or(f64::NAN);
         }
     }
-    Grid {
-        t0: map(w0.start_s),
-        step: astep,
-        y,
-    }
+    Grid { t0, step: astep, y }
 }
 
 /// The amplitude and beat error windows on true time, one grid point
@@ -2819,7 +2677,7 @@ fn isochronism_curve(
         .then(|| centre - curve[1] / (2.0 * curve[2]))
         .filter(|t| *t > b0 + 0.1 * (b1 - b0) && *t < b1 - 0.1 * (b1 - b0));
     // Said as going together, not as cause: the amplitude and the rate
-    // both change with what is not logged, such as temperature.
+    // can both change with what else changes over the take.
     let goes = match (shown, eiv) {
         (Some(e), _) => format!("the rate goes with the amplitude by {}", slope_text(&e)),
         (None, Some(_)) => format!("{TOO_NOISY}, so no slope is read"),
@@ -2828,7 +2686,7 @@ fn isochronism_curve(
     // The end bins as a sentence of their own: two medians, not the
     // slope's own evidence.
     let headline = format!(
-        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}. Temperature is not logged.",
+        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}.",
         b0,
         b1,
         crate::library::signed_text(by[0], 1),
@@ -2869,6 +2727,12 @@ mod tests;
 
 #[path = "steadiness_family.rs"]
 mod family;
+
+#[path = "steadiness_cycle.rs"]
+mod cycle_search;
+use cycle_search::cycle;
+#[cfg(test)]
+use cycle_search::{refined_candidates, same_peaks_once, strongest_cycle};
 pub use family::{family_long, hold_to_family};
 
 #[cfg(test)]

@@ -578,8 +578,13 @@ pub struct Context {
     pub average_s: Option<f64>,
 }
 
-/// The length of a rate window, s.
+/// The length of a rate window, s: rate and timing-scatter fits use ten
+/// seconds to collect enough beats. The one length every reading uses
+/// (#512).
 pub const RATE_WINDOW_S: f64 = 10.0;
+/// The spacing of the rate windows, s: half a window, so they half
+/// overlap.
+pub const RATE_WINDOW_STEP_S: f64 = RATE_WINDOW_S / 2.0;
 
 /// The unbroken beats the rate's ± needs, s: the windows half overlap and
 /// [`confidence::rate_se`] takes every other one, so its
@@ -1041,7 +1046,7 @@ mod tests {
         );
         assert_eq!(
             d.long(None).unwrap(),
-            "The USB lines measure the sound card at +120.0 ppm and the clock log at +20 ± 2 \
+            "The USB lines measure the sound card at +120.0 ppm and the clock log at +20.0 ± 2.0 \
              ppm; the rates are corrected by the USB lines."
         );
         // Its JSON leaves the clock log unsaid, as before (#635).

@@ -1601,3 +1601,96 @@ fn a_rubs_reported_slopes_read_its_true_coupling() {
         assert!((s - 2.0).abs() < 0.05, "{what}: {s}");
     }
 }
+
+#[test]
+fn candidates_on_the_same_peak_are_tested_once_with_the_same_answer() {
+    // Six hours of 2 s amplitude windows (and their 10 s readings) with
+    // a 257.4 s cycle the period search lists, as on a long take: the
+    // autocorrelation peaks at it and its turns, and the period search
+    // and the autocorrelation's repeat land on the same peak. Testing
+    // each peak once must keep the cycle that testing every candidate
+    // keeps, bit for bit (Norm's ruling on the cycle search).
+    let tau = std::f64::consts::TAU;
+    let amp = |n: usize, step: f64, seed: u64| {
+        let mut z = Noise(seed);
+        let y = (0..n)
+            .map(|i| {
+                let t = (i as f64 + 0.5) * step;
+                270.0 + 2.0 * (tau * t / 257.4).sin() + 0.7 * (tau * t / 61.3).sin() + z.next()
+            })
+            .collect();
+        grid(y, step)
+    };
+    let (fine, readings) = (amp(10_800, 2.0, 21), amp(2_160, 10.0, 22));
+    let mut line = search_line(257.4, 4.0, "deg", None);
+    line.other_periods_s = vec![61.3, 128.7];
+    line.other_harmonic_of = vec![None, None];
+    let cfg = Config {
+        acf_alone: true,
+        ..Config::default()
+    };
+    let s = check_series(
+        SeriesKind::Amplitude,
+        readings.clone(),
+        Some(fine.clone()),
+        Some(line),
+        None,
+        &[],
+        &cfg,
+    );
+    let (d, refined) = refined_candidates(&s, &readings, Some(&fine), &cfg);
+    let once = same_peaks_once(&refined, d.span());
+    assert!(
+        refined.len() >= once.len() + 4 && once.len() >= 3,
+        "{} candidates, {} peaks",
+        refined.len(),
+        once.len()
+    );
+    let every: Vec<(f64, CycleSource)> = refined.iter().map(|&(p, src, _)| (p, src)).collect();
+    let all = strongest_cycle(&s, &fine, &d, &every, &[], &cfg);
+    let kept = s.cycle.clone();
+    assert_eq!(format!("{kept:?}"), format!("{all:?}"));
+    let c = kept.unwrap();
+    assert!((c.period_s - 257.4).abs() < 0.5, "{c:?}");
+}
+
+/// A window goes in the cell its middle lies in, as `Cuts::window_in`
+/// takes a window into a stretch (#636): a short window from 3.2 to
+/// 4.0 s on a 2 s grid sits in cell 1, where rounding its start would
+/// have put it in cell 2.
+#[test]
+fn a_window_goes_in_the_cell_its_middle_lies_in() {
+    let w = |start_s: f64, end_s: f64, deg: f64| crate::amplitude::AmplitudeWindow {
+        start_s,
+        end_s,
+        even_deg: Some(deg),
+        odd_deg: Some(deg),
+        beat_error_ms: None,
+        beat_error_unlock_ms: None,
+        even_unlock_ms: None,
+        odd_unlock_ms: None,
+        even_drop_ms: None,
+        odd_drop_ms: None,
+    };
+    let log = BeatLog {
+        sample_rate: 48000,
+        duration_s: 10.0,
+        bph: 28800,
+        lift_deg: 52.0,
+        beats: Vec::new(),
+        amplitude_windows: vec![w(0.0, 2.0, 250.0), w(3.2, 4.0, 260.0), w(6.0, 8.0, 270.0)],
+        clipped_beats: vec![],
+        clipped_samples: 0,
+        jumps: vec![],
+        sided: vec![],
+        by_count: vec![],
+        snippets: Vec::new(),
+    };
+    let g = windows_grid(&log, None, &[], &|w| w.mean());
+    assert_eq!((g.t0, g.step), (0.0, 2.0));
+    assert_eq!(g.y.len(), 4, "{:?}", g.y);
+    assert_eq!(g.y[0], 250.0);
+    assert_eq!(g.y[1], 260.0, "{:?}", g.y);
+    assert!(g.y[2].is_nan(), "{:?}", g.y);
+    assert_eq!(g.y[3], 270.0);
+}

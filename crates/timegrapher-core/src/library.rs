@@ -566,7 +566,7 @@ pub fn reading(take_dir: &Path) -> Result<Reading, String> {
 /// ([`crate::take::reads_nothing`]), read as `timegrapher session` reads
 /// it, with no flags: its settings from its `session.toml` and calibre
 /// ([`crate::take::stream_settings`]), its clock from its log, its USB
-/// lines, its `card_ppm` or the correction stored for its input
+/// lines, its `card_ppm_fast` or the correction stored for its input
 /// ([`crate::take::measure_entry`]). Also what it was worked out from
 /// outside the take's folder ([`Outside`]).
 fn measure_take(dir: &Path) -> Result<(Reading, Outside), String> {
@@ -1739,7 +1739,7 @@ fn modified_ns(m: &fs::Metadata) -> u128 {
         .map_or(0, |d| d.as_nanos())
 }
 
-/// The sound card's error from the USB lines of `files`' first, ppm slow
+/// The sound card's error from the USB lines of `files`' first, ppm fast
 /// ([`crate::clock::usb_lines`]), kept per file and its modified time, so
 /// a library read again doesn't decode its takes again.
 fn usb_ppm(files: &[PathBuf]) -> Option<f64> {
@@ -2208,7 +2208,7 @@ mod tests {
         let usb = crate::clock::usb_lines(&[dir.join("audio-001.wav")])
             .unwrap()
             .expect("lines found");
-        assert!((usb.ppm - 20.0).abs() < 0.5, "{}", usb.ppm);
+        assert!((usb.ppm + 20.0).abs() < 0.5, "{}", usb.ppm);
         // Core's reading of them, for every surface, is the same.
         let files = [dir.join("audio-001.wav")];
         assert_eq!(crate::take::usb(&files).unwrap(), Some(usb.correction()));

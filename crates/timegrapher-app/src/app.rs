@@ -27,6 +27,8 @@ use egui_tiles::{Linear, LinearDir, SimplificationOptions, TileId, Tiles, Tree, 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
+#[cfg(test)]
+use take_io::order_warning;
 use take_reads::{FreeJob, FreeKey, TrendKey, WholeKey, WholeTake};
 use timegrapher_core::beats::STANDARD_BPH;
 use timegrapher_core::breaks::{GapWatch, Live};
@@ -2124,6 +2126,7 @@ pub struct TimegrapherApp {
     /// The histograms count the readings rather than each 2 seconds of
     /// beats.
     hist_readings: bool,
+    iso_view: isochronism::View,
     /// The rate over each 2 seconds of beats, for the rate's distribution.
     rate_2s: RateTwoS,
     /// The series each Steadiness pane shows: rate, amplitude, beat error.
@@ -2254,8 +2257,8 @@ pub struct TimegrapherApp {
     analysis_save: Option<AnalysisSave>,
     /// Saving the session's sound, while the copy is written.
     saving: Option<Saving>,
-    /// The take on show was kept as its analysis alone, without its sound.
-    no_sound: bool,
+    /// Kept as its analysis alone: the 2 s profiles in its sound's place.
+    no_sound: Option<Vec<analysis_take::StretchProfiles>>,
     /// Where this session's analysis was last kept without its sound, and
     /// the seconds of sound it covers. The sound itself stays unsaved.
     analysis_kept_to: Option<(PathBuf, f64)>,
@@ -2324,6 +2327,7 @@ impl TimegrapherApp {
             dist_series: self.dist_series,
             hist_cumulative: self.hist_cumulative,
             hist_readings: self.hist_readings,
+            iso_view: self.iso_view,
             sound: self.sound_opts,
             folded: self.folded.iter().cloned().collect(),
             theme: self.theme,
@@ -2375,6 +2379,7 @@ impl TimegrapherApp {
             dist_series,
             hist_cumulative,
             hist_readings,
+            iso_view,
             sound,
             folded,
             theme,
@@ -2443,6 +2448,7 @@ impl TimegrapherApp {
         self.dist_series = some(dist_series);
         self.hist_cumulative = hist_cumulative;
         self.hist_readings = hist_readings;
+        self.iso_view = iso_view;
         self.sound_opts = sound;
         self.folded = folded.into_iter().collect();
         self.theme = theme;
@@ -2634,6 +2640,7 @@ impl TimegrapherApp {
             steady_job: None,
             steady_work: (Default::default(), std::time::Instant::now()),
             hist_readings: true,
+            iso_view: Default::default(),
             rate_2s: RateTwoS::default(),
             cursor_t: None,
             cursor_next: None,
@@ -2685,7 +2692,7 @@ impl TimegrapherApp {
             sound_at: None,
             analysis_save: None,
             saving: None,
-            no_sound: false,
+            no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
             masks_let_go: false,
@@ -3037,6 +3044,7 @@ impl TimegrapherApp {
                 self.steady_info = info;
             }
             Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
+                isochronism::view_choice(ui, &mut self.iso_view);
                 self.export_button(ui, pane)
             }),
             Pane::PositionsTest => theme::pane_toolbar(ui, title, &help::POSITIONS_TEST, |ui| {
@@ -3733,7 +3741,7 @@ fn settle_hint(s: f64) -> String {
 /// audio seconds (`audio`) while they are the same beats.
 /// The clock readings are put on, for a log `duration_s` long: for a
 /// take opened (`opened`), its own clock as core read it, or none; for a
-/// session heard here, the clock kept for the input (`ppm` slow).
+/// session heard here, the clock kept for the input (`ppm` fast).
 fn reading_clock(
     take_clock: Option<&timegrapher_core::clock::ClockFit>,
     opened: bool,
@@ -4003,36 +4011,6 @@ fn listed_order(dir: &Path) -> Option<Vec<String>> {
             .map(|entry| entry.file)
             .collect(),
     )
-}
-
-/// Where the order the files are joined in disagrees with when they were
-/// written: a file whose modification time is earlier than the one before
-/// it by more than that file's own length. Said so the order can be
-/// checked, not changed.
-fn order_warning(files: &[PathBuf]) -> Option<String> {
-    let when = |f: &PathBuf| std::fs::metadata(f).and_then(|m| m.modified()).ok();
-    let length = |f: &PathBuf| {
-        timegrapher_core::audio::info(f)
-            .ok()
-            .and_then(|i| i.frames.map(|n| n as f64 / i.sample_rate.max(1) as f64))
-    };
-    for pair in files.windows(2) {
-        let (Some(a), Some(b)) = (when(&pair[0]), when(&pair[1])) else {
-            continue;
-        };
-        let Ok(back) = a.duration_since(b) else {
-            continue;
-        };
-        if back.as_secs_f64() > length(&pair[0]).unwrap_or(0.0) {
-            return Some(format!(
-                "{} was written before {}, which comes ahead of it: check the order the files \
-                 are joined in.",
-                file_name(&pair[1]),
-                file_name(&pair[0])
-            ));
-        }
-    }
-    None
 }
 
 /// Why a folder whose session file says it was kept without its sound

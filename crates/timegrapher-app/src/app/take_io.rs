@@ -1,6 +1,7 @@
 //! Listening and saving: the microphone, the session and its unsaved state, saving takes and analysis, opening and replaying recordings, the whole-take analysis, and the poll that feeds the live view.
 
 use super::*;
+use timegrapher_core::take_context::{EntryWindow, FilePart};
 
 impl TimegrapherApp {
     pub(super) fn live_config(&self) -> LiveConfig {
@@ -93,7 +94,7 @@ impl TimegrapherApp {
         self.clipped_at = None;
         self.message = None;
         self.sound_history.clear();
-        self.no_sound = false;
+        self.no_sound = None;
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
@@ -437,7 +438,7 @@ impl TimegrapherApp {
         self.brush = None;
         self.clear_trends();
         self.sound_history.clear();
-        self.no_sound = false;
+        self.no_sound = None;
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
@@ -1283,6 +1284,21 @@ impl TimegrapherApp {
         entries: &[RecordingEntry],
         duration_s: Option<f64>,
     ) -> (Stretches, Vec<(f64, f64)>) {
+        self.apply_manifest_placed(m, entries, duration_s, None)
+    }
+
+    /// [`Self::apply_manifest`] for a take opened from a folder of several
+    /// sound files, `layout` (core's [`folder_layout`], one window per
+    /// entry) placing each on the strip: an entry for one of them gives its
+    /// positions, settling and masks in seconds into its own file, so each
+    /// is moved to where that file starts (#1154).
+    pub(super) fn apply_manifest_placed(
+        &mut self,
+        m: &Manifest,
+        entries: &[RecordingEntry],
+        duration_s: Option<f64>,
+        layout: Option<&[EntryWindow]>,
+    ) -> (Stretches, Vec<(f64, f64)>) {
         if let Some(w) = &m.watch {
             self.watch = w.clone();
         }
@@ -1306,19 +1322,43 @@ impl TimegrapherApp {
         if m.bph.is_some() {
             self.put_bph(m.bph);
         }
-        // What the take masked out; its seconds are the strip's.
-        let masked: Vec<[f64; 2]> = entries.iter().flat_map(|e| e.masked.clone()).collect();
+        // What the take masked out; its seconds are the strip's, each
+        // entry's moved to where its file starts.
+        let offset = |i: usize| layout.map_or(0.0, |w| w[i].offset_s);
+        let masked: Vec<[f64; 2]> = entries
+            .iter()
+            .enumerate()
+            .flat_map(|(i, e)| {
+                let off = offset(i);
+                e.masked.iter().map(move |s| [s[0] + off, s[1] + off])
+            })
+            .collect();
         self.put_masked(timegrapher_core::session::masked_spans(&masked));
         self.opened_masks = Some(self.masked.clone());
         // Each entry read once the watch has settled, from core's window
         // for it, as `session` reads it: the app's own takes say
         // `settle_s = 0`, a recorded one its settling, and a take shorter
         // than twice its settling settles to halfway. Its length is known
-        // here for a take of one sound file; for one of several, each
-        // entry runs to its end.
-        let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
-        let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
-        let listed = timegrapher_core::take::listed_positions(m, entries, length);
+        // here for a take of one sound file, and for each file of a folder
+        // take laid out by core; otherwise each entry runs to its end.
+        let listed = match layout {
+            Some(windows) => entries
+                .iter()
+                .zip(windows)
+                .filter_map(|(e, w)| {
+                    timegrapher_core::take::listed_position(
+                        e,
+                        w.window.as_ref().ok().copied(),
+                        w.offset_s,
+                    )
+                })
+                .collect(),
+            None => {
+                let one_file = entries.windows(2).all(|w| w[0].file == w[1].file);
+                let length = duration_s.filter(|_| one_file).unwrap_or(f64::INFINITY);
+                timegrapher_core::take::listed_positions(m, entries, length)
+            }
+        };
         let (out, settles) = timegrapher_core::take::positions_of(
             listed
                 .into_iter()
@@ -1434,7 +1474,9 @@ impl TimegrapherApp {
                         self.keep_mic_setup();
                         self.set_watch_setup(WatchSetup::default());
                         self.open_note = None;
-                        self.apply_manifest(&m, &entries, None)
+                        let layout = folder_layout(path, &m, &entries);
+                        let windows = layout.as_ref().map(|l| l.1.as_slice());
+                        self.apply_manifest_placed(&m, &entries, None, windows)
                     }
                     None => {
                         self.fresh_setup(path, &files);
@@ -1587,7 +1629,10 @@ impl TimegrapherApp {
         let (stretches, settles) = match manifest {
             Some((m, entries)) => {
                 let length = info.frames.map(|f| f as f64 / f64::from(info.sample_rate));
-                let out = self.apply_manifest(&m, &entries, length.filter(|_| files.len() == 1));
+                let layout = folder_layout(path, &m, &entries);
+                let length = length.filter(|_| files.len() == 1);
+                let windows = layout.as_ref().map(|l| l.1.as_slice());
+                let out = self.apply_manifest_placed(&m, &entries, length, windows);
                 self.watch_fills_in(path, &m);
                 out
             }
@@ -1780,7 +1825,7 @@ impl TimegrapherApp {
         self.opened_path = path.display().to_string();
         self.reset_session(header.sample_rate, label.clone());
         self.load_reserve(path);
-        self.no_sound = true;
+        self.no_sound = Some(Vec::new());
         self.session.analyse();
         self.live = None;
         // Nothing of the take before's clock carries over, whichever
@@ -2194,22 +2239,9 @@ impl TimegrapherApp {
                         self.opened_positions = opened;
                     }
                     // A take with no sound shows the profiles it kept,
-                    // thinned as listening thins them (#483).
+                    // averaged over the Average Over window (#979).
                     if let Some(k) = profiles {
-                        let span_s = timegrapher_core::analysis_take::PROFILE_EVERY_S;
-                        self.sound_history = k
-                            .into_iter()
-                            .map(|p| {
-                                (
-                                    p.end_s,
-                                    scope_panes::Kept {
-                                        span_s,
-                                        sides: p.sides,
-                                    },
-                                )
-                            })
-                            .collect();
-                        scope_panes::thin_sound(&mut self.sound_history);
+                        self.no_sound = Some(k);
                     }
                 }
                 Ok(None) => {}
@@ -2316,7 +2348,7 @@ impl TimegrapherApp {
         // A long take that isn't a test: its run, read as one in the
         // background.
         self.bg.reserve = Some(None);
-        let done = if self.no_sound {
+        let done = if self.no_sound.is_some() {
             "Opened the analysis kept without its sound: the readings, charts and tests are as \
              they were measured, and the Scope needs the sound. Drag the strip to look \
              back."
@@ -2349,6 +2381,32 @@ fn recordings_info(
         }
     }
     Ok((files, info))
+}
+
+/// A take opened from the folder `path` of several sound files, with its
+/// session file `m` and that file's `entries` for the folder, laid out by
+/// core (`take_context::entry_layout`): each sound file's place on the
+/// strip, and each entry's window there, one per entry (#1154). None for
+/// a lone file, a folder of one, one core can't lay out, or one with an
+/// entry for the whole folder, which reads over the take whole as before.
+pub(super) fn folder_layout(
+    path: &Path,
+    m: &Manifest,
+    entries: &[RecordingEntry],
+) -> Option<(Vec<FilePart>, Vec<EntryWindow>)> {
+    let whole = entries
+        .iter()
+        .any(|e| timegrapher_core::take::names_whole_folder(&e.file));
+    if !path.is_dir() || whole {
+        return None;
+    }
+    let listed = Manifest {
+        recordings: entries.to_vec(),
+        ..m.clone()
+    };
+    let (files, windows) =
+        timegrapher_core::take_context::entry_layout(path, &listed, None).ok()?;
+    (files.len() > 1 && windows.len() == entries.len()).then_some((files, windows))
 }
 
 /// The name an opened take shows with: a folder says how many files.
@@ -2548,4 +2606,38 @@ fn break_text(gap: f64, dropped: bool) -> String {
             fields::duration(gap.round())
         )
     }
+}
+
+/// Where the order the files are joined in disagrees with when they were
+/// written: a file whose modification time is earlier than the one before
+/// it by more than that file's own length. Said so the order can be
+/// checked, not changed.
+pub(super) fn order_warning(files: &[PathBuf]) -> Option<String> {
+    let segments: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+    if timegrapher_core::breaks::are_take_segments(&segments) {
+        return None;
+    }
+    let when = |f: &PathBuf| std::fs::metadata(f).and_then(|m| m.modified()).ok();
+    let length = |f: &PathBuf| {
+        timegrapher_core::audio::info(f)
+            .ok()
+            .and_then(|i| i.frames.map(|n| n as f64 / i.sample_rate.max(1) as f64))
+    };
+    for pair in files.windows(2) {
+        let (Some(a), Some(b)) = (when(&pair[0]), when(&pair[1])) else {
+            continue;
+        };
+        let Ok(back) = a.duration_since(b) else {
+            continue;
+        };
+        if back.as_secs_f64() > length(&pair[0]).unwrap_or(0.0) {
+            return Some(format!(
+                "{} was written before {}, which comes ahead of it: check the order the files \
+                 are joined in.",
+                file_name(&pair[1]),
+                file_name(&pair[0])
+            ));
+        }
+    }
+    None
 }

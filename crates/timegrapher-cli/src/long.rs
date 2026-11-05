@@ -12,7 +12,7 @@ use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::longrun::{self, LongReport};
 use timegrapher_core::longterm::{Component, LongConfig};
 use timegrapher_core::periodicity::{common_escape_wheels, standard_wheels, Wheel};
-use timegrapher_core::stream::{self, BeatLog, StreamConfig};
+use timegrapher_core::stream::{BeatLog, StreamConfig};
 use timegrapher_core::timefreq::size_number;
 use timegrapher_core::{audio, joined, take, timing};
 
@@ -331,7 +331,7 @@ pub(crate) struct Read {
 /// Read `files` for `long` and `series`. A take's folder (one holding a
 /// `session.toml`) is opened as every surface opens a take
 /// ([`take::open_entry`] on [`take::whole_take`]): its beat rate, lift
-/// angle, escape teeth, calibre and wheels, `card_ppm`, clock log and
+/// angle, escape teeth, calibre and wheels, `card_ppm_fast`, clock log and
 /// masks, with the flags given first. Anything else is read as sound
 /// files, one continuous recording.
 pub(crate) fn read(
@@ -353,38 +353,31 @@ pub(crate) fn read(
     cfg.analysis.lift_known = resolved_train.lift_given(lift).is_some();
     let files = expand_dirs(files)?;
     let file = files.first().ok_or("no recording given")?.clone();
-    let mut info = audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    for f in &files[1..] {
-        let i = audio::info(f).map_err(|e| format!("{}: {e}", f.display()))?;
-        info.frames = info.frames.zip(i.frames).map(|(a, b)| a + b);
-    }
+    audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     // Once the recordings open, so a run that fails on them says only why.
     if let Some(note) = resolved_train.lift_default_note(lift) {
         eprintln!("{note}");
     }
-    let total_s = info
-        .frames
-        .map_or(0.0, |f| f as f64 / info.sample_rate as f64);
-    let mut clock = crate::clock_cmd::resolve(
-        clock_args.log,
-        &info,
-        total_s,
-        || crate::clock_cmd::usb(&files),
-        || crate::clock_cmd::correction(&files[0], clock_args.device, clock_args.card_ppm),
-    )?;
-    let total = info.frames.map(|f| f as f64 / info.sample_rate as f64);
-    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    // Opened as core opens a take (`take::open_files`): its beats, its
+    // clock from the clock log, USB lines or known correction, its breaks.
+    let settings = take::EntrySettings {
+        stream: cfg.clone(),
+        card_clock: false,
+        settle_s: None,
+    };
     let mut progress = Progress::new();
-    let mut log = stream::analyze_files(&paths, &cfg, |done| {
-        progress.at(done, total, |d| fixed_text(d / 60.0, 0), "min")
-    })
-    .map_err(|e| e.to_string())?;
+    let opened = take::open_files(
+        &files,
+        clock_args.log,
+        &settings,
+        take::usb,
+        |first| take::correction(first, clock_args.device, clock_args.card_ppm),
+        |done, total| progress.at(done, Some(total), |d| fixed_text(d / 60.0, 0), "min"),
+    )?;
     progress.end();
-    let timegrapher_core::breaks::Found { breaks, unlisted } = take::breaks(
-        &mut log,
-        take::Listed::Files(&paths),
-        clock.as_mut().map(|c| &mut c.fit),
-    );
+    let clock =
+        crate::clock_cmd::AppliedClock::of(opened.clock, opened.clock_ppm, opened.clock_source);
+    let (log, breaks, unlisted) = (opened.log, opened.breaks, opened.unlisted);
     Ok(Read {
         files,
         take: None,
@@ -456,11 +449,8 @@ fn read_take(
     )?;
     progress.end();
     let log_path = e.clock.as_ref().map(|c| base.join(c));
-    let clock = opened.clock.map(|fit| crate::clock_cmd::AppliedClock {
-        fit,
-        ppm: opened.clock_ppm,
-        from: opened.clock_source.clone().unwrap_or_default(),
-    });
+    let clock =
+        crate::clock_cmd::AppliedClock::of(opened.clock, opened.clock_ppm, opened.clock_source);
     // Each entry from the end of its settling, as `session` and the app
     // read it.
     let stretches = joined::take_spans(&m, opened.log.duration_s);
@@ -914,9 +904,9 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
         (Some(c), Some(note)) => println!(
             "Clock        sound card {} ppm {} than true time, so uncorrected rates read {} s/d {}; corrected with the steady error {note}",
             fixed_text(c.ppm.abs(), 2),
-            if c.ppm >= 0.0 { "slower" } else { "faster" },
+            if c.ppm >= 0.0 { "faster" } else { "slower" },
             fixed_text(c.rate_error_s_per_day.abs(), 2),
-            if c.ppm >= 0.0 { "fast" } else { "slow" },
+            if c.ppm >= 0.0 { "slow" } else { "fast" },
         ),
         (Some(c), None) if !c.corrects() => println!(
             "Clock        not calibrated: {}",
@@ -925,9 +915,9 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
         (Some(c), None) => println!(
             "Clock        sound card {} ppm {} than NTP time, so uncorrected rates read {} s/d {}; corrected from {} entries, {} ms rms{}",
             fixed_text(c.ppm.abs(), 2),
-            if c.ppm >= 0.0 { "slower" } else { "faster" },
+            if c.ppm >= 0.0 { "faster" } else { "slower" },
             fixed_text(c.rate_error_s_per_day.abs(), 2),
-            if c.ppm >= 0.0 { "fast" } else { "slow" },
+            if c.ppm >= 0.0 { "slow" } else { "fast" },
             c.points,
             fixed_text(c.residual_ms, 1),
             if c.tracks_drift { ", drift followed" } else { "" }
@@ -1515,12 +1505,12 @@ mod take_tests {
 
     /// A take saved by the app, one entry per position over one recording,
     /// is read with its session file's beat rate, lift angle, escape
-    /// teeth, wheels, card_ppm and masks, as `session` reads it.
+    /// teeth, wheels, card_ppm_fast and masks, as `session` reads it.
     #[test]
     fn a_take_folder_is_read_with_its_session_file() {
         let dir = take(
             "settings",
-            "bph = 28800\nlift = 49\nescape_teeth = 20\ncard_ppm = 20.0\n\
+            "bph = 28800\nlift = 49\nescape_teeth = 20\ncard_ppm_fast = -20.0\n\
              wheels = { \"third wheel\" = 450.0 }\n\n\
              [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nend_s = 60.0\nmasked = [[49.0, 57.0]]\n\n\
              [[recording]]\nfile = \"take.wav\"\nposition = \"CU\"\nstart_s = 60.0\nmasked = [[49.0, 57.0]]\n",
@@ -1546,19 +1536,19 @@ mod take_tests {
             "a beat in the mask"
         );
         let clock = r.clock.unwrap();
-        assert_eq!(clock.ppm, Some(20.0));
+        assert_eq!(clock.ppm, Some(-20.0));
         assert!(clock.from.contains("card_ppm"), "{}", clock.from);
         assert_eq!(r.clock_log, None);
         let _ = fs::remove_dir_all(&dir);
     }
 
     /// The clock log the entries name puts the readings on its clock,
-    /// before any card_ppm; a log given with --clock comes first.
+    /// before any card_ppm_fast; a log given with --clock comes first.
     #[test]
     fn a_take_folder_is_read_on_its_clock_log() {
         let dir = take(
             "clock",
-            "card_ppm = 20.0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nclock = \"clock.csv\"\n",
+            "card_ppm_fast = -20.0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nclock = \"clock.csv\"\n",
         );
         let r = read_take(&dir);
         let clock = r.clock.unwrap();

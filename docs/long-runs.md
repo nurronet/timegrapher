@@ -65,7 +65,7 @@ each folder expands at its argument position. The same expansion is used by
 
 A take's folder (one holding a `session.toml`), given alone, is read as a
 take, as `session` and the app read it: its beat rate, lift angle, escape
-wheel teeth, calibre and wheels, its `card_ppm`, the clock log its entries
+wheel teeth, calibre and wheels, its `card_ppm_fast`, the clock log its entries
 name and every entry's `masked` stretches, with `--bph`, `--lift`,
 `--calibre`, `--escape-teeth`, `--clock` and `long`'s `--card-ppm` and `--device` given
 first. A take of one recording whose entries name their positions is read
@@ -157,7 +157,7 @@ log measured with `reason` `usb_lines`.
 Without a log, `long` uses the card's error stored with `timegrapher
 clock` (see [agent-interface.md](agent-interface.md#clock)): the one for
 `--device NAME`, else the one for the input the recording's sidecar or
-`session.json` names. `--card-ppm N` gives the error directly. A stored
+`session.json` names. `--card-ppm N` gives the error directly, ppm fast (negative: slow). A stored
 error is one steady number, so it cannot follow drift; the report says
 which correction was used, and `summary.json`'s `input.settings.clock_correction`
 records it.
@@ -176,7 +176,7 @@ the clock fit takes the gap out before fitting, so a pause no longer reads
 as a huge sound-card error; rate and beat error are fitted per stretch and
 combined weighted by beats (where the beat error's sign turns over across
 a break, as sizes, given as positive, and then the slices' beat errors
-and `series`' are sizes too); no 10 s window, slice or `series` 2 s window reaches into a
+and `series`' are sizes too); no 10 s window, slice or 2 s window (`series`' or `long`'s amplitude, #636) reaches into a
 break's gap from either side (a slice that would, or that has a 2 s
 stretch with no beat in it, is left empty, rate, beat error and
 amplitude alike, rather than read from part of its span), and the gap runs from the last sound before the pause to where

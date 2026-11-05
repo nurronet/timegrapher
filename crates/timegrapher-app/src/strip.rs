@@ -2683,7 +2683,8 @@ mod tests {
     fn on_a_corrected_take_the_beats_run_along_the_rate_line() {
         let p = 0.125;
         let rate = 5.0;
-        let clock = ClockFit::fixed(100.0, 120.0);
+        // A card 100 ppm slow.
+        let clock = ClockFit::fixed(-100.0, 120.0);
         let slow = 1.0 + 100.0 * 1e-6;
         // Beat k at its true second k periods in, gaining `rate`; the card
         // hears it at that over `slow`.

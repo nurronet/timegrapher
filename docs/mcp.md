@@ -147,7 +147,7 @@ chat app also asks you to allow each tool call. Every take is added to the
 test; the check says when no regular beat was found or beats were clipped.
 
 `check_steadiness` preserves the CLI series document's top-level `clock`
-context in its structured result: `ppm`, `rate_error_s_per_day`, `from`,
+context in its structured result: `ppm` (positive when the sound card runs fast), `rate_error_s_per_day`, `from`,
 and `tracks_drift`, or `null` when no correction was applied. Its text lead
 states that same basis. This tool uses the recording's automatic stored/USB
 resolution and exposes no explicit clock-log or card-correction input.

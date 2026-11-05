@@ -1111,11 +1111,11 @@ mod tests {
                     doc["clock"]["from"],
                     "from 3 USB lines in the recording, 0.1 ppm apart"
                 );
-                assert_eq!(doc["clock"]["rate_error_s_per_day"], ppm * 1e-6 * 86400.0);
+                assert_eq!(doc["clock"]["rate_error_s_per_day"], -ppm * 1e-6 * 86400.0);
                 assert_eq!(
                     doc["clock"]["rate_s_per_day"],
                     fitted
-                        .then(|| (1.0 + 12.0 / 86400.0) / (1.0 + ppm * 1e-6) * 86400.0 - 86400.0)
+                        .then(|| (1.0 + 12.0 / 86400.0) / (1.0 - ppm * 1e-6) * 86400.0 - 86400.0)
                         .map_or(Value::Null, |v| json!(v))
                 );
             }
