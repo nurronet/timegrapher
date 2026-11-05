@@ -54,6 +54,42 @@ pub enum View {
     Wavelet,
 }
 
+/// A switch in a Steadiness pane's toolbar: each pane keeps its own,
+/// and a pane not switched yet takes `unset`, the one value every pane
+/// shared before each kept its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PerPane {
+    pub set: std::collections::BTreeMap<View, bool>,
+    pub unset: bool,
+}
+
+impl PerPane {
+    pub fn new(set: Vec<(View, bool)>, unset: bool) -> Self {
+        PerPane {
+            set: set.into_iter().collect(),
+            unset,
+        }
+    }
+
+    /// Whether the switch is on in `view`'s pane.
+    pub fn on(&self, view: View) -> bool {
+        self.set.get(&view).copied().unwrap_or(self.unset)
+    }
+
+    /// Switch `view`'s pane to `on`. Only a change is noted, so the panes
+    /// never switched keep the default.
+    pub fn set(&mut self, view: View, on: bool) {
+        if on != self.on(view) {
+            self.set.insert(view, on);
+        }
+    }
+
+    /// The panes switched, as settings keep them.
+    pub fn saved(&self) -> Vec<(View, bool)> {
+        self.set.iter().map(|(v, on)| (*v, *on)).collect()
+    }
+}
+
 impl View {
     /// The STFT and Wavelet Maps: one map at a time, the choice shared.
     pub fn is_map(self) -> bool {
@@ -1675,7 +1711,7 @@ pub struct Opts {
     /// The calibre's wheels marked on the period axis, or the reference
     /// periods when no wheel is known.
     pub wheels: bool,
-    /// The Info panel, beside the plots: one setting for every view.
+    /// The Info panel, beside the plots: each pane opens its own.
     pub info: bool,
 }
 

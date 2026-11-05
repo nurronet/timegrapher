@@ -63,27 +63,31 @@ impl TimegrapherApp {
         }
         if matches!(view, steady::View::Stft | steady::View::Wavelet) {
             theme::bar_gap(ui);
+            let mut db = self.maps_db.on(view);
             theme::tool_switch(
                 ui,
                 Icon::Db,
                 accent,
                 "dB Scale",
-                &mut self.maps_db,
+                &mut db,
                 "Show the sizes in decibels. Off: linear.",
             );
+            self.maps_db.set(view, db);
         }
         if matches!(
             view,
             steady::View::Periods | steady::View::Fft | steady::View::Stft | steady::View::Wavelet
         ) {
+            let mut wheels = self.show_wheels.on(view);
             theme::tool_switch(
                 ui,
                 Icon::Wheel,
                 accent,
                 "Wheel Periods",
-                &mut self.show_wheels,
+                &mut wheels,
                 steady::WHEELS_HINT,
             );
+            self.show_wheels.set(view, wheels);
         }
     }
 
@@ -258,9 +262,9 @@ impl TimegrapherApp {
             steady::Opts {
                 periods_db: self.periods_db,
                 fft_timing: self.fft_timing,
-                maps_db: self.maps_db,
-                wheels: self.show_wheels,
-                info: self.steady_info,
+                maps_db: self.maps_db.on(view),
+                wheels: self.show_wheels.on(view),
+                info: self.steady_info.on(view),
             },
         );
     }
