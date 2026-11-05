@@ -2,7 +2,7 @@
 //! asked, into a session folder, and add it to the folder's session file.
 //!
 //! Each run is one take: a folder made by [`Recorder`] exactly as the
-//! desktop app makes it (`audio-001.wav`, `clock.csv`, `session.json`),
+//! desktop app makes it (`audio-001.flac`, `clock.csv`, `session.json`),
 //! with the app's `session.toml` inside it, so the app opens it with its
 //! settings. The take is then listed in the session folder's own
 //! `session.toml` with its position and state of wind, and `timegrapher
@@ -261,8 +261,9 @@ fn run_in(o: &Options, library_watch: Option<String>) -> Result<(), String> {
     let started = recorder::utc(SystemTime::now());
     let (rec, source, sample_rate, ending) = capture(o, pos, &set)?;
     let take = rec.dir().to_path_buf();
+    // The take ends here: its last hour is kept as FLAC too.
     let dir = rec
-        .finish(None)
+        .finish_as_flac(None)
         .map_err(|e| format!("{}: {e}", take.display()))?;
     write_take_manifest(&dir, pos, &set, Some("clock.csv"))?;
     let reserve = if o.power_reserve {
@@ -804,7 +805,9 @@ fn live(
 }
 
 fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
-    let wav = dir.join("audio-001.wav");
+    // The first hour, as kept: its FLAC once converted.
+    let first = dir.join("audio-001.wav");
+    let wav = timegrapher_core::recording_order::recordings_in(&first, &[])?.remove(0);
     // Whether a regular beat was found, and clipping, over the whole take,
     // as `analyze` reports them, which a short take still gets.
     let a = audio::load(&wav).map_err(|e| format!("{}: {e}", wav.display()))?;
