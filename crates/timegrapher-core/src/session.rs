@@ -487,6 +487,39 @@ pub fn window_figures(wins: &[&AmplitudeWindow], turned: bool) -> WindowFigures 
     }
 }
 
+/// A stretch's timing fit and window figures, as every reading of a
+/// stretch takes them: saved (`session`), whole (`analyze`) and live
+/// (#512, one engine reads a stretch).
+#[derive(Debug, Clone)]
+pub struct StretchFits {
+    /// Rate and beat error, fitted piece by piece between the cuts
+    /// ([`timing::fit_pieces`]); none with no beat rate.
+    pub fit: Option<timing::TimingFit>,
+    /// Whether the beat error's sign turns between pieces
+    /// ([`timing::sign_turns`]).
+    pub turned: bool,
+    /// The amplitude windows' figures, the unlock beat error as sizes
+    /// where it turns ([`window_figures`]).
+    pub figures: WindowFigures,
+}
+
+/// [`StretchFits`] of a stretch's `beats` (true time, in order) at `bph`,
+/// cut at `cuts`, and of its amplitude windows `wins`: the one way a
+/// reading of a stretch is fitted (#512).
+pub fn stretch_fits(
+    beats: &[Beat],
+    bph: Option<u32>,
+    cuts: &[f64],
+    wins: &[&AmplitudeWindow],
+) -> StretchFits {
+    let turned = bph.is_some_and(|bph| timing::sign_turns(beats, bph, cuts));
+    StretchFits {
+        fit: bph.and_then(|bph| timing::fit_pieces(beats, bph, cuts)),
+        turned,
+        figures: window_figures(wins, turned),
+    }
+}
+
 /// The length of the parts a stretch's windows must be whole in, seconds:
 /// its amplitude windows' length, else 2 s.
 pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
@@ -711,14 +744,20 @@ pub fn measure_masked(
     let in_range: Vec<Beat> = log.beats[stretch_beats(&log.beats, from_s, to_s)].to_vec();
     let beats = holes.beats(&in_range);
     let cuts = holes.fit_cuts(&beats);
-    let fit = timing::fit_pieces(&beats, log.bph, &cuts);
-    let turned = timing::sign_turns(&beats, log.bph, &cuts);
     let (from_t, to_t) = (map(from_s), map(to_s));
     let part = window_part_s(&log.amplitude_windows);
     let windows = scatter_windows(&holes, &beats, log.bph, from_t, to_t, part);
     let rates: Vec<f64> = windows.iter().map(|w| w.fit.rate_s_per_day).collect();
     let rate_samples: Vec<twostate::Sample> = holes
-        .windows(&beats, log.bph, from_t, to_t, 10.0, 10.0, part)
+        .windows(
+            &beats,
+            log.bph,
+            from_t,
+            to_t,
+            RATE_WINDOW_S,
+            RATE_WINDOW_S,
+            part,
+        )
         .iter()
         .map(|w| twostate::Sample {
             start_s: w.start_s,
@@ -728,7 +767,11 @@ pub fn measure_masked(
         })
         .collect();
     let amp = stretch_windows(&holes, &log.amplitude_windows, from_s, to_s);
-    let figures = window_figures(&amp, turned);
+    let StretchFits {
+        fit,
+        turned,
+        figures,
+    } = stretch_fits(&beats, Some(log.bph), &cuts, &amp);
     let amps: Vec<f64> = amp.iter().filter_map(|w| w.mean()).collect();
     // On true time, as the rate samples are, so a pause is a hole in the
     // two-state blocks.
