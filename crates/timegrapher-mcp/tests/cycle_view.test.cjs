@@ -77,7 +77,6 @@ test("the Cycle view is drawn on core's scale, not one of its own", () => {
 test("the Readings view draws level lines only where the words name the levels (#1112)", () => {
   let chart;
   context.xyChart = (c) => { chart = plain(c); return "<svg/>"; };
-  context.dotKey = () => "10 s readings";
   const readings = { t_s: [0, 600, 1200, 1800], values: [0.35, 0.39, 0.37, 0.37], y_range: [0.3, 0.4], step_s: 10, stride: 1 };
   const segments = [
     { start_s: 0, end_s: 600, mean: 0.35 },
@@ -90,4 +89,25 @@ test("the Readings view draws level lines only where the words name the levels (
   assert.deepEqual(chart.lines, [], "stretches the level test rejects draw no line");
   plot(true);
   assert.deepEqual(chart.lines.map((l) => l.pts), segments.map((g) => [[g.start_s, g.mean], [g.end_s, g.mean]]));
+});
+
+test("a long series' readings draw each chunk as a filled band, lowest to highest, under its dot (#1038)", () => {
+  let chart;
+  context.xyChart = (c) => { chart = plain(c); return "<svg/>"; };
+  // Whether it is banded, and its key, are core's (steady_views::banded,
+  // readings_key), sent with the readings.
+  const readings = { t_s: [30, 90], values: [1, 2], lo: [0.5, 1.5], hi: [1.4, 2.6], counts: [6, 6], chunk_s: 60, y_range: [0, 3], step_s: 10,
+    banded: true, key: "10 s readings in 2 bands (12)" };
+  context.steadyPlot({ series: "rate", views: { readings } }, "readings", {});
+  assert.equal(chart.key.text, readings.key);
+  assert.deepEqual(chart.rects, [
+    { x0: 0, x1: 60, y0: 0.5, y1: 1.4, color: "--rate", fill: 0.6 },
+    { x0: 60, x1: 120, y0: 1.5, y1: 2.6, color: "--rate", fill: 0.6 },
+  ]);
+  // A short series, one reading a point, has no bands.
+  context.steadyPlot({ series: "rate", views: { readings: { ...readings, lo: [1, 2], hi: [1, 2], counts: [1, 1], banded: false } } }, "readings", {});
+  assert.deepEqual(chart.rects, []);
+  // Filled at the box opacity, with no outline.
+  const svg = context.realChart({ x: [0, 1], y: [0, 1], xTicks: () => [], yTicks: () => [], rects: [{ x0: 0, x1: 1, y0: 0, y1: 1, color: "--rate", fill: 0.6 }] });
+  assert.match(svg, /<rect [^>]*fill="var\(--rate\)" fill-opacity="0.6" stroke="none"\/>/);
 });
