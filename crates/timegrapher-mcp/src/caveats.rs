@@ -44,7 +44,33 @@ pub fn no_regular_beat(m: &Value, bph: Option<f64>) -> String {
         ),
         None => timegrapher_core::session::no_regular_beat(m["jitter_us"].as_f64(), None),
     };
-    format!("{said}. There are no rate, amplitude or beat error readings.")
+    format!("{said}. {}", timegrapher_core::session::NO_READINGS)
+}
+
+/// The `_meta` key the views read each series' own caveats from.
+pub const SERIES_KEY: &str = "timegrapher/series_limits";
+
+/// A `series` result's caveats for each series, in core's words, in the
+/// order of `series[]`, for the view to put on that series' plot: a
+/// series' caveat is about it alone, so it is said there, not with the
+/// take's. `None` when no series has one.
+pub fn series_limits(doc: &Value) -> Option<Value> {
+    if !doc["schema"].as_str()?.starts_with("timegrapher.series/") {
+        return None;
+    }
+    let said: Vec<Vec<String>> = doc["series"]
+        .as_array()?
+        .iter()
+        .map(|s| {
+            s["caveats"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| fact(c, None))
+                .collect()
+        })
+        .collect();
+    said.iter().any(|t| !t.is_empty()).then(|| json!(said))
 }
 
 /// The `_meta` key the views read the no-regular-beat sentence from.
@@ -120,9 +146,17 @@ pub fn limits(doc: &Value) -> Vec<Value> {
             .map(|text| json!({ "where": null, "text": text }))
             .collect();
     }
-    // A live reading carries no caveats; its clipping is said when core
-    // counts it (`Clipping::noted_fraction`), in core's words (#808).
+    // Current live readings carry core's caveats. Older feeds only supplied
+    // clipping, so retain that fallback when the array is absent.
     if schema.starts_with("timegrapher.live/") {
+        let reading = &doc["reading"];
+        if let Some(caveats) = reading["caveats"].as_array() {
+            return caveats
+                .iter()
+                .filter_map(|c| say(c, reading, reading["bph_set"].as_f64()))
+                .map(|text| json!({ "where": null, "text": text }))
+                .collect();
+        }
         return doc["reading"]["clipped_fraction"]
             .as_f64()
             .filter(|&f| timegrapher_core::analysis::Clipping::noted_fraction(f))
@@ -202,6 +236,21 @@ pub fn notes(doc: &Value) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn live_limits_use_the_readings_core_caveats_once() {
+        let caveat = timegrapher_core::measure::Caveat::BeatErrorFromDrop;
+        let doc = serde_json::json!({"schema": "timegrapher.live/1", "reading": {
+            "beat_error_source": "drop", "clipped_fraction": 0.5,
+            "caveats": [caveat]
+        }});
+        assert_eq!(
+            super::limits(&doc),
+            vec![serde_json::json!({
+                "where": null, "text": caveat.long(None).unwrap()
+            })]
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -426,6 +475,31 @@ mod tests {
     fn other_documents_have_none() {
         assert!(limits(&json!({ "schema": "timegrapher.series/2" })).is_empty());
         assert!(limits(&json!({ "schema": "timegrapher.watch/1", "caveats": [{ "code": "breaks", "count": 2 }] })).is_empty());
+    }
+
+    #[test]
+    fn a_series_caveat_is_said_on_its_own_series_only() {
+        let caveat = timegrapher_core::measure::Caveat::PeriodMayBeNoise {
+            rho: 0.74,
+            span_s: 1800.0,
+        };
+        let doc = json!({
+            "schema": "timegrapher.series/2",
+            "caveats": [],
+            "series": [
+                { "series": "rate", "caveats": [] },
+                { "series": "amplitude", "caveats": [caveat] },
+                { "series": "beat_error" }]
+        });
+        let text = caveat.long(None).unwrap();
+        assert_eq!(series_limits(&doc), Some(json!([[], [text], []])));
+        // Not with the take's.
+        assert!(limits(&doc).is_empty());
+        let none = json!({ "schema": "timegrapher.series/2", "series": [{ "caveats": [] }] });
+        assert_eq!(series_limits(&none), None);
+        let other =
+            json!({ "schema": "timegrapher.analyze/2", "series": [{ "caveats": [caveat] }] });
+        assert_eq!(series_limits(&other), None);
     }
 
     #[test]

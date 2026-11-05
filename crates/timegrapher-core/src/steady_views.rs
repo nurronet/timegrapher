@@ -16,6 +16,7 @@ use crate::longrun::LongReport;
 use crate::longterm::{self, Grid, LongConfig, Search};
 use crate::steadiness::Report;
 use crate::stream::BeatLog;
+use crate::walk;
 use serde::Serialize;
 
 /// Most readings drawn per series, as on the app's Readings view.
@@ -381,6 +382,174 @@ fn phase_bins(period: f64, step: f64) -> usize {
         .map_or((r.round() as usize).clamp(6, 40), |x| x.round() as usize)
 }
 
+/// What a reference line ([`crate::periodicity::reference_lines`]) says on
+/// hover, on a period plot with no wheel named: it is a period alone, not a
+/// wheel's (#1065).
+pub fn reference_hover(label: &str) -> String {
+    format!("Reference period, {label}. This calibre's wheels aren't known.")
+}
+
+/// The Periods plot's score axis (#1065, Norm): a period's score is
+/// −log10 of the chance of a peak that tall at that one period under the
+/// search's AR(1) noise model ([`Search::score`]), with no allowance for the
+/// many periods tried. Where the model doesn't fit it can be far off, so the
+/// axis is the score itself, in plain whole numbers, and this hover says what
+/// it is. No title.
+pub const SCORE_AXIS_HOVER: &str = "Score: how far a peak stands above the noise expected at its period. If the noise is as expected, a score of 3 means noise alone would reach it there 1 time in 1,000. Many periods are tried, so only peaks above the Threshold are named.";
+/// The score axis' visible name, at the top of the axis above its top
+/// tick, in the tick labels' size and colour (Hugh, #1069): plain "1, 2,
+/// 5" don't say what they count. Its hover is [`SCORE_AXIS_HOVER`].
+pub const SCORE_AXIS_NAME: &str = "Score";
+/// The name of the line a period's score must pass to be named
+/// ([`Search::threshold`]), beside the plot.
+pub const THRESHOLD_NAME: &str = "Threshold";
+/// That line's hover (Norm, worded by Hugh): the model's search-wide rate,
+/// the search's [`LongConfig::false_alarm`] (1 in 100 by default), and the
+/// rates measured on seeded noise, so it agrees with `period_may_be_noise`.
+pub fn threshold_hover(false_alarm: f64) -> String {
+    use longterm::{MEASURED_CROSSING_IN, SHORT_CORRELATED_CROSSING_IN};
+    let n = thousands((1.0 / false_alarm).round() as u64);
+    format!(
+        "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in {n}. \
+         On test noise it was crossed about 1 time in {MEASURED_CROSSING_IN}, and up to 1 time in {SHORT_CORRELATED_CROSSING_IN} on short takes with correlated readings. \
+         The more periods searched, the higher the line."
+    )
+}
+
+/// A whole number with thousands separators: "1,000".
+fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The ticks of a score axis from `lo` to `hi`, `px` tall, at least
+/// `min_px` apart: whole scores from 1 up, on a [`chart_scale::round_step`]
+/// of at least 1, written as [`chart_scale::axis_number`] writes them.
+pub fn score_ticks(lo: f64, hi: f64, px: f64, min_px: f64) -> Vec<(f64, String)> {
+    if hi.partial_cmp(&lo) != Some(std::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    let want = (hi - lo) / (px / min_px).max(1.0);
+    let step = chart_scale::round_step(want.max(1.0));
+    let first = (lo.max(1.0) / step - 1e-9).ceil() as i64;
+    (first..)
+        .map(|k| k as f64 * step)
+        .take_while(|v| *v <= hi + 1e-9)
+        .map(|v| (v, chart_scale::axis_number(v, step)))
+        .collect()
+}
+
+/// The Isochronism card's name (#741, Hugh's spec): the rate against the
+/// amplitude as the take runs, from [`crate::walk`].
+pub const WALK_TITLE: &str = "Isochronism";
+/// The card's one-line hint.
+pub const WALK_HINT: &str = "Rate at each amplitude as the watch runs down.";
+/// The fewest points the card is drawn with.
+pub const WALK_MIN_POINTS: usize = 3;
+/// A point read from fewer readings than this says how many on hover.
+pub const WALK_FEW_READINGS: usize = 10;
+/// The axes' short names and units, as the app's strip writes them (#1052).
+pub const WALK_RATE_NAME: &str = "Rate";
+pub const WALK_RATE_UNIT: &str = "s/d";
+pub const WALK_AMP_NAME: &str = "Amp.";
+pub const WALK_AMP_UNIT: &str = "°";
+/// What the colour key's hours count from. Core can't yet tell a take
+/// begun at full wind from one whose `wind_h` was left at its default, so
+/// the hours are from the take's start (Hugh).
+pub const WALK_SINCE: &str = "since start";
+
+/// One point of the Isochronism card: hours since the take's start, its
+/// amplitude and rate, and its hover.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WalkDot {
+    pub hours: f64,
+    /// Where it falls between the take's start and the last point, 0 to 1:
+    /// where its colour is taken on the viridis map.
+    pub when: f64,
+    pub amplitude_deg: f64,
+    pub rate_s_per_day: f64,
+    pub hover: String,
+    /// Whether the line joins it to the point before: only when that one
+    /// is within [`WALK_JOIN_BINS`] merged bins, so a left-out stretch or
+    /// a break is a gap in the line, never filled (Norm, #1083).
+    pub joined: bool,
+}
+
+/// How far apart, in merged bins, two points may be and still be joined.
+pub const WALK_JOIN_BINS: f64 = 1.5;
+
+/// The Isochronism card as data: the walk merged to its default width
+/// ([`walk::merged`], [`walk::default_merge`]), so every surface draws the
+/// same points, and the colour key's end.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WalkView {
+    pub dots: Vec<WalkDot>,
+    /// The key's hours at its right end, the last point's; its left end is
+    /// the take's start, 0 h.
+    pub last_hours: f64,
+    pub last_text: String,
+}
+
+/// Hours as the card writes them: one decimal under 10 h, whole above.
+pub fn hours_text(h: f64) -> String {
+    let digits = if h < 9.95 { 1 } else { 0 };
+    format!("{} h", crate::figure_text::fixed_text(h, digits))
+}
+
+/// The card's points, or `None` with fewer than [`WALK_MIN_POINTS`].
+pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
+    use crate::figure_text::{base_digits, fixed_text, signed_text};
+    let m = walk::merged(w, walk::default_merge(w));
+    let mut dots: Vec<WalkDot> = m
+        .points
+        .iter()
+        .map(|p| {
+            let hours = p.t_s / 3600.0;
+            let mut hover = format!(
+                "{} after start · {}{WALK_AMP_UNIT} · {} {WALK_RATE_UNIT}",
+                hours_text(hours),
+                fixed_text(p.amplitude_deg, base_digits::AMPLITUDE),
+                signed_text(p.rate_s_per_day, base_digits::RATE),
+            );
+            if p.readings < WALK_FEW_READINGS {
+                hover += &format!(" · {} readings", p.readings);
+            }
+            WalkDot {
+                joined: false,
+                hours,
+                when: 0.0,
+                amplitude_deg: p.amplitude_deg,
+                rate_s_per_day: p.rate_s_per_day,
+                hover,
+            }
+        })
+        .collect();
+    if dots.len() < WALK_MIN_POINTS {
+        return None;
+    }
+    for (d, pair) in dots.iter_mut().skip(1).zip(m.points.windows(2)) {
+        d.joined = pair[1].t_s - pair[0].t_s <= WALK_JOIN_BINS * m.bin_s;
+    }
+    let last_hours = dots.last().map_or(0.0, |d| d.hours);
+    if last_hours > 0.0 {
+        for d in &mut dots {
+            d.when = (d.hours / last_hours).clamp(0.0, 1.0);
+        }
+    }
+    Some(WalkView {
+        last_text: hours_text(last_hours),
+        last_hours,
+        dots,
+    })
+}
+
 /// The periods the searches cover between them, log10 seconds.
 pub fn period_span(searches: &[Option<Search>; 3]) -> Option<(f64, f64)> {
     searches
@@ -525,6 +694,38 @@ pub fn views(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_score_axis_is_marked_at_whole_scores() {
+        // The MCP view's scoreTicks reads the same cases (score_ticks.test.cjs).
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/score_ticks.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let f = |k: &str| c[k].as_f64().unwrap();
+            let want: Vec<(f64, String)> = serde_json::from_value(c["ticks"].clone()).unwrap();
+            assert_eq!(
+                super::score_ticks(f("lo"), f("hi"), f("px"), f("min_px")),
+                want,
+                "{c}"
+            );
+        }
+        assert_eq!(
+            super::threshold_hover(super::LongConfig::default().false_alarm),
+            "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in 100. \
+             On test noise it was crossed about 1 time in 33, and up to 1 time in 10 on short takes with correlated readings. \
+             The more periods searched, the higher the line."
+        );
+        assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));
+    }
+
+    #[test]
+    fn a_reference_line_says_it_is_a_period_alone() {
+        assert_eq!(
+            super::reference_hover("1 min"),
+            "Reference period, 1 min. This calibre's wheels aren't known."
+        );
+    }
+
     #[test]
     fn thinning_long_readings_bands_every_reading_by_chunk() {
         let mut g = super::Grid {
@@ -1100,5 +1301,91 @@ mod tests {
         assert_eq!(k[0], 0);
         assert_eq!(*k.last().unwrap(), 9_999);
         assert!(k.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    fn walk_of(points: &[(f64, f64, f64, usize)]) -> walk::IsochronismWalk {
+        walk::IsochronismWalk {
+            bin_s: walk::WALK_BIN_S,
+            points: points
+                .iter()
+                .map(
+                    |&(t_s, amplitude_deg, rate_s_per_day, readings)| walk::WalkPoint {
+                        t_s,
+                        wind_h: t_s / 3600.0,
+                        rate_s_per_day,
+                        amplitude_deg,
+                        readings,
+                        amp_windows: 5 * readings,
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_isochronism_card_says_each_point_in_hours_degrees_and_signed_rate() {
+        let w = walk_of(&[
+            (150.0, 301.4, -0.04, 30),
+            (12_600.0, 272.4, 4.06, 30),
+            (137_000.0, 210.6, -2.26, 6),
+        ]);
+        let v = walk_view(&w).unwrap();
+        let hovers: Vec<&str> = v.dots.iter().map(|d| d.hover.as_str()).collect();
+        assert_eq!(
+            hovers,
+            [
+                "0.0 h after start · 301° · 0.0 s/d",
+                "3.5 h after start · 272° · +4.1 s/d",
+                "38 h after start · 211° · -2.3 s/d · 6 readings",
+            ]
+        );
+        assert_eq!(v.last_text, "38 h");
+        assert_eq!(v.dots[2].when, 1.0);
+        assert!((v.dots[1].when - 12_600.0 / 137_000.0).abs() < 1e-12);
+        assert!((v.last_hours - 137_000.0 / 3600.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_isochronism_line_breaks_where_a_stretch_was_left_out() {
+        // Bins at 150, 450 and 750 s, then none until 1650 s: a gap.
+        let w = walk_of(&[
+            (150.0, 300.0, 0.0, 30),
+            (450.0, 299.0, 0.1, 30),
+            (750.0, 298.0, 0.2, 30),
+            (1650.0, 295.0, 0.5, 30),
+            (1950.0, 294.0, 0.6, 30),
+        ]);
+        let joined: Vec<bool> = walk_view(&w)
+            .unwrap()
+            .dots
+            .iter()
+            .map(|d| d.joined)
+            .collect();
+        assert_eq!(joined, [false, true, true, false, true]);
+    }
+
+    #[test]
+    fn the_isochronism_card_needs_three_points_and_takes_core_s_merge() {
+        assert!(walk_view(&walk_of(&[
+            (150.0, 300.0, 0.0, 30),
+            (450.0, 299.0, 0.1, 30)
+        ]))
+        .is_none());
+        // 600 base bins merge three to one: 200 points, as every surface gets.
+        let many: Vec<_> = (0..600)
+            .map(|i| {
+                (
+                    150.0 + 300.0 * i as f64,
+                    300.0 - i as f64 / 10.0,
+                    i as f64 / 100.0,
+                    30,
+                )
+            })
+            .collect();
+        let w = walk_of(&many);
+        let v = walk_view(&w).unwrap();
+        let m = walk::merged(&w, walk::default_merge(&w));
+        assert_eq!(v.dots.len(), m.points.len());
+        assert_eq!(v.dots[1].amplitude_deg, m.points[1].amplitude_deg);
     }
 }

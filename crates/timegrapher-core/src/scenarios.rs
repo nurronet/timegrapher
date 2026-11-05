@@ -692,4 +692,43 @@ mod tests {
             (86400.0, 0.9, 1),
         ]);
     }
+
+    /// The caveat that a short take's cycle may be noise goes on the
+    /// amplitude and the beat error only (#916). Seed 35 of 30 min of red
+    /// noise names a cycle in the rate, whose search read ρ over 0.7, so
+    /// the rule would give it one; its series carries none. Seed 37 names
+    /// one in the amplitude, which carries it and says so in its headline.
+    #[test]
+    fn only_the_amplitude_and_beat_error_say_a_short_takes_cycle_may_be_noise() {
+        use crate::longterm::LongConfig;
+        use crate::measure::Caveat;
+        use crate::steadiness::{self, Config};
+        let lc = LongConfig {
+            wheels: crate::periodicity::standard_wheels(BPH, 20),
+            ..Default::default()
+        };
+        let pane = |seed| {
+            let log = beat_log(&super::steady_red(1800.0, 0.9, seed), seed);
+            let long = crate::longrun::analyse(&log, None, &lc);
+            let r = steadiness::check(&log, None, &long, &lc, &Config::default());
+            (long, r)
+        };
+        let noise = |s: &steadiness::SeriesCheck| {
+            s.caveats
+                .iter()
+                .any(|c| matches!(c, Caveat::PeriodMayBeNoise { .. }))
+        };
+        let (long, r) = pane(35);
+        assert!(r.series[0].period.is_some(), "the rate names a cycle");
+        assert!(crate::longterm::period_may_be_noise(&long.timing).is_some());
+        assert!(!noise(&r.series[0]));
+        let (_, r) = pane(37);
+        let amp = &r.series[1];
+        assert!(amp.period.is_some() && noise(amp), "{:?}", amp.caveats);
+        assert!(
+            amp.headline.contains("this cycle may be noise"),
+            "{}",
+            amp.headline
+        );
+    }
 }

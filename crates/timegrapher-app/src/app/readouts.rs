@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::sparkline;
-use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm};
+use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm, true_minus};
 use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
 
 /// What the reading cards draw from.
@@ -21,6 +21,9 @@ struct CardCtx<'a> {
     /// The cards' figures each second over the last minute, for their
     /// sparklines.
     spark: Vec<TrendPoint>,
+    /// "at hh:mm:ss, set by the Paper Strip", for the figures' hovers,
+    /// when the strip is moved back: the strip's own label says it.
+    moment: Option<String>,
 }
 
 /// The cards' widths at `total`: Current Position, Listen, Calibre and
@@ -68,6 +71,31 @@ fn card_widths(total: f32, gap: f32) -> [f32; 4] {
     [position_w, listen_w, calibre_w, reading_w]
 }
 
+/// Each card's rect in `block` at its width in `widths`, laid left to
+/// right in `CARD_ORDER`: the open cards' and the strip's alike, so the
+/// strip's figures sit where the cards' do.
+pub(super) fn card_rects(block: egui::Rect, widths: [f32; 6], gap: f32) -> [egui::Rect; 6] {
+    let mut x = block.left();
+    let mut rects = [block; 6];
+    for i in CARD_ORDER {
+        rects[i] = egui::Rect::from_min_size(
+            egui::pos2(x, block.top()),
+            Vec2::new(widths[i], block.height()),
+        );
+        x += widths[i] + gap;
+    }
+    rects
+}
+
+/// The six cards' widths at `total`, in the order of `card_rects`:
+/// Position, Listen, Rate, Amplitude, Beat Error and Calibre.
+pub(super) fn six_widths(total: f32, gap: f32) -> [f32; 6] {
+    let [position_w, listen_w, calibre_w, reading_w] = card_widths(total, gap);
+    [
+        position_w, listen_w, reading_w, reading_w, reading_w, calibre_w,
+    ]
+}
+
 /// The cards' backgrounds at their widths, left to right in `CARD_ORDER`,
 /// and each card's three rows, in the order of `widths`.
 fn lay_cards(
@@ -81,21 +109,46 @@ fn lay_cards(
         Vec2::new(total, theme::READINGS_CARD_H),
         egui::Sense::hover(),
     );
-    // Each card's three rows, hung off the same three lines. `cards`
-    // keeps the order above; left to right they read Position,
-    // Calibre, Listen, Rate, Amplitude, Beat Error.
-    let mut x = block.left();
-    let mut cards = vec![CardRows::of(block); widths.len()];
-    for i in CARD_ORDER {
-        let w = widths[i];
-        let rect =
-            egui::Rect::from_min_size(egui::pos2(x, block.top()), Vec2::new(w, block.height()));
-        x += w + gap;
-        ui.painter()
-            .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
-        cards[i] = CardRows::of(rect);
-    }
-    cards
+    // Each card's three rows, hung off the same three lines; left to
+    // right they read Position, Calibre, Listen, Rate, Amplitude, Beat
+    // Error.
+    card_rects(block, widths, gap)
+        .into_iter()
+        .map(|rect| {
+            ui.painter()
+                .rect_filled(rect, egui::CornerRadius::same(theme::CARD_RADIUS), pal.card);
+            CardRows::of(rect)
+        })
+        .collect()
+}
+
+/// The reading the cards show: none when the beats scatter like noise,
+/// which is no watch.
+pub(super) fn heard(r: Option<&LiveReading>) -> bool {
+    r.is_none_or(|r| r.watch_heard || r.bph.is_none())
+}
+
+/// The Rate card's figure, signed, to its ±'s decimals.
+pub(super) fn rate_figure(r: &LiveReading) -> Option<String> {
+    let v = r.rate_s_per_day?;
+    Some(figure(v, r.rate_error_s_per_day, base::RATE, true))
+}
+
+/// The Amplitude card's figure, with its degree sign.
+pub(super) fn amplitude_figure(r: &LiveReading) -> Option<String> {
+    let v = r.amplitude_deg?;
+    let f = figure(v, r.amplitude_error_deg, base::AMPLITUDE, false);
+    Some(format!("{f}°"))
+}
+
+/// The Beat Error card's figure: its size, timed from the unlock where
+/// it can be, to the unlock's ±'s decimals.
+pub(super) fn beat_error_figure(r: &LiveReading) -> Option<String> {
+    let v = core_session::beat_error_size(r.beat_error_unlock_ms, r.beat_error_ms)?;
+    let pm = r
+        .beat_error_unlock_error_ms
+        .filter(|_| r.beat_error_unlock_ms.is_some());
+    Some(figure(v, pm, base::BEAT_ERROR, false))
 }
 
 /// A row of a card, laid out left to right and kept inside it.
@@ -182,12 +235,22 @@ fn card_title(
     });
 }
 
+/// A figure's hover, with the moment it is read at first when the strip
+/// is moved back.
+fn with_moment(moment: Option<&str>, hover: &str) -> String {
+    match moment {
+        Some(m) if hover.is_empty() => m.to_string(),
+        Some(m) => format!("{m}\n\n{hover}"),
+        None => hover.to_string(),
+    }
+}
+
 /// The whole take's reading, for a figure's hover.
 fn whole_text(whole_breaks: &str, figure: String, spread: Option<String>, span: f64) -> String {
     let spread = spread.map_or_else(String::new, |s| format!(", {s}"));
     format!(
-        "\n\nWhole take {figure}{spread} over {}. The big figure is the last stretch \
-         of Average Over; this is the take in this position, settling left out, read \
+        "\n\nWhole take {figure}{spread} over {}. The big figure is the stretch of \
+         Average Over ending at the strip's newest edge; this is the take in this position, settling left out, read \
          as the command line reads it.{whole_breaks}",
         length_text(span)
     )
@@ -201,20 +264,17 @@ impl TimegrapherApp {
     /// Returns what the cards asked for, and where their controls go.
     pub(super) fn readouts(&self, ui: &mut egui::Ui) -> Readouts {
         let pal = theme::pal(ui);
-        let r = self.reading();
+        let r = self.card_reading();
         let gap = theme::GAP;
         let total = ui.available_width();
-        let [position_w, listen_w, calibre_w, reading_w] = card_widths(total, gap);
-        let position_compact = position_w < POSITION_W;
-        let listen_compact = listen_w < LISTEN_W;
-        let compact = reading_w < READING_FULL_W;
-        let widths = [
-            position_w, listen_w, reading_w, reading_w, reading_w, calibre_w,
-        ];
+        let widths = six_widths(total, gap);
+        let position_compact = widths[0] < POSITION_W;
+        let listen_compact = widths[1] < LISTEN_W;
+        let compact = widths[2] < READING_FULL_W;
         let cards = lay_cards(ui, total, widths, gap, pal);
         // A reading whose beats scatter like noise is no watch: no figures
         // then, only a word saying so where the unit goes.
-        let heard = r.as_ref().is_none_or(|r| r.watch_heard || r.bph.is_none());
+        let heard = heard(r.as_ref());
         let unheard_line = timegrapher_core::measure::NO_WATCH_TITLE.to_string();
         let unheard_hover = format!(
             "{}.\n\n{}",
@@ -277,6 +337,7 @@ impl TimegrapherApp {
             unheard,
             compact,
             spark: r.map_or_else(Vec::new, |r| self.spark_trend(ui.ctx(), r)),
+            moment: self.moment_hover(),
         };
         self.rate_card(ui, &cards[2], &c);
         self.amplitude_card(ui, &cards[3], &c);
@@ -321,11 +382,11 @@ impl TimegrapherApp {
             let se = w.m.confidence.and_then(|c| c.rate.se);
             let spread = w.m.rate_p05.zip(w.m.rate_p95).map(|(a, b)| {
                 let at = |x| signed_text(x, base::RATE_RANGE);
-                format!("10 s rates {} to {} s/d", at(a), at(b)).replace('-', "−")
+                true_minus(&format!("10 s rates {} to {} s/d", at(a), at(b)))
             });
             behind += &whole_text(
                 &c.whole_breaks,
-                format!("{} s/d", with_pm(v, se, base::RATE, true)).replace('-', "−"),
+                true_minus(&format!("{} s/d", with_pm(v, se, base::RATE, true))),
                 spread,
                 w.span,
             );
@@ -376,12 +437,22 @@ impl TimegrapherApp {
         figure_row(
             ui,
             fig,
-            rate.map(|v| figure(v, pm, base::RATE, true)).as_deref(),
+            r.and_then(rate_figure).as_deref(),
             &unit,
             status.as_ref(),
-            behind.trim_start(),
+            &with_moment(c.moment.as_deref(), behind.trim_start()),
             compact,
         );
+    }
+
+    /// The reading the cards show: the newest, or where the strip is
+    /// moved off the newest beats, the one ending at its newest edge, as
+    /// the sound panes show that moment.
+    pub(super) fn card_reading(&self) -> Option<LiveReading> {
+        match self.strip_end {
+            Some(_) => self.reading_at_time(self.strip_end_s()),
+            None => self.reading(),
+        }
     }
 
     /// The figures the reading cards showed each whole second over the
@@ -472,7 +543,6 @@ impl TimegrapherApp {
         let beats = c.beats;
         let whole = c.whole;
         let compact = c.compact;
-        let amp = r.and_then(|r| r.amplitude_deg);
         let facts = reading_limits("Amplitude", caveats, lift_now, beats);
         card_title(ui, rows.title, "Amplitude", help::AMPLITUDE, &facts, None);
         // Whole degrees, unless the ± is under a degree: a decimal only
@@ -514,11 +584,10 @@ impl TimegrapherApp {
         figure_row(
             ui,
             fig,
-            amp.map(|v| format!("{}°", figure(v, amp_pm, base::AMPLITUDE, false)))
-                .as_deref(),
+            r.and_then(amplitude_figure).as_deref(),
             &unit,
             unheard.as_ref(),
-            behind.trim_start(),
+            &with_moment(c.moment.as_deref(), behind.trim_start()),
             compact,
         );
     }
@@ -575,12 +644,10 @@ impl TimegrapherApp {
         figure_row(
             ui,
             fig,
-            core_session::beat_error_size(unlock, drop)
-                .map(|v| figure(v, be_pm, base::BEAT_ERROR, false))
-                .as_deref(),
+            r.and_then(beat_error_figure).as_deref(),
             &unit,
             unheard.as_ref(),
-            &from,
+            &with_moment(c.moment.as_deref(), &from),
             compact,
         );
     }
@@ -686,7 +753,7 @@ impl TimegrapherApp {
             ));
         }
         let c = self.clock.as_ref()?;
-        let v = format!("{:+.1}", c.correct_rate(rate)).replace('-', "−");
+        let v = true_minus(&format!("{:+.1}", c.correct_rate(rate)));
         Some(format!(
             "True Clock {v} seconds per day, with the clock kept {}: the rate corrected \
              for this input's own clock. The big figure stays on the card's clock, the one \
@@ -1381,7 +1448,7 @@ pub(super) fn figure_row(
     let pal = theme::pal(ui);
     let (text, colour) = match value {
         // A true minus sign, as wide as the plus.
-        Some(v) => (v.replace('-', "−"), pal.text),
+        Some(v) => (true_minus(v), pal.text),
         None => ("—".to_string(), pal.text_tertiary),
     };
     let side_text = status.map_or(unit, |s| s.0.as_str());

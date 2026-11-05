@@ -51,7 +51,7 @@ test("without an averaging time no average is claimed", () => {
 test("a line lifts where a reading has no figure, as the app leaves a cut empty", () => {
   const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
   const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
-  vm.runInContext(["DASH", "TIME_STEPS", "charts"].map(constant).join("\n") + "\n" +
+  vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
     ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   const svg = real.lineChart({
     title: "Rate", time: true, yRange: [4, 5], unit: " s/d", decimals: 1,
@@ -60,4 +60,43 @@ test("a line lifts where a reading has no figure, as the app leaves a cut empty"
   const d = svg.match(/<path d="([^"]*)"/)[1];
   assert.equal((d.match(/M/g) || []).length, 2, d);
   assert.ok(!svg.includes("off the scale"), "a gap is not an outlier");
+});
+
+test("isolated live source readings are visible dots without joining across holes", () => {
+  const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
+  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+  for (const points of [[[4, 0.2]], [[4, NaN], [40, 0.5], [44, NaN]], [[4, 0.2], [8, NaN], [12, 0.4]]]) {
+    const svg = real.lineChart({ title: "Beat Error", time: true, unit: " ms",
+      series: [{ name: "From the Drop", color: "--beat-error", points }] });
+    const count = points.filter(([, y]) => Number.isFinite(y)).length;
+    assert.equal((svg.match(/<circle /g) || []).length, count, svg);
+    assert.ok(!svg.match(/<path d="[^"]*L/), "isolated points must not be joined");
+  }
+});
+
+test("a lone reading at the first or newest time is a dot drawn whole, bigger than the line", () => {
+  const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
+  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+  // Walter's live Beat Error: lone drop readings at 0:04 and 0:40, the ends of the axis.
+  const svg = real.lineChart({ title: "Beat Error", time: true, unit: " ms", yRange: [0, 1],
+    series: [{ name: "From the Drop", color: "--beat-error", points: [[4, 0.4], [10, NaN], [20, 0.5], [24, 0.6], [30, NaN], [40, 0.45]] }] });
+  const clips = Object.fromEntries([...svg.matchAll(/<clipPath id="([^"]+)"><rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"\/>/g)]
+    .map(([, id, x, y, w, h]) => [id, { x: +x, y: +y, w: +w, h: +h }]));
+  const groups = [...svg.matchAll(/<g clip-path="url\(#([^)]+)\)">([\s\S]*?)<\/g>/g)];
+  const dots = groups.flatMap(([, id, body]) => [...body.matchAll(/<circle cx="([^"]+)" cy="([^"]+)" r="([^"]+)"/g)]
+    .map(([, cx, cy, r]) => ({ clip: clips[id], cx: +cx, cy: +cy, r: +r })));
+  assert.equal(dots.length, 2, svg);
+  for (const d of dots) {
+    assert.ok(d.r >= 3, `a dot of radius ${d.r} is too small to see beside the 1.8 px line`);
+    assert.ok(d.cx - d.r >= d.clip.x - 1e-9 && d.cx + d.r <= d.clip.x + d.clip.w + 1e-9, `the dot at ${d.cx} is cut by its clip`);
+  }
+  // Only across: the dots' clip is as tall as the plot, and the lines keep the plot's clip.
+  const plot = svg.match(/<rect class="plot" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/).slice(1).map(Number);
+  assert.deepEqual([dots[0].clip.y, dots[0].clip.h], [plot[1], plot[3]]);
+  const lines = groups.find(([, , body]) => body.includes("<path d="));
+  assert.deepEqual(Object.values(clips[lines[1]]), plot);
 });

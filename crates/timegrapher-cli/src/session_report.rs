@@ -5,6 +5,7 @@
 
 use crate::session_cmd::{opt, signed, wind, Session};
 use std::fmt::Write;
+use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::session::{Position, Reading, ReferenceClock, StateIndices};
 use timegrapher_core::twostate;
 
@@ -105,11 +106,7 @@ fn chart_axes(s: &mut String, f: &Frame, step: f64, zero: bool, unit: &str) {
             y(t),
             ML - 6.0,
             y(t) + 4.0,
-            if step < 1.0 {
-                format!("{t:.1}")
-            } else {
-                format!("{t:.0}")
-            }
+            fixed_text(t, if step < 1.0 { 1 } else { 0 })
         );
         t += step;
     }
@@ -154,18 +151,20 @@ fn chart_dots(s: &mut String, f: &Frame, series: &[Series], unit: &str) {
             if ser.class == "ref" {
                 let _ = write!(
                     s,
-                    r#"<path class="ref" d="M{:.1} {:.1} l6 6 l-6 6 l-6 -6 z"><title>{}: {v:.1} {}</title></path>"#,
+                    r#"<path class="ref" d="M{:.1} {:.1} l6 6 l-6 6 l-6 -6 z"><title>{}: {} {}</title></path>"#,
                     cx,
                     cy - 6.0,
                     esc(ser.label),
+                    fixed_text(v, 1),
                     esc(unit)
                 );
             } else {
                 let _ = write!(
                     s,
-                    r#"<circle class="{}" cx="{cx:.1}" cy="{cy:.1}" r="5"><title>{} {p}: {v:.1} {}</title></circle>"#,
+                    r#"<circle class="{}" cx="{cx:.1}" cy="{cy:.1}" r="5"><title>{} {p}: {} {}</title></circle>"#,
                     ser.class,
                     esc(ser.label),
+                    fixed_text(v, 1),
                     esc(unit)
                 );
             }
@@ -269,7 +268,7 @@ fn indices_table(states: &[StateIndices]) -> String {
             if st.wind_h <= 0.0 {
                 "full wind".into()
             } else {
-                format!("{:.0} h after winding", st.wind_h)
+                format!("{} h after winding", fixed_text(st.wind_h, 0))
             }
         );
     }
@@ -369,7 +368,7 @@ fn readings_table(sn: &Session) -> String {
         }
         let _ = write!(
             s,
-            r#"<tr><th>{}</th><td>{}</td>{}<td class="num">{}</td>{}<td class="num">{} / {}</td>{}<td class="num">{}</td><td class="num">{}</td><td class="num">{} to {}</td><td class="num">{}</td><td class="num">{:.1}%</td><td class="num">{}</td><td class="file">{}{clock}</td></tr>"#,
+            r#"<tr><th>{}</th><td>{}</td>{}<td class="num">{}</td>{}<td class="num">{} / {}</td>{}<td class="num">{}</td><td class="num">{}</td><td class="num">{} to {}</td><td class="num">{}</td><td class="num">{}%</td><td class="num">{}</td><td class="file">{}{clock}</td></tr>"#,
             r.position.display_label(),
             wind(r.wind_h),
             cell(signed(m.rate_s_per_day, 1)),
@@ -383,8 +382,8 @@ fn readings_table(sn: &Session) -> String {
             signed(m.rate_p05, 0),
             signed(m.rate_p95, 0),
             m.unlock_coverage
-                .map_or("-".into(), |c| format!("{:.0}%", 100.0 * c)),
-            100.0 * m.clipped_fraction,
+                .map_or("-".into(), |c| format!("{}%", fixed_text(100.0 * c, 0))),
+            fixed_text(100.0 * m.clipped_fraction, 1),
             duration(m.measured_s()),
             esc(&r.label),
         );
@@ -474,21 +473,24 @@ fn cycles_table(sn: &Session) -> String {
     for (r, c) in rows {
         let wheel = match (&c.harmonic_of, &c.wheel, &c.nearest_wheel) {
             (Some(h), _, _) => format!(
-                "harmonic of the {:.2} s cycle (1/{} of its period)",
-                h.period_s, h.n
+                "harmonic of the {} s cycle (1/{} of its period)",
+                fixed_text(h.period_s, 2),
+                h.n
             ),
             (None, Some(w), _) => w.clone(),
-            (None, None, Some((w, off))) => format!("none; nearest {w} {off:+.1}%"),
+            (None, None, Some((w, off))) => {
+                format!("none; nearest {w} {}%", signed_text(*off, 1))
+            }
             _ => String::new(),
         };
         let _ = write!(
             s,
-            r#"<tr><th>{}</th><td>{}</td><td class="num">{:.2}</td><td class="num">{}</td><td class="num">{:.0}%</td><td class="num">{:.0e}</td><td>{}</td><td class="file">{}</td></tr>"#,
+            r#"<tr><th>{}</th><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}%</td><td class="num">{:.0e}</td><td>{}</td><td class="file">{}</td></tr>"#,
             r.position.display_label(),
             c.series,
-            c.period_s,
+            fixed_text(c.period_s, 2),
             c.size_text(),
-            c.explained * 100.0,
+            fixed_text(c.explained * 100.0, 0),
             10f64.powf(-c.significance.min(300.0)),
             esc(&wheel),
             esc(&r.label)
@@ -536,7 +538,7 @@ fn shape_table(sn: &Session) -> String {
         {
             let _ = write!(
                 s,
-                r#"<tr><th>{}</th><td>{side}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{:.0}%</td><td class="num">{} / {}</td></tr>"#,
+                r#"<tr><th>{}</th><td>{side}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}%</td><td class="num">{} / {}</td></tr>"#,
                 if k == 0 {
                     r.position.display_label()
                 } else {
@@ -547,7 +549,7 @@ fn shape_table(sn: &Session) -> String {
                 opt(v.ratio13, 2),
                 opt(v.ratio23, 2),
                 opt(v.noise_ratio, 2),
-                v.sound1_found * 100.0,
+                fixed_text(v.sound1_found * 100.0, 0),
                 v.extra_pre.len(),
                 v.extra_post.len()
             );
@@ -711,7 +713,7 @@ fn state_charts(sn: &Session) -> String {
                 if st.wind_h <= 0.0 {
                     "Fully wound".to_string()
                 } else {
-                    format!("{:.0} h after winding", st.wind_h)
+                    format!("{} h after winding", fixed_text(st.wind_h, 0))
                 }
             );
         }

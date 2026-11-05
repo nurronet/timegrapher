@@ -947,20 +947,6 @@ fn is_audio_name(c: &str) -> bool {
         || c.starts_with("bytes")
 }
 
-/// The clock fit of a take whose session file names the clock log `log`,
-/// a file in the take's folder `dir`, without its USB lines: its log fitted
-/// for rates, with the breaks the take lists placed on it. `files` are the
-/// take's sound files, in order. Kept for the app until it opens takes
-/// with [`crate::take::clock_of_files`] (#509), which also reads the USB
-/// lines; it is that function.
-pub fn of_take(
-    dir: &std::path::Path,
-    log: &str,
-    files: &[std::path::PathBuf],
-) -> Result<ClockFit, String> {
-    crate::take::clock_of_files(dir, Some(log), files, None, None)?.ok_or_else(|| "no clock".into())
-}
-
 /// The sound card's error read from the USB lines in the first
 /// `usbclock::MAX_DURATION_S` of the first of `files`, as `analyze` reads
 /// it; `None` when the recording has none. With a clock log, pass its
@@ -974,13 +960,10 @@ pub fn usb_lines(
     let named = |e: &dyn std::fmt::Display| format!("{}: {e}", first.display());
     let info = crate::audio::info(first).map_err(|e| named(&e))?;
     let keep = (crate::usbclock::MAX_DURATION_S * info.sample_rate as f64) as usize;
+    // Only the first `keep` samples are measured, so only they are decoded.
     let mut x: Vec<f32> = Vec::new();
-    crate::audio::stream(first, 1 << 16, |b| {
-        if x.len() < keep {
-            x.extend_from_slice(&b[..b.len().min(keep - x.len())]);
-        }
-    })
-    .map_err(|e| named(&e))?;
+    crate::audio::stream_head(first, keep, 1 << 16, |b| x.extend_from_slice(b))
+        .map_err(|e| named(&e))?;
     Ok(crate::usbclock::measure(&x, info.sample_rate))
 }
 
@@ -1372,6 +1355,49 @@ unix_s,frames
         assert!(!fit.corrects());
         assert_eq!(fit.ppm, 0.0);
         assert!((fit.map(50.0) - fit.map(40.0) - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn usb_lines_read_a_parts_lines_as_they_were_read_before() {
+        // 40 s of quiet noise and three lines a card 20 ppm slow hears,
+        // saved as a 16-bit part: the lines read off the part are those of
+        // its decoded sound, and stay what they were.
+        let fs = 48000u32;
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut samples: Vec<f32> = (0..fs as usize * 40)
+            .map(|_| {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ((seed >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 0.02
+            })
+            .collect();
+        for (f, a) in [(5000.0, 0.002), (6000.0, 0.003), (7000.0, 0.002)] {
+            let f = f * (1.0 + 20e-6);
+            for (i, v) in samples.iter_mut().enumerate() {
+                *v += (a * (2.0 * std::f64::consts::PI * f * i as f64 / fs as f64).sin()) as f32;
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("tg-usb-lines-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let part = dir.join("take-001.wav");
+        let sound = crate::audio::Audio {
+            samples,
+            sample_rate: fs,
+        };
+        crate::audio::write_wav(&part, &sound).unwrap();
+        let read = usb_lines(std::slice::from_ref(&part))
+            .unwrap()
+            .expect("lines found");
+        let decoded = crate::audio::load(&part).unwrap();
+        assert_eq!(Some(read), crate::usbclock::measure(&decoded.samples, fs));
+        // As main read them before decoding stopped at the budget (#726).
+        assert_eq!(
+            (read.ppm, read.lines, read.spread_ppm),
+            (20.00130185628095, 3, 0.007482800956921665)
+        );
+        assert_eq!(usb_lines(&[]), Ok(None));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

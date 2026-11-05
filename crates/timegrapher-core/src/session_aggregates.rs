@@ -10,22 +10,10 @@ pub type SourcedFigures = (
     Option<BeatErrorSource>,
 );
 
-/// Temporary source-less app adapter, to be removed in #658 part 2b.
-/// Legacy saved results keep unknown provenance; both paths use the same estimators.
-pub fn indices(wind_h: f64, figures: &[Figures]) -> StateIndices {
-    let sourced: Vec<_> = figures
-        .iter()
-        .map(|&(p, r, a, b)| (p, r, a, b, None))
-        .collect();
-    indices_inner(wind_h, &sourced, true)
-}
-
-/// Position averages and state indices, choosing one beat-error source per statistic.
+/// Position averages and state indices, choosing one known beat-error source.
+/// Values with unknown provenance remain available to callers as individual rows,
+/// but never enter a pooled beat-error figure.
 pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices {
-    indices_inner(wind_h, figures, false)
-}
-
-fn indices_inner(wind_h: f64, figures: &[SourcedFigures], legacy: bool) -> StateIndices {
     let positions: Vec<PositionValue> = Position::ALL
         .iter()
         .filter_map(|&p| {
@@ -39,14 +27,10 @@ fn indices_inner(wind_h: f64, figures: &[SourcedFigures], legacy: bool) -> State
                 position: p,
                 rate_s_per_day: mean(rs.iter().filter_map(|f| f.1)),
                 amplitude_deg: mean(rs.iter().filter_map(|f| f.2)),
-                beat_error_ms: if legacy {
-                    mean(rs.iter().filter_map(|f| f.3))
-                } else {
-                    mean(values)
-                },
+                beat_error_ms: mean(values),
                 beat_error_source: selected.beat_error_source,
                 beat_error_sources: selected.beat_error_sources,
-                caveats: selected.caveats(),
+                caveats: source_caveats(&selected, rs.iter().copied()),
                 readings: rs.len(),
             })
         })
@@ -83,11 +67,7 @@ fn indices_inner(wind_h: f64, figures: &[SourcedFigures], legacy: bool) -> State
             .iter()
             .map(|p| p.beat_error_ms.zip(p.beat_error_source)),
     );
-    let beat_errors: Vec<_> = if legacy {
-        positions.iter().filter_map(|p| p.beat_error_ms).collect()
-    } else {
-        selected.values.iter().map(|(_, value)| *value).collect()
-    };
+    let beat_errors: Vec<_> = selected.values.iter().map(|(_, value)| *value).collect();
     StateIndices {
         wind_h,
         x: mean(rate(&all).into_iter()),
@@ -105,9 +85,56 @@ fn indices_inner(wind_h: f64, figures: &[SourcedFigures], legacy: bool) -> State
         d_beat_error: spread(beat_errors.iter().copied()),
         beat_error_source: selected.beat_error_source,
         beat_error_sources: selected.beat_error_sources,
-        caveats: selected.caveats(),
+        caveats: source_caveats(&selected, figures.iter()),
         positions,
     }
+}
+
+impl StateIndices {
+    /// Words for a position-table mean, including the actual source count and
+    /// why legacy unknown-source readings do not contribute.
+    pub fn beat_error_summary(&self) -> String {
+        let mut text = match self.beat_error_source {
+            Some(source) => {
+                let used = match source {
+                    BeatErrorSource::Unlock => self.beat_error_sources.unlock,
+                    BeatErrorSource::Drop => self.beat_error_sources.drop,
+                };
+                format!(
+                    "{}: mean of {used} of {} positions.",
+                    beat_error_source_label(Some(source)),
+                    self.positions.len()
+                )
+            }
+            None => format!("{}: no mean.", beat_error_source_label(None)),
+        };
+        for caveat in &self.caveats {
+            if matches!(
+                caveat,
+                crate::measure::Caveat::BeatErrorUnknownSource { .. }
+            ) {
+                if let Some(note) = caveat.long(None) {
+                    text.push(' ');
+                    text.push_str(&note);
+                }
+            }
+        }
+        text
+    }
+}
+
+fn source_caveats<'a>(
+    selected: &BeatErrorSelection,
+    figures: impl Iterator<Item = &'a SourcedFigures>,
+) -> Vec<crate::measure::Caveat> {
+    let mut caveats = selected.caveats();
+    let readings = figures
+        .filter(|f| f.4.is_none() && f.3.is_some_and(f64::is_finite))
+        .count();
+    if readings > 0 {
+        caveats.push(crate::measure::Caveat::BeatErrorUnknownSource { readings });
+    }
+    caveats
 }
 
 #[cfg(test)]
@@ -174,17 +201,50 @@ mod tests {
         ));
     }
     #[test]
-    fn legacy_indices_preserve_values_without_inventing_sources() {
-        let s = indices(
+    fn unknown_source_rows_never_enter_beat_error_aggregates() {
+        let figures = [
+            (Position::CH, Some(2.0), Some(280.0), Some(0.4), None),
+            (Position::CB, Some(4.0), Some(260.0), Some(0.8), None),
+        ];
+        let s = sourced_indices(0.0, &figures);
+        assert_eq!(s.beat_error_mean, None);
+        assert_eq!(s.d_beat_error, None);
+        assert_eq!(s.beat_error_source, None);
+        assert_eq!(s.x, Some(3.0));
+        assert_eq!(s.amplitude_mean, Some(270.0));
+        assert!(s.positions.iter().all(|p| p.beat_error_ms.is_none()));
+        assert!(matches!(
+            s.caveats.as_slice(),
+            [crate::measure::Caveat::BeatErrorUnknownSource { readings: 2 }]
+        ));
+        let mixed = [figures[0], row(Position::CH, 0.2, BeatErrorSource::Unlock)];
+        let s = sourced_indices(0.0, &mixed);
+        assert_eq!(s.beat_error_mean, Some(0.2));
+        assert_eq!(s.beat_error_source, Some(BeatErrorSource::Unlock));
+        assert!(matches!(
+            s.positions[0].caveats.as_slice(),
+            [crate::measure::Caveat::BeatErrorUnknownSource { readings: 1 }]
+        ));
+    }
+    #[test]
+    fn position_mean_words_count_the_selected_source_and_explain_unknowns() {
+        let known = sourced_indices(
             0.0,
             &[
-                (Position::CH, None, None, Some(0.4)),
-                (Position::CB, None, None, Some(0.8)),
+                row(Position::CH, 0.2, BeatErrorSource::Unlock),
+                row(Position::CB, 0.8, BeatErrorSource::Drop),
+                row(Position::H3, 0.4, BeatErrorSource::Unlock),
             ],
         );
-        assert!((s.beat_error_mean.unwrap() - 0.6).abs() < 1e-12);
-        assert_eq!(s.beat_error_source, None);
-        assert!(s.positions.iter().all(|p| p.beat_error_source.is_none()));
-        assert!(s.caveats.is_empty());
+        assert_eq!(
+            known.beat_error_summary(),
+            "Beat Error from the Unlock: mean of 2 of 3 positions."
+        );
+        let unknown = sourced_indices(0.0, &[(Position::CH, None, None, Some(0.4), None)]);
+        assert!(unknown.beat_error_summary().contains("source not recorded"));
+        assert!(unknown.beat_error_summary().contains("no mean"));
+        assert!(unknown
+            .beat_error_summary()
+            .contains("leaves out 1 readings"));
     }
 }

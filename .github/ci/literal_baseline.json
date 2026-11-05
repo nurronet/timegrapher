@@ -42,7 +42,7 @@
     "crates/timegrapher-app/src/app/paper_strip.rs": {
      "bounds": 1,
      "comparisons": 0,
-     "constants": 0,
+     "constants": 1,
      "defaults": 0
     },
     "crates/timegrapher-app/src/app/power_reserve_pane.rs": {
@@ -70,7 +70,7 @@
      "defaults": 0
     },
     "crates/timegrapher-app/src/app/take_io.rs": {
-     "bounds": 2,
+     "bounds": 1,
      "comparisons": 4,
      "constants": 0,
      "defaults": 0
@@ -166,7 +166,7 @@
      "defaults": 0
     },
     "crates/timegrapher-app/src/reserve.rs": {
-     "bounds": 0,
+     "bounds": 1,
      "comparisons": 0,
      "constants": 2,
      "defaults": 0
@@ -235,7 +235,7 @@
    "total": {
     "bounds": 105,
     "comparisons": 108,
-    "constants": 58,
+    "constants": 59,
     "defaults": 2
    }
   },
@@ -263,7 +263,7 @@
      "bounds": 0,
      "comparisons": 0,
      "constants": 0,
-     "defaults": 25
+     "defaults": 18
     },
     "crates/timegrapher-cli/src/output.rs": {
      "bounds": 0,
@@ -318,7 +318,7 @@
     "bounds": 10,
     "comparisons": 18,
     "constants": 17,
-    "defaults": 26
+    "defaults": 19
    }
   },
   "timegrapher-mcp": {
@@ -351,6 +351,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 4648
+  "crates/timegrapher-app/src/app.rs": 4631
  }
 }

@@ -1,7 +1,7 @@
 //! Hidden panes and replay: panes hidden and brought back, launching
 //! and replaying without an input, and replay keeping a take's history.
 
-use super::tests::{frames, queued_capture, synthetic, themed};
+use super::tests::{frames, painted_text, queued_capture, screen, synthetic, themed};
 use super::*;
 use timegrapher_core::synth::{generate, SynthConfig};
 
@@ -197,6 +197,7 @@ fn drain_replay_source(app: &TimegrapherApp) -> usize {
             Event::End => return samples,
             Event::Error(e) => panic!("{e}"),
             Event::Lost(n) => panic!("a file waits, but lost {n} frames"),
+            Event::Glitch => panic!("a file never glitches"),
         }
     }
 }
@@ -432,4 +433,61 @@ fn replay_readouts_and_rebuilt_trends_respect_imported_settling() {
     );
     // Endpoint convention is inherited unchanged: settling_at is (from,to].
     assert!(app.reading_at_time(40.0).is_none());
+}
+
+/// The reading cards follow the strip: moved back, Amplitude reads over
+/// Average Over ending at the strip's newest edge. The moment is said
+/// once, on the strip, which sets it, and in the figures' hovers, not in
+/// the card titles. Moved back to the newest beats, the live reading
+/// again (Play Head, rule 9).
+#[test]
+fn the_cards_read_at_the_strips_newest_edge() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.reset_session(48000, "syn".into());
+    let cfg = SynthConfig {
+        duration_s: 90.0,
+        rate_s_per_day: 10.0,
+        ..Default::default()
+    };
+    // Low amplitude for the first half, high for the second.
+    let audio = generate(&cfg, |t| if t < 45.0 { 220.0 } else { 300.0 }, |_| 0.0);
+    let live = app.live.as_mut().unwrap();
+    for b in audio.samples.chunks(960) {
+        live.push(b);
+    }
+    app.poll();
+    // The sound panes still say the moment too (#1068): out of the way.
+    for p in [Pane::Sound, Pane::Scope] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let amp = |app: &TimegrapherApp| app.card_reading().and_then(|r| r.amplitude_deg);
+    let live_amp = amp(&app).expect("a live amplitude");
+    assert!((live_amp - 300.0).abs() < 15.0, "{live_amp}");
+    app.strip_end = Some(40.0);
+    let moment = app.sound_moment().expect("the moment");
+    app.strip_end = None;
+    frames(&mut app, &ctx, 2);
+    let text = painted_text(&ctx.run(screen(), |ctx| app.panels(ctx)));
+    assert!(!text.contains(&moment), "{text}");
+    // Moved back to 40 s: the first half's amplitude, the moment said.
+    app.strip_end = Some(40.0);
+    let back = app.card_reading().expect("a reading at 40 s");
+    assert!((back.time_s - 40.0).abs() < 1.0, "{}", back.time_s);
+    let back_amp = back.amplitude_deg.expect("an amplitude at 40 s");
+    assert!((back_amp - 220.0).abs() < 15.0, "{back_amp}");
+    let spark = app.spark_trend(&ctx, &back);
+    assert_eq!(spark.last().map(|p| p.t), Some(back.time_s));
+    frames(&mut app, &ctx, 2);
+    let text = painted_text(&ctx.run(screen(), |ctx| app.panels(ctx)));
+    // Once, on the strip; the cards' hovers say where it was set.
+    assert_eq!(text.matches(&moment).count(), 1, "{moment}: {text}");
+    assert!(text.contains(&format!("{moment}, double-click")), "{text}");
+    assert_eq!(
+        app.moment_hover(),
+        Some(format!("{moment}, set by the Paper Strip."))
+    );
+    // Back to the newest beats: live again.
+    app.strip_end = None;
+    assert_eq!(amp(&app), Some(live_amp));
 }

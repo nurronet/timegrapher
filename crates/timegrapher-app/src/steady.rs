@@ -16,6 +16,7 @@ use egui_plot::{
     Text, VLine,
 };
 use serde::{Deserialize, Serialize};
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::library::length_text;
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
@@ -319,8 +320,8 @@ pub fn compute_with(
 fn stats_line(c: &SeriesCheck) -> String {
     let u = c.unit;
     // A true minus sign, as in the readings.
-    let n = |v: f64| format!("{v:.2}").replace('-', "−");
-    let signed = |v: f64| format!("{v:+.2}").replace('-', "−");
+    let n = |v: f64| true_minus(&format!("{v:.2}"));
+    let signed = |v: f64| true_minus(&format!("{v:+.2}"));
     let mut parts = vec![format!("Tested on {}", counted(c.readings, c.step_s))];
     if c.outliers > 0 {
         parts.push(format!(
@@ -374,8 +375,6 @@ fn counted(n: usize, step_s: f64) -> String {
     format!("{n} {}", kind_of(step_s))
 }
 
-/// Readings `step_s` long: "10 s readings"; shorter than 10 s, "2 s
-/// windows".
 /// The Readings view's key: what a dot is and how many are drawn, and on
 /// a long series how many readings the bands hold: "10 s readings (179)",
 /// "10 s readings in 3000 bands (23400)".
@@ -387,6 +386,8 @@ fn readings_key(g: &Grid, drawn: usize, banded: bool) -> String {
     }
 }
 
+/// Readings `step_s` long: "10 s readings"; shorter than 10 s, "2 s
+/// windows".
 fn kind_of(step_s: f64) -> String {
     let what = if step_s >= 10.0 - 1e-9 {
         "readings"
@@ -567,7 +568,7 @@ const BOX_OPACITY: f32 = 0.6;
 
 /// A level in dB as an axis or a key gives it: "0 dB", "−10 dB".
 pub fn db_label(v: f64) -> String {
-    format!("{:.0} dB", v + 0.0).replace('-', "−")
+    true_minus(&format!("{:.0} dB", v + 0.0))
 }
 
 /// The series the pane can show, in the order the switches list them.
@@ -1999,8 +2000,6 @@ fn log_label(
 /// How many colours the Cycle view's dots take, first cycle to last.
 const TIME_BANDS: usize = 12;
 
-/// The points' value scale: core's ([`timegrapher_core::chart_scale::spread`]),
-/// which leaves out lone wild values and which the MCP view uses too.
 fn note(ui: &mut egui::Ui, text: &str) {
     let pal = theme::pal(ui);
     ui.centered_and_justified(|ui| {

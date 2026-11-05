@@ -1253,16 +1253,50 @@ fn the_cusum_names_a_change_only_where_the_headline_does() {
         if step == 0.0 {
             assert!(named <= 20, "steady: {named} of {runs} named a change");
         } else {
-            // The headline tells a step from a slide by how much of it a
-            // line explains, and calls about two in five of these slides
-            // (111 named, 58 cut and called slides at this seed); either
-            // way it says the level moved.
-            assert!(named >= 100, "step: {named} of {runs} named a change");
+            // The headline tells a step from a slide by whichever of a
+            // line and the stretches explains more (#721): 158 named at
+            // this seed, against 111 when a line needed only 0.8 of the
+            // stretches' share and two in five of these steps were called
+            // slides; either way it says the level moved.
+            assert!(named >= 150, "step: {named} of {runs} named a change");
             assert!(moved >= 160, "step: {moved} of {runs} moved");
         }
     }
     // The case #697 found: past the band, and no change named.
     assert!(past_band > 0);
+}
+
+/// A cut series is a slide when its line, trend test passed, explains at
+/// least as much as the stretches, and a level change when it explains
+/// less (#721): either side of the tie, at 1.05 and 0.95 times.
+#[test]
+fn a_cut_series_is_a_slide_only_when_its_line_explains_at_least_as_much() {
+    let cfg = Config::default();
+    let mut z = Noise(721);
+    let mut s = check_series(
+        SeriesKind::Rate,
+        correlated(&mut z, 720, 0.0, 3.0, Gaps::None),
+        None,
+        None,
+        None,
+        &[],
+        &cfg,
+    );
+    assert!(s.two_state.is_none() && s.cycle.is_none());
+    let ch = s.changes.as_mut().unwrap();
+    assert!(ch.segments.len() > 1 && ch.p_value < cfg.level_alpha);
+    ch.explained = 0.5;
+    let t = s.trend.as_mut().unwrap();
+    t.p_value = 0.0;
+    for (ratio, want) in [
+        (1.05, Lead::Drifting),
+        (1.0, Lead::Drifting),
+        (0.95, Lead::ShiftingMean),
+    ] {
+        let t = s.trend.as_mut().unwrap();
+        (t.explained, t.curve_explained) = (0.5 * ratio, 0.0);
+        assert_eq!(lead(&s, &cfg), want, "line at {ratio} of the stretches");
+    }
 }
 
 /// A step the change finder cuts but that explains under a fifth of the

@@ -6,7 +6,7 @@
 //! compares it with tg and with a baseline: the same measurements from an
 //! earlier engine, written by `--write-baseline`. A value fails when it is
 //! further from tg than the baseline was by more than its margin; moving
-//! closer to tg always passes. A reading also fails when it loses beats or
+//! closer to tg always passes. A reading also fails when it gains or loses beats or
 //! a value it had. Values with no tg number are reported when they change,
 //! without failing. See docs/regress.md.
 
@@ -36,7 +36,7 @@ pub struct Margins {
     pub rate_s_per_day: f64,
     pub amplitude_deg: f64,
     pub beat_error_ms: f64,
-    /// Beats a reading may lose, as a share of its baseline beats ...
+    /// Beats a reading may gain or lose, as a share of its baseline beats ...
     pub beats_fraction: f64,
     /// ... but never fewer than this many.
     pub beats_min: usize,
@@ -146,13 +146,18 @@ pub enum Status {
     Lost,
     /// Fewer beats than the baseline by more than the margin: fails.
     BeatsLost,
+    /// More beats than the baseline by more than the margin: fails.
+    BeatsGained,
     /// No baseline value to compare with.
     New,
 }
 
 impl Status {
     pub fn fails(self) -> bool {
-        matches!(self, Status::Further | Status::Lost | Status::BeatsLost)
+        matches!(
+            self,
+            Status::Further | Status::Lost | Status::BeatsLost | Status::BeatsGained
+        )
     }
 }
 
@@ -186,6 +191,7 @@ pub struct Counts {
     pub changed: usize,
     pub lost: usize,
     pub beats_lost: usize,
+    pub beats_gained: usize,
     pub new: usize,
 }
 
@@ -572,7 +578,7 @@ pub fn compare(
             (None, _) => Status::New,
             (Some(_), None) => Status::Lost,
             (Some(b), Some(n)) if (b as f64 - n as f64) > allowed => Status::BeatsLost,
-            (Some(b), Some(n)) if (n as f64 - b as f64) > allowed => Status::Changed,
+            (Some(b), Some(n)) if (n as f64 - b as f64) > allowed => Status::BeatsGained,
             _ => Status::Same,
         },
     });
@@ -592,6 +598,7 @@ fn tally(rows: &[Row]) -> Counts {
             Status::Changed => c.changed += 1,
             Status::Lost => c.lost += 1,
             Status::BeatsLost => c.beats_lost += 1,
+            Status::BeatsGained => c.beats_gained += 1,
             Status::New => c.new += 1,
         }
     }
@@ -809,10 +816,7 @@ pub fn run(o: &Options) -> Result<bool, String> {
         && !rows.iter().any(|r| r.status.fails())
         && !smoke.iter().any(|s| s.fails())
         && amplitude_high.is_empty();
-    let shown: Vec<Row> = rows
-        .into_iter()
-        .filter(|r| o.all || r.status != Status::Same)
-        .collect();
+    let (shown, drift) = shown_rows(rows, o.all);
     let outcome = Outcome {
         passed,
         margins: o.margins,
@@ -852,6 +856,7 @@ pub fn run(o: &Options) -> Result<bool, String> {
         crate::output::print("regress", input, &outcome)?;
     } else {
         print_text(&outcome, !o.quiet);
+        print!("{drift}");
         if o.write_baseline {
             println!("Baseline written to {}", bpath.display());
         }
@@ -1097,6 +1102,42 @@ fn name(value: &str) -> &str {
     }
 }
 
+/// Collect the summary before hiding unchanged detail rows.
+fn shown_rows(rows: Vec<Row>, all: bool) -> (Vec<Row>, String) {
+    let drift = drift_text(&rows);
+    let shown = rows
+        .into_iter()
+        .filter(|r| all || r.status != Status::Same)
+        .collect();
+    (shown, drift)
+}
+
+/// Unrounded differences inside each field's existing margin are report text only.
+fn drift_text(rows: &[Row]) -> String {
+    let mut fields: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+    for r in rows {
+        let (Some(before), Some(now)) = (r.baseline, r.now) else {
+            continue;
+        };
+        let change = (now - before).abs();
+        if change > 0.0 && change <= r.margin {
+            let entry = fields.entry(r.value).or_default();
+            entry.0 += 1;
+            entry.1 = entry.1.max(change);
+        }
+    }
+    if fields.is_empty() {
+        return String::new();
+    }
+    let mut text = String::from("Within-margin drift (absolute changes from baseline):\n");
+    for (field, (count, largest)) in fields {
+        text.push_str(&format!(
+            "  {field}: {count} entries, largest {largest:.6e}\n"
+        ));
+    }
+    text
+}
+
 fn verdict(s: Status) -> &'static str {
     match s {
         Status::Same => "same",
@@ -1105,6 +1146,7 @@ fn verdict(s: Status) -> &'static str {
         Status::Changed => "changed (no tg value)",
         Status::Lost => "LOST",
         Status::BeatsLost => "LOST BEATS",
+        Status::BeatsGained => "GAINED BEATS",
         Status::New => "new",
     }
 }
@@ -1157,8 +1199,8 @@ fn print_text(o: &Outcome, names: bool) {
     let c = &o.counts;
     println!();
     println!(
-        "{} takes, {} readings, {} values: {} further from tg, {} lost, {} lost beats; {} closer, {} changed with no tg value, {} new.",
-        c.takes, c.readings, c.values, c.further, c.lost, c.beats_lost, c.closer, c.changed, c.new
+        "{} takes, {} readings, {} values: {} further from tg, {} lost, {} lost beats, {} gained beats; {} closer, {} changed with no tg value, {} new.",
+        c.takes, c.readings, c.values, c.further, c.lost, c.beats_lost, c.beats_gained, c.closer, c.changed, c.new
     );
     if !o.not_run.is_empty() {
         println!("Not run (in the baseline only): {}", o.not_run.join(", "));
@@ -1379,6 +1421,47 @@ mod tests {
 
     fn status(rows: &[Row], value: &str) -> Status {
         rows.iter().find(|r| r.value == value).unwrap().status
+    }
+
+    #[test]
+    fn beat_gains_and_losses_use_the_same_fractional_margin() {
+        for delta in [-6_i32, -5, 5, 6] {
+            let rows = compare(
+                "watch",
+                1,
+                Some(&v(5.0, 250.0, 0.2, (10_000 + delta) as usize)),
+                Some(&v(5.0, 250.0, 0.2, 10_000)),
+                None,
+                &Margins::default(),
+            );
+            assert_eq!(rows.iter().any(|r| r.status.fails()), delta.abs() > 5);
+        }
+    }
+
+    #[test]
+    fn drift_summary_counts_each_field_and_its_largest_small_change() {
+        let mut rows = compare(
+            "first",
+            1,
+            Some(&v(5.125, 250.5, 0.201, 10_003)),
+            Some(&v(5.0, 250.0, 0.2, 10_000)),
+            None,
+            &Margins::default(),
+        );
+        rows.extend(compare(
+            "second",
+            1,
+            Some(&v(5.25, 250.0, 0.2, 10_005)),
+            Some(&v(5.0, 250.0, 0.2, 10_000)),
+            None,
+            &Margins::default(),
+        ));
+        let text = drift_text(&rows);
+        assert!(text.contains("rate_s_per_day: 2 entries, largest 2.500000e-1"));
+        assert!(text.contains("beats: 2 entries, largest 5.000000e0"));
+        assert!(text.contains("amplitude_deg: 1 entries, largest 5.000000e-1"));
+        assert!(text.contains("beat_error_unlock_ms: 1 entries"));
+        assert!(text.contains("beat_error_ms: 1 entries"));
     }
 
     #[test]

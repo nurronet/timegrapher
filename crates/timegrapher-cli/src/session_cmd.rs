@@ -7,6 +7,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use timegrapher_core::calibre_store::{self, UserCalibres};
 use timegrapher_core::calibres;
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::LongConfig;
 use timegrapher_core::periodicity::Wheel;
@@ -580,11 +581,11 @@ impl LeftOut {
     /// The line the summary and the note print.
     pub fn text(&self) -> String {
         format!(
-            "{}, {}, at {:.0} s is left out: {}",
+            "{}, {}, at {} s is left out: {}",
             self.file,
             self.position
                 .map_or("-".to_string(), Position::display_label),
-            self.start_s,
+            fixed_text(self.start_s, 0),
             self.why
         )
     }
@@ -739,7 +740,12 @@ fn read_one_inner(
         .map(|t| crate::archive::sha256_hex(t.as_bytes()));
 
     let label = if e.start_s.is_some() || e.end_s.is_some() {
-        format!("{} ({:.0}–{:.0} s)", e.file, start, stop)
+        format!(
+            "{} ({}–{} s)",
+            e.file,
+            fixed_text(start, 0),
+            fixed_text(stop, 0)
+        )
     } else {
         e.file.clone()
     };
@@ -1016,7 +1022,7 @@ fn kept_note(base: &Path, m: &Manifest) -> serde_json::Value {
 
 pub fn opt(v: Option<f64>, digits: usize) -> String {
     v.filter(|x| x.is_finite())
-        .map_or("-".into(), |x| format!("{x:.digits$}"))
+        .map_or("-".into(), |x| fixed_text(x, digits))
 }
 
 pub fn signed(v: Option<f64>, digits: usize) -> String {
@@ -1031,7 +1037,7 @@ pub fn wind(w: Option<f64>) -> String {
     match w {
         None => "not given".into(),
         Some(w) if w <= 0.0 => "full wind".into(),
-        Some(w) => format!("{w:.0} h after winding"),
+        Some(w) => format!("{} h after winding", fixed_text(w, 0)),
     }
 }
 
@@ -1040,7 +1046,7 @@ fn wind_state(w: f64) -> String {
     if w <= 0.0 {
         "at full wind".into()
     } else {
-        format!("{w:.0} h after winding")
+        format!("{} h after winding", fixed_text(w, 0))
     }
 }
 

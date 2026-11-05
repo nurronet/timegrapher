@@ -76,6 +76,8 @@ th { color: var(--text2); font-weight: 500; }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--card); }
 .series-name { font-size: 12.5px; font-weight: 600; margin: 12px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .series-name .summary { font-weight: 400; color: var(--text2); }
+/* A series' caveat qualifies its finding, so it is no louder than it. */
+.series-caveat { font-size: 12.5px; color: var(--text2); margin: 0 0 2px; }
 .info { border-left: 2px solid var(--separator); padding: 0 0 2px 10px; margin: 6px 0 4px; }
 .info .series-name { white-space: normal; margin-top: 8px; }
 .headline { color: var(--text); font-size: 12.5px; margin: 0 0 2px; }
@@ -304,6 +306,10 @@ function gridAcross(y, L, plotW, bottom) {
   return Math.abs(y - bottom) < 0.5 ? "" : `<line class="grid" x1="${L}" x2="${L + plotW}" y1="${y}" y2="${y}"/>`;
 }
 
+// A reading with no neighbour either side is a dot this wide (radius, px),
+// plainly bigger than the 1.8 px line, so a lone newest reading shows.
+const LONE_DOT_R = 3;
+
 function lineSample(s) {
   return `<svg class="key" width="18" height="8" viewBox="0 0 18 8"><line x1="1" x2="17" y1="4" y2="4" stroke="var(${s.color})" stroke-width="${s.main === false ? 1.5 : 2}"${s.dash ? ` stroke-dasharray="${DASH[s.dash]}"` : ""}${s.opacity ? ` opacity="${s.opacity}"` : ""}/></svg>`;
 }
@@ -363,17 +369,28 @@ function lineChart(o) {
   for (const m of o.marks || []) {
     inside += `<line x1="${sx(m.x)}" x2="${sx(m.x)}" y1="${T}" y2="${T + plotH}" stroke="var(${m.color})" stroke-width="${m.width || 1.5}"${m.dash ? ` stroke-dasharray="${DASH[m.dash]}"` : ""}/>`;
   }
-  // Main lines last, so they are on top.
+  // Main lines last, so they are on top. Lone readings' dots go over them,
+  // in a clip as tall as the plot but a dot wider each side, so a dot on
+  // the first or newest reading shows whole.
+  let dots = "";
   for (const s of o.series.slice().sort((a, b) => (a.main !== false) - (b.main !== false))) {
     let d = "", pen = false;
-    for (const [x, y] of s.points) {
+    for (const [i, [x, y]] of s.points.entries()) {
       if (!Number.isFinite(y)) { pen = false; continue; }
+      if (!pen && !Number.isFinite(s.points[i + 1]?.[1])) {
+        dots += `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${LONE_DOT_R}" fill="var(${s.color})"${s.opacity ? ` opacity="${s.opacity}"` : ""}/>`;
+      }
       d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`;
       pen = true;
     }
     inside += `<path d="${d}" fill="none" stroke="var(${s.color})" stroke-width="${s.main === false ? 1.2 : 1.8}"${s.dash ? ` stroke-dasharray="${DASH[s.dash]}"` : ""}${s.opacity ? ` opacity="${s.opacity}"` : ""} stroke-linejoin="round"/>`;
   }
   g += `<g clip-path="url(#${area.id})">${inside}</g>`;
+  if (dots) {
+    const wide = `${area.id}d`;
+    g += `<defs><clipPath id="${wide}"><rect x="${L - LONE_DOT_R}" y="${T}" width="${plotW + 2 * LONE_DOT_R}" height="${plotH}"/></clipPath></defs>`;
+    g += `<g clip-path="url(#${wide})">${dots}</g>`;
+  }
   g += markLabels(o.marks || [], sx, L, L + plotW, T);
   const id = "c" + (++clipCount);
   charts.set(id, { o, sx, x0, x1, L, plotW, W, T, plotH });
@@ -494,10 +511,11 @@ function stripCards(strip) {
       ].filter((s) => s.points.length),
     })]);
   }
-  if (has("beat_error_unlock") || has("beat_error_drop")) {
+  if (has("beat_error_unlock") || has("beat_error_drop") || has("beat_error_unknown")) {
     cards.push(["Beat Error", over("The beat error over the whole recording"), lineChart({
-      title: "Beat Error", time: true, legend: has("beat_error_unlock") && has("beat_error_drop"), yRange: range("beat_error"), unit: " ms", decimals: 2,
+      title: "Beat Error", time: true, legend: has("beat_error_unknown") || (has("beat_error_unlock") && has("beat_error_drop")), yRange: range("beat_error"), unit: " ms", decimals: 2,
       series: [
+        { name: "Source not recorded", color: "--beat-error", dash: "dotted", points: strip.beat_error_unknown || [] },
         { name: "From the Unlock", color: "--beat-error", points: strip.beat_error_unlock || [] },
         { name: "From the Drop", color: "--beat-error", opacity: 0.6, dash: "dashed", main: false, points: strip.beat_error_drop || [] },
       ].filter((s) => s.points.length),
@@ -595,10 +613,16 @@ function recordingView(doc, extra, limits, noBeat, pm) {
   const html = head + readingTiles({
     rate: rate.value, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: rateNote.join("<br>"),
     amplitude: doc.amplitude_deg, amplitudePm: pm.amplitude, even: doc.amplitude_even_deg, odd: doc.amplitude_odd_deg,
-    unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms,
+    unlock: doc.beat_error_unlock_ms, drop: o.beat_error_ms, source: doc.beat_error_source,
     beats: doc.beats_found, jitter: Number.isFinite(doc.jitter_us) ? doc.jitter_us : o.jitter_us,
   });
   return html + recordingCards(doc, extra, limits, o.beat_error_ms);
+}
+
+// Current tool documents always carry core’s selected source.
+function chosenBeatError(unlock, drop, source) {
+  const value = source === "unlock" ? unlock : source === "drop" ? drop : null;
+  return Number.isFinite(value) ? { value, source } : { value: null, source: null };
 }
 
 // One reading's four tiles, for the whole file or a take's reading. The
@@ -608,15 +632,16 @@ function recordingView(doc, extra, limits, noBeat, pm) {
 // The ± is the unlock's, so the drop's figure keeps core's base decimals.
 function readingTiles(f) {
   const d = { ...BASE_DIGITS, ...(f.digits || {}) };
-  const be = Number.isFinite(f.unlock) ? f.unlock : f.drop;
-  const beNote = Number.isFinite(f.unlock)
-    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : "from the drop";
+  const chosen = chosenBeatError(f.unlock, f.drop, f.source);
+  const be = chosen.value;
+  const beNote = chosen.source === "unlock"
+    ? `from the unlock${Number.isFinite(f.drop) ? ` · from the drop ${num(abs(f.drop), BASE_DIGITS.beat_error)} ms` : ""}` : chosen.source === "drop" ? "from the drop" : "";
   const sides = Number.isFinite(f.even) && Number.isFinite(f.odd)
     ? `<span class="swatch dot" style="display:inline-block;background:var(--tick)"></span> Tick ${num(f.even, BASE_DIGITS.amplitude)}° · <span class="swatch dot" style="display:inline-block;background:var(--tock)"></span> Tock ${num(f.odd, BASE_DIGITS.amplitude)}°` : "";
   return `<div class="tiles">
     ${tile("Rate", "--rate", signed(f.rate, d.rate), typeof f.ratePm === "string" ? `± ${esc(f.ratePm)} seconds per day` : "seconds per day", f.rateNote)}
     ${tile("Amplitude", "--amplitude", num(f.amplitude, d.amplitude), typeof f.amplitudePm === "string" ? `± ${esc(f.amplitudePm)}°` : "", sides, "°")}
-    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), typeof f.beatErrorPm === "string" ? `± ${esc(f.beatErrorPm)} milliseconds` : "milliseconds", beNote)}
+    ${tile("Beat Error", "--beat-error", num(abs(be), d.beat_error), chosen.source === "unlock" && typeof f.beatErrorPm === "string" ? `± ${esc(f.beatErrorPm)} milliseconds` : "milliseconds", beNote)}
     ${tile("Beats", "", esc(f.beats), "", Number.isFinite(f.jitter) ? `jitter ${num(f.jitter, d.jitter)} µs` : "")}
   </div>`;
 }
@@ -647,7 +672,7 @@ function takeTiles(readings, pms) {
     return head + readingTiles({
       rate: m.rate_s_per_day, ratePm: pm.rate, beatErrorPm: pm.beat_error, digits: pm.digits, rateNote: esc(rateBasis(m.calibrated === true)),
       amplitude: m.amplitude_deg, amplitudePm: pm.amplitude, even: m.amplitude_even_deg, odd: m.amplitude_odd_deg,
-      unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, beats: m.beats, jitter: m.jitter_us,
+      unlock: m.beat_error_unlock_ms, drop: m.beat_error_ms, source: m.beat_error_source, beats: m.beats, jitter: m.jitter_us,
     });
   }).join("");
 }
@@ -675,7 +700,7 @@ function sessionView(doc, limits) {
     const heard = m.watch_heard !== false;
     html += `<tr><td>${esc(pos[1])} <span style="color:var(--text3)">${esc(pos[0])}</span></td>` +
       (heard ? cell(m.rate_s_per_day, 1, true) + cell(m.amplitude_deg, 0) +
-        cell(abs(Number.isFinite(m.beat_error_unlock_ms) ? m.beat_error_unlock_ms : m.beat_error_ms), 2)
+        cell(abs(chosenBeatError(m.beat_error_unlock_ms, m.beat_error_ms, m.beat_error_source).value), 2)
         : `<td colspan="3" style="text-align:center;color:var(--text2)">${esc(NO_BEAT_TITLE)}</td>`) +
       `<td>${esc(r.wind_h == null ? 0 : r.wind_h)}</td></tr>`;
   });
@@ -786,7 +811,7 @@ let steadyView = null;
 // scale, and the FFT's rate as the beat timing in ms.
 // steady::TIME_BANDS: the Cycle view's dots, coloured by when they came.
 const TIME_BANDS = 12;
-let periodsLog = false, fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
+let fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
 
 // steady::secs: "45 s", "12 min", "2.5 h".
 function secs(t) {
@@ -819,13 +844,22 @@ function logTicks(lo, hi, fmt) {
   }
   return ticks;
 }
-// Core period_ticks::TICKS, put in by the server.
+// Core period_ticks::TICKS, and the room a mark's label wants along an axis
+// (period_ticks::MARK_ROOM_PX), put in by the server.
 const PERIOD_TICKS = /*PERIOD_TICKS*/null;
+const MARK_ROOM_PX = /*MARK_ROOM_PX*/null;
+// What each reference line says on hover, by its label: core
+// steady_views::reference_hover, put in by the server.
+const REFERENCE_HOVER = /*REFERENCE_HOVER*/null;
+// The Periods plot's words, core steady_views's SCORE_AXIS_NAME and
+// SCORE_AXIS_HOVER, THRESHOLD_NAME and threshold_hover, put in by the
+// server.
+const SCORE_WORDS = /*SCORE_WORDS*/null;
 // A period axis in log10 seconds, as the app's steady::period_grid marks it:
 // core's period_ticks, the finest level with no more marks than one per
-// 64 px, and at least the level 0 ones. [[log10 s, label]].
+// MARK_ROOM_PX, and at least the level 0 ones. [[log10 s, label]].
 function periodTicks(lo, hi, px) {
-  const room = Math.max(2, Math.floor(px / 64));
+  const room = Math.max(2, Math.floor(px / MARK_ROOM_PX));
   const a = Math.pow(10, lo), b = Math.pow(10, hi);
   const at = (level) => PERIOD_TICKS.filter((t) => t.period_s >= a && t.period_s <= b && t.level <= level);
   const fit = [2, 1, 0].map(at).find((v) => v.length <= room) || at(0);
@@ -836,10 +870,23 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
   return g.ticks.map((v) => [v, fmt(v, g.step)]);
 }
 
+// core steady_views::score_ticks: whole scores from 1 up, on a round step
+// of at least 1, at least `minPx` apart, written as axisLabel writes them;
+// held to core by score_ticks.test.cjs.
+function scoreTicks(lo, hi, px, minPx) {
+  if (!(hi > lo)) return [];
+  const step = roundStep(Math.max(1, (hi - lo) / Math.max(1, px / minPx)));
+  const out = [];
+  for (let k = Math.ceil(Math.max(lo, 1) / step - 1e-9); k * step <= hi + 1e-9; k++) out.push([k * step, axisLabel(k * step, step)]);
+  return out;
+}
+
 // A plot as the steadiness views draw theirs: an x and a y scale with their
 // own tick labels, and lines, dots, rules and notes, all inside the plot.
-//   x, y: [lo, hi]; xTicks(lo, hi, plotW), yTicks(lo, hi, plotH): [[v, label]]
-//   hlines: [{y, color, dash}]; vlines: [{x, color, opacity, width, dash, name, rank, ink, hover}]
+//   x, y: [lo, hi]; xTicks(lo, hi, plotW), yTicks(lo, hi, plotH): [[v, label]];
+//   yName: the y axis' name, above its top tick; yHover: the y axis' hover
+//   hlines: [{y, color, dash, name, hover}], a named one named right of the plot;
+//   vlines: [{x, color, opacity, width, dash, name, rank, ink, hover}]
 //   named, by marks.rs's rules: in a lane of two rows above the plot, which
 //   `names` keeps room for, or inside along its top on a short plot
 //   lines: [{pts, color, width, dash}]; dots: [{pts, color, r}]
@@ -848,13 +895,22 @@ function linTicks(lo, hi, px, minPx, fmt, ladder) {
 //   range kept tall enough for it (noteRoom); corner: {text, top}, a line
 //   per "\n"; rects: [{x0, x1, y0, y1, color, opacity?, width?}] outlined; a dot set's rgb
 //   overrides its color
+// How far a y axis' name sits above its top tick label's baseline, past
+// the label's own height.
+const NAME_CLEAR = 8;
 function xyChart(o) {
   const W = chartWidth(), B = 20, R = 6;
   // With its lines named, a plot keeps the lane's room above it, so it
   // never jumps as they come and go; a short one names them inside.
   const short = o.names && (o.height || 150) - 4 - B < MARKS.SHORT_PLOT;
   const room = o.names && !short ? MARKS.LANE + MARKS.LANE_GAP : 0;
-  const H = (o.height || 150) + room, T = 4 + room;
+  // A y axis' name sits above its top tick, left of the plot: in the lane's
+  // room when there is one (the lane's names stay over the plot), else in a
+  // row of its own.
+  const yNames = o.yName ? String(o.yName).split("\n") : [];
+  // The names sit clear of a top tick at the plot's very top (Walter, #1083).
+  const nameRow = yNames.length && !room ? 14 * yNames.length + NAME_CLEAR : 0;
+  const H = (o.height || 150) + room + nameRow, T = 4 + room + nameRow;
   const plotH = H - T - B;
   const [x0, x1] = o.x, y0 = o.y[0];
   // steady: the plot keeps a note's room above the trace's highest point,
@@ -864,16 +920,26 @@ function xyChart(o) {
   const y1 = noted && o.noteRoom ? roomAbove(y0, highest, o.y[1], plotH) : o.y[1];
   const yt = o.yTicks(y0, y1, plotH);
   const L = Math.max(54, Math.ceil(10 + CHAR_W * Math.max(3, ...yt.map(([, t]) => t.length))));
-  const plotW = W - L - R;
+  // A named line across the plot is named in a lane right of it.
+  const across = (o.hlines || []).filter((h) => h.name).map((h) => ({ ...h, ink: h.color, rank: "faint" }));
+  const side = across.length ? sideWidth(across) : 0;
+  const plotW = W - L - (side || R);
   const xt = o.xTicks(x0, x1, plotW);
   const sx = (x) => L + (x - x0) / (x1 - x0) * plotW;
   const sy = (y) => T + (y1 - y) / (y1 - y0) * plotH;
   const area = plotArea(L, T, plotW, plotH);
   let g = area.svg, inside = "";
+  let ylabels = "";
   for (const [v, t] of yt) {
     inside += `${gridAcross(sy(v), L, plotW, T + plotH)}`;
-    if (t) g += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
+    if (t) ylabels += `<text x="${L - 5}" y="${sy(v) + 4}" text-anchor="end">${esc(t)}</text>`;
   }
+  // The axis' name, lined up with its tick labels above the top one.
+  const nameBase = Math.min(T - 4, ...yt.filter(([, t]) => t).map(([v]) => sy(v) - 4 - NAME_CLEAR));
+  yNames.forEach((t, i) => { ylabels += `<text x="${L - 5}" y="${nameBase - 14 * (yNames.length - 1 - i)}" text-anchor="end">${esc(t)}</text>`; });
+  g += o.yHover ? `<g><title>${esc(o.yHover)}</title>${ylabels}</g>` : ylabels;
+  // The x axis' name in the corner under the y labels, clear of the first x label.
+  if (o.xName) g += `<text x="${L - 10}" y="${H - 5}" text-anchor="end">${esc(o.xName)}</text>`;
   for (const [v, t] of xt) {
     inside += `${gridDown(sx(v), L, T, plotH)}`;
     if (!t) continue;
@@ -883,6 +949,10 @@ function xyChart(o) {
   const dash = (d) => d ? ` stroke-dasharray="${DASH[d]}"${DASH[d].startsWith("0 ") ? ` stroke-linecap="round"` : ""}` : "";
   for (const h of o.hlines || []) {
     inside += `<line x1="${L}" x2="${L + plotW}" y1="${sy(h.y)}" y2="${sy(h.y)}" stroke="var(${h.color})" stroke-width="1"${dash(h.dash)}/>`;
+  }
+  for (const h of across) {
+    const lane = laneRight([{ ...h, y: sy(h.y) }], L + plotW, T, T + plotH);
+    g += h.hover ? `<g><title>${esc(h.hover)}</title>${lane}</g>` : lane;
   }
   for (const v of o.vlines || []) {
     inside += `<line x1="${sx(v.x)}" x2="${sx(v.x)}" y1="${T}" y2="${T + plotH}" stroke="var(${v.color})"${v.opacity ? ` stroke-opacity="${v.opacity}"` : ""} stroke-width="${v.width || 1}"${dash(v.dash)}/>`;
@@ -900,19 +970,24 @@ function xyChart(o) {
     const [a, b] = [sx(r.x0), sx(r.x1)], [c, d] = [sy(r.y1), sy(r.y0)];
     inside += `<rect x="${a.toFixed(1)}" y="${c.toFixed(1)}" width="${(b - a).toFixed(1)}" height="${Math.max(0, d - c).toFixed(1)}" fill="none" stroke="var(${r.color})"${r.opacity ? ` stroke-opacity="${r.opacity}"` : ""} stroke-width="${r.width || 1}"/>`;
   }
-  for (const d of o.dots || []) {
-    inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
-      .map(([x, y]) => `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${d.r}"/>`).join("")}</g>`;
-  }
-  for (const l of o.lines || []) {
+  const path = (l) => {
     let d = "", pen = false;
     for (const [x, y] of l.pts) {
       if (!Number.isFinite(x) || !Number.isFinite(y)) { pen = false; continue; }
       d += `${pen ? "L" : "M"}${sx(x).toFixed(1)},${sy(y).toFixed(1)}`;
       pen = true;
     }
-    inside += `<path d="${d}" fill="none" stroke="var(${l.color})" stroke-width="${l.width || 1.5}"${dash(l.dash)} stroke-linejoin="round"/>`;
+    return `<path d="${d}" fill="none" stroke="var(${l.color})" stroke-width="${l.width || 1.5}"${dash(l.dash)} stroke-linejoin="round"/>`;
+  };
+  // Lines that join dots go under them.
+  for (const l of o.joins || []) inside += path(l);
+  for (const d of o.dots || []) {
+    // A dot with a hover says it on its own.
+    inside += `<g fill="${d.rgb || `var(${d.color})`}">${d.pts.map((p, i) => [p, d.hovers && d.hovers[i]])
+      .filter(([[x, y]]) => Number.isFinite(x) && Number.isFinite(y))
+      .map(([[x, y], h]) => `<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="${d.r}">${h ? `<title>${esc(h)}</title>` : ""}</circle>`).join("")}</g>`;
   }
+  for (const l of o.lines || []) inside += path(l);
   for (const m of o.marks || []) {
     inside += `<circle cx="${sx(m.x)}" cy="${sy(m.y)}" r="3.5" fill="var(${m.color})"/>`;
   }
@@ -1230,7 +1305,7 @@ function wheelLines(doc, span) {
   const wheels = (doc.input && doc.input.settings && doc.input.settings.named_wheels) || [];
   const inside = (l) => l.x > span[0] && l.x < span[1];
   if (!wheels.length) {
-    return referenceLines(doc).map((r) => ({ x: Math.log10(r.period_s), turn: "reference", name: r.label, short: r.label, hover: r.label })).filter(inside);
+    return referenceLines(doc).map((r) => ({ x: Math.log10(r.period_s), turn: "reference", name: r.label, short: r.label, hover: (REFERENCE_HOVER || {})[r.label] || r.label })).filter(inside);
   }
   const out = [];
   for (const w of wheels) {
@@ -1313,13 +1388,11 @@ function steadyPlot(s, view, doc) {
       const raw = p.period_s.map((t, i) => [t > 0 ? Math.log10(t) : NaN, p.score[i]]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
       const span = doc.period_span || [Math.min(...raw.map((q) => q[0])), Math.max(...raw.map((q) => q[0]))];
       if (!(span[1] > span[0])) return steadyNote("The period search needs a longer session.");
-      // On a log scale the scores are drawn as log10, down to a thousandth
-      // of the tallest (a score of 0 sits on that floor).
+      // A score is −log10 of a chance under the search's noise model, so
+      // it is drawn as it is, in whole scores (core steady_views::score_ticks).
       const tallest = Math.max(p.threshold, ...raw.map((q) => q[1]));
-      const floor = tallest * 1e-3;
-      const yOf = (v) => (periodsLog ? Math.log10(Math.max(v, floor)) : v);
-      const pts = raw.map(([x, y]) => [x, yOf(y)]);
-      const y = periodsLog ? [Math.log10(floor), Math.log10(tallest) + 0.45] : [0, tallest * 1.15];
+      const pts = raw;
+      const y = [0, tallest * 1.15];
       const marks = [], notes = [];
       if (s.period && s.period.period_s > 0) {
         const x = Math.log10(s.period.period_s);
@@ -1335,8 +1408,9 @@ function steadyPlot(s, view, doc) {
       return xyChart({
         title: "Periods", x: span, y,
         xTicks: periodTicks,
-        yTicks: periodsLog ? (a, b) => logTicks(a, b, sig) : (a, b, h) => linTicks(a, b, h, 24, (y) => y.toFixed(0)),
-        vlines: wheelMarks(doc, span), names: showWheels, hlines: [{ y: yOf(p.threshold), color: "--callout", width: CALL_OUT_W, dash: "loose" }],
+        yTicks: (a, b, h) => scoreTicks(a, b, h, 24), yName: SCORE_WORDS && SCORE_WORDS.axis_name, yHover: SCORE_WORDS && SCORE_WORDS.axis_hover,
+        vlines: wheelMarks(doc, span), names: showWheels,
+        hlines: [{ y: p.threshold, color: "--callout", width: CALL_OUT_W, dash: "loose", name: SCORE_WORDS && SCORE_WORDS.threshold_name, hover: SCORE_WORDS && SCORE_WORDS.threshold_hover }],
         lines: [{ pts, color, width: 1.5 }], marks, beside: notes, noteRoom: true,
       });
     }
@@ -1422,8 +1496,8 @@ function steadyPlot(s, view, doc) {
       // names are in the lane above the plot.
       const y = [yLo, yHi + Math.max(yHi - yLo, 0.5) * 0.05];
       const u = asRate ? " s/d" : sp.unit === "deg" ? "°" : " ms";
-      // steady.rs's size: decimals by magnitude.
-      const size = (v) => v.toFixed(v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3) + u;
+      // Core size text, shared with the map and checked by the parity fixture.
+      const size = (v) => mapNumber(v) + u;
       const peak = pts.reduce((a, q) => (q[1] > a[1] ? q : a), pts[0]);
       return `<p class="note">${esc(spectrumSupportText(sp))}</p>` + xyChart({
         title: "FFT", x, y,
@@ -1533,28 +1607,29 @@ function steadinessCard(doc) {
       <p class="headline">${esc(s.headline || "")}</p>
       <p class="stats">${esc(steadyStats(s))}</p>`).join("")}<p class="sub off">${esc(status)}</p></div>`
     : "";
-  const plots = drawn ? series.map((s) => `${titleLine(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
+  // A series' own caveats, in the server's (core's) words, under its title.
+  const caveats = (s) => s.limits && s.limits.length
+    ? s.limits.map((t) => `<p class="series-caveat">${esc(t)}</p>`).join("") : "";
+  const plots = drawn ? series.map((s) => `${titleLine(s)}${caveats(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
   return `<div class="card"><h2>Steadiness</h2><p class="hint">How the rate, amplitude and beat error each move over the session: what was detected in each (a cycle, two levels, level changes, a trend, or none), with the statistics behind it</p>
     ${drawn ? `<div class="seg" role="group" aria-label="View">${offered.map(([key, label]) => `<button data-steady="${key}" aria-pressed="${key === steadyView}">${esc(label)}</button>`).join("")}</div>
     <div class="seg" role="group" aria-label="Switches">${steadySwitch()}<button data-switch="info" aria-pressed="${showInfo}" title="${esc(INFO_HINT)}">Info</button></div>` : ""}${info}${plots}</div>`;
 }
 
-// The current view's switches, as in the app's toolbar: Log Scale for
-// Periods, Timing for the FFT, Log Scale for the maps, and Wheel Periods on
-// all four.
+// The current view's switches, as in the app's toolbar: Timing for the
+// FFT, Log Scale for the maps, and Wheel Periods on those and on Periods.
 function steadySwitch() {
   // Each with the app's hover hint.
-  const sw = steadyView === "periods"
-    ? ["log", "Log Scale", periodsLog, "Draw the scores on a log scale, so a small peak beside a tall one still shows"]
-    : steadyView === "spectrum"
-      ? ["timing", "Timing", fftTiming, "Draw rate as the beat timing's spectrum, in ms, at every period, rather than the swing it makes in 10 s rate readings, in s/d"]
-      : steadyView === "stft" || steadyView === "wavelet"
-        ? ["mapslog", "Log Scale", mapsLog, "Colour the sizes on a log scale, over a range of 300 to 1, so weak lines beside strong ones still show"]
-        : null;
-  if (!sw) return "";
+  // Periods has no scale switch: its score is already the log of a chance.
+  const sw = steadyView === "spectrum"
+    ? ["timing", "Timing", fftTiming, "Draw rate as the beat timing's spectrum, in ms, at every period, rather than the swing it makes in 10 s rate readings, in s/d"]
+    : steadyView === "stft" || steadyView === "wavelet"
+      ? ["mapslog", "Log Scale", mapsLog, "Colour the sizes on a log scale, over a range of 300 to 1, so weak lines beside strong ones still show"]
+      : null;
+  if (!sw && steadyView !== "periods") return "";
   const wheels = ["wheels", "Wheel Periods", showWheels, WHEELS_HINT];
   // Each a switch of its own, side by side.
-  return [sw, wheels].map((b) => `<button data-switch="${b[0]}" aria-pressed="${b[2]}" title="${esc(b[3])}">${b[1]}</button>`).join("");
+  return [sw, wheels].filter(Boolean).map((b) => `<button data-switch="${b[0]}" aria-pressed="${b[2]}" title="${esc(b[3])}">${b[1]}</button>`).join("");
 }
 
 // The app's Info button hint.
@@ -1569,8 +1644,7 @@ function wireSteadiness(root) {
   }
   for (const b of root.querySelectorAll("button[data-switch]")) {
     b.addEventListener("click", () => {
-      if (b.dataset.switch === "log") periodsLog = !periodsLog;
-      else if (b.dataset.switch === "mapslog") mapsLog = !mapsLog;
+      if (b.dataset.switch === "mapslog") mapsLog = !mapsLog;
       else if (b.dataset.switch === "wheels") showWheels = !showWheels;
       else if (b.dataset.switch === "info") showInfo = !showInfo;
       else fftTiming = !fftTiming;
@@ -1597,6 +1671,10 @@ function viridisRgb(t) {
   const i = Math.min(Math.floor(x), VIRIDIS.length - 2), f = x - i;
   const a = VIRIDIS[i], b = VIRIDIS[i + 1];
   return [0, 1, 2].map((k) => Math.round(a[k] + (b[k] - a[k]) * f));
+}
+// A colour key's ramp: viridis from 0 to 1 as gradient stops.
+function viridisStops() {
+  return Array.from({ length: 9 }, (_, i) => `rgb(${viridisRgb(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
 }
 // timefreq::Scale::at: where size x falls, 0 to 1.
 function scaleAt(sc, x) {
@@ -1625,8 +1703,15 @@ function mapSlots(m) {
 }
 // A size on the map's scale, bare: "0.12", "3.1".
 function mapNumber(v) {
-  const d = v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : 3;
-  return v.toFixed(d);
+  const tiny = Number.isFinite(v) && v !== 0 && Math.abs(v) < 0.001;
+  const d = v >= 10 ? 0 : v >= 1 ? 1 : v >= 0.1 ? 2 : tiny ? 1 - Math.floor(Math.log10(Math.abs(v))) : 3;
+  if (d <= 100) return v.toFixed(d);
+  // toFixed accepts at most 100 decimals; expand the same two significant
+  // figures for smaller finite values, including subnormals.
+  const [coefficient, exponent] = Math.abs(v).toExponential(1).split("e");
+  const digits = coefficient.replace(".", "");
+  const fraction = ("0".repeat(-Number(exponent) - 1) + digits).padEnd(d, "0");
+  return (v < 0 ? "-0." : "0.") + fraction;
 }
 // tfmap::size_text: "0.12 ms", "3.1°".
 function mapSize(m, v) {
@@ -1685,14 +1770,13 @@ function mapChart(m, doc, log) {
   const k = mapPaints.length;
   const box = { left: sx(left), top: sy(top), width: sx(left + width) - sx(left), height: sy(bottom) - sy(top) };
   mapPaints.push({ m, sc, t0, dt, w });
-  const stops = Array.from({ length: 9 }, (_, i) => `rgb(${viridisRgb(i / 8).join(",")}) ${i * 12.5}%`).join(", ");
   const keyHint = "The colour gives the size at each period and time; the brightest also stands for every size above it. Empty cells weren't read: a gap, a window with a reading missing, or the edges of a stretch, which the wavelet map can't reach.";
   return `<div class="chart" style="width:${W}px;height:${H}px">
     <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${m.method === "stft" ? "STFT Map" : "Wavelet Map"}">${g}</svg>
     <canvas class="map" data-map="${k}" width="${w}" height="${h}" style="left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px"></canvas>
     <svg class="map-layer" style="left:0;top:0" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${over}</svg>
   </div>
-  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${stops})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
+  <div class="map-key" title="${esc(keyHint)}"><span>${esc(mapKeyTitle(m))}</span><span>${esc(mapNumber(sc.lo))}</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(mapNumber(sc.hi))} and above</span><span class="unread"></span><span>not read</span>${sc.log ? "<span>· log scale</span>" : ""}</div>
   <p class="sub caption" data-map-read="${k}">Point at the map to read a cell.</p>`;
 }
 
@@ -1822,20 +1906,66 @@ function distributionCards(d) {
   }).join("");
 }
 
-function seriesView(doc, extra, limits) {
-  // The server sends what only the charts draw beside the document.
+// ---- The Isochronism card (#741) -----------------------------------------
+//
+// The rate against the amplitude as the take runs, one dot per stretch of
+// time coloured by when, on the Cycle view's viridis, joined in time order
+// where core says they are next to each other.
+// The server sends core steady_views::walk_view: the points core merged,
+// each with its hover; nothing is merged or worded here.
+
+// Core steady_views' walk words, put in by the server.
+const WALK_WORDS = /*WALK_WORDS*/null;
+
+// An axis from `lo` to `hi` about `px` long whose ends are ticks: steps of
+// 1, 2 and 5 at least `minPx` apart, the ends rounded out to a step.
+function roundAxis(lo, hi, px, minPx) {
+  if (!(hi > lo)) { lo -= 1; hi += 1; }
+  const { step } = gridFor(lo, hi, px, minPx);
+  const ends = [Math.floor(lo / step + 1e-9) * step, Math.ceil(hi / step - 1e-9) * step];
+  const ticks = [];
+  for (let k = Math.round(ends[0] / step); k * step <= ends[1] + step * 1e-9; k++) ticks.push([+(k * step).toFixed(10), axisLabel(k * step, step)]);
+  return { ends, ticks };
+}
+
+function walkCard(w) {
+  if (!w || !w.dots || !w.dots.length) return "";
+  const W = WALK_WORDS, dots = w.dots;
+  const amp = dots.map((d) => d.amplitude_deg), rate = dots.map((d) => d.rate_s_per_day);
+  // The plot's size less its axes, near enough to choose the steps by.
+  const x = roundAxis(Math.min(...amp), Math.max(...amp), chartWidth() - 70, 60);
+  const y = roundAxis(Math.min(...rate), Math.max(...rate), 150, 24);
+  const chart = xyChart({
+    title: W.title, x: x.ends, y: y.ends, height: 180,
+    xName: `${W.amp_name} (${W.amp_unit})`, yName: `${W.rate_name}\n(${W.rate_unit})`,
+    xTicks: () => x.ticks, yTicks: () => y.ticks,
+    hlines: [{ y: 0, color: "--axis" }],
+    // Joined only where core says the points are next to each other: a
+    // left-out stretch or a break lifts the pen.
+    joins: [{ pts: dots.flatMap((d, i) => i && !d.joined ? [[NaN, NaN], [d.amplitude_deg, d.rate_s_per_day]] : [[d.amplitude_deg, d.rate_s_per_day]]), color: "--axis", width: 1 }],
+    dots: dots.map((d) => ({ pts: [[d.amplitude_deg, d.rate_s_per_day]], hovers: [d.hover], rgb: `rgb(${viridisRgb(d.when).join(",")})`, r: 3 })),
+  });
+  return `<div class="card"><h2>${esc(W.title)}</h2><p class="hint">${esc(W.hint)}</p>${chart}
+    <div class="map-key"><span>0 h</span><span class="ramp" style="background:linear-gradient(to right, ${viridisStops()})"></span><span>${esc(w.last_text)}</span><span>${esc(W.since)}</span></div></div>`;
+}
+
+function seriesView(doc, extra, limits, seriesLimits) {
+  // The server sends what only the charts draw beside the document, and
+  // each series' caveats in core's words.
+  if (extra || seriesLimits) doc = JSON.parse(JSON.stringify(doc));
+  (doc.series || []).forEach((s, i) => { if (seriesLimits && seriesLimits[i]) s.limits = seriesLimits[i]; });
   if (extra) {
-    doc = JSON.parse(JSON.stringify(doc));
     (doc.series || []).forEach((s, i) => { if (extra.views && extra.views[i]) s.views = extra.views[i]; });
     if (extra.period_span) doc.period_span = extra.period_span;
     if (extra.spectra) doc.spectra = extra.spectra;
     if (extra.maps) doc.time_frequency = extra.maps;
+    if (extra.walk) doc.walk_view = extra.walk;
     const all = (doc.distributions && doc.distributions.overall) || [];
     all.forEach((e, i) => { if (extra.points && extra.points[i]) e.points = extra.points[i]; });
   }
   const name = fileName(doc);
   const len = Number.isFinite(doc.duration_s) ? ` · ${timeLabel(doc.duration_s)}` : "";
-  return `<h1>Long Recording</h1><p class="sub">${esc(name)}${len}</p>${steadinessCard(doc)}${limits && limits.length ? limitsCard(limits) : ""}${distributionCards(doc.distributions)}`;
+  return `<h1>Long Recording</h1><p class="sub">${esc(name)}${len}</p>${steadinessCard(doc)}${walkCard(doc.walk_view)}${limits && limits.length ? limitsCard(limits) : ""}${distributionCards(doc.distributions)}`;
 }
 
 // ---- Live: a take as it is heard ------------------------------------------
@@ -1896,8 +2026,13 @@ function trendStrip(t) {
   const pts = (ys) => (ys || []).map((y, i) => [t.t_s[i], y == null ? NaN : y]).filter(([, y]) => Number.isFinite(y));
   // The beat error as a size, as the take's check gives it: the live and
   // the whole-take measures do not agree on its sign.
-  const size = (ys) => pts(ys).map(([x, y]) => [x, Math.abs(y)]);
-  return { rate: pts(t.rate), amplitude: pts(t.amplitude), beat_error_unlock: size(t.beat_error) };
+  const sourced = (source) => {
+    const values = (t.beat_error || []).map((y, i) => [t.t_s[i],
+      ((t.beat_error_source || [])[i] ?? null) === source && Number.isFinite(y) ? Math.abs(y) : NaN]);
+    return values.some(([, y]) => Number.isFinite(y)) ? values : [];
+  };
+  return { rate: pts(t.rate), amplitude: pts(t.amplitude),
+    beat_error_unlock: sourced("unlock"), beat_error_drop: sourced("drop"), beat_error_unknown: sourced(null) };
 }
 
 // strip::wrap: fold into [-half, half).
@@ -1959,12 +2094,13 @@ function liveView(l) {
   }
   const heard = r.beats_used > 0;
   const wait = "Listening…";
-  const be = Number.isFinite(r.beat_error_unlock_ms) ? r.beat_error_unlock_ms : r.beat_error_ms;
+  const chosen = chosenBeatError(r.beat_error_unlock_ms, r.beat_error_ms, r.beat_error_source);
+  const be = chosen.value;
   const dg = { ...BASE_DIGITS, ...((l.pm || {}).digits || {}) };
   html += `<div class="tiles">
     ${tile("Rate", "--rate", heard ? signed(r.rate_s_per_day, dg.rate) : "–", "seconds per day", heard ? `${num(d.average_s, 0)} s average` : wait)}
     ${tile("Amplitude", "--amplitude", heard ? num(r.amplitude_deg, dg.amplitude) : "–", heard && typeof (l.pm || {}).amplitude === "string" ? `± ${esc(l.pm.amplitude)}°` : "", heard ? "" : wait, "°")}
-    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (Number.isFinite(r.beat_error_unlock_ms) ? "from the unlock" : "from the drop") : wait)}
+    ${tile("Beat Error", "--beat-error", heard ? num(abs(be), dg.beat_error) : "–", "milliseconds", heard ? (chosen.source ? `from the ${chosen.source}` : "") : wait)}
     ${tile("Beats Heard", "", esc(d.beats_heard || 0), "", heard ? `${esc(r.beats_used)} in the last ${num(r.span_s, 0)} s` : wait)}
   </div>`;
   // Clipping, when core counts it, in the server's (core's) words (#808).
@@ -2037,7 +2173,7 @@ function redraw() {
   } else if (doc.schema.startsWith("timegrapher.profile/")) {
     html = profileView(doc, last._meta && last._meta["timegrapher/profile_facts"]);
   } else if (doc.schema.startsWith("timegrapher.series/")) {
-    html = seriesView(doc, extra, limits);
+    html = seriesView(doc, extra, limits, last._meta && last._meta["timegrapher/series_limits"]);
   } else if (doc.schema.startsWith("timegrapher.record/")) {
     html = recordView(doc, live && live.doc, noBeat);
   } else {

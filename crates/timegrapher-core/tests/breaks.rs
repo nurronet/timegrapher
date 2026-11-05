@@ -603,6 +603,18 @@ fn record_and_reopen(
     list_cuts: bool,
     keep_list: bool,
 ) -> (Vec<(f64, f64)>, Vec<breaks::Break>) {
+    record_and_reopen_glitching(name, arrive, list_cuts, keep_list, &[])
+}
+
+/// [`record_and_reopen`], with the input glitching
+/// (`capture::Event::Glitch`) before each block in `glitches`.
+fn record_and_reopen_glitching(
+    name: &str,
+    arrive: &dyn Fn(usize) -> f64,
+    list_cuts: bool,
+    keep_list: bool,
+    glitches: &[usize],
+) -> (Vec<(f64, f64)>, Vec<breaks::Break>) {
     use std::time::{Duration, SystemTime};
     use timegrapher_core::capture::Block;
     use timegrapher_core::recorder::{Recorder, SessionInfo};
@@ -624,6 +636,9 @@ fn record_and_reopen(
     let mut written = 0usize;
     let mut out = Vec::new();
     for k in 0..900 {
+        for _ in glitches.iter().filter(|&&g| g == k) {
+            out.extend(watch.glitch());
+        }
         out.extend(watch.push(Block {
             samples: vec![0.0; 800],
             at: t0 + Duration::from_secs_f64(arrive(k)),
@@ -647,6 +662,11 @@ fn record_and_reopen(
                     rec.sound_lost(0.0);
                 }
             }
+            // As the app takes a glitch: a break of no time lost.
+            breaks::Live::Glitch => {
+                live.push((written as f64 / 8000.0, 0.0));
+                rec.sound_lost(0.0);
+            }
         }
     }
     let files = rec.segment_paths();
@@ -662,6 +682,54 @@ fn record_and_reopen(
     let saved = breaks::of_files_on_clock(&paths, Some(&mut clock), 8000).breaks;
     std::fs::remove_dir_all(&base).ok();
     (live, saved)
+}
+
+/// A glitch (a buffer underrun or overrun the input carries on after,
+/// #1046) is a break of no time lost where it fell, live and saved; two
+/// with no block between are one; and a loss of a second after one is
+/// still found, its gap kept.
+#[test]
+fn a_glitch_is_a_break_live_and_saved() {
+    let check = |name: &str, arrive: &dyn Fn(usize) -> f64, glitches: &[usize]| {
+        let (seen, saved) = record_and_reopen_glitching(name, arrive, true, true, glitches);
+        // Breaks with no sound between are one where the sound jumps: the
+        // recorder lists the last before the next block, and a glitch's
+        // is of no time.
+        let mut live: Vec<(f64, f64)> = Vec::new();
+        for b in seen {
+            match live.last_mut() {
+                Some(l) if (l.0 - b.0).abs() < 1e-9 => l.1 += b.1,
+                _ => live.push(b),
+            }
+        }
+        assert_eq!(saved.len(), live.len(), "live {live:?} saved {saved:?}");
+        for (l, s) in live.iter().zip(&saved) {
+            assert!(
+                (l.0 - s.audio_s).abs() < 1e-6,
+                "live {live:?} saved {saved:?}"
+            );
+            assert!(
+                (l.1 - s.gap_s).abs() < 1e-3,
+                "live {live:?} saved {saved:?}"
+            );
+        }
+        live
+    };
+    let steady = |k: usize| 0.1 * (k + 1) as f64;
+    let found = check("glitch", &steady, &[300, 600, 600]);
+    assert_eq!(found, [(30.0, 0.0), (60.0, 0.0)]);
+    // A second of sound lost with the glitch: one break there, its gap
+    // the second found after it.
+    let found = check(
+        "glitch-gap",
+        &|k| steady(k) + if k >= 450 { 1.0 } else { 0.0 },
+        &[450],
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        (found[0].0 - 45.0).abs() < 1e-6 && (found[0].1 - 1.0).abs() < 1e-6,
+        "{found:?}"
+    );
 }
 
 #[test]

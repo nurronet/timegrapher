@@ -3,6 +3,7 @@
 
 use crate::long::{duration, false_alarm, wheel_note};
 use std::fmt::Write;
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::longrun::LongReport;
 use timegrapher_core::longterm::{Component, Search};
 use timegrapher_core::periodicity::Wheel;
@@ -441,14 +442,14 @@ fn raster(c: &Component, kind: RasterKind, unit: &str) -> String {
             let val = v;
             let _ = write!(
                 s,
-                r#"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}"><title>{}, {:.1} s into it: {}</title></rect>"#,
+                r#"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="{}"><title>{}, {} s into it: {}</title></rect>"#,
                 ML + j as f64 * cw,
                 MT + i as f64 * rh,
                 cw + 0.3,
                 rh + 0.3,
                 diverging(val / lim),
                 cycles_text(thinned.rows[i]),
-                (j as f64 + 0.5) / cols as f64 * c.period_s,
+                fixed_text((j as f64 + 0.5) / cols as f64 * c.period_s, 1),
                 if val.is_finite() {
                     format!("{} {unit}", timegrapher_core::library::signed_text(val, 2))
                 } else {
@@ -468,11 +469,11 @@ fn raster(c: &Component, kind: RasterKind, unit: &str) -> String {
     );
     let _ = write!(
         s,
-        r#"<text class="label" x="{}" y="{:.1}" text-anchor="middle">seconds into each {:.1} s cycle; blue below, red above; full colour at ±{:.2} {unit}</text></svg>"#,
+        r#"<text class="label" x="{}" y="{:.1}" text-anchor="middle">seconds into each {} s cycle; blue below, red above; full colour at ±{} {unit}</text></svg>"#,
         (ML + W - MR) / 2.0,
         MT + h + 18.0,
-        c.period_s,
-        lim
+        fixed_text(c.period_s, 1),
+        fixed_text(lim, 2)
     );
     s
 }
@@ -504,7 +505,8 @@ fn component(
             dots: true,
             tip: Box::new(move |x, y| {
                 format!(
-                    "{x:.1} s: {} {u} (median over cycles)",
+                    "{} s: {} {u} (median over cycles)",
+                    fixed_text(x, 1),
                     timegrapher_core::library::signed_text(y, 2)
                 )
             }),
@@ -519,14 +521,14 @@ fn component(
     let ya = Axis::of_values(&vals);
     let rows = c.fold.raster.len();
     format!(
-        r#"<div class="component"><h3>{kind}: {:.2} s cycle</h3>
-<p>{swing}; explains {:.0}% of the detrended variation; false-alarm chance {}; period known to ±{:.2} s. {}.</p>
+        r#"<div class="component"><h3>{kind}: {} s cycle</h3>
+<p>{swing}; explains {}% of the detrended variation; false-alarm chance {}; period known to ±{} s. {}.</p>
 <h4>One cycle, averaged over {rows} cycles</h4>{}
 {}</div>"#,
-        c.period_s,
-        c.explained * 100.0,
+        fixed_text(c.period_s, 2),
+        fixed_text(c.explained * 100.0, 0),
         false_alarm(c.significance),
-        c.resolution_s,
+        fixed_text(c.resolution_s, 2),
         esc(&capitalise(&wheel_note(c))),
         chart(&xa, &ya, "seconds into the cycle", unit, &lines, &[], None),
         raster(c, raster_kind, unit)
@@ -535,9 +537,9 @@ fn component(
 
 pub fn slice_name(s: f64) -> String {
     if s < 60.0 {
-        format!("{s:.0} s")
+        format!("{} s", fixed_text(s, 0))
     } else {
-        format!("{:.0} min", s / 60.0)
+        format!("{} min", fixed_text(s / 60.0, 0))
     }
 }
 
@@ -576,8 +578,8 @@ fn facts(body: &mut String, r: &LongReport, clock_note: Option<&str>) {
     });
     let clock = match (&r.clock, clock_note) {
         (Some(c), Some(note)) => format!(
-            "corrected: sound card {:.2} ppm {} than true time, a steady error {note}",
-            c.ppm.abs(),
+            "corrected: sound card {} ppm {} than true time, a steady error {note}",
+            fixed_text(c.ppm.abs(), 2),
             if c.ppm >= 0.0 { "slower" } else { "faster" },
         ),
         (Some(c), None) if !c.corrects() => format!(
@@ -585,19 +587,19 @@ fn facts(body: &mut String, r: &LongReport, clock_note: Option<&str>) {
             c.withheld.map(|w| w.note()).unwrap_or_default()
         ),
         (Some(c), None) => format!(
-            "calibrated: sound card {:.2} ppm {} than NTP time ({} entries, {:.1} ms rms)",
-            c.ppm.abs(),
+            "calibrated: sound card {} ppm {} than NTP time ({} entries, {} ms rms)",
+            fixed_text(c.ppm.abs(), 2),
             if c.ppm >= 0.0 { "slower" } else { "faster" },
             c.points,
-            c.residual_ms
+            fixed_text(c.residual_ms, 1)
         ),
         (None, _) => "not calibrated: rates are on the sound card's clock".into(),
     };
-    let o = |v: Option<f64>, d: usize| v.map_or("-".into(), |x| format!("{x:.d$}"));
+    let o = |v: Option<f64>, d: usize| v.map_or("-".into(), |x| fixed_text(x, d));
     let _ = write!(
         body,
         r#"<table class="facts">
-<tr><th>Recording</th><td>{} at {} Hz, {} bph, {} beats ({:.1}% clean)</td></tr>
+<tr><th>Recording</th><td>{} at {} Hz, {} bph, {} beats ({}% clean)</td></tr>
 <tr><th>Clock</th><td>{}</td></tr>
 <tr><th>Rate</th><td>{rate} over the run; {} slices from {} to {} s/d (5th to 95th percentile)</td></tr>
 <tr><th>Beat error</th><td>{}</td></tr>
@@ -607,7 +609,7 @@ fn facts(body: &mut String, r: &LongReport, clock_note: Option<&str>) {
         r.sample_rate,
         r.bph,
         r.beats_found,
-        r.clean_fraction * 100.0,
+        fixed_text(r.clean_fraction * 100.0, 1),
         esc(&clock),
         slice_name(r.slice_s),
         crate::session_cmd::signed(r.rate_p05, 1),
@@ -645,8 +647,8 @@ fn rate_cycles(body: &mut String, r: &LongReport, wheels: &[Wheel]) {
                 &c.component,
                 "Timing",
                 format!(
-                    "Beats run early and late by {:.3} ms peak to peak over each turn",
-                    c.timing_swing_ms
+                    "Beats run early and late by {} ms peak to peak over each turn",
+                    fixed_text(c.timing_swing_ms, 3)
                 ),
                 &ms(&c.component.shape),
                 Some(&ms(&c.component.fold.profile)),
@@ -659,8 +661,8 @@ fn rate_cycles(body: &mut String, r: &LongReport, wheels: &[Wheel]) {
             &c.component,
             "Rate",
             format!(
-                "The rate itself swings {:.1} s/d peak to peak (10 s rate readings show less)",
-                c.rate_swing_s_per_day
+                "The rate itself swings {} s/d peak to peak (10 s rate readings show less)",
+                fixed_text(c.rate_swing_s_per_day, 1)
             ),
             &c.rate_shape,
             None,
@@ -682,7 +684,10 @@ fn amplitude_cycles(body: &mut String, r: &LongReport, wheels: &[Wheel]) {
         body.push_str(&component(
             c,
             "Amplitude",
-            format!("Amplitude swings {:.1} deg peak to peak", c.peak_to_peak),
+            format!(
+                "Amplitude swings {} deg peak to peak",
+                fixed_text(c.peak_to_peak, 1)
+            ),
             &c.shape,
             Some(&c.fold.profile),
             "deg",

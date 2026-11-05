@@ -254,12 +254,22 @@ fn recording_failure_stops_capture_and_retains_scratch_with_or_without_input_err
         assert!(!fault.reason.contains("queued input failure"));
         assert!(fault.marker_error.is_none());
         assert!(scratch.join("RECORDING-ERROR.txt").is_file());
-        assert_eq!(
-            hound::WavReader::open(scratch.join("audio-001.wav"))
-                .unwrap()
-                .duration(),
-            48000
-        );
+        // The hour kept so far, 48000 frames, whether it is still the WAV
+        // or its FLAC: the hour closed at the pause is being kept as FLAC
+        // on a thread of its own, which renames the finished FLAC into
+        // place and then deletes the WAV (#1101).
+        let kept_frames = || {
+            let [wav, flac] = ["wav", "flac"].map(|e| scratch.join(format!("audio-001.{e}")));
+            (0..2).find_map(|_| {
+                let info = |p: &Path| timegrapher_core::audio::info(p).ok()?.frames;
+                if flac.is_file() {
+                    info(&flac)
+                } else {
+                    info(&wav)
+                }
+            })
+        };
+        assert_eq!(kept_frames(), Some(48000));
         assert!(
             app.needs_save_confirmation(),
             "even a saved, short faulted take needs a retention warning"
@@ -291,7 +301,16 @@ fn recording_failure_stops_capture_and_retains_scratch_with_or_without_input_err
         } else {
             app.new_session();
         }
-        assert!(scratch.join("audio-001.wav").is_file());
+        // The retained hour is kept as FLAC before the recorder is let go,
+        // and the folder's session.json names it, so nothing is still
+        // writing there once the app has moved on.
+        assert!(scratch.join("audio-001.flac").is_file());
+        assert!(!scratch.join("audio-001.wav").exists());
+        let json = std::fs::read_to_string(scratch.join("session.json")).unwrap();
+        assert!(
+            json.contains("audio-001.flac") && !json.contains("audio-001.wav"),
+            "{json}"
+        );
         assert_eq!(saved_file_bytes(&saved), saved_bytes);
         assert!(app.session.recorder.is_none());
         assert!(app.session.recording_fault().is_none());

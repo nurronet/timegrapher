@@ -10,12 +10,20 @@ function definition(name, optional = false) {
   if (!match && !optional) throw new Error(`Missing renderer ${name}`);
   return match ? match[0] : "";
 }
+// The Periods plot's words, as the server puts them in from core steady_views.rs.
+const viewsRs = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/steady_views.rs"), "utf8");
+const coreStr = (name) => viewsRs.match(new RegExp(`pub const ${name}: &str = "([^"]*)";`))[1];
+// The threshold's hover is core's threshold_hover, which views.rs's test
+// checks the page carries; here a stand-in.
+const SCORE_WORDS = { axis_name: coreStr("SCORE_AXIS_NAME"), axis_hover: coreStr("SCORE_AXIS_HOVER"), threshold_name: coreStr("THRESHOLD_NAME"),
+  threshold_hover: "Peaks above this line are named." };
 const context = vm.createContext({
-  fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], periodsLog: false, wheelTitle: String,
+  SCORE_WORDS, scoreTicks: (lo, hi) => [[1, `1 (${lo}..${hi})`]],
+  fftTiming: true, showWheels: true, secs: String, logTicks: () => [], periodTicks: () => [], wheelMarks: () => [], wheelTitle: String,
   xyChart: (chart) => { context.last = JSON.parse(JSON.stringify(chart)); return "<svg data-test='FFT'></svg>"; },
 });
 vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.match(/^const CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const FAINT_CALL_OUT_W = .*$/m)[0] + "\n" + html.match(/^const BOX_OPACITY = .*$/m)[0] + "\n" + 
-  ["esc", "spectrumOf", "steadyNote", "steadyPlot"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
+  ["esc", "spectrumOf", "steadyNote", "steadyPlot", "mapNumber"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
 function render(support, timing = true) {
   context.fftTiming = timing;
   const sp = { series: "rate", unit: "ms", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2],
@@ -59,6 +67,20 @@ test("malformed support cannot claim complete FFT input", () => {
   }
 });
 
+test("the Periods score is drawn as it is, in whole scores, with its threshold named in core's words", () => {
+  const views = { search: { period_s: [100, 99, 98, 97, 90], score: [1, 9, 0.5, 2, 1], threshold: 3 } };
+  context.steadyPlot({ series: "rate", views }, "periods", { period_span: [1.9, 2.1] });
+  const c = context.last;
+  // No log or dB: the points are the scores.
+  assert.deepEqual(c.lines[0].pts.map(([, y]) => y), [1, 9, 0.5, 2, 1]);
+  assert.deepEqual(c.y, [0, 9 * 1.15]);
+  assert.equal(c.yName, "Score");
+  assert.equal(c.yHover, SCORE_WORDS.axis_hover);
+  assert.ok(c.yHover.includes("If the noise is as expected"), "a chance only under the model");
+  assert.deepEqual(c.hlines.map((h) => [h.y, h.name, h.hover, h.dash]),
+    [[3, "Threshold", SCORE_WORDS.threshold_hover, "loose"]]);
+});
+
 test("the Periods label sits on its line's top, not a thinned slice's low point", () => {
   const views = { search: { period_s: [100, 99, 98, 97, 90], score: [1, 9, 0.5, 2, 1], threshold: 3 } };
   const mark = (period_s) => {
@@ -69,4 +91,24 @@ test("the Periods label sits on its line's top, not a thinned slice's low point"
   assert.equal(mark(98).x, Math.log10(98));
   // Nothing drawn within 3.5%: the nearest drawn point, 90 s.
   assert.equal(mark(50).y, 1);
+});
+
+test("tiny FFT peaks keep their size in timing and rate units", () => {
+  for (const timing of [true, false]) {
+    context.fftTiming = timing;
+    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [0.0001, 0.00042],
+      reading_swing: { period_s: [128, 64], swing_s_per_day: [0.0001, 0.00042] } };
+    context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
+    assert.ok(context.last.beside[0].text.endsWith(
+      timing ? ": 0.00042 ms" : ": 0.00042 s/d peak to peak"), context.last.beside[0].text);
+  }
+});
+
+test("FFT labels at the existing size boundaries stay unchanged", () => {
+  context.fftTiming = true;
+  for (const [peak, text] of [[10, "10"], [1, "1.0"], [0.1, "0.10"], [0.001, "0.001"]]) {
+    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [peak / 2, peak] };
+    context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
+    assert.ok(context.last.beside[0].text.endsWith(": " + text + " ms"), context.last.beside[0].text);
+  }
 });

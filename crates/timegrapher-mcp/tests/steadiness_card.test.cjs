@@ -58,10 +58,34 @@ test("the Readings view's key says what a dot is and how many are drawn", () => 
 });
 
 test("the Long Recording view says what limits its readings, as the analyze and session views do", () => {
-  const c = vm.createContext({ steadinessCard: () => "<steady/>", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
+  const c = vm.createContext({ steadinessCard: () => "<steady/>", walkCard: () => "", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext(["esc", "limitsCard", "seriesView"].map(definition).join("\n"), c);
   const limits = [{ where: null, text: "The beat error's sign differs either side of a cut in the stretch, so it is given as a size." }];
   const html = c.seriesView({ duration_s: 60 }, null, limits);
   assert.ok(html.includes("<steady/><div class=\"card\"><h2>What Limits These Readings</h2>") && html.includes("given as a size.</li>"), html);
   assert.ok(!c.seriesView({ duration_s: 60 }, null, []).includes("What Limits"));
+});
+
+test("a series' own caveat shows once, on that series, in the server's words", () => {
+  const c = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
+    periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false, steadyPlot: () => "<svg/>",
+    distributionCards: () => "", walkCard: () => "", fileName: () => "a.wav", timeLabel: String });
+  vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
+    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "dotKey", "ordinal", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
+  // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
+  const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 10, not 1 in 33: this cycle may be noise.";
+  const series = [rate, { ...rate, series: "amplitude", unit: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },
+    { ...rate, series: "beat_error", unit: "ms" }];
+  const take = [{ where: null, text: "The beat error is given as a size." }];
+  const out = c.seriesView({ duration_s: 1800, series }, null, take, [[], [noise], []]);
+  assert.equal(out.split(noise).length - 1, 1, "said once");
+  const at = out.indexOf(noise);
+  assert.ok(out.lastIndexOf('<p class="series-name"', at) === out.indexOf('<p class="series-name" title="Amplitude'), "under the Amplitude title");
+  assert.ok(at < out.indexOf('<p class="series-name" title="Beat Error'), "before the next series");
+  const limitsCard = out.slice(out.indexOf("What Limits These Readings"));
+  assert.ok(!limitsCard.includes(noise), "not with the take's caveats");
+  // The document the tool returned is left as it was.
+  assert.equal(series[1].limits, undefined);
+  // With no series caveats from the server, none is drawn.
+  assert.ok(!c.seriesView({ duration_s: 1800, series }, null, take).includes("may be noise"));
 });

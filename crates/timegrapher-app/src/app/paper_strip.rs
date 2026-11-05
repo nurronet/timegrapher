@@ -174,7 +174,7 @@ impl TimegrapherApp {
             ui,
             "Width",
             "Milliseconds either side of the centre line: type it, or pick one with ⏷. \
-             Shift or Ctrl and the mouse wheel on the strip change it too.",
+             Alt (Option on a Mac) and the mouse wheel on the strip change it too.",
             |ui| {
                 let mut w = self.strip.half_width_ms;
                 let (_, changed) = fields::combo(
@@ -186,7 +186,8 @@ impl TimegrapherApp {
                     &WIDTHS,
                     width_label,
                     "",
-                    104.0,
+                    // Holds the widest width whole, such as ±888.8 ms.
+                    112.0,
                 );
                 if changed {
                     self.strip.set_half_width(w);
@@ -197,7 +198,7 @@ impl TimegrapherApp {
             ui,
             "Length",
             "Time shown along the strip, such as 30 s, 5 min or 2 h: type it, or pick one \
-             with ⏷. The mouse wheel on the strip changes it too.",
+             with ⏷. Cmd (Mac) or Ctrl and the mouse wheel on the strip change it too.",
             |ui| {
                 let mut s = self.strip.span_s;
                 let (_, changed) = fields::combo(
@@ -207,7 +208,7 @@ impl TimegrapherApp {
                     StripView::MIN_SPAN_S..=StripView::MAX_SPAN_S,
                     &DURATION,
                     &SPANS,
-                    span_label,
+                    fields::duration,
                     "",
                     92.0,
                 );
@@ -556,9 +557,22 @@ impl TimegrapherApp {
         }
         if input.span_factor != 1.0 {
             let was = self.strip.span_s;
-            self.strip.set_span(was * input.span_factor);
-            // The time under the pointer stays under it.
-            if let Some(t) = input.zoom_at {
+            // Zoomed out no further than the take: past it is only blank
+            // paper.
+            let take = was.max(self.latest_s());
+            // Small zooms add up, while the strip shows the round length
+            // nearest where they are heading.
+            let from = self
+                .strip_zoom_s
+                .filter(|&w| round_span(w) == was)
+                .unwrap_or(was);
+            let wish = (from * input.span_factor).clamp(StripView::MIN_SPAN_S, take);
+            self.strip_zoom_s = Some(wish);
+            self.strip.set_span(round_span(wish).min(take));
+            // Looking back, the time under the pointer stays under it;
+            // live, the newest beat stays at the edge, so a zoom never
+            // moves the moment the cards and the Profile show.
+            if let (Some(t), Some(_)) = (input.zoom_at, self.strip_end) {
                 let latest = self.latest_s();
                 let to = t + (end - t) * self.strip.span_s / was;
                 self.strip_end = if to >= latest {
@@ -593,6 +607,18 @@ impl TimegrapherApp {
             self.centre();
         }
     }
+}
+
+/// The round strip length nearest `s`: whole seconds below 10 s, then
+/// 5 s steps to 2 min, whole minutes to 2 h, then quarter hours, so the
+/// Length field never reads such as 3:01 after a zoom.
+fn round_span(s: f64) -> f64 {
+    const STEPS: [(f64, f64); 4] = [(10.0, 1.0), (120.0, 5.0), (7200.0, 60.0), (f64::MAX, 900.0)];
+    let k = STEPS
+        .iter()
+        .find(|(below, _)| s < *below)
+        .map_or(1.0, |&(_, k)| k);
+    (s / k).round() * k
 }
 
 /// The position track along the strip: (from s, to s, label, code).
@@ -632,6 +658,7 @@ fn strip_overlays_drawn(
     if on[1] {
         overlays.push(strip::Overlay {
             name: "Rate",
+            short: "Rate",
             unit: " s/d",
             color: pal.trace_rate,
             min_span: 4.0,
@@ -641,6 +668,7 @@ fn strip_overlays_drawn(
     if on[0] {
         overlays.push(strip::Overlay {
             name: "Amplitude",
+            short: "Amp.",
             unit: "°",
             color: pal.trace_amplitude,
             min_span: 10.0,
@@ -648,13 +676,37 @@ fn strip_overlays_drawn(
         });
     }
     if on[2] {
-        overlays.push(strip::Overlay {
-            name: "Beat Error",
-            unit: " ms",
-            color: pal.trace_beat_error,
-            min_span: 0.2,
-            points: series(trend_beat_error),
-        });
+        use core_session::BeatErrorSource::{Drop, Unlock};
+        for (name, short, pick, color) in [
+            (
+                "Beat Error from the Unlock",
+                "B.E. U",
+                (|p: &TrendPoint| p.beat_error_from(Unlock)) as fn(&TrendPoint) -> Option<f64>,
+                pal.trace_beat_error,
+            ),
+            (
+                "Beat Error from the Drop",
+                "B.E. D",
+                (|p: &TrendPoint| p.beat_error_from(Drop)) as fn(&TrendPoint) -> Option<f64>,
+                pal.trace_beat_error.gamma_multiply(0.6),
+            ),
+        ] {
+            let points: Vec<_> = trend
+                .iter()
+                .filter(|p| p.t >= from && p.t <= end)
+                .map(|p| [p.t, pick(p).unwrap_or(f64::NAN)])
+                .collect();
+            if points.iter().any(|p| p[1].is_finite()) {
+                overlays.push(strip::Overlay {
+                    name,
+                    short,
+                    unit: " ms",
+                    color,
+                    min_span: 0.2,
+                    points,
+                });
+            }
+        }
     }
     overlays
 }
@@ -678,4 +730,34 @@ fn numbered_candidates(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_beat_error_overlays_keep_sources_apart_and_preserve_holes() {
+        let trend: Vec<_> = (0..4)
+            .map(|i| TrendPoint {
+                t: i as f64,
+                rate_s_per_day: None,
+                amplitude_deg: None,
+                amplitude_even_deg: None,
+                amplitude_odd_deg: None,
+                beat_error_unlock_ms: (i != 1).then_some(0.2),
+                beat_error_ms: Some(0.8),
+                heard: true,
+            })
+            .collect();
+        let overlays = strip_overlays_drawn([false, false, true], &trend, 0.0, 3.0, &theme::DARK);
+        assert_eq!(overlays.len(), 2);
+        assert_eq!(overlays[0].name, "Beat Error from the Unlock");
+        assert_eq!(overlays[1].name, "Beat Error from the Drop");
+        assert_eq!(overlays[0].points.len(), 4);
+        assert!(overlays[0].points[1][1].is_nan());
+        assert_eq!(overlays[1].points[1], [1.0, 0.8]);
+        assert!(overlays[1].points[0][1].is_nan());
+        assert!(overlays[1].points[2][1].is_nan());
+    }
 }

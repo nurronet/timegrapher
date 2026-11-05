@@ -154,7 +154,7 @@ For each series:
   `p_value`) passes 0.01 and Holm's correction (#917), the stretches
   explain at least a fifth of the variance, and the lead is not a slide. The corner is the cut nearest the CUSUM's largest
   excursion. A step that only the CUSUM shows, that explains under a
-  fifth of the variance, or that a line explains nearly as well goes
+  fifth of the variance, or that a line explains at least as well goes
   unnamed, though the line still bends.
 - **Change points**: 30 s block medians split into stretches of constant
   mean, at least 5 minutes each. A cut is placed only when it is strong
@@ -405,6 +405,21 @@ amplitude covers only a few degrees and the curve is mostly noise; a
 run-down of many hours is what it is for. The cyclic co-movement inside
 half an hour is the rate-to-amplitude line above, not this curve.
 
+The isochronism walk (#741) keeps the time the curve leaves out: one
+point per 5 min, the median rate of the 10 s readings in it and the
+median amplitude of its 2 s windows (with their masks and culls), in
+time order, so a run-down shows how the watch walks through rate and
+amplitude as it lets down. Each series is read on its own, so a reading
+missing one window still counts for the rate. A 5 min stretch with
+under half its readings or under half its windows is left out, never
+filled. Each surface merges the points to its own width
+(`walk::merged`, the mean of each group's medians, each series weighted
+by its own count), by default to at most 250 points a take. Bins of an hour or more
+smear steps and pull the extremes in. It has no fit and no ±, and a
+take in several positions mixes them along the way. A short take's
+wheel cycle, which moves the rate and the amplitude together every few
+minutes, shows in the rate-to-amplitude line, not here.
+
 The wind-down comparison is the commercial 0 h / 24 h test for one
 position. It compares the median rate, amplitude and beat error of the
 first half hour of the take with the half hour that starts 24 h after
@@ -445,6 +460,7 @@ headlines state facts. Everything else is as in version 1.
 | `config` | the detection settings used |
 | `series[]` | one entry each for `rate` (s/d), `amplitude` (deg) and `beat_error` (ms, from the unlock), in that order |
 | `isochronism` | the rate by amplitude: `step_s`, `bin_deg`, `bins[]` (`amplitude_deg`, `readings`, `rate_s_per_day`, `rate_q25`, `rate_q75`, `from_wind_h`, `to_wind_h`), `amplitude_from_deg`, `amplitude_to_deg`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (null when withheld), `rate_change_s_per_day` (the slope over the bins' amplitudes; null when withheld), `reliability`, `curve_centre_deg`, `curve` (`[c0, c1, c2]` in A − centre), `curve_explained`, `turn_deg`, `headline`; null with fewer than three bins |
+| `walk` | the rate against the amplitude by time: `bin_s` (300), `points[]` (`t_s`, the stretch's middle from the take's start; `wind_h`; `rate_s_per_day`; `amplitude_deg`; `readings`, the rate's 10 s readings; `amp_windows`, the amplitude's 2 s windows), in time order; null with fewer than two points |
 | `wind_down` | `start` and `end` (`from_wind_h`, `to_wind_h`, `readings`, `rate_s_per_day`, `amplitude_deg`, `beat_error_ms`), `hours_apart`, `at_24h`, `rate_change_s_per_day`, `amplitude_change_deg`, `beat_error_change_ms`, `headline`; null under two hours |
 | `distributions` | `overall[]`, `stretch_s` (0 when the take is not split) and `stretches[]` (`start_s`, `end_s`, `distributions[]`); each distribution has `series` (`rate`, `amplitude`, `beat_error`), `unit`, `values` (`readings` or `2 s`), `step_s`, `n`, `median`, `p10`, `p90`, `bin_width`, `edges` (one more than `counts`; bin i is from `edges[i]` up to `edges[i+1]`), `counts`, `below` and `above` (off the scale, counted in `n`), `peaks` (bin centres of separate peaks), `normal_line` (`centre`, `spread`: the straight line on probability paper; null with no spread), `quantiles` (`[share, value]` at 0.1%, 1, 5, 10, 25, 50, 75, 90, 95, 99 and 99.9% where the count resolves them), `points` (with `--views`, on the whole take's distributions only: the probability plot the app draws, `[value, z]` lowest first: each value against the normal score of its rank, every value up to 400 and evenly by rank beyond, the lowest and highest always kept), `summary` (the app's line). A series with fewer than three values has no entry. |
 | `rate_amplitude` | the rate against the amplitude: `step_s`, `readings` (pairs), `r`, `effective_readings`, `p_value`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (within half an hour, corrected for the amplitude's noise as the isochronism's is; null below a `reliability` of 0.5), `reliability`, `take_r` and `take_s_per_day_per_deg` (whole take, no lag, drift included), `headline` (all of these as numbers, whatever their size) |
@@ -472,6 +488,7 @@ Each entry of `series[]`:
 | `changes` | `block_s`, `block_sigma`, `long_run_sigma` (the block medians' long-run σ, as `long_run_sd`, which each split is judged against), `segments[]` (`start_s`, `end_s`, `mean`), `explained`, `p_value` (the CUSUM's p that the level never moves, before Holm's correction, #917), `named` (whether the headline names the levels: a level change, or the steps of a slide) and `note` (when it does not, why: as for the trend's, "not significant: p …, over the 0.01 a level change needs", "not significant after Holm's correction (p … alone)", under the share a level change needs, or not the headline's finding; null when named) |
 | `trend` | `per_hour`, `explained`, `curve_explained`, `start`, `end`, `turn` (`[time, value]` or null), `p_value` (the quadratic's F test on the readings' effective count, before Holm's correction), `significant` (whether that test passes `trend_alpha` and Holm's correction), `named` (whether the headline names the trend) and `note` (when it does not, why: "not significant: p …, over the 0.01 a trend needs" when its own test fails, "not significant after Holm's correction (p … alone)" when it passes that but not Holm's correction, under the share a trend needs, or not the headline's finding; null when named). The text output adds the note to the detail row, so a trend or levels row under a headline that names neither says so |
 | `period` | the period search's strongest component (`other_periods_s`: the weaker ones, each also tried as a cycle): `period_s`, `significance` (−log10 false alarm), `explained`, `peak_to_peak` (for the rate, the swing of the rate itself from the slope of the average cycle, which 10 s readings show less of; see [long-runs.md](long-runs.md)), `timing_peak_to_peak_ms` (rate only), `size` and `size_unit` (the figure to show: ms of timing for a rate cycle under 30 s, see [long-runs.md](long-runs.md)), `wheel`, `harmonic_of` and `other_harmonic_of[]` (one per `other_periods_s`): null, or `period_s` and `n` when a longer cycle the search also found is n times this period (n 2 to 8, when n times the longer cycle's frequency is within one resolution, 1/span, of this one's, and only when one n and one longer cycle fit: neighbouring n are 1/q apart, so two can fit only when the longer cycle is over half the span, and then none is told) |
+| `caveats[]` | the series' own conditions, each with a `code`, as the take's `caveats[]`; also `period_may_be_noise` (`rho`, `span_s`): on the amplitude or the beat error, when `period` names a cycle on a stretch under 2 h whose 2 s windows' lag-one ρ, the one the search whitens by (not the 10 s readings' lag-1 r), is 0.7 or more. There a slow wander under white measurement noise named a cycle in noise alone in up to 1 take in 10 (#916). It changes no figure; the headline says it. The rate takes none |
 | `two_state` | the two-state finder's full result (rate and amplitude only) |
 | `cycle` | the cycle found, if any, from the 2 s windows for the amplitude and the beat error: `period_s`, `peak_to_peak`, `explained`, `source` (`two_state`, `autocorrelation`, `period_search`), `wheel`, and `inner_period_s`, `inner_explained`, `turns` when the period is a whole number of turns of a shorter cycle that explains at least half as much |
 | `unlock_hopping` | amplitude and beat error only: one side's unlock edges or 2 s windows fall in two clusters the other side's do not |

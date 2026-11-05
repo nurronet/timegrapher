@@ -40,6 +40,7 @@ use timegrapher_core::calibre_store::{self, UserCalibres};
 use timegrapher_core::calibres;
 use timegrapher_core::capture::Block;
 use timegrapher_core::library::{self, Library};
+use timegrapher_core::library::{base_digits, fixed_text, signed_text};
 use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
 use timegrapher_core::power_reserve;
 use timegrapher_core::recorder::{self, Recorder, SessionInfo};
@@ -590,8 +591,8 @@ struct Feed {
     live: LiveAnalyzer,
     /// The strip's anchor, set once from the first beats as the app does.
     anchor: Option<Anchor>,
-    /// Time, rate, amplitude and beat error from the unlock, once a second.
-    trend: Vec<[Option<f64>; 4]>,
+    /// Time, rate, amplitude, chosen beat error and its source, once a second.
+    trend: Vec<([Option<f64>; 4], Option<session::BeatErrorSource>)>,
     next_s: f64,
 }
 
@@ -637,12 +638,15 @@ impl Feed {
             }
         }
         if r.beats_used > 0 {
-            self.trend.push([
-                Some(t),
-                r.rate_s_per_day,
-                r.amplitude_deg,
-                session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
-            ]);
+            self.trend.push((
+                [
+                    Some(t),
+                    r.rate_s_per_day,
+                    r.amplitude_deg,
+                    session::beat_error_signed(r.beat_error_unlock_ms, r.beat_error_ms),
+                ],
+                r.beat_error_source,
+            ));
             if self.trend.len() > MAX_TREND {
                 // Every other point of the older half goes.
                 let half = self.trend.len() / 2;
@@ -663,7 +667,7 @@ impl Feed {
                 .collect(),
             _ => Vec::new(),
         };
-        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p[i]).collect() };
+        let col = |i: usize| -> Vec<Option<f64>> { self.trend.iter().map(|p| p.0[i]).collect() };
         let doc = json!({
             "schema": "timegrapher.live/1",
             "position": self.position,
@@ -674,7 +678,8 @@ impl Feed {
             "beats_heard": beats.len(),
             "reading": r,
             "strip": { "span_s": STRIP_S, "period_s": period, "beats": strip },
-            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3) },
+            "trend": { "t_s": col(0), "rate": col(1), "amplitude": col(2), "beat_error": col(3),
+                "beat_error_source": self.trend.iter().map(|p| p.1).collect::<Vec<_>>() },
         });
         let tmp = self.path.with_extension("tmp");
         if fs::write(&tmp, doc.to_string()).is_ok() {
@@ -706,26 +711,7 @@ fn live(
     let (cap, _, want) = capture::open_for_duration(&dev, &device_info, None, o.seconds)?;
     let mut rec = start(info(cap.label.clone(), cap.sample_rate, cap.bits))?;
     let fs_hz = cap.sample_rate;
-    if o.power_reserve {
-        eprintln!(
-            "recording {} ({}) from '{}' into {} until the watch stops (at most {}); \
-             keep the watch still and the computer awake",
-            pos.common(),
-            pos.description(),
-            cap.label,
-            rec.dir().display(),
-            power_reserve::limit_text()
-        );
-    } else {
-        eprintln!(
-            "recording {} ({}) for {:.0} s from '{}' into {}; keep the watch still until it says done",
-            pos.common(),
-            pos.description(),
-            o.seconds,
-            cap.label,
-            rec.dir().display()
-        );
-    }
+    say_recording(o, pos, &cap.label, rec.dir());
     let mut feed = o
         .live
         .as_ref()
@@ -742,6 +728,7 @@ fn live(
             match cap.rx.recv_timeout(Duration::from_secs(5)) {
                 Ok(Event::Audio(b)) => gaps.push(b),
                 Ok(Event::Lost(frames)) => gaps.lost(frames),
+                Ok(Event::Glitch) => gaps.glitch(),
                 Ok(Event::Error(e)) => return Err(format!("recording failed: {e}")),
                 Ok(Event::End) => {
                     ended = true;
@@ -757,9 +744,8 @@ fn live(
             let b = match live {
                 breaks::Live::Block(b) => b,
                 lost => {
-                    // The computer slept, the input stalled, or its queue
-                    // filled, and sound was lost: a break, as after a
-                    // pause, with the time between left out.
+                    // The computer slept, the input stalled or glitched, or
+                    // its queue filled: a break, the time lost left out.
                     let gap = lost.lost_s();
                     rec.sound_lost(gap);
                     if let Some(f) = feed.as_mut() {
@@ -790,7 +776,7 @@ fn live(
                     eprintln!("  {}", power_reserve::run_text(s));
                     next_note += 600.0;
                 } else {
-                    eprintln!("  {s:.0} of {:.0} s", o.seconds);
+                    eprintln!("  {} of {} s", fixed_text(s, 0), fixed_text(o.seconds, 0));
                     next_note += 10.0;
                 }
             }
@@ -1015,8 +1001,8 @@ fn facts(c: &Check) -> Vec<String> {
     }
     if c.clipping.beats > 0 {
         f.push(format!(
-            "{:.1}% of beats clipped",
-            100.0 * c.clipping.beat_fraction
+            "{}% of beats clipped",
+            fixed_text(100.0 * c.clipping.beat_fraction, 1)
         ));
     }
     f
@@ -1030,31 +1016,39 @@ fn print_report(r: &Report) {
         .map_or("time since full wind not given".to_string(), |w| {
             format!("{w} h after full wind")
         });
-    println!("Position     {} for {:.0} s, {wind}", r.position, r.seconds);
+    println!(
+        "Position     {} for {} s, {wind}",
+        r.position,
+        fixed_text(r.seconds, 0)
+    );
     for f in facts(c) {
         println!("             {f}");
     }
     if c.watch_heard {
         let f = |v: Option<f64>, d: usize, u: &str| {
-            v.map_or("-".to_string(), |x| format!("{x:+.d$} {u}"))
+            v.map_or("-".to_string(), |x| format!("{} {u}", signed_text(x, d)))
         };
         println!(
-            "Quick look   {:.0} to {:.0} s: {} beats of {} expected at {} bph; rate {}, amplitude {}, beat error {}",
-            c.from_s,
-            c.to_s,
+            "Quick look   {} to {} s: {} beats of {} expected at {} bph; rate {}, amplitude {}, beat error {}",
+            fixed_text(c.from_s, 0),
+            fixed_text(c.to_s, 0),
             c.beats_found,
             c.beats_expected,
             c.bph,
             f(c.rate_s_per_day, 1, "s/d"),
-            c.amplitude_deg.map_or("-".into(), |a| format!("{a:.0}°")),
+            c.amplitude_deg.map_or("-".into(), |a| {
+                format!("{}°", fixed_text(a, base_digits::AMPLITUDE))
+            }),
             c.beat_error_ms
-                .map_or("-".into(), |b| format!("{:.2} ms", b.abs())),
+                .map_or("-".into(), |b| {
+                    format!("{} ms", fixed_text(b.abs(), base_digits::BEAT_ERROR))
+                }),
         );
         if c.rate_s_per_day.is_none() {
             println!(
-                "             {:.0} s measured after the {:.0} s settle: no readings from so short a stretch.",
-                (c.to_s - c.from_s).max(0.0),
-                c.from_s
+                "             {} s measured after the {} s settle: no readings from so short a stretch.",
+                fixed_text((c.to_s - c.from_s).max(0.0), 0),
+                fixed_text(c.from_s, 0)
             );
         }
     }
@@ -1068,6 +1062,31 @@ fn print_report(r: &Report) {
     println!("Added to     {}", r.session_file);
 }
 
+/// What `record` says as it starts: the position, the input, the folder,
+/// and how long it records.
+fn say_recording(o: &Options, pos: Position, label: &str, dir: &Path) {
+    if o.power_reserve {
+        eprintln!(
+            "recording {} ({}) from '{}' into {} until the watch stops (at most {}); \
+             keep the watch still and the computer awake",
+            pos.common(),
+            pos.description(),
+            label,
+            dir.display(),
+            power_reserve::limit_text()
+        );
+    } else {
+        eprintln!(
+            "recording {} ({}) for {} s from '{}' into {}; keep the watch still until it says done",
+            pos.common(),
+            pos.description(),
+            fixed_text(o.seconds, 0),
+            label,
+            dir.display()
+        );
+    }
+}
+
 /// What `record` says about a break: sound the input dropped (#483), or a
 /// stop in its sound.
 fn say_break(lost: &breaks::Live) {
@@ -1078,8 +1097,12 @@ fn say_break(lost: &breaks::Live) {
         ),
         breaks::Live::Break(gap) => {
             eprintln!(
-                "  the sound stopped for {gap:.1} s (the computer slept?); left out as a break"
+                "  the sound stopped for {} s (the computer slept?); left out as a break",
+                fixed_text(gap, 1)
             );
+        }
+        breaks::Live::Glitch => {
+            eprintln!("  {}", timegrapher_core::breaks::GLITCH_TEXT);
         }
         // The end of a backlog culled after a break: said with the break.
         breaks::Live::Block(_) | breaks::Live::Cut => {}
@@ -1089,6 +1112,73 @@ fn say_break(lost: &breaks::Live) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_trend_sources_stay_aligned_when_older_points_are_thinned() {
+        use session::BeatErrorSource::{Drop, Unlock};
+        use timegrapher_core::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-live-sources-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("live.json");
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: None,
+        };
+        let mut feed = Feed::new(&path, Position::CH, 20.0, 48000, &set);
+        let sound = generate(
+            &SynthConfig {
+                duration_s: 20.0,
+                ..Default::default()
+            },
+            |_| 270.0,
+            |_| 0.0,
+        );
+        for chunk in sound.samples.chunks(4800) {
+            feed.live.push(chunk);
+        }
+        feed.trend = (0..MAX_TREND)
+            .map(|i| {
+                let (value, source) = if i % 2 == 0 {
+                    (0.2, Unlock)
+                } else {
+                    (0.8, Drop)
+                };
+                (
+                    [Some(i as f64 / 100.0), None, None, Some(value)],
+                    Some(source),
+                )
+            })
+            .collect();
+        feed.finish();
+        let doc: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let trend = &doc["trend"];
+        let times = trend["t_s"].as_array().unwrap();
+        let sources = trend["beat_error_source"].as_array().unwrap();
+        let values = trend["beat_error"].as_array().unwrap();
+        assert!(times.len() < MAX_TREND);
+        assert_eq!(times.len(), sources.len());
+        assert_eq!(times.len(), values.len());
+        for i in 0..times.len() - 1 {
+            let original = (times[i].as_f64().unwrap() * 100.0).round() as usize;
+            let (value, source) = if original.is_multiple_of(2) {
+                (0.2, "unlock")
+            } else {
+                (0.8, "drop")
+            };
+            assert_eq!(sources[i], source);
+            assert_eq!(values[i], value);
+        }
+        assert!(doc["reading"]["beat_error_source"].is_string());
+        assert_eq!(
+            sources.last().unwrap(),
+            &doc["reading"]["beat_error_source"]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
 
     /// The take in `dir` checked as `record` checks the take it saved:
     /// listed in its own session file, here with no clock log.

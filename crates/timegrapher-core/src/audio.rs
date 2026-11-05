@@ -139,61 +139,87 @@ pub fn info(path: &Path) -> Result<AudioInfo, AudioError> {
 /// Decode a WAV or FLAC file block by block, calling `f` with mono samples
 /// in blocks of `block` frames (the last may be shorter). Memory stays
 /// bounded, so recordings of hours or days can be read.
-pub fn stream(
+pub fn stream(path: &Path, block: usize, f: impl FnMut(&[f32])) -> Result<AudioInfo, AudioError> {
+    stream_head(path, usize::MAX, block, f)
+}
+
+/// [`stream`] for the first `frames` frames only: decoding stops there,
+/// so the rest of the file is neither read nor checked.
+pub fn stream_head(
     path: &Path,
+    frames: usize,
     block: usize,
     mut f: impl FnMut(&[f32]),
 ) -> Result<AudioInfo, AudioError> {
     let block = block.max(1);
     let mut buf: Vec<f32> = Vec::with_capacity(block);
+    let mut left = frames;
+    // Pass one frame on; false once `frames` have been.
     let mut push = |v: f32, buf: &mut Vec<f32>| {
+        if left == 0 {
+            return false;
+        }
+        left -= 1;
         buf.push(v);
         if buf.len() == block {
             f(buf);
             buf.clear();
         }
+        left > 0
     };
     let info = info(path)?;
-    match extension(path).as_str() {
-        "wav" => {
-            let mut reader = hound::WavReader::open(path).map_err(AudioError::Wav)?;
-            let spec = reader.spec();
-            let ch = spec.channels as usize;
-            let mut frame = Vec::with_capacity(ch);
-            let mut emit = |v: f32, buf: &mut Vec<f32>| {
-                frame.push(v);
-                if frame.len() == ch {
-                    push(frame.iter().sum::<f32>() / ch as f32, buf);
-                    frame.clear();
-                }
-            };
-            match spec.sample_format {
-                hound::SampleFormat::Float => {
-                    for s in reader.samples::<f32>() {
-                        emit(s.map_err(AudioError::Wav)?, &mut buf);
+    if frames > 0 {
+        match extension(path).as_str() {
+            "wav" => {
+                let mut reader = hound::WavReader::open(path).map_err(AudioError::Wav)?;
+                let spec = reader.spec();
+                let ch = spec.channels as usize;
+                let mut frame = Vec::with_capacity(ch);
+                let mut emit = |v: f32, buf: &mut Vec<f32>| {
+                    frame.push(v);
+                    if frame.len() < ch {
+                        return true;
                     }
-                }
-                hound::SampleFormat::Int => {
-                    let scale = 1.0 / (1u64 << (spec.bits_per_sample - 1)) as f32;
-                    for s in reader.samples::<i32>() {
-                        emit(s.map_err(AudioError::Wav)? as f32 * scale, &mut buf);
+                    let more = push(frame.iter().sum::<f32>() / ch as f32, buf);
+                    frame.clear();
+                    more
+                };
+                match spec.sample_format {
+                    hound::SampleFormat::Float => {
+                        for s in reader.samples::<f32>() {
+                            if !emit(s.map_err(AudioError::Wav)?, &mut buf) {
+                                break;
+                            }
+                        }
+                    }
+                    hound::SampleFormat::Int => {
+                        let scale = 1.0 / (1u64 << (spec.bits_per_sample - 1)) as f32;
+                        for s in reader.samples::<i32>() {
+                            if !emit(s.map_err(AudioError::Wav)? as f32 * scale, &mut buf) {
+                                break;
+                            }
+                        }
                     }
                 }
             }
-        }
-        _ => {
-            let mut reader = claxon::FlacReader::open(path).map_err(AudioError::Flac)?;
-            let si = reader.streaminfo();
-            let scale = 1.0 / (1u64 << (si.bits_per_sample - 1)) as f32;
-            let mut blocks = reader.blocks();
-            let mut store = Vec::new();
-            while let Some(b) = blocks.read_next_or_eof(store).map_err(AudioError::Flac)? {
-                let ch = b.channels();
-                for i in 0..b.duration() {
-                    let sum: i32 = (0..ch).map(|c| b.sample(c, i)).sum();
-                    push(sum as f32 * scale / ch as f32, &mut buf);
+            _ => {
+                let mut reader = claxon::FlacReader::open(path).map_err(AudioError::Flac)?;
+                let si = reader.streaminfo();
+                let scale = 1.0 / (1u64 << (si.bits_per_sample - 1)) as f32;
+                let mut blocks = reader.blocks();
+                let mut store = Vec::new();
+                'blocks: while let Some(b) =
+                    blocks.read_next_or_eof(store).map_err(AudioError::Flac)?
+                {
+                    let ch = b.channels();
+                    for i in 0..b.duration() {
+                        let sum: i32 = (0..ch).map(|c| b.sample(c, i)).sum();
+                        if !push(sum as f32 * scale / ch as f32, &mut buf) {
+                            break 'blocks;
+                        }
+                    }
+                    store = b.into_buffer();
                 }
-                store = b.into_buffer();
             }
         }
     }
@@ -217,4 +243,78 @@ pub fn write_wav(path: &Path, audio: &Audio) -> Result<(), AudioError> {
         w.write_sample(v).map_err(AudioError::Wav)?;
     }
     w.finalize().map_err(AudioError::Wav)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Every block `stream_head` hands on, joined.
+    fn head(path: &Path, frames: usize) -> Result<Vec<f32>, AudioError> {
+        let mut x = Vec::new();
+        stream_head(path, frames, 1000, |b| x.extend_from_slice(b))?;
+        Ok(x)
+    }
+
+    /// A WAV and a FLAC of the same second of sound, each also cut short
+    /// a quarter before its end, as a file still being written or a damaged
+    /// one is.
+    fn files(dir: &Path) -> [(PathBuf, PathBuf); 2] {
+        let fs = 8000;
+        let samples: Vec<f32> = (0..fs)
+            .map(|i| ((i % 200) as f32 - 100.0) / 200.0)
+            .collect();
+        let wav = dir.join("a.wav");
+        write_wav(
+            &wav,
+            &Audio {
+                samples: samples.clone(),
+                sample_rate: fs as u32,
+            },
+        )
+        .unwrap();
+        let flac = dir.join("a.flac");
+        let pcm = crate::excerpt::Pcm {
+            sample_rate: fs as u32,
+            channels: 1,
+            bits_per_sample: 16,
+            samples: samples
+                .iter()
+                .map(|v| (v * 32767.0).round() as i32)
+                .collect(),
+        };
+        crate::excerpt::write_flac(&flac, &pcm).unwrap();
+        [wav, flac].map(|p| {
+            let bytes = std::fs::read(&p).unwrap();
+            let cut = p.with_file_name(format!("cut-{}", p.file_name().unwrap().to_string_lossy()));
+            std::fs::write(&cut, &bytes[..bytes.len() * 3 / 4]).unwrap();
+            (p, cut)
+        })
+    }
+
+    #[test]
+    fn a_head_is_the_streams_first_frames_and_reads_no_further() {
+        let dir = std::env::temp_dir().join(format!("tg-audio-head-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (whole, cut) in files(&dir) {
+            let all = head(&whole, usize::MAX).unwrap();
+            assert_eq!(all.len(), 8000, "{}", whole.display());
+            // The first frames, exactly as the whole stream gives them,
+            // across a block boundary and on one.
+            for n in [0, 1, 999, 1000, 2500, 8000, 9000] {
+                assert_eq!(
+                    head(&whole, n).unwrap(),
+                    all[..n.min(8000)],
+                    "{n} of {}",
+                    whole.display()
+                );
+            }
+            // A file cut short fails to stream to its end, but its head
+            // reads: decoding stopped before the cut.
+            assert!(head(&cut, usize::MAX).is_err(), "{}", cut.display());
+            assert_eq!(head(&cut, 2500).unwrap(), all[..2500], "{}", cut.display());
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

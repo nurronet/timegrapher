@@ -631,6 +631,15 @@ impl BeatErrorSource {
     }
 }
 
+/// A selected beat error's label, including legacy readings of unknown origin.
+pub fn beat_error_source_label(source: Option<BeatErrorSource>) -> &'static str {
+    match source {
+        Some(BeatErrorSource::Unlock) => "Beat Error from the Unlock",
+        Some(BeatErrorSource::Drop) => "Beat Error from the Drop",
+        None => "Beat Error (source not recorded)",
+    }
+}
+
 /// Choose the unlock where found, otherwise the drop, retaining its source.
 pub fn chosen_beat_error(
     unlock_ms: Option<f64>,
@@ -1262,16 +1271,12 @@ fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
     sourced_indices(wind_h, &figures)
 }
 
-/// One reading's position, rate (s/d), amplitude (deg) and unsigned beat
-/// error (ms; see [`Measurement::beat_error`]).
-pub type Figures = (Position, Option<f64>, Option<f64>, Option<f64>);
-
 /// Witschi's characteristic values for one state of wind `wind_h`, from
 /// each reading's figures, repeat readings of a position averaged: the
 /// values `session` gives, for any interface that shows them.
 #[path = "session_aggregates.rs"]
 mod session_aggregates;
-pub use session_aggregates::{indices, sourced_indices, SourcedFigures};
+pub use session_aggregates::{sourced_indices, SourcedFigures};
 
 fn largest(v: impl Iterator<Item = f64>) -> Option<f64> {
     v.max_by(|a, b| a.abs().total_cmp(&b.abs()))
@@ -1475,6 +1480,12 @@ pub fn no_regular_beat(jitter_us: Option<f64>, bph_set: Option<u32>) -> String {
         bph_set.and_then(|b| crate::beats::timing_scatter_fraction(j, b)),
     )
 }
+
+/// What a recording with no regular beat has none of, said after
+/// [`no_regular_beat`] or [`no_regular_beat_in`] where the readings would
+/// otherwise stand (#510): "No regular beat found (…). There are no rate,
+/// amplitude or beat error readings."
+pub const NO_READINGS: &str = "There are no rate, amplitude or beat error readings.";
 
 /// [`no_regular_beat`] for a measurement, or, when its beats' sound shows
 /// no unlock or drop on either side, that fact.

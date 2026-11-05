@@ -237,8 +237,9 @@ fn chart_lines(
     }
 }
 
-/// A reading's chart, linked in time to the others: the wheel zooms time,
-/// a drag pans, and the axes stay put. Its grid, with a zero line on the
+/// A reading's chart, linked in time to the others: the wheel or a drag
+/// pans time, Cmd or Ctrl with the wheel or a pinch zooms it, and the
+/// scale fits the lines on its own. Its grid, with a zero line on the
 /// rate's (0 s/d).
 fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
     // Short charts still get a label at the top and the bottom: the
@@ -258,8 +259,12 @@ fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
             .link_axis("trend", [true, false])
             .link_cursor("trend", [true, false])
             .allow_scroll(false)
-            .allow_zoom([false, true])
-            // The wheel zooms and a drag pans; the axes stay put.
+            // The wheel and a drag pan time and Cmd/Ctrl with the wheel
+            // zooms it (below), kept to the take. The scale fits the lines
+            // on its own, so it neither zooms nor pans: a zoom would only
+            // be put back.
+            .allow_zoom(false)
+            .allow_drag(false)
             .allow_axis_zoom_drag(false)
             .allow_boxed_zoom(false))
         .custom_x_axes(vec![egui_plot::AxisHints::new_x()
@@ -289,13 +294,7 @@ fn draw_chart(
     if let (Some((lo, hi)), true) = (y_range, rescale) {
         p.set_plot_bounds_y(lo..=hi);
     }
-    if p.response().hovered() {
-        let s = p.ctx().input(|i| i.smooth_scroll_delta);
-        let wheel = s.x + s.y;
-        if wheel != 0.0 {
-            p.zoom_bounds_around_hovered(Vec2::new((wheel * 0.003).exp(), 1.0));
-        }
-    }
+    pan_and_zoom(p, &series);
     for l in series {
         let w = if l.main { 1.8_f32 } else { 1.2_f32 };
         // Broken where there is no reading (a masked stretch, a
@@ -327,6 +326,75 @@ fn draw_chart(
     (click, hover.map(|h| h.x), moved)
 }
 
+/// Pan and zoom a chart's time by hand, kept to the take. The wheel, a
+/// swipe either way or a drag pans; Cmd (Mac) or Ctrl with the wheel, or
+/// a pinch, zooms about the pointer. Alt and the wheel zooms the strip's
+/// width; the charts' scale fits their lines, so here it does nothing.
+/// Zoomed out to the whole take, the chart shows the whole session again.
+fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) {
+    let r = p.response();
+    let dragged = r.dragged_by(egui::PointerButton::Primary);
+    if !r.hovered() && !dragged {
+        return;
+    }
+    let drag = if dragged { r.drag_delta().x } else { 0.0 };
+    let px = r.rect.width().max(1.0);
+    if dragged {
+        p.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    let (s, zoom, alt) = p
+        .ctx()
+        .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
+    let shift = drag + if alt { 0.0 } else { s.x + s.y };
+    if shift == 0.0 && zoom == 1.0 {
+        return;
+    }
+    let b = p.plot_bounds();
+    let (mut lo, mut hi) = (b.min()[0], b.max()[0]);
+    if zoom != 1.0 {
+        let at = p.pointer_coordinate().map_or((lo + hi) / 2.0, |c| c.x);
+        lo = at + (lo - at) / f64::from(zoom);
+        hi = at + (hi - at) / f64::from(zoom);
+    }
+    let dt = -f64::from(shift / px) * (hi - lo);
+    let Some(take) = take_span(series) else {
+        return;
+    };
+    match keep_in(lo + dt, hi + dt, take) {
+        Some((lo, hi)) => p.set_plot_bounds_x(lo..=hi),
+        None => {
+            let y = p.auto_bounds().y;
+            p.set_auto_bounds([true, y]);
+        }
+    }
+}
+
+/// The earliest and latest times the charts' lines reach.
+fn take_span(series: &[ChartLine]) -> Option<(f64, f64)> {
+    let mut xs = series
+        .iter()
+        .flat_map(|l| l.pts.iter().map(|p| p[0]))
+        .filter(|x| x.is_finite());
+    let first = xs.next()?;
+    let (lo, hi) = xs.fold((first, first), |(lo, hi), x| (lo.min(x), hi.max(x)));
+    (hi > lo).then_some((lo, hi))
+}
+
+/// The time range `lo..hi` moved, not stretched, to lie within the take
+/// `t0..t1`, or None when it holds the whole take: the whole session.
+fn keep_in(lo: f64, hi: f64, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
+    let w = hi - lo;
+    if w >= t1 - t0 {
+        None
+    } else if lo < t0 {
+        Some((t0, t0 + w))
+    } else if hi > t1 {
+        Some((t1 - w, t1))
+    } else {
+        Some((lo, hi))
+    }
+}
+
 /// The tooltip at the pointer: its time and every line's value there.
 fn chart_hover(
     response: egui::Response,
@@ -350,11 +418,11 @@ fn chart_hover(
         }
         ui.label(
             RichText::new(if running {
-                "Wheel zooms time, Ctrl+wheel the scale, drag pans, \
+                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
                  click shows that moment on the strip, \
                  double-click follows live again."
             } else {
-                "Wheel zooms time, Ctrl+wheel the scale, drag pans, \
+                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
                  click shows that moment on the strip, \
                  double-click shows the whole session."
             })

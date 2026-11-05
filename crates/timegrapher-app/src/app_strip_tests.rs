@@ -178,16 +178,33 @@ fn dragging_the_strip_looks_back_and_returns() {
     assert!((app.anchor.unwrap().time - before - 0.001).abs() < 1e-12);
     assert!(!app.follow, "sliding by hand ends auto-centring");
 
+    // Zoomed out within the 40 s take.
+    app.strip.set_span(15.0);
     let zoom = StripInput {
         span_factor: 2.0,
         width_factor: 0.5,
         ..Default::default()
     };
     app.apply_strip_input(zoom, app.strip_end_s());
-    assert_eq!(app.strip.span_s, 60.0);
+    assert_eq!(app.strip.span_s, 30.0);
     assert_eq!(app.strip.half_width_ms, 5.0);
 
-    // Zoomed about a time, that time stays where it was on the strip.
+    // Live, a zoom keeps the newest beat at the edge: the moment the
+    // cards and the Profile show stays put.
+    let end = app.strip_end_s();
+    let zoom = StripInput {
+        span_factor: 0.5,
+        zoom_at: Some(end - 15.0),
+        ..Default::default()
+    };
+    app.apply_strip_input(zoom, end);
+    assert_eq!(app.strip.span_s, 15.0);
+    assert_eq!(app.strip_end, None, "a zoom while live stays live");
+
+    // Looking back, a zoom about a time keeps that time where it was on
+    // the strip.
+    app.strip.set_span(30.0);
+    app.apply_strip_input(back, app.strip_end_s());
     let end = app.strip_end_s();
     let at = end - 15.0;
     let zoom = StripInput {
@@ -196,9 +213,74 @@ fn dragging_the_strip_looks_back_and_returns() {
         ..Default::default()
     };
     app.apply_strip_input(zoom, end);
-    assert_eq!(app.strip.span_s, 30.0);
+    assert_eq!(app.strip.span_s, 15.0);
     let now = app.strip_end.expect("looking back");
-    assert!(((now - at) / 30.0 - 15.0 / 60.0).abs() < 1e-9, "{now}");
+    assert!(((now - at) / 15.0 - 15.0 / 30.0).abs() < 1e-9, "{now}");
+}
+
+/// A zoom leaves the strip at a round length, never such as 3:01, and
+/// the small steps a wheel turn plays out in still add up (#1068 item 3).
+#[test]
+fn a_zoom_leaves_a_round_length() {
+    let mut app = synthetic(600.0, 0.0);
+    app.strip.set_span(120.0);
+    let step = StripInput {
+        span_factor: 1.02,
+        ..Default::default()
+    };
+    let mut seen = Vec::new();
+    for _ in 0..20 {
+        app.apply_strip_input(step, app.strip_end_s());
+        let s = app.strip.span_s;
+        assert_eq!(s % 60.0, 0.0, "{s}");
+        seen.push(s);
+    }
+    assert_eq!(seen.last(), Some(&180.0), "{seen:?}");
+    // Below 2 min, a 5 s step; below 10 s, whole seconds.
+    app.strip.set_span(60.0);
+    let zoom_in = |f: f64| StripInput {
+        span_factor: f,
+        ..Default::default()
+    };
+    app.apply_strip_input(zoom_in(0.93), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 55.0);
+    app.strip.set_span(8.0);
+    app.apply_strip_input(zoom_in(0.8), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 6.0);
+    // Zoomed in far past the shortest length, a zoom back out starts
+    // from it, not from where the zooms in were heading.
+    for _ in 0..20 {
+        app.apply_strip_input(zoom_in(0.5), app.strip_end_s());
+    }
+    assert_eq!(app.strip.span_s, StripView::MIN_SPAN_S);
+    app.apply_strip_input(zoom_in(1.1), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.5), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
+    // Nor from below it when that still rounds to the shortest length.
+    app.strip.set_span(2.0);
+    app.apply_strip_input(zoom_in(0.76), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 2.0);
+    app.apply_strip_input(zoom_in(1.3), app.strip_end_s());
+    assert_eq!(app.strip.span_s, 3.0);
+}
+
+/// Zooming the strip's time out stops at the take's length: past it is
+/// only blank paper. A length already longer, typed in, is kept.
+#[test]
+fn zooming_out_stops_at_the_take() {
+    let mut app = synthetic(40.0, 0.0);
+    let latest = app.latest_s();
+    app.strip.set_span(10.0);
+    let out = StripInput {
+        span_factor: 10.0,
+        ..Default::default()
+    };
+    app.apply_strip_input(out, app.strip_end_s());
+    assert_eq!(app.strip.span_s, latest);
+    app.strip.set_span(100.0);
+    app.apply_strip_input(out, app.strip_end_s());
+    assert_eq!(app.strip.span_s, 100.0);
 }
 
 /// The Tick Tock Profile and the Scope follow the strip's newest edge:
@@ -302,7 +384,7 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
     }
     let drawn = pass(&mut app, Vec::new());
     // The first switch in the settings is Amplitude.
-    assert!(drawn.contains("Amplitude (°)"), "{drawn}");
+    assert!(drawn.contains("Amp. (°)"), "{drawn}");
     assert!(!drawn.contains("Amplitude: "), "no hover yet: {drawn}");
     // The row: under the key's line, across the middle of the strip.
     let over = egui::pos2(450.0, 30.0);
@@ -313,4 +395,178 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
         .find(|l| l.starts_with("Amplitude: "))
         .unwrap_or_else(|| panic!("{hovered}"));
     assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
+}
+
+/// Lying across, an overlay's axis is a column right of the strip under
+/// its short name, its unit on the line under that, and nothing at its
+/// foot; hovering the name gives it in full. The column is as wide as
+/// its widest text, narrower than the full name would need.
+#[test]
+fn an_overlay_axis_column_says_its_short_name_over_its_unit() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, false, false];
+    app.strip.horizontal = true;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        })
+    };
+    for _ in 0..3 {
+        pass(&mut app, Vec::new());
+    }
+    let out = pass(&mut app, Vec::new());
+    let at = |words: &str| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == words => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+    };
+    let name = at("Amp.").expect("the short name");
+    let unit = at("(°)").expect("the unit");
+    assert!(unit.top() >= name.bottom() - 1.0, "{name:?} {unit:?}");
+    assert!((unit.left() - name.left()).abs() < 0.5, "one column");
+    assert!(at("°").is_none(), "no unit at the foot");
+    let drawn = super::tests::painted_text(&out);
+    assert!(!drawn.contains("Amplitude"), "{drawn}");
+    // The column ends at the pane's right, narrower than a 58 pt one.
+    assert!(screen.right() - name.left() < 58.0, "{name:?}");
+    pass(&mut app, vec![egui::Event::PointerMoved(name.center())]);
+    let hovered = super::tests::painted_text(&pass(&mut app, Vec::new()));
+    assert!(hovered.contains("Amplitude (°)"), "{hovered}");
+}
+
+/// Lying across with all three readings on, the overlay axes' columns
+/// run left to right in the toolbar's order, each clear of the one before
+/// (its name, unit and numbers), and the last ends inside the pane.
+#[test]
+fn overlay_axis_columns_lie_side_by_side() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, true, true];
+    app.strip.horizontal = true;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        }));
+    }
+    let out = out.unwrap();
+    let texts: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                egui::Rect::from_min_size(t.pos, t.galley.size()),
+            )),
+            _ => None,
+        })
+        .collect();
+    let at = |words: &str| {
+        texts
+            .iter()
+            .find(|(t, _)| t == words)
+            .map(|(_, r)| *r)
+            .unwrap_or_else(|| panic!("{words}: {texts:?}"))
+    };
+    let names: Vec<egui::Rect> = ["Rate", "Amp.", "B.E. U"].map(at).to_vec();
+    // Every text in a column starts at its name's left and ends before
+    // the next column's.
+    for (k, pair) in names.windows(2).enumerate() {
+        let (this, next) = (pair[0], pair[1]);
+        let widest = texts
+            .iter()
+            .filter(|(_, r)| r.left() >= this.left() - 0.5 && r.left() < next.left() - 0.5)
+            .filter(|(_, r)| r.left() - this.left() < 10.0)
+            .map(|(_, r)| r.right())
+            .fold(this.right(), f32::max);
+        assert!(
+            widest < next.left(),
+            "column {k} runs into the next: {texts:?}"
+        );
+    }
+    let last = names[2];
+    let widest = texts
+        .iter()
+        .filter(|(_, r)| r.left() >= last.left() - 0.5)
+        .map(|(_, r)| r.right())
+        .fold(last.right(), f32::max);
+    assert!(widest <= screen.right(), "the last column leaves the pane");
+}
+
+/// A masked beat is drawn faint, under the hatching: 30% of its colour
+/// over the strip's ground, opaque so crowded dots don't add up to full
+/// strength, and painted before the hatching (#1068 item 2).
+#[test]
+fn masked_beats_are_faint_under_the_hatching() {
+    let mut app = synthetic(40.0, 0.0);
+    for p in [Pane::Sound, Pane::Scope, Pane::Charts, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    app.mask(20.0, 30.0);
+    let ctx = themed();
+    let mut out = None;
+    for _ in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+    }
+    let out = out.unwrap();
+    let vis = ctx.style().visuals.clone();
+    let [tick, tock] = strip::side_colors(vis.dark_mode);
+    let faint = [tick, tock].map(|c| vis.extreme_bg_color.lerp_to_gamma(c, 0.3));
+    let dots: Vec<(usize, Color32)> = out
+        .shapes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| match &c.shape {
+            egui::Shape::Circle(d)
+                if d.fill == tick || d.fill == tock || faint.contains(&d.fill) =>
+            {
+                Some((i, d.fill))
+            }
+            _ => None,
+        })
+        .collect();
+    let first_full = dots
+        .iter()
+        .find(|(_, c)| !faint.contains(c))
+        .expect("beats")
+        .0;
+    let masked: Vec<usize> = dots
+        .iter()
+        .filter(|(_, c)| faint.contains(c))
+        .map(|d| d.0)
+        .collect();
+    assert!(!masked.is_empty(), "the masked beats are drawn");
+    // Before the hatching and every other beat.
+    let hatch = theme::palette(vis.dark_mode)
+        .text_tertiary
+        .gamma_multiply(theme::MASK_WASH);
+    let first_line = out
+        .shapes
+        .iter()
+        .position(|c| matches!(&c.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == hatch))
+        .expect("the hatching");
+    let last_masked = *masked.last().unwrap();
+    assert!(last_masked < first_line && last_masked < first_full);
 }

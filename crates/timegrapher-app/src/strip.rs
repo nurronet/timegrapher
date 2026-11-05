@@ -135,6 +135,9 @@ const SCALE_ROW: f32 = 21.0;
 /// An overlay axis's tick, points.
 const TICK: f32 = 4.0;
 
+/// The room before each overlay axis right of the strip, points.
+const SCALE_GAP: f32 = 8.0;
+
 /// An overlay's scale for its `range` ([`Overlay::range`]): round ends
 /// that hold still while the readings move inside them ([`steady_ends`]),
 /// kept from one frame to the next under the overlay's `name`.
@@ -239,6 +242,9 @@ impl RateLine {
 #[derive(Debug, Clone)]
 pub struct Overlay {
     pub name: &'static str,
+    /// The name its axis carries, short so the axis takes little room:
+    /// "Rate", "Amp.", "B.E.".
+    pub short: &'static str,
     pub unit: &'static str,
     pub color: Color32,
     /// The smallest range the scale spans, so a steady reading isn't
@@ -278,7 +284,7 @@ fn joined(points: &[[f64; 2]], from_s: f64, to_s: f64) -> Vec<([f64; 2], [f64; 2
     (lo.max(1)..hi)
         .filter(|&i| !gap_before(points, i))
         .map(|i| (points[i - 1], points[i]))
-        .filter(|(a, _)| a[0] >= from_s)
+        .filter(|(a, b)| a[0] >= from_s && a[1].is_finite() && b[1].is_finite())
         .collect()
 }
 
@@ -925,6 +931,10 @@ fn edge_near(masked: &[(f64, f64)], p: Pos2, g: &Geom) -> Option<(f64, f64, bool
         .map(|(a, b, start, _)| (a, b, start))
 }
 
+/// How strongly a masked beat's dot shows its colour: 30% of the way
+/// from the strip's ground (Hugh, #1068 item 2).
+const MASKED_BEAT: f32 = 0.3;
+
 /// Shade the masked stretches across the plotting area `r` between
 /// `oldest` and `end` (the track names them), and the stretch being
 /// dragged over (`dragging`) more strongly.
@@ -971,8 +981,9 @@ fn paint_masked(
 }
 
 /// Draw the strip for the beats up to `end_s` and report what the mouse
-/// did to it: the wheel zooms the length, Ctrl and the wheel (or a pinch)
-/// zooms the width, dragging along the time axis looks back, dragging
+/// did to it: the wheel or dragging along the time axis looks back, Cmd
+/// or Ctrl and the wheel (or a pinch) zooms the length, Alt and the wheel
+/// zooms the width, dragging
 /// across slides the trace, and a double click returns to the newest
 /// beats.
 #[allow(clippy::too_many_arguments)]
@@ -999,7 +1010,12 @@ pub fn draw_strip(
         })
         .collect();
     let row_h = 15.0;
-    let (r, lane) = strip_rects(resp.rect, view, extras.gutter, overlays.len(), row_h);
+    let font = FontId::proportional(11.0);
+    let cols: Vec<f32> = overlays
+        .iter()
+        .map(|(o, s)| scale_column(ui, &font, o, *s))
+        .collect();
+    let (r, lane) = strip_rects(resp.rect, view, extras.gutter, &cols, row_h);
     let f = Frame {
         painter,
         outer: resp.rect,
@@ -1015,14 +1031,19 @@ pub fn draw_strip(
         extras,
         vis,
         pal: crate::theme::pal(ui),
-        font: FontId::proportional(11.0),
+        font,
         row_h,
+        cols,
         oldest,
     };
     let mut input = StripInput::default();
     let drags = f.pointer(ui, &resp, &mut input);
     let (step, ms_lines) = f.paint_ms_grid();
     let time_lines = f.paint_time_grid();
+    // Masked beats lie under the position washes and the hatching.
+    if let Some(anchor) = anchor {
+        f.paint_beats(beats, period_s, anchor, true);
+    }
     f.paint_layers(&drags);
     f.paint_grid(&ms_lines, &time_lines);
     f.paint_key();
@@ -1030,31 +1051,58 @@ pub fn draw_strip(
     let Some(anchor) = anchor else {
         return input;
     };
-    f.paint_beats(beats, period_s, anchor);
+    f.paint_beats(beats, period_s, anchor, false);
     f.paint_overlay_lines(&overlays);
     f.paint_rate_line(beats, period_s, anchor, step);
     f.paint_cursor();
     input
 }
 
+/// How wide an overlay's axis column right of the strip is: its widest
+/// text (its name, its unit, or a number past its tick) and a gap.
+fn scale_column(ui: &egui::Ui, font: &FontId, o: &Overlay, s: Scale) -> f32 {
+    let wide = |words: String| {
+        ui.fonts_mut(|f| {
+            f.layout_no_wrap(words, font.clone(), Color32::WHITE)
+                .size()
+                .x
+        })
+    };
+    let numbers = ticks(s)
+        .map(|v| wide(axis_number(v, s.2)))
+        .fold(0.0_f32, f32::max);
+    let text = wide(o.short.into()).max(wide(unit_line(o)));
+    text.max(TICK + 2.0 + numbers) + SCALE_GAP
+}
+
+/// An overlay's unit as its axis writes it, under its name: "(s/d)".
+fn unit_line(o: &Overlay) -> String {
+    format!("({})", o.unit.trim())
+}
+
 /// The plotting area inside its axes, and the track's lane: time labels
 /// down the left (or along the bottom when lying across), ms labels along
-/// the bottom (or down the left), and a scale for each of `overlays` on
-/// top (or down the right). The track of positions runs along the top
-/// when the strip lies across, the key in the corners either side of it;
-/// else the track is a column on the right, under the key.
+/// the bottom (or down the left), and a scale for each overlay on top (or
+/// down the right, in columns `cols` wide, their names and units over
+/// them). The track of positions runs along the top when the strip lies
+/// across, the key in the corners either side of it; else the track is a
+/// column on the right, under the key.
 fn strip_rects(
     outer: Rect,
     view: &StripView,
     gutter: f32,
-    overlays: usize,
+    cols: &[f32],
     row_h: f32,
 ) -> (Rect, Rect) {
     let lane_h = row_h + 4.0;
+    let overlays = cols.len();
     let r = if view.horizontal {
+        // Room over the plot for each axis's second line, its unit, clear
+        // of its top number.
+        let units = if cols.is_empty() { 0.0 } else { row_h - 4.0 };
         Rect::from_min_max(
-            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h),
-            outer.max - Vec2::new(4.0 + 58.0 * overlays as f32, row_h + 2.0),
+            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h + units),
+            outer.max - Vec2::new(4.0 + cols.iter().sum::<f32>(), row_h + 2.0),
         )
     } else {
         Rect::from_min_max(
@@ -1090,6 +1138,8 @@ struct Frame<'a> {
     font: FontId,
     /// A line of the key's height.
     row_h: f32,
+    /// Each overlay axis's column's width, when the strip lies across.
+    cols: Vec<f32>,
     /// The time at the strip's oldest end.
     oldest: f64,
 }
@@ -1213,8 +1263,10 @@ impl Frame<'_> {
 
     /// A drag moves the strip; with the Mask tool or the Position Brush
     /// on, or a change being moved, the left button does that and the
-    /// right one still moves it. The wheel and a pinch zoom it, and a
-    /// double click resets it.
+    /// right one still moves it. The wheel or a swipe pans time, as a
+    /// drag does; Cmd (Mac) or Ctrl with the wheel, or a pinch, zooms time
+    /// about the pointer; Alt with the wheel zooms the width. A double
+    /// click resets it.
     fn pan_and_zoom(
         &self,
         ui: &egui::Ui,
@@ -1224,35 +1276,38 @@ impl Frame<'_> {
     ) {
         let (r, view, g) = (self.g.r, self.view, &self.g);
         let tool = self.extras.masking || self.extras.brush.is_some() || moving_change;
-        let d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
+        let mut d = if tool && !resp.dragged_by(egui::PointerButton::Secondary) {
             Vec2::ZERO
         } else {
             resp.drag_delta()
         };
+        if resp.hovered() {
+            let (scroll, zoom, alt) =
+                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
+            let wheel = scroll.x + scroll.y;
+            if wheel != 0.0 && alt {
+                // Alt and the wheel zoom the width.
+                input.width_factor = (-wheel as f64 * 0.003).exp();
+            } else if view.horizontal {
+                // Either way the wheel or a swipe goes, along time.
+                d.x += wheel;
+            } else {
+                d.y += wheel;
+            }
+            if zoom != 1.0 {
+                input.span_factor = 1.0 / zoom as f64;
+                input.zoom_at = resp
+                    .hover_pos()
+                    .filter(|p| r.contains(*p))
+                    .map(|p| g.time_at(p));
+            }
+        }
         if view.horizontal {
             input.time_shift_s = -(d.x / r.width().max(1.0)) as f64 * view.span_s;
             input.lead_shift_ms = -(d.y / (r.height() / 2.0).max(1.0)) as f64 * view.half_width_ms;
         } else {
             input.time_shift_s = (d.y / r.height().max(1.0)) as f64 * view.span_s;
             input.lead_shift_ms = (d.x / (r.width() / 2.0).max(1.0)) as f64 * view.half_width_ms;
-        }
-        if resp.hovered() {
-            let (scroll, zoom, shift) =
-                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.shift));
-            let wheel = scroll.x + scroll.y;
-            if wheel != 0.0 && shift {
-                // Shift and the wheel zoom the width, as a pinch does.
-                input.width_factor = (-wheel as f64 * 0.003).exp();
-            } else if wheel != 0.0 {
-                input.span_factor = (-wheel as f64 * 0.003).exp();
-                input.zoom_at = resp
-                    .hover_pos()
-                    .filter(|p| r.contains(*p))
-                    .map(|p| g.time_at(p));
-            }
-            if zoom != 1.0 {
-                input.width_factor = 1.0 / zoom as f64;
-            }
         }
         input.reset = resp.double_clicked();
     }
@@ -1717,20 +1772,48 @@ impl Frame<'_> {
         }
     }
 
-    /// An overlay's axis in column `i` right of the strip, under its name,
-    /// its unit under it.
+    /// An overlay's axis in column `i` right of the strip, under its
+    /// short name with its unit on the line under that.
     fn scale_down(&self, i: usize, o: &Overlay, s: Scale) {
         let (painter, r, font) = (&self.painter, self.g.r, &self.font);
-        let x = r.right() + 8.0 + 58.0 * i as f32;
+        let x = r.right() + SCALE_GAP + self.cols[..i].iter().sum::<f32>();
         let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
         let text = |at: Pos2, align: Align2, words: String| {
             painter.text(at, align, words, font.clone(), ink);
         };
-        text(
-            Pos2::new(x, self.lane.top() + 1.0),
-            Align2::LEFT_TOP,
-            o.name.into(),
+        // The unit just clear of the top number, the name over it.
+        let top_tick = ticks(s)
+            .map(|v| self.scale_at(s, v))
+            .fold(r.bottom(), f32::min);
+        let unit = painter.text(
+            Pos2::new(x, top_tick - font.size / 2.0 - 1.0),
+            Align2::LEFT_BOTTOM,
+            unit_line(o),
+            font.clone(),
+            ink,
         );
+        let named = painter.text(
+            Pos2::new(x, unit.top() + 1.0),
+            Align2::LEFT_BOTTOM,
+            o.short,
+            font.clone(),
+            ink,
+        );
+        // The short name in full on a hover.
+        let ctx = painter.ctx();
+        if ctx
+            .pointer_hover_pos()
+            .is_some_and(|p| named.union(unit).contains(p))
+        {
+            egui::Tooltip::always_open(
+                ctx.clone(),
+                painter.layer_id(),
+                egui::Id::new(("strip scale name", i)),
+                egui::PopupAnchor::Pointer,
+            )
+            .gap(12.0)
+            .show(|ui| ui.label(format!("{} {}", o.name, unit_line(o))));
+        }
         painter.line_segment([Pos2::new(x, r.top()), Pos2::new(x, r.bottom())], line);
         let mut last = f32::INFINITY;
         for v in ticks(s) {
@@ -1743,11 +1826,6 @@ impl Frame<'_> {
                 last = y;
             }
         }
-        text(
-            Pos2::new(x, r.bottom() + 2.0),
-            Align2::LEFT_TOP,
-            o.unit.trim().into(),
-        );
     }
 
     /// An overlay's axis in row `i` above the strip: its name and unit at
@@ -1757,7 +1835,7 @@ impl Frame<'_> {
         let top = self.outer.top() + 3.0 + self.row_h + SCALE_ROW * i as f32;
         let y = top + SCALE_ROW - 2.0;
         let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
-        let name = format!("{} ({})", o.name, o.unit.trim());
+        let name = format!("{} {}", o.short, unit_line(o));
         let named = painter.text(
             Pos2::new(r.left(), top),
             Align2::LEFT_TOP,
@@ -1806,8 +1884,12 @@ impl Frame<'_> {
     }
 
     /// The beats on the strip as dots, Tick and Tock in their colours,
-    /// faint while the watch settles or where masked out.
-    fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor) {
+    /// faint while the watch settles. With `masked`, only the beats in a
+    /// masked stretch, at 30% of their colour over the strip's ground and
+    /// opaque, so crowded dots don't add up to full strength: a masked
+    /// beat is still there to judge the mask by, but reads as unused
+    /// (Hugh, #1068 item 2). Without, only the others.
+    fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor, masked: bool) {
         let (g, r, extras) = (&self.g, self.g.r, self.extras);
         let lo = beats.partition_point(|b| b.time < self.oldest);
         let hi = beats.partition_point(|b| b.time <= g.end);
@@ -1822,8 +1904,13 @@ impl Frame<'_> {
         let every = (per_px / MAX_BEATS_PER_PX).ceil().max(1.0) as i64;
         let colors = side_colors(self.vis.dark_mode);
         let painter = self.painter.with_clip_rect(r.expand(3.0));
+        let ground = self.vis.extreme_bg_color;
         for b in shown {
             if !b.is_good() || b.index.div_euclid(2).rem_euclid(every) != 0 {
+                continue;
+            }
+            let in_mask = extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1);
+            if in_mask != masked {
                 continue;
             }
             let p = g.pos(
@@ -1834,10 +1921,10 @@ impl Frame<'_> {
                 b.time,
             );
             let mut c = colors[b.index.rem_euclid(2) as usize];
-            // Faint while the watch settles after a move, or masked out.
-            if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1)
-                || extras.masked.iter().any(|m| b.time >= m.0 && b.time <= m.1)
-            {
+            if in_mask {
+                c = ground.lerp_to_gamma(c, MASKED_BEAT);
+            } else if extras.settles.iter().any(|s| b.time > s.0 && b.time <= s.1) {
+                // Faint while the watch settles after a move.
                 c = c.gamma_multiply(0.3);
             }
             painter.circle_filled(p, radius, c);
@@ -1968,6 +2055,12 @@ pub fn fmt_time_fine(t: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_overlay_readings_break_the_line_even_without_a_time_gap() {
+        let points = [[0.0, 0.2], [1.0, f64::NAN], [2.0, 0.3], [3.0, 0.4]];
+        assert_eq!(joined(&points, 0.0, 3.0), vec![(points[2], points[3])]);
+    }
 
     #[test]
     fn readings_further_apart_than_the_gap_are_not_joined() {
@@ -2466,18 +2559,18 @@ mod tests {
         assert_eq!(settled_from(0.0, 50.0, &[(50.0, 70.0, SETTLING)]), 0.0);
     }
 
-    /// The wheel zooms about the time under the pointer.
-    #[test]
-    fn the_wheel_zooms_about_the_pointer() {
+    /// The strip's input after a wheel turn with `modifiers` over it.
+    fn wheel_frames(delta: Vec2, modifiers: egui::Modifiers) -> Vec<StripInput> {
         let ctx = egui::Context::default();
         let p = egui::Event::PointerMoved(Pos2::new(300.0, 200.0));
         let wheel = egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
-            delta: Vec2::new(0.0, -50.0),
-            modifiers: Default::default(),
+            delta,
+            modifiers,
         };
-        let got = masking_frames(
+        masking_frames_with(
             &ctx,
+            modifiers,
             &[
                 vec![p.clone()],
                 vec![p.clone()],
@@ -2485,44 +2578,76 @@ mod tests {
                 vec![],
                 vec![],
             ],
-        );
-        let zoom = got.iter().find(|i| i.span_factor != 1.0).expect("zoomed");
-        let at = zoom.zoom_at.expect("about the pointer");
-        let under = got.iter().find_map(|i| i.hover_t).expect("hovered");
-        assert!((at - under).abs() < 1e-9 && at < 90.0, "{at} {under}");
+        )
     }
 
-    /// Shift and the wheel zoom the width, not the length.
+    /// The wheel, or a swipe either way, pans time and zooms nothing;
+    /// with Shift too (Play Head rule 10).
     #[test]
-    fn shift_and_the_wheel_zoom_the_width() {
-        let ctx = egui::Context::default();
-        let p = egui::Event::PointerMoved(Pos2::new(300.0, 200.0));
+    fn the_wheel_pans_time() {
         let shift = egui::Modifiers {
             shift: true,
             ..Default::default()
         };
-        let wheel = egui::Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Point,
-            delta: Vec2::new(0.0, 50.0),
-            modifiers: shift,
-        };
-        let got = masking_frames_with(
-            &ctx,
-            shift,
-            &[
-                vec![p.clone()],
-                vec![p.clone()],
-                vec![p, wheel],
-                vec![],
-                vec![],
-            ],
+        for (delta, m) in [
+            (Vec2::new(0.0, 50.0), Default::default()),
+            (Vec2::new(50.0, 0.0), Default::default()),
+            (Vec2::new(0.0, 50.0), shift),
+        ] {
+            let got = wheel_frames(delta, m);
+            let back: f64 = got.iter().map(|i| i.time_shift_s).sum();
+            assert!(back < 0.0, "{delta:?} {m:?}: {got:?}");
+            assert!(
+                got.iter()
+                    .all(|i| i.span_factor == 1.0 && i.width_factor == 1.0),
+                "{got:?}"
+            );
+        }
+        // The other way, towards the newest beats.
+        let got = wheel_frames(Vec2::new(0.0, -50.0), Default::default());
+        assert!(
+            got.iter().map(|i| i.time_shift_s).sum::<f64>() > 0.0,
+            "{got:?}"
         );
+    }
+
+    /// Cmd (Mac) or Ctrl with the wheel zooms time about the time under
+    /// the pointer, and pans nothing.
+    #[test]
+    fn the_command_wheel_zooms_time_about_the_pointer() {
+        let command = egui::Modifiers {
+            ctrl: !cfg!(target_os = "macos"),
+            mac_cmd: cfg!(target_os = "macos"),
+            command: true,
+            ..Default::default()
+        };
+        let got = wheel_frames(Vec2::new(0.0, 50.0), command);
+        let zoom = got.iter().find(|i| i.span_factor != 1.0).expect("zoomed");
+        assert!(zoom.span_factor < 1.0, "{zoom:?}");
+        let at = zoom.zoom_at.expect("about the pointer");
+        let under = got.iter().find_map(|i| i.hover_t).expect("hovered");
+        assert!((at - under).abs() < 1e-9 && at < 90.0, "{at} {under}");
+        assert!(got.iter().all(|i| i.time_shift_s == 0.0), "{got:?}");
+    }
+
+    /// Alt and the wheel zoom the width, not the length.
+    #[test]
+    fn alt_and_the_wheel_zoom_the_width() {
+        let alt = egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        };
+        let got = wheel_frames(Vec2::new(0.0, 50.0), alt);
         let zoom = got
             .iter()
             .find(|i| i.width_factor != 1.0)
             .expect("the width zoomed");
         assert!(zoom.width_factor < 1.0, "{zoom:?}");
-        assert!(got.iter().all(|i| i.span_factor == 1.0), "{got:?}");
+        assert!(
+            got.iter()
+                .all(|i| i.span_factor == 1.0 && i.time_shift_s == 0.0),
+            "{got:?}"
+        );
     }
 
     fn beat(index: i64, time: f64) -> Beat {

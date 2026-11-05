@@ -1,6 +1,7 @@
 //! The Settings window and the input level controls: the gear, the level meter and gain, the microphone, general and calibre pages, and the take settings they write.
 
 use super::*;
+use timegrapher_core::figure_text::true_minus;
 
 impl TimegrapherApp {
     /// The gear at the end of the icon bar, in both views: Settings.
@@ -301,7 +302,7 @@ impl TimegrapherApp {
     fn peak_words(&self) -> String {
         if self.running() {
             let peak = self.level.peak_dbfs.max(-99.0);
-            format!("{peak:.0} dBFS").replace('-', "−")
+            true_minus(&format!("{peak:.0} dBFS"))
         } else {
             "–".into()
         }

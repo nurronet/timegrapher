@@ -738,7 +738,10 @@ fn clipping_shows_in_a_chip_and_the_true_clock_in_the_rate_hover() {
     // The rate on it, in the Rate figure's hover: 20 ppm slow takes
     // 1.7 s/d off a rate read on the card.
     let card = app.reading().unwrap().rate_s_per_day.unwrap();
-    let shown = format!("{:+.1}", clockstore::correct_rate(card, 20.0)).replace('-', "−");
+    let shown = timegrapher_core::figure_text::true_minus(&format!(
+        "{:+.1}",
+        clockstore::correct_rate(card, 20.0)
+    ));
     let hover = app.true_clock_words(card).expect("a clock kept");
     assert!(hover.starts_with(&format!("True Clock {shown}")), "{hover}");
 }
@@ -840,4 +843,25 @@ fn a_cards_sparkline_is_its_figure_over_the_last_minute() {
     assert!(rates.iter().all(|v| (v - 20.0).abs() < 2.0), "{rates:?}");
     // Read again, the kept seconds give the same points.
     assert_eq!(app.spark_trend(&ctx, &r), pts);
+}
+
+/// With the strip's newest edge in a masked stretch, the Scope says
+/// "Masked at" as the Tick Tock Profile does, by the same rule, and draws
+/// no beats there.
+#[test]
+fn the_scope_says_masked_where_the_profile_does() {
+    let mut app = synthetic(30.0, 0.0);
+    let end = app.latest_s() - 5.0;
+    app.strip_end = Some(end);
+    let end = app.strip_end_s();
+    app.masked = vec![(end - 15.0, end + 1.0)];
+    let at = length_text(end);
+    let line = Some(format!("Masked at {at}"));
+    assert_eq!(app.profiles_at(end).line, line);
+    let ctx = themed();
+    let out = ctx.run(screen(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| app.scope_pane(ui));
+    });
+    let scope = painted_text(&out);
+    assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
 }
