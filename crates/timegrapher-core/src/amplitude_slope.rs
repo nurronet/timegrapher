@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn a_rubs_slope_reads_its_true_coupling() {
         let log = crate::scenarios::beat_log(&crate::scenarios::find("rub").unwrap(), 1);
-        let [rate, medians, _] = crate::steadiness::reading_grids(&log, None, &[], 10.0);
+        let [rate, medians, _] = crate::steadiness::reading_grids(&log, None, &[], 10.0).0;
         let [fine, _] = crate::steadiness::window_grids(&log, None, &[]);
         let (amp, noise) = pairing_readings(&fine, &medians);
         let x = cross_correlation(&rate, &amp, &noise, &Config::default()).unwrap();
