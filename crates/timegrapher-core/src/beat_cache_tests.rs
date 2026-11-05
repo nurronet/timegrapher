@@ -1,0 +1,184 @@
+use super::*;
+use crate::synth::{generate, SynthConfig};
+
+/// A fresh folder for one test.
+fn folder(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("tg-beat-cache-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// A take of two sound files in `dir`, last changed an hour ago (so not
+/// still being written), with clipped beats and a jump in the beats.
+fn take(dir: &Path) -> Vec<PathBuf> {
+    let mut a = generate(
+        &SynthConfig {
+            duration_s: 180.0,
+            ..Default::default()
+        },
+        |t| 270.0 + 10.0 * (t / 50.0).sin(),
+        |_| 0.3,
+    );
+    let fs_hz = a.sample_rate as f64;
+    for (i, v) in a.samples.iter_mut().enumerate() {
+        if (100.0..110.0).contains(&(i as f64 / fs_hz)) {
+            *v = (*v * 40.0).clamp(-1.0, 1.0);
+        }
+    }
+    let cut = (60.0 * fs_hz) as usize;
+    a.samples.drain(cut..cut + (2.3 * fs_hz) as usize);
+    let half = a.samples.len() / 2;
+    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    [
+        ("take-001.wav", 0..half),
+        ("take-002.wav", half..a.samples.len()),
+    ]
+    .into_iter()
+    .map(|(name, part)| {
+        let p = dir.join(name);
+        let part = crate::audio::Audio {
+            samples: a.samples[part].to_vec(),
+            sample_rate: a.sample_rate,
+        };
+        crate::audio::write_wav(&p, &part).unwrap();
+        set_changed(&p, hour_ago);
+        p
+    })
+    .collect()
+}
+
+fn set_changed(p: &Path, t: SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(p)
+        .unwrap()
+        .set_modified(t)
+        .unwrap();
+}
+
+/// The beats of a take come back from their copy exactly as the sound
+/// gave them, every field to the bit: beats, amplitude windows, clipping,
+/// jumps, the beat-sound snippets and the loudest sample.
+#[test]
+fn a_kept_copy_reads_back_exactly_as_the_sound_gave_it() {
+    let dir = folder("exact");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    assert!(!log.jumps.is_empty(), "no jump");
+    assert!(!log.clipped_beats.is_empty(), "no clipping");
+    assert!(!log.snippets.is_empty(), "no snippets");
+    assert!(log.amplitude_windows.iter().any(|w| w.even_deg.is_none()));
+    let cache = dir.join("cache");
+    write(&cache, &paths, &cfg, &log, peak).unwrap();
+    let (back, back_peak) = read(&cache, &paths, &cfg).expect("the copy reads");
+    assert_eq!(encode(&back, back_peak), encode(&log, peak));
+    assert_eq!(format!("{back:?}"), format!("{log:?}"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A copy is only read back for the same sound, engine settings and
+/// layout: a changed file, a changed setting or a damaged copy reads as
+/// no copy, never as other beats.
+#[test]
+fn a_copy_is_read_only_for_the_same_sound_and_settings() {
+    let dir = folder("stale");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    let cache = dir.join("cache");
+    write(&cache, &paths, &cfg, &log, peak).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // Another setting.
+    let mut other = cfg.clone();
+    other.analysis.amplitude.lift_deg += 1.0;
+    assert!(read(&cache, &paths, &other).is_none());
+    // The files in another order.
+    let swapped = [paths[1], paths[0]];
+    assert!(read(&cache, &swapped, &cfg).is_none());
+    // A file changed: the same length, a new time.
+    set_changed(&files[1], SystemTime::now() - Duration::from_secs(1800));
+    assert!(read(&cache, &paths, &cfg).is_none());
+    set_changed(&files[1], SystemTime::now() - Duration::from_secs(3600));
+    write(&cache, &paths, &cfg, &log, peak).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // A byte of sound changed inside the first 64 KiB, the length and
+    // the time the same.
+    let changed_at = |f: &Path| fs::metadata(f).unwrap().modified().unwrap();
+    let was = changed_at(&files[0]);
+    let mut bytes = fs::read(&files[0]).unwrap();
+    bytes[1000] ^= 0x01;
+    fs::write(&files[0], &bytes).unwrap();
+    set_changed(&files[0], was);
+    assert!(read(&cache, &paths, &cfg).is_none());
+    bytes[1000] ^= 0x01;
+    fs::write(&files[0], &bytes).unwrap();
+    set_changed(&files[0], was);
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // A byte added past the first 64 KiB, the time the same.
+    let was = changed_at(&files[1]);
+    let mut bytes = fs::read(&files[1]).unwrap();
+    bytes.push(0);
+    fs::write(&files[1], &bytes).unwrap();
+    set_changed(&files[1], was);
+    assert!(read(&cache, &paths, &cfg).is_none());
+    bytes.pop();
+    fs::write(&files[1], &bytes).unwrap();
+    set_changed(&files[1], was);
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // The copy damaged.
+    let kept = cache.join(key(&paths, &cfg).unwrap());
+    let mut raw = fs::read(&kept).unwrap();
+    let mid = raw.len() / 2;
+    raw[mid] ^= 0x55;
+    fs::write(&kept, &raw).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_none());
+    // Cut short, after the gzip, it reads as nothing too.
+    let bytes = encode(&log, peak);
+    assert!(decode(&bytes[..bytes.len() - 1]).is_none());
+    assert!(decode(&[bytes.clone(), vec![0]].concat()).is_none());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// No copy is kept of a take whose files changed in the last two minutes:
+/// it may still be recording.
+#[test]
+fn no_copy_is_kept_of_a_take_still_being_written() {
+    let dir = folder("writing");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    set_changed(&files[1], SystemTime::now());
+    let cache = dir.join("cache");
+    write(&cache, &paths, &cfg, &log, peak).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_none());
+    assert!(!cache.exists() || fs::read_dir(&cache).unwrap().next().is_none());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// The folder is held to its size by removing the copies used longest
+/// ago, and leaves other files alone.
+#[test]
+fn the_folder_is_held_to_its_size_by_the_least_recently_used() {
+    let dir = folder("size");
+    let at = |s: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000 + s);
+    for (name, used) in [("old", 1), ("mid", 2), ("new", 3)] {
+        let p = dir.join(name);
+        fs::write(&p, vec![0u8; 100]).unwrap();
+        set_changed(&p, at(used));
+    }
+    fs::write(dir.join("x.part"), vec![0u8; 500]).unwrap();
+    hold_to(&dir, 200);
+    let mut left: Vec<String> = fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["mid", "new", "x.part"]);
+    let _ = fs::remove_dir_all(&dir);
+}
