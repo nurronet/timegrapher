@@ -795,6 +795,10 @@ pub struct OpenedEntry {
     pub unlisted: Option<breaks::Unlisted>,
     /// The stretches masked by hand, start and end.
     pub masked: Vec<(f64, f64)>,
+    /// The loudest sample's size in the sound read (full scale 1), for
+    /// its peak level ([`crate::analysis::Clipping::of`]); `None` for a
+    /// take kept as its analysis alone.
+    pub peak: Option<f32>,
 }
 
 /// One entry of a take, read: what was read, and its measurement.
@@ -1017,7 +1021,7 @@ fn open_sound(
         masked,
     } = sound;
     let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
-    let mut log = entry_log(kept.as_ref(), &paths, &s.stream, name, progress)?;
+    let (mut log, peak) = entry_log(kept.as_ref(), &paths, &s.stream, name, progress)?;
     let clock_text = match &clock_path {
         Some(f) => Some(fs::read_to_string(f).map_err(|err| format!("{}: {err}", f.display()))?),
         None => None,
@@ -1057,6 +1061,7 @@ fn open_sound(
         breaks,
         unlisted,
         masked,
+        peak,
     })
 }
 
@@ -1099,23 +1104,25 @@ fn kept_take(
 }
 
 /// The entry's beats: read from the take `kept` as its analysis alone,
-/// or found in its sound `paths`, telling `progress` how far through.
+/// or found in its sound `paths`, telling `progress` how far through;
+/// with the loudest sample's size in the sound read.
 fn entry_log(
     kept: Option<&analysis_take::Stored>,
     paths: &[&Path],
     cfg: &StreamConfig,
     file: &str,
     mut progress: impl FnMut(f64, f64),
-) -> Result<BeatLog, String> {
+) -> Result<(BeatLog, Option<f32>), String> {
     match kept {
-        Some(k) => Ok(kept_at_lift(&k.log, cfg.analysis.amplitude.lift_deg)),
+        Some(k) => Ok((kept_at_lift(&k.log, cfg.analysis.amplitude.lift_deg), None)),
         None => {
             let mut total_s = 0.0;
             for p in paths {
                 let i = crate::audio::info(p).map_err(|err| format!("{}: {err}", p.display()))?;
                 total_s += i.frames.unwrap_or(0) as f64 / i.sample_rate as f64;
             }
-            stream::analyze_files(paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
+            stream::analyze_files_peak(paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
+                .map(|(log, peak)| (log, Some(peak)))
                 .map_err(|err| format!("{file}: {err}"))
         }
     }
@@ -1265,6 +1272,19 @@ pub fn measure_entry(
     usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
     correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
 ) -> Result<EntryRead, EntryError> {
+    let opened = open_entry(base, m, e, s, usb, correction, |_, _| {})?;
+    measure_opened(opened, m, e, s)
+}
+
+/// Entry `e` of the take described by `m`, already opened with
+/// [`open_entry`], measured as [`measure_entry`] measures it: for a
+/// reader that also reads the opened entry whole.
+pub fn measure_opened(
+    opened: OpenedEntry,
+    m: &Manifest,
+    e: &RecordingEntry,
+    s: &EntrySettings,
+) -> Result<EntryRead, EntryError> {
     let OpenedEntry {
         files,
         kept,
@@ -1277,7 +1297,8 @@ pub fn measure_entry(
         breaks,
         unlisted,
         masked,
-    } = open_entry(base, m, e, s, usb, correction, |_, _| {})?;
+        peak: _,
+    } = opened;
     let cfg = &s.stream;
     let Window {
         start_s,

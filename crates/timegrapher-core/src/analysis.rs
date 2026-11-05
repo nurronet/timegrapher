@@ -186,16 +186,25 @@ impl Clipping {
             idx.get(k).is_some_and(|&i| i <= c + post)
         };
         let n = beats.iter().filter(|b| hit(b)).count();
-        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs())) as f64;
+        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs()));
+        Clipping::of(idx.len(), n, beats.len(), peak)
+    }
+
+    /// The clipping of `samples` clipped samples and `clipped` clipped
+    /// beats of the `beats` found, with `peak` the loudest sample's size
+    /// (full scale 1): as [`Self::measure`] counts it in a recording, or a
+    /// streamed reading ([`crate::stream::BeatLog::clipped_samples`] and
+    /// `clipped_beats`) counts it in a whole take.
+    pub fn of(samples: usize, clipped: usize, beats: usize, peak: f32) -> Clipping {
         Clipping {
-            samples: idx.len(),
-            beats: n,
-            beat_fraction: if beats.is_empty() {
+            samples,
+            beats: clipped,
+            beat_fraction: if beats == 0 {
                 0.0
             } else {
-                n as f64 / beats.len() as f64
+                clipped as f64 / beats as f64
             },
-            peak_dbfs: 20.0 * peak.max(1e-10).log10(),
+            peak_dbfs: 20.0 * f64::from(peak).max(1e-10).log10(),
         }
     }
 

@@ -47,7 +47,6 @@ use timegrapher_core::recorder::{self, Recorder, SessionInfo};
 use timegrapher_core::session::{self, Manifest, Position};
 use timegrapher_core::take::{self, MANIFEST};
 use timegrapher_core::timing::Anchor;
-use timegrapher_core::{analyze, AnalysisConfig};
 
 #[derive(Clone)]
 pub struct Options {
@@ -811,26 +810,8 @@ fn live(
 }
 
 fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
-    // The first hour, as kept (its FLAC once converted): the take's first
-    // file in core's order.
-    let wav = timegrapher_core::recording_order::recordings_in(dir, &[])
-        .map_err(|e| format!("{}: {e}", dir.display()))?
-        .into_iter()
-        .next()
-        .ok_or_else(|| format!("{}: no recording in the take", dir.display()))?;
-    // Whether a regular beat was found, and clipping, over the whole take,
-    // as `analyze` reports them, which a short take still gets.
-    let a = audio::load(&wav).map_err(|e| format!("{}: {e}", wav.display()))?;
-    let mut cfg = AnalysisConfig {
-        bph: set.bph,
-        ..Default::default()
-    };
-    cfg.amplitude.lift_deg = set.lift;
-    cfg.lift_known = set.lift_known;
-    let whole = analyze(&a, &cfg).summary;
-    // The readings as `session` will take them: the take saved, read as
-    // every surface reads a take, with its clock log, breaks and masks,
-    // after the same settling time.
+    // The take saved, opened as every surface opens a take, with its clock
+    // log, breaks and masks.
     let path = dir.join(MANIFEST);
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -843,9 +824,39 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         card_clock: false,
         settle_s: set.settle_s,
     };
-    let read = take::measure_entry(dir, &m, e, &settings, take::usb, |first| {
-        take::correction_for(&m, first, None, None)
-    });
+    let opened = take::open_entry(
+        dir,
+        &m,
+        e,
+        &settings,
+        take::usb,
+        |first| take::correction_for(&m, first, None, None),
+        |_, _| {},
+    )?;
+    // Whether a regular beat was found, and clipping, over the whole take,
+    // which a short take still gets.
+    let log = &opened.log;
+    let whole = session::measure_masked(
+        log,
+        opened.clock.as_ref(),
+        &opened.breaks,
+        &opened.masked,
+        0.0,
+        log.duration_s,
+    );
+    let clipping = Clipping::of(
+        log.clipped_samples,
+        log.clipped_beats.len(),
+        log.beats.len(),
+        // A take `record` just saved has its sound: never read as silence.
+        opened
+            .peak
+            .ok_or_else(|| format!("{}: no sound to read the peak level from", dir.display()))?,
+    );
+    let (whole_bph, whole_s) = (log.bph, log.duration_s);
+    // The readings as `session` will take them: after the same settling
+    // time.
+    let read = take::measure_opened(opened, &m, e, &settings);
     // Readings only when the stretch read alone hears the watch too; a
     // take not much longer than its settling may leave too little.
     let check = |from_s: f64, to_s: f64, bph: u32, m: Option<&session::Measurement>| {
@@ -871,7 +882,7 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
             rate_s_per_day: m.and_then(|m| m.rate_s_per_day),
             amplitude_deg: m.and_then(|m| m.amplitude_deg),
             beat_error_ms: m.and_then(|m| m.beat_error_signed()),
-            clipping: whole.clipping,
+            clipping,
         }
     };
     match read {
@@ -881,8 +892,8 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         }
         // Nothing to read once settled: the take is kept, with no readings.
         Err(take::EntryError::NoReading(_)) => {
-            let (from, to) = take::measured(0.0, a.duration(), set.settle_s, None);
-            Ok(check(from, to, whole.bph, None))
+            let (from, to) = take::measured(0.0, whole_s, set.settle_s, None);
+            Ok(check(from, to, whole_bph, None))
         }
         Err(take::EntryError::Failed(why)) => Err(why),
     }
@@ -1324,6 +1335,61 @@ mod tests {
             "{} deg at a 40 deg lift, {} deg at the default",
             amplitude(&at_40),
             amplitude(&r)
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The quick check hears the whole take, every hour of it, not the
+    /// first alone (#508): clipping in a later hour is counted, at the
+    /// take's peak level, as `analyze` counts it in that hour.
+    #[test]
+    fn the_quick_check_counts_clipping_in_a_later_hour() {
+        use timegrapher_core::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-record-whole-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = SynthConfig {
+            duration_s: 60.0,
+            ..Default::default()
+        };
+        let quiet = generate(&cfg, |_| 280.0, |_| 0.0);
+        let loud = audio::Audio {
+            samples: quiet
+                .samples
+                .iter()
+                .map(|v| (v * 40.0).clamp(-1.0, 1.0))
+                .collect(),
+            sample_rate: quiet.sample_rate,
+        };
+        audio::write_wav(&dir.join("audio-001.wav"), &quiet).unwrap();
+        audio::write_wav(&dir.join("audio-002.wav"), &loud).unwrap();
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: Some(0.0),
+        };
+        let c = check_saved(&dir, &set).unwrap();
+        // The loud hour as read back from its file, alone.
+        let read_back = audio::load(&dir.join("audio-002.wav")).unwrap();
+        let alone =
+            timegrapher_core::analyze(&read_back, &timegrapher_core::AnalysisConfig::default());
+        let hour = alone.summary.clipping;
+        assert!(hour.beats > 0, "no clipping in the loud hour");
+        assert!(
+            c.clipping.beats.abs_diff(hour.beats) <= 2,
+            "{} clipped beats in the take, {} in its loud hour",
+            c.clipping.beats,
+            hour.beats
+        );
+        assert_eq!(c.clipping.peak_dbfs, hour.peak_dbfs);
+        assert!(
+            c.from_s == 0.0 && c.to_s > 110.0,
+            "{} to {} s",
+            c.from_s,
+            c.to_s
         );
         let _ = fs::remove_dir_all(&dir);
     }
