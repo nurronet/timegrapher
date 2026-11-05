@@ -1008,7 +1008,9 @@ as everywhere in the app, can be drawn
 as lines against the same time, each on its own scale, whose ends are
 written in its colour above the strip (beside it when the strip lies
 across), as some versions of tg do for amplitude: a wobble in the rate
-that comes with a dip in amplitude shows at a glance. The lines use
+that comes with a dip in amplitude shows at a glance. Beat error from the
+unlock (**B.E. U**) and from the drop (**B.E. D**) keep an axis each but
+share one scale, so the bright and the faint amber line read alike. The lines use
 readings spaced a four-hundredth of the strip's length apart (about 4.5 s
 on a 30-minute strip, never closer than half a second), or the
 recording's own when those are no more than twice as far apart, and

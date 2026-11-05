@@ -148,6 +148,33 @@ fn held_scale(ui: &egui::Ui, name: &str, range: Range) -> Scale {
     s
 }
 
+/// Each overlay with a reading from `from_s` to `to_s`, and its scale:
+/// one scale holds every overlay drawn on it ([`Overlay::scale`]).
+fn overlay_scales<'o>(
+    ui: &egui::Ui,
+    overlays: &'o [Overlay],
+    from_s: f64,
+    to_s: f64,
+) -> Vec<(&'o Overlay, Scale)> {
+    let ranges: Vec<(&Overlay, Range)> = overlays
+        .iter()
+        .filter_map(|o| o.range(from_s, to_s).map(|range| (o, range)))
+        .collect();
+    ranges
+        .iter()
+        .map(|&(o, own)| {
+            let range = ranges
+                .iter()
+                .filter(|(p, _)| p.scale == o.scale)
+                .map(|&(_, r)| r)
+                .fold(own, |((a, b), (c, d)), ((e, f), (g, h))| {
+                    ((a.min(e), b.max(f)), (c.min(g), d.max(h)))
+                });
+            (o, held_scale(ui, o.scale, range))
+        })
+        .collect()
+}
+
 /// Where `v` on scale `s` lies in ms across a strip `half` ms either side:
 /// the scale's ends at the strip's edges.
 fn scale_ms((lo, hi, _): Scale, v: f64, half: f64) -> f64 {
@@ -246,6 +273,10 @@ pub struct Overlay {
     /// "Rate", "Amp.", "B.E.".
     pub short: &'static str,
     pub unit: &'static str,
+    /// The scale it is drawn on, kept under this name: overlays naming
+    /// the same one share it, each with its own axis, so two lines of one
+    /// reading are read on one scale (B.E. U and B.E. D; Peter, 11-05).
+    pub scale: &'static str,
     pub color: Color32,
     /// The smallest range the scale spans, so a steady reading isn't
     /// blown up into noise.
@@ -1001,14 +1032,7 @@ pub fn draw_strip(
     let vis = ui.visuals().clone();
     painter.rect_filled(resp.rect, 2.0, vis.extreme_bg_color);
     let oldest = end_s - view.span_s;
-    let overlays: Vec<(&Overlay, Scale)> = extras
-        .overlays
-        .iter()
-        .filter_map(|o| {
-            o.range(oldest, end_s)
-                .map(|range| (o, held_scale(ui, o.name, range)))
-        })
-        .collect();
+    let overlays = overlay_scales(ui, extras.overlays, oldest, end_s);
     let row_h = 15.0;
     let font = FontId::proportional(11.0);
     let cols: Vec<f32> = overlays
@@ -2055,6 +2079,39 @@ pub fn fmt_time_fine(t: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B.E. U and B.E. D keep an axis each but share one scale, which
+    /// holds both lines, so a faint line and a bright one are never read
+    /// on two scales (Peter, 11-05); another reading keeps its own.
+    #[test]
+    fn overlays_on_one_scale_share_it() {
+        let line = |name, scale, v: f64| Overlay {
+            name,
+            short: name,
+            unit: " ms",
+            scale,
+            color: Color32::WHITE,
+            min_span: 0.2,
+            points: (0..10).map(|i| [i as f64, v + 0.01 * i as f64]).collect(),
+        };
+        let overlays = [
+            line("Unlock", "Beat Error", 0.2),
+            line("Drop", "Beat Error", 1.5),
+            line("Rate", "Rate", 0.2),
+        ];
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let s = overlay_scales(ui, &overlays, 0.0, 10.0);
+                assert_eq!(s.len(), 3);
+                assert_eq!(s[0].1, s[1].1);
+                let (lo, hi, _) = s[0].1;
+                assert!(lo <= 0.2 && hi >= 1.59, "{:?}", s[0].1);
+                // Rate's own scale holds Rate alone.
+                assert!(s[2].1 .1 < 1.0, "{:?}", s[2].1);
+            });
+        });
+    }
 
     #[test]
     fn missing_overlay_readings_break_the_line_even_without_a_time_gap() {
