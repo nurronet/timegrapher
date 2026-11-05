@@ -800,6 +800,10 @@ fn the_watches_power_reserve_test_waits_on_the_bench() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test checking the joined beats with core's plain fit"
+)]
 fn a_new_position_marks_a_stretch_and_keeps_the_strip() {
     let mut app = synthetic(20.0, 0.0);
     app.session.listen();

@@ -1,6 +1,9 @@
 # One source (issue #514): a take's clock, breaks and measured stretch are
-# opened by core `take`, never assembled here from its building blocks.
-# A call that is not opening a take says why with
+# opened by core `take`, a stretch's fits are read by core
+# `session::stretch_fits` and distributions are built in core, never
+# assembled here from their building blocks.
+# A call with a reason of its own (a test checking core against itself,
+# say) says why with
 # `#[expect(clippy::disallowed_methods, reason = "...")]`.
 disallowed-methods = [
     { path = "timegrapher_core::clock::parse_log", reason = "open a take with timegrapher_core::take::clock" },
@@ -14,4 +17,11 @@ disallowed-methods = [
     { path = "timegrapher_core::breaks::on_clock", reason = "open a take with timegrapher_core::take::breaks" },
     { path = "timegrapher_core::breaks::with_jumps", reason = "open a take with timegrapher_core::take::breaks" },
     { path = "timegrapher_core::breaks::renumber", reason = "open a take with timegrapher_core::take::breaks" },
+    { path = "timegrapher_core::timing::fit", reason = "read a stretch with timegrapher_core::session::stretch_fits" },
+    { path = "timegrapher_core::timing::fit_pieces", reason = "read a stretch with timegrapher_core::session::stretch_fits" },
+    { path = "timegrapher_core::timing::sign_turns", reason = "read a stretch with timegrapher_core::session::stretch_fits" },
+    { path = "timegrapher_core::session::window_figures", reason = "read a stretch with timegrapher_core::session::stretch_fits" },
+    { path = "timegrapher_core::histogram::histogram", reason = "core builds the distributions; show what it gives" },
+    { path = "timegrapher_core::histogram::histogram_with", reason = "core builds the distributions; show what it gives" },
+    { path = "timegrapher_core::stream::analyze_files_peak", reason = "open a take with timegrapher_core::take::open_entry" },
 ]
