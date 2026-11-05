@@ -1013,6 +1013,10 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
 /// the ± calls for, as core writes every ± (#510 K3): never one typed by
 /// hand to a fixed decimal.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's clock fixture, not a take being opened"
+)]
 fn a_timed_clock_writes_its_pm_as_core_does() {
     let app = TimegrapherApp::with_devices(Vec::new(), None);
     let mut fit = timegrapher_core::clock::ClockFit::fixed(-20.04, 1200.0);
