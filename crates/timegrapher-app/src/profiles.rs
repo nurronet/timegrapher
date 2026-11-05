@@ -1359,6 +1359,28 @@ mod tests {
         };
         assert!(high.layout(&t).0.is_empty());
         assert_eq!(high.span(&t), (frame.left(), frame.left()));
+        // A tall box over a trace high under the left corner, and on the
+        // right low enough for one row but not two: it sheds rows,
+        // keeping Unlock to Drop, in the right corner.
+        let peak = FactBox {
+            tops: (0..=10)
+                .map(|i| [i as f64 / 10.0, if i < 5 { 0.95 } else { 0.78 }])
+                .collect(),
+            ..b.clone()
+        };
+        let tall = egui::Rect::from_min_size(egui::pos2(50.0, 30.0), egui::vec2(800.0, 150.0));
+        let tt = egui_plot::PlotTransform::new(
+            tall,
+            egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
+            egui::Vec2b::new(false, false),
+        );
+        assert_eq!(peak.shown(&tt), vec![0, 1, 2, 3]);
+        let (rows, r) = peak.layout(&tt);
+        assert_eq!(rows, vec![3]);
+        assert!(
+            (r.right() - (tall.right() - FACT_INSET)).abs() < 1e-3,
+            "{r:?}"
+        );
         // It adds nothing to the plot's bounds.
         assert!(!egui_plot::PlotItem::bounds(&b).is_valid());
     }
