@@ -480,7 +480,8 @@ pub(crate) fn listing_of(file: &Path) -> Result<Option<(Manifest, PathBuf)>, Str
 }
 
 /// The session file `session_file` with only its entries naming `file`,
-/// and the folder they are read from; none when no entry names it.
+/// and the folder they are read from; none when no entry names it. Each
+/// kept entry settles as it does in the whole session file.
 fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, PathBuf)>, String> {
     let (mut m, base, _) = load_manifest_file(session_file)?;
     // An entry names the file when its sound is that file alone: as a
@@ -494,6 +495,17 @@ fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, Path
             _ => false,
         }
     };
+    // An entry carrying on the position of the one before it, in another
+    // file, settles as session reads it, though that one is not kept here
+    // (`take::continues_position`).
+    let carried: Vec<bool> = m
+        .recordings
+        .iter()
+        .map(|e| take::continues_position(e, &m))
+        .collect();
+    for (e, _) in m.recordings.iter_mut().zip(carried).filter(|(_, c)| *c) {
+        e.settle_s = Some(0.0);
+    }
     m.recordings.retain(same);
     Ok((!m.recordings.is_empty()).then_some((m, base)))
 }

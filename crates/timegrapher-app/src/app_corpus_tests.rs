@@ -518,36 +518,11 @@ const PANES_KNOWN: &[(&str, &str)] = &[
         "* beat_error readings",
         "#1144: the app counts its trend's readings, not core's readings grid",
     ),
-    ("dd3235_DU_30min amplitude 2 s", SETTLE),
-    ("dd3235_DU_30min beat_error 2 s", SETTLE),
-    ("eta2824_bare_DU_30min amplitude 2 s", SETTLE),
-    ("eta2824_bare_DU_30min beat_error 2 s", SETTLE),
-    ("eta2824_holder_DU_30min amplitude 2 s", SETTLE),
-    ("eta2824_holder_DU_30min beat_error 2 s", SETTLE),
-    ("reverso21600_DU_2h amplitude 2 s", SETTLE),
-    ("reverso21600_DU_2h beat_error 2 s", SETTLE),
-    ("reverso21600_DU_level_overnight amplitude 2 s", SETTLE),
-    ("reverso21600_DU_level_overnight beat_error 2 s", SETTLE),
-    ("ym42_CD_90min amplitude 2 s", SETTLE),
-    ("ym42_CD_90min beat_error 2 s", SETTLE),
-    ("ym42_CL_90min amplitude 2 s", SETTLE),
-    ("ym42_CL_90min beat_error 2 s", SETTLE),
-    ("ym42_CR_long amplitude 2 s", SETTLE),
-    ("ym42_CR_long beat_error 2 s", SETTLE),
-    ("ym42_CU_8h amplitude 2 s", SETTLE),
-    ("ym42_CU_8h beat_error 2 s", SETTLE),
-    ("ym42_DD_30min amplitude 2 s", SETTLE),
-    ("ym42_DD_30min beat_error 2 s", SETTLE),
-    ("ym42_DU_2h amplitude 2 s", SETTLE),
-    ("ym42_DU_2h beat_error 2 s", SETTLE),
     (
         "reverso21600_DU_level_overnight power reserve",
         "#1150: session reads each 10-minute entry alone, too short for a run",
     ),
 ];
-
-/// #1145, in [`PANES_KNOWN`].
-const SETTLE: &str = "#1145: the app leaves out the windows before the position's settle time";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {
