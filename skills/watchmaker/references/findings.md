@@ -118,7 +118,7 @@ and say the ones that apply in plain words.
 | `beats_missing` | Under 95% of the expected beats found (`fraction`). | The beat rate, then the level and the clamp. | "I missed some beats; let's get a cleaner recording." |
 | `lift_unknown` | No calibre or lift angle given; the amplitude rests on the default. | Ask what the watch is. | "The amplitude depends on the movement; tell me what it is and I'll check it." |
 | `clock_unknown` | The sound card's clock error isn't known. | For a rate within a few s/d, see below. | "The rate includes the sound card's own clock error, which this recording can't measure." |
-| `clock_sources_disagree` | The USB lines correct the rates, and the clock log, good enough to correct them on its own, measures the card differently by more than its own scatter: `usb_ppm` and `log_ppm` (± `log_ppm_sd`), ppm slow by each. Never on `analyze`, which reads no clock log. | Quote the corrected rate as the USB lines give it; the two clocks are a fact to report, not a fault in the watch. | "Two ways of checking the sound card's clock disagree by about N ppm (N × 0.0864 s/d), so the rates could be off by that much." |
+| `clock_sources_disagree` | The USB lines correct the rates, and the clock log, good enough to correct them on its own, measures the card differently by more than its own scatter: `usb_ppm` and `log_ppm` (± `log_ppm_sd`), ppm fast by each. Never on `analyze`, which reads no clock log. | Quote the corrected rate as the USB lines give it; the two clocks are a fact to report, not a fault in the watch. | "Two ways of checking the sound card's clock disagree by about N ppm (N × 0.0864 s/d), so the rates could be off by that much." |
 | `breaks` | The take was paused or resumed (`count`). | Nothing to fix. | Only if asked. |
 | `sides_by_count` | At `count` of those breaks Tick and Tock were not told apart by their sound, so the sides after each are named by the beat count across it. | Nothing to fix. | Only if asked. |
 | `masked` | `session` readings only: `seconds` of the measured stretch were masked out of the readings by hand (a session file's `masked`, or the app's Paper Strip). | Nothing to fix; say the readings leave that time out. | "Some of the take was masked out of the readings by hand." |
@@ -131,7 +131,7 @@ and say the ones that apply in plain words.
 
 `overall.rate_s_per_day` is on the sound card's clock, as other
 timegraphers read it. When the recording carries the USB microphone's
-1 kHz lines, `usb_clock` gives the card's error (`ppm` slow, `lines`,
+1 kHz lines, `usb_clock` gives the card's error (`ppm` fast, `lines`,
 `spread_ppm`) and `rate_corrected_s_per_day` the rate with it removed.
 For a rate within a few s/d, quote the corrected rate and say so. Name
 the clock with every rate you quote ("on the sound card's clock" or

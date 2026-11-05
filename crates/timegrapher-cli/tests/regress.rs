@@ -173,7 +173,7 @@ fn selected_write_captures_actual_context_and_preserves_other_entry_origins() {
     let wav = silence_wav();
     let digest = timegrapher_core::archive::sha256_hex(&wav);
     std::fs::write(dir.join("silence.wav"), &wav).unwrap();
-    let manifest = "bph=28800\nlift=49.5\nsettle_s=0\ncard_ppm=0\n[[recording]]\nfile='silence.wav'\nposition='DU'\nstart_s=0.125\nend_s=0.875\nreference={source='historical tg label, executable unknown'}\n";
+    let manifest = "bph=28800\nlift=49.5\nsettle_s=0\ncard_ppm_fast=0\n[[recording]]\nfile='silence.wav'\nposition='DU'\nstart_s=0.125\nend_s=0.875\nreference={source='historical tg label, executable unknown'}\n";
     std::fs::write(dir.join("session.toml"), manifest).unwrap();
     std::fs::write(
         f.0.join("corpus.json"),

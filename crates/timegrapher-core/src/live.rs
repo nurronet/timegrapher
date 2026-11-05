@@ -564,13 +564,13 @@ impl LiveAnalyzer {
         }
     }
 
-    /// A clock's error over audio `from..to`, ppm slow: its mapping's
+    /// A clock's error over audio `from..to`, ppm fast: its mapping's
     /// slope there.
     fn clock_ppm(c: &crate::clock::ClockFit, from: f64, to: f64) -> f64 {
         if to - from < 1e-6 {
             return c.ppm;
         }
-        ((c.map(to) - c.map(from)) / (to - from) - 1.0) * 1e6
+        crate::clock::ppm_of_scale((c.map(to) - c.map(from)) / (to - from))
     }
 
     /// Change the lift angle. Amplitude is proportional to the lift angle

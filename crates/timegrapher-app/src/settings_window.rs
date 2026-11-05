@@ -356,14 +356,14 @@ fn library_buttons(
     act
 }
 
-/// "12.3 ppm slow", "4.0 ppm fast", or "0.0 ppm" for a clock that keeps
+/// "12.3 ppm fast", "4.0 ppm slow", or "0.0 ppm" for a clock that keeps
 /// time as it reads.
 pub fn ppm_words(ppm: f64) -> String {
     let size = format!("{:.1} ppm", ppm.abs());
     if size == "0.0 ppm" {
         size
     } else {
-        format!("{size} {}", if ppm > 0.0 { "slow" } else { "fast" })
+        format!("{size} {}", if ppm > 0.0 { "fast" } else { "slow" })
     }
 }
 
@@ -373,7 +373,7 @@ pub fn sd_words(s_per_day: f64) -> String {
     true_minus(&timegrapher_core::library::signed_text(s_per_day, 2))
 }
 
-/// One kept clock's error in words: "12.3 ppm slow, +1.06 s/d on every rate".
+/// One kept clock's error in words: "12.3 ppm slow, +1.06 s/d on every rate" (ppm -12.3).
 pub fn error_words(c: &DeviceClock) -> String {
     format!(
         "{}, {} s/d on every rate",
@@ -617,6 +617,7 @@ mod tests {
         assert_eq!(sd_words(-0.42), "−0.42");
         assert_eq!(sd_words(1.06), "+1.06");
         assert_eq!(ppm_words(-0.01), "0.0 ppm");
-        assert_eq!(ppm_words(12.3), "12.3 ppm slow");
+        assert_eq!(ppm_words(12.3), "12.3 ppm fast");
+        assert_eq!(ppm_words(-12.3), "12.3 ppm slow");
     }
 }

@@ -124,8 +124,8 @@ enum Command {
         /// sidecar is used when one is stored.
         #[arg(long)]
         device: Option<String>,
-        /// Correct the rate for a sound card this many ppm slow (negative
-        /// if fast), instead of a stored correction.
+        /// Correct the rate for a sound card this many ppm fast (negative
+        /// if slow), instead of a stored correction.
         #[arg(long, allow_hyphen_values = true, value_parser = parse_card_ppm)]
         card_ppm: Option<f64>,
         /// Print the summary as JSON instead of text.
@@ -202,8 +202,8 @@ enum Command {
         /// this input (see `clock`).
         #[arg(long)]
         device: Option<String>,
-        /// Without a clock log: correct for a sound card this many ppm slow
-        /// (negative if fast).
+        /// Without a clock log: correct for a sound card this many ppm fast
+        /// (negative if slow).
         #[arg(long, allow_hyphen_values = true, value_parser = parse_card_ppm)]
         card_ppm: Option<f64>,
         /// Beat rate in beats per hour (guessed if omitted).
@@ -711,7 +711,7 @@ enum ClockAction {
         #[arg(long)]
         save: bool,
     },
-    /// Store a known error by hand: ppm slow, negative if fast.
+    /// Store a known error by hand: ppm fast, negative if slow.
     Set {
         device: String,
         #[arg(allow_hyphen_values = true, value_parser = parse_card_ppm)]
@@ -1593,7 +1593,7 @@ fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, Stri
                     true
                 ),
                 fixed_text(ppm.abs(), base_digits::CLOCK),
-                if *ppm >= 0.0 { "slow" } else { "fast" },
+                if *ppm >= 0.0 { "fast" } else { "slow" },
                 figure(f.rate_s_per_day, rate_se, base_digits::RATE, true)
             ),
             None => println!(
@@ -1953,7 +1953,7 @@ mod numeric_input_tests {
             argv.push("--escape-teeth=0".into());
             assert!(Cli::try_parse_from(argv).is_err(), "{command}: zero teeth");
         }
-        for value in ["NaN", "inf", "-inf", "-1000000", "-1000001"] {
+        for value in ["NaN", "inf", "-inf", "1000000", "1000001"] {
             for command in ["analyze", "long"] {
                 let mut argv = args(command);
                 argv.push(format!("--card-ppm={value}"));

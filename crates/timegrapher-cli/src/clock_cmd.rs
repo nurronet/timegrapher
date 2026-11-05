@@ -139,14 +139,14 @@ pub fn describe(d: &DeviceClock) -> String {
         d.device,
         // Each to its ±'s decimals (#510 K3).
         figure_with_pm(d.ppm.abs(), d.ppm_sd, base_digits::CLOCK, false),
-        if d.ppm >= 0.0 { "slow" } else { "fast" },
+        if d.ppm >= 0.0 { "fast" } else { "slow" },
         figure(
             d.rate_error_s_per_day().abs(),
             d.ppm_sd.map(|s| clock::rate_error_s_per_day(s).abs()),
             base_digits::RATE,
             false
         ),
-        if d.ppm >= 0.0 { "fast" } else { "slow" },
+        if d.ppm >= 0.0 { "slow" } else { "fast" },
         d.how_text(),
         d.measured_utc
     )
@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(saved.get(&measured.device), Some(&measured));
         // A store that becomes invalid after preflight must not be overwritten.
         ClockStore::load().unwrap();
-        let invalid = r#"{"schema":"timegrapher.clocks/1","devices":[{"device":"late invalid","ppm":-1000000,"span_s":0,"measured_utc":"later","source":"set"}]}"#;
+        let invalid = r#"{"schema":"timegrapher.clocks/2","devices":[{"device":"late invalid","ppm":1000000,"span_s":0,"measured_utc":"later","source":"set"}]}"#;
         fs::write(&path, invalid).unwrap();
         assert!(report(&measured, &fit, true, true, json!({}))
             .unwrap_err()

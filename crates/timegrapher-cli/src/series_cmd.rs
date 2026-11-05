@@ -832,7 +832,7 @@ mod tests {
                 doc.as_object_mut().unwrap().remove("clock").unwrap(),
                 json!({
                     "ppm": ppm,
-                    "rate_error_s_per_day": ppm * 1e-6 * 86400.0,
+                    "rate_error_s_per_day": -ppm * 1e-6 * 86400.0,
                     "from": from,
                     "tracks_drift": false,
                 })
@@ -887,7 +887,7 @@ mod tests {
             serde_json::to_value(&expected).unwrap()
         );
         assert_eq!(applied.fit.map(150.0), expected.map(150.0));
-        assert!((applied.fit.ppm - 12.5).abs() < 1e-6);
+        assert!((applied.fit.ppm + 12.5).abs() < 1e-6);
         let doc = report_document(&report(), Some(&applied)).unwrap();
         assert_eq!(
             doc["clock"],

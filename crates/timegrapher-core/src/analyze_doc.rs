@@ -22,7 +22,7 @@ pub fn settings(cfg: &AnalysisConfig, calibre: Option<&str>) -> Value {
 
 /// The document's body: the summary, its rates on the sound card's clock
 /// (what tg reads and the regression check compares), with the clock's
-/// correction beside them when one is known (`ppm` slow, and where it came
+/// correction beside them when one is known (`ppm` fast, and where it came
 /// from in words).
 pub fn body(summary: &Summary, clock: Option<(f64, &str)>) -> Result<Value, String> {
     let mut body = serde_json::to_value(summary).map_err(|e| e.to_string())?;

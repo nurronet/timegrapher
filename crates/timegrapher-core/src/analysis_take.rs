@@ -33,7 +33,10 @@ pub const BEATS: &str = "beats.csv.gz";
 pub const WINDOWS: &str = "windows.csv.gz";
 pub const PROFILES: &str = "profiles.bin.gz";
 /// The layout's name and version, in the header's `format`.
-pub const FORMAT: &str = "timegrapher.analysis/1";
+pub const FORMAT: &str = "timegrapher.analysis/2";
+/// The layout before #657: the same, but `usb_clock.ppm` is ppm slow. It
+/// is read with that sign changed, so a saved take keeps its meaning.
+pub const FORMAT_1: &str = "timegrapher.analysis/1";
 /// The fact the header states about the missing sound.
 pub const NO_SOUND: &str = "Saved without its sound: it can't be measured again, and the \
      waveform (the Scope pane and Replay) can't come back.";
@@ -434,7 +437,7 @@ fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
         .ok()
         .and_then(|v| v.get("format")?.as_str().map(String::from));
     match format.as_deref() {
-        Some(FORMAT) => {}
+        Some(FORMAT | FORMAT_1) => {}
         Some(f) if f.starts_with("timegrapher.analysis/") => {
             return Err(invalid(format!(
                 "{DIR}/{HEADER} is in the layout {f}, made by a newer version: \
@@ -443,8 +446,14 @@ fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
         }
         _ => return Err(invalid(format!("{DIR}/{HEADER} is not a take's analysis"))),
     }
-    let header: Header =
+    let mut header: Header =
         serde_json::from_str(&text).map_err(|e| invalid(format!("{DIR}/{HEADER}: {e}")))?;
+    if header.format == FORMAT_1 {
+        if let Some(u) = header.usb_clock.as_mut() {
+            u.ppm = -u.ppm;
+        }
+        header.format = FORMAT.into();
+    }
     check_header(&header).map_err(|e| invalid(format!("{DIR}/{HEADER}: {e}")))?;
     let gunzip = |name: &str| -> io::Result<Vec<u8>> {
         let file = fs::File::open(dir.join(name))
@@ -1148,12 +1157,12 @@ mod tests {
         fs::create_dir_all(dir.join(DIR)).unwrap();
         fs::write(
             dir.join(DIR).join(HEADER),
-            r#"{"format": "timegrapher.analysis/2"}"#,
+            r#"{"format": "timegrapher.analysis/3"}"#,
         )
         .unwrap();
         let e = read(&dir).unwrap_err().to_string();
         assert!(
-            e.contains("timegrapher.analysis/2") && e.contains("newer"),
+            e.contains("timegrapher.analysis/3") && e.contains("newer"),
             "{e}"
         );
         let _ = fs::remove_dir_all(&dir);
@@ -1412,5 +1421,50 @@ mod limit_wording_tests {
         );
         assert_eq!(crate::archive::unpacked_size(MAX_ANALYSIS_FILE), "512 MB");
         fs::remove_dir_all(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod clock_sign_tests {
+    use super::*;
+
+    /// A take's analysis with USB lines at `ppm`, in the layout `format`.
+    fn kept(tag: &str, format: &str, ppm: f64) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("tg-analysis-sign-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&p);
+        let dir = p.join(DIR);
+        fs::create_dir_all(&dir).unwrap();
+        let header = serde_json::json!({
+            "format": format, "software": {}, "audio": false, "note": NO_SOUND,
+            "sample_rate": 48000, "bytes_per_frame": 2, "duration_s": 1.0,
+            "bph": 36000, "lift_deg": 52.0, "clipped_samples": 0,
+            "jumps": [], "sided": [], "settings": {}, "beats": 1,
+            "windows": 0, "profiles": 0, "shape": [],
+            "usb_clock": { "ppm": ppm, "lines": 3, "spread_ppm": 0.1 }
+        });
+        fs::write(dir.join(HEADER), header.to_string()).unwrap();
+        let beats = gzip(format!("{BEATS_COLUMNS}\n1,0,1,0\n").as_bytes()).unwrap();
+        fs::write(dir.join(BEATS), beats).unwrap();
+        let windows = gzip(format!("{WINDOWS_COLUMNS}\n").as_bytes()).unwrap();
+        fs::write(dir.join(WINDOWS), windows).unwrap();
+        fs::write(dir.join(PROFILES), gzip(&profiles_bin(&[])).unwrap()).unwrap();
+        p
+    }
+
+    /// A take kept before #657 gave its USB lines' error ppm slow: it is
+    /// read ppm fast, so a card 20 ppm slow reads -20 in either layout.
+    #[test]
+    fn a_take_kept_before_the_sign_flip_keeps_its_meaning() {
+        for (tag, format, ppm) in [("old", FORMAT_1, 20.0), ("new", FORMAT, -20.0)] {
+            let p = kept(tag, format, ppm);
+            let back = read(&p).unwrap();
+            assert_eq!(
+                back.header.usb_clock.map(|u| u.ppm),
+                Some(-20.0),
+                "{format}"
+            );
+            assert_eq!(back.header.format, FORMAT);
+            let _ = fs::remove_dir_all(&p);
+        }
     }
 }

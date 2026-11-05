@@ -388,7 +388,7 @@ mod tests {
         // On the card's seconds the leads tilt by 72 ms over the hour from
         // the rate the readings give; on true time they lie flat.
         let beats = heard_on_slow_card(f64::INFINITY, 0.0);
-        let clock = ClockFit::fixed(20.0, 3_600.0);
+        let clock = ClockFit::fixed(-20.0, 3_600.0);
         assert!(spread(&beats, &[], &clock) < 1e-3);
         let w = Anchor::centre_on(&beats, PERIOD, 8).unwrap();
         let leads = beats.iter().map(|b| w.lead_ms(b, PERIOD));
@@ -411,7 +411,7 @@ mod tests {
             audio_s: at,
             gap_s: 60.0,
         }];
-        assert!(spread(&beats, &listed, &ClockFit::fixed(20.0, 3_600.0)) < 1e-3);
+        assert!(spread(&beats, &listed, &ClockFit::fixed(-20.0, 3_600.0)) < 1e-3);
         let k = 1.0 + 20e-6;
         let pairs: Vec<(f64, f64)> = (0..=720)
             .map(|i| {

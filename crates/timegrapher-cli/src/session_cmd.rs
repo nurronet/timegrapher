@@ -331,8 +331,10 @@ fn init(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         "settle_s = {}\n",
         o.settle.unwrap_or(take::SETTLE_S)
     ));
-    t.push_str("# known sound-card error, ppm slow, for recordings without a clock log\n");
-    t.push_str("# card_ppm = 0.0\n");
+    t.push_str(
+        "# known sound-card error, ppm fast (negative: slow), for recordings without a clock log\n",
+    );
+    t.push_str("# card_ppm_fast = 0.0\n");
     for f in &files {
         let name = rel(f, &dir);
         t.push_str("\n[[recording]]\n");
@@ -1199,10 +1201,12 @@ fn print_notes(s: &Session) {
         "BE is beat error as a size; which beat is longer is not shown, because it depends on the beat the analysis locked on first."
     );
     println!(
-        "Readings leave out the settling time at the start of each position, as record's quick check does. That check uses the session file's settle_s (20 s when the file has none, as this summary does) and none of --settle, --bph, --lift, --calibre, a reading's own settle_s, measure_s, start_s, end_s, a clock log, card_ppm or a restart in listening, so a reading that uses one of these can differ from it."
+        "Readings leave out the settling time at the start of each position, as record's quick check does. That check uses the session file's settle_s (20 s when the file has none, as this summary does) and none of --settle, --bph, --lift, --calibre, a reading's own settle_s, measure_s, start_s, end_s, a clock log, card_ppm_fast or a restart in listening, so a reading that uses one of these can differ from it."
     );
     if s.readings.iter().any(|r| r.measurement.calibrated) {
-        println!("The sound card's clock is corrected where a clock log or card_ppm is given.");
+        println!(
+            "The sound card's clock is corrected where a clock log or card_ppm_fast is given."
+        );
     }
     if s.readings.iter().any(|r| r.wind_h.is_none()) {
         println!(
@@ -1543,7 +1547,7 @@ mod tests {
             ("lift=nan", "lift"),
             ("lift_angle=0", "lift"),
             ("escape_teeth=0", "escape_teeth"),
-            ("card_ppm=-1000000", "card_ppm"),
+            ("card_ppm_fast=1000000", "card_ppm_fast"),
         ] {
             let m: Manifest = toml::from_str(text).unwrap();
             assert!(m
@@ -1551,7 +1555,7 @@ mod tests {
                 .unwrap_err()
                 .starts_with(&format!("{field}:")));
         }
-        let text="calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm=0\ntolerance=\"old\"\n[limits]\nrate=99\n";
+        let text="calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm_fast=0\ntolerance=\"old\"\n[limits]\nrate=99\n";
         let m: Manifest = toml::from_str(text).unwrap();
         m.validate_analysis_inputs().unwrap();
         assert_eq!(m.lift, Some(52.0));
@@ -1790,8 +1794,9 @@ mod tests {
         // from, as the app's clock line does (#714).
         let json = serde_json::to_value(&usb).unwrap();
         let ppm = json["clock_ppm"].as_f64().unwrap();
-        // The card runs 20 ppm slow: positive, as every clock ppm is today.
-        assert!((ppm - 20.0).abs() < 0.5, "{json}");
+        // The card runs 20 ppm slow: negative, as every clock ppm is
+        // positive when the card runs fast (#657).
+        assert!((ppm + 20.0).abs() < 0.5, "{json}");
         let source = json["clock_source"].as_str().unwrap();
         assert!(source.contains("USB lines"), "{source}");
         let _ = fs::remove_dir_all(&dir);

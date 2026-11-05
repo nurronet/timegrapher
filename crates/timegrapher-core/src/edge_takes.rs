@@ -716,13 +716,13 @@ fn session_recipe(id: &str, seed: u64) -> Option<Recipe> {
         }),
         "edge_usb_lines_and_correction" => Some(Recipe {
             ppm: 20.0,
-            extra: "card_ppm = 20\n",
+            extra: "card_ppm_fast = -20\n",
             entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
             ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
         }),
         "edge_usb_lines_and_other_correction" => Some(Recipe {
             ppm: 20.0,
-            extra: "card_ppm = 15\n",
+            extra: "card_ppm_fast = -15\n",
             entries: "[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
             ..Recipe::of(with_usb_lines(watch(120.0, seed), 20.0))
         }),

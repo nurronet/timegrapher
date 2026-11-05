@@ -30,7 +30,7 @@ fn numeric_inputs_reject_before_audio_and_output_creation() {
         "--lift=NaN",
         "--lift=95",
         "--escape-teeth=0",
-        "--card-ppm=-1000000",
+        "--card-ppm=1000000",
         "--trend-average=5",
         "--trend-average=NaN",
     ] {
@@ -68,8 +68,8 @@ fn numeric_inputs_reject_before_audio_and_output_creation() {
 fn numeric_inputs_invalid_clock_set_preserves_existing_store_bytes() {
     let f = Fixture::new("clock");
     let path = f.0.join("clocks.json");
-    let original = b"{\n \"schema\":\"timegrapher.clocks/1\",\"devices\":[]\n}\n";
-    for value in ["NaN", "inf", "-inf", "-1000000", "-1000001"] {
+    let original = b"{\n \"schema\":\"timegrapher.clocks/2\",\"devices\":[]\n}\n";
+    for value in ["NaN", "inf", "-inf", "1000000", "1000001"] {
         std::fs::write(&path, original).unwrap();
         let out = f
             .command()

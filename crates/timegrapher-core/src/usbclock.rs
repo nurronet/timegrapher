@@ -16,7 +16,7 @@ use serde::Serialize;
 /// The card's error from the USB lines.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct UsbClock {
-    /// Positive: the card's clock runs slow, as in [`crate::clockstore`].
+    /// Positive: the card's clock runs fast, as in [`crate::clockstore`].
     pub ppm: f64,
     /// Lines that stood clear of the noise and agreed.
     pub lines: usize,
@@ -127,7 +127,10 @@ fn line(x: &[f32], fs: u32, f0: u32) -> Option<(f64, f64)> {
     let den = a - 2.0 * b + c;
     let frac = if den < 0.0 { 0.5 * (a - c) / den } else { 0.0 };
     let df = grid[i] + frac * step;
-    Some((df / f0 as f64 * 1e6, snr_db))
+    // A line at f0 true hertz is heard at f0 × card_scale card hertz
+    // ([`crate::clock::card_scale`]), so df / f0 is card_scale − 1, which
+    // is −ppm × 1e-6: taken from df directly, with no 1 + df / f0 to round.
+    Some((-df / f0 as f64 * 1e6, snr_db))
 }
 
 /// The card's clock error from the USB lines in `x`, or `None` when fewer
@@ -194,7 +197,7 @@ mod tests {
             }
         }
         let c = measure(&x, fs).expect("lines found");
-        assert!((c.ppm - 20.0).abs() < 0.2, "ppm {}", c.ppm);
+        assert!((c.ppm + 20.0).abs() < 0.2, "ppm {}", c.ppm);
         assert!(c.lines >= 3, "lines {}", c.lines);
     }
 

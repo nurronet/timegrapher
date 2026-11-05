@@ -69,7 +69,7 @@ pub fn clock_from(
 ///
 /// - A clock log (`log_text`, read at `sample_rate` and
 ///   `bytes_per_frame`) is fitted for rates ([`ClockFit::for_rates`]); where
-///   the recording has USB lines (`usb_ppm`, slow positive), they set the
+///   the recording has USB lines (`usb_ppm`, fast positive), they set the
 ///   rate and the log keeps only its breaks ([`ClockFit::rate_from_usb`]).
 /// - A correction or the USB lines alone are one steady error over the
 ///   take ([`ClockFit::fixed`]); USB lines over a correction keep the
@@ -740,7 +740,7 @@ pub fn usb(files: &[PathBuf]) -> Result<Option<(f64, String)>, String> {
 /// recording is `first`, as [`open_entry`] and [`measure_entry`] take it,
 /// with where it came from in words: `card_ppm` when the reader gives it,
 /// else the one stored for the input `device` the reader names, else the
-/// session file's `card_ppm`, else the one stored for the input the
+/// session file's `card_ppm_fast`, else the one stored for the input the
 /// recording says it was made on ([`correction`]).
 pub fn correction_for(
     m: &Manifest,
@@ -749,7 +749,7 @@ pub fn correction_for(
     device: Option<&str>,
 ) -> Result<Option<(f64, String)>, String> {
     match (card_ppm, device, m.card_ppm) {
-        (None, None, Some(p)) => Ok(Some((p, format!("card_ppm {p} in {MANIFEST}")))),
+        (None, None, Some(p)) => Ok(Some((p, format!("card_ppm_fast {p} in {MANIFEST}")))),
         (card_ppm, device, _) => correction(first, device, card_ppm),
     }
 }
@@ -783,7 +783,7 @@ pub struct OpenedEntry {
     /// on the sound card's clock.
     pub clock: Option<ClockFit>,
     pub clock_from: Option<ClockFrom>,
-    /// The steady error, ppm slow, the clock puts on the take: a USB or
+    /// The steady error, ppm fast, the clock puts on the take: a USB or
     /// known correction's; `None` for a clock log's fit or the card's.
     pub clock_ppm: Option<f64>,
     /// Where the clock came from, in words ([`clock_source_text`]).
@@ -1135,7 +1135,7 @@ pub struct ReadClock {
     /// on the sound card's clock.
     pub fit: Option<ClockFit>,
     pub from: Option<ClockFrom>,
-    /// The steady error, ppm slow, the clock puts on the take: a USB or
+    /// The steady error, ppm fast, the clock puts on the take: a USB or
     /// known correction's; `None` for a clock log's fit or the card's.
     pub ppm: Option<f64>,
     /// Where the clock came from, in words ([`clock_source_text`]).
@@ -1144,7 +1144,7 @@ pub struct ReadClock {
 
 /// A take's clock, as every surface reads it: [`clock`] from its clock
 /// log (`log`: its text, and the file it was read from), the USB lines
-/// `usb` gives and the correction `correction` gives (each ppm slow, with
+/// `usb` gives and the correction `correction` gives (each ppm fast, with
 /// its words), on sound at `rate` Hz with `bytes_per_frame`, `duration_s`
 /// long; with its steady error and where it came from in words, said
 /// once for every surface. A clock log makes a correction unneeded, so
@@ -1235,7 +1235,7 @@ fn entry_clock(
                 || Ok(usb_known),
                 || {
                     Ok(m.card_ppm
-                        .map(|p| (p, format!("card_ppm {p} in {MANIFEST}"))))
+                        .map(|p| (p, format!("card_ppm_fast {p} in {MANIFEST}"))))
                 },
             )
         }
@@ -1259,7 +1259,7 @@ fn entry_clock(
 /// its masks, and the stretch measured once the watch has settled
 /// ([`measured`]). `usb` gives the sound card's error from the USB lines
 /// in the files, and `correction` the correction known for the input of
-/// the first file, each ppm slow: they only fetch, and the rule that
+/// the first file, each ppm fast: they only fetch, and the rule that
 /// picks between them and the clock log is this function's ([`clock`]).
 /// `correction` is asked only when the entry has no clock log. An error
 /// either gives is passed through as its text, which is the caller's. An
@@ -1537,7 +1537,7 @@ mod tests {
         );
     }
 
-    /// A take's own `card_ppm` is its correction, said as given, before
+    /// A take's own `card_ppm_fast` is its correction, said as given, before
     /// any stored one is looked for.
     #[test]
     fn a_takes_card_ppm_is_its_correction() {
@@ -1548,7 +1548,7 @@ mod tests {
         let first = Path::new("no-such-take/audio-001.wav");
         assert_eq!(
             correction_for(&m, first, None, None).unwrap(),
-            Some((-12.5, "card_ppm -12.5 in session.toml".to_string()))
+            Some((-12.5, "card_ppm_fast -12.5 in session.toml".to_string()))
         );
         // The reader's own, given or named by its input, comes first.
         assert_eq!(
@@ -2068,7 +2068,7 @@ mod tests {
         assert!(loose
             .clock
             .as_ref()
-            .is_some_and(|c| (c.ppm - 20.0).abs() < 0.5));
+            .is_some_and(|c| (c.ppm + 20.0).abs() < 0.5));
         assert!(loose.masked.is_empty() && loose.kept.is_none());
         // With no files there is nothing to open.
         assert!(open_files(&[], None, &s, |_| Ok(None), |_| Ok(None), |_, _| {}).is_err());
