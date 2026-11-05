@@ -5,6 +5,11 @@
 //! the last bit. Both read through core, so any difference is logic
 //! written twice.
 //!
+//! Each take opened whole reads in its panes what the command line
+//! reads for it too: the Distributions pane's distributions are `series`'s,
+//! and the Power Reserve pane's run from a long take is `session`'s.
+//! Gaps still open are listed, each with its issue.
+//!
 //! The same holds for core's synthetic edge takes, written afresh.
 //!
 //! Needs the corpus (`TIMEGRAPHER_CORPUS`, its audio fetched) and a built
@@ -78,6 +83,14 @@ fn opened(dir: &Path) -> TimegrapherApp {
 
 /// `timegrapher session --json` for the take: its readings, by label.
 fn session_readings(cli: &Path, dir: &Path) -> Vec<serde_json::Value> {
+    session_json(cli, dir)["readings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// `timegrapher session --json` for the take.
+fn session_json(cli: &Path, dir: &Path) -> serde_json::Value {
     let out = std::env::temp_dir().join(format!(
         "tg-app-corpus-{}-{}",
         dir.file_name().unwrap().to_string_lossy(),
@@ -98,8 +111,7 @@ fn session_readings(cli: &Path, dir: &Path) -> Vec<serde_json::Value> {
         "session {dir:?}: {}",
         String::from_utf8_lossy(&run.stderr)
     );
-    let json: serde_json::Value = serde_json::from_slice(&run.stdout).expect("session JSON");
-    json["readings"].as_array().cloned().unwrap_or_default()
+    serde_json::from_slice(&run.stdout).expect("session JSON")
 }
 
 /// Where the app's whole-take reading and the command line's differ, in
@@ -375,4 +387,213 @@ fn split_entries_clock_folder_truncated_metadata() {
 #[test]
 fn split_entries_clock_folder_missing_metadata() {
     split_entries_clock_probe("missing", true);
+}
+
+/// `timegrapher series --json` for the take.
+fn series_json(cli: &Path, dir: &Path) -> serde_json::Value {
+    let run = std::process::Command::new(cli)
+        .arg("series")
+        .arg(dir)
+        .arg("--json")
+        .output()
+        .expect("the command line runs");
+    assert!(
+        run.status.success(),
+        "series {dir:?}: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    serde_json::from_slice(&run.stdout).expect("series JSON")
+}
+
+/// The figures of a distribution that the app draws and `series` writes:
+/// its count, quantiles, bins and peaks (not its step, which `series`
+/// gives on the corrected clock).
+fn dist_figures(d: &serde_json::Value) -> serde_json::Value {
+    let keys = [
+        "n", "median", "p10", "p90", "edges", "counts", "below", "above", "peaks",
+    ];
+    keys.iter()
+        .map(|k| ((*k).to_string(), d[k].clone()))
+        .collect()
+}
+
+/// The figures of two distributions that differ, the app's then
+/// `series`'s, in words.
+fn figures_apart(ours: Option<&serde_json::Value>, theirs: Option<&serde_json::Value>) -> String {
+    let (Some(a), Some(b)) = (ours, theirs) else {
+        return format!("{ours:?} in the app, {theirs:?} from series");
+    };
+    let short = |v: &serde_json::Value| v.to_string().chars().take(80).collect::<String>();
+    a.as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, v)| b.get(k.as_str()) != Some(v))
+        .map(|(k, v)| {
+            format!(
+                "{k} {} in the app, {} from series",
+                short(v),
+                short(&b[k.as_str()])
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Where the app's panes for the whole take, opened as one recording,
+/// differ from the command line's: each distribution the Distributions
+/// pane draws, against `series`, and the run the Power Reserve pane reads
+/// from a long take, against `session`. Each as `(what, how)`; `what` is
+/// `id`, then the series and its values ("readings" or "2 s"), or
+/// "power reserve".
+fn pane_differences(id: &str, root: &Path, cli: &Path) -> Vec<(String, String)> {
+    use timegrapher_core::distribution as dist;
+    let dir = root.join("takes").join(id);
+    let mut app = opened(&dir);
+    let series = series_json(cli, &dir);
+    let mut out = Vec::new();
+    let theirs = series["distributions"]["overall"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for (k, short) in [
+        (SeriesKind::Rate, false),
+        (SeriesKind::Amplitude, false),
+        (SeriesKind::Amplitude, true),
+        (SeriesKind::BeatError, false),
+        (SeriesKind::BeatError, true),
+    ] {
+        let (values, kind, _, label, _) = app.hist_values(k, short, &theme::DARK);
+        let step = if short {
+            dist::STRETCH_S
+        } else {
+            app.average_s
+        };
+        let ours = dist::distribution(&values, kind, label, step)
+            .map(|d| dist_figures(&serde_json::to_value(d).unwrap()));
+        let other = theirs
+            .iter()
+            .find(|d| d["series"] == kind.series && d["values"] == label)
+            .map(dist_figures);
+        if ours != other {
+            out.push((
+                format!("{id} {} {label}", kind.series),
+                figures_apart(ours.as_ref(), other.as_ref()),
+            ));
+        }
+    }
+    app.reserve_from_long_take();
+    let ours = app
+        .reserve
+        .as_ref()
+        .and_then(|t| t.results.as_ref())
+        .map(|r| serde_json::to_value(r).unwrap())
+        .unwrap_or(serde_json::Value::Null);
+    let theirs = session_json(cli, &dir)["power_reserve"].clone();
+    if ours != theirs {
+        out.push((
+            format!("{id} power reserve"),
+            format!("{ours} in the app, {theirs} from session"),
+        ));
+    }
+    out
+}
+
+/// Pane figures the app still reads differently from the command line,
+/// with the issue that tracks each. A name starting `* ` stands for every
+/// take; each entry must still differ on at least one take, so the list
+/// only shrinks as the app is fixed.
+const PANES_KNOWN: &[(&str, &str)] = &[
+    (
+        "* rate readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    (
+        "* amplitude readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    (
+        "* beat_error readings",
+        "#1144: the app counts its trend's readings, not core's readings grid",
+    ),
+    ("aquanaut324_DU_20min_newstand beat_error 2 s", SIGN),
+    ("blackdial_daytona_DU_20min_newstand beat_error 2 s", SIGN),
+    ("dd3285_explorer2_DU_43min_newstand beat_error 2 s", SIGN),
+    ("eta2824_bare_DU_10min_g4 beat_error 2 s", SIGN),
+    (
+        "eta2824clone2_holder_DU_20min_greycradle beat_error 2 s",
+        SIGN,
+    ),
+    ("peacock1258_DU_30min beat_error 2 s", SIGN),
+    ("pepsi3285_DU_10min_newstand_firsttest beat_error 2 s", SIGN),
+    ("reverso21600_DU_20min_newstand beat_error 2 s", SIGN),
+    ("dd3235_DU_30min amplitude 2 s", SETTLE),
+    ("dd3235_DU_30min beat_error 2 s", SETTLE),
+    ("eta2824_bare_DU_30min amplitude 2 s", SETTLE),
+    ("eta2824_bare_DU_30min beat_error 2 s", SETTLE),
+    ("eta2824_holder_DU_30min amplitude 2 s", SETTLE),
+    ("eta2824_holder_DU_30min beat_error 2 s", SETTLE),
+    ("reverso21600_DU_2h amplitude 2 s", SETTLE),
+    ("reverso21600_DU_2h beat_error 2 s", SETTLE),
+    ("reverso21600_DU_level_overnight amplitude 2 s", SETTLE),
+    ("reverso21600_DU_level_overnight beat_error 2 s", SETTLE),
+    ("ym42_CD_90min amplitude 2 s", SETTLE),
+    ("ym42_CD_90min beat_error 2 s", SETTLE),
+    ("ym42_CL_90min amplitude 2 s", SETTLE),
+    ("ym42_CL_90min beat_error 2 s", SETTLE),
+    ("ym42_CR_long amplitude 2 s", SETTLE),
+    ("ym42_CR_long beat_error 2 s", SETTLE),
+    ("ym42_CU_8h amplitude 2 s", SETTLE),
+    ("ym42_CU_8h beat_error 2 s", SETTLE),
+    ("ym42_DD_30min amplitude 2 s", SETTLE),
+    ("ym42_DD_30min beat_error 2 s", SETTLE),
+    ("ym42_DU_2h amplitude 2 s", SETTLE),
+    ("ym42_DU_2h beat_error 2 s", SETTLE),
+];
+
+/// #1146, in [`PANES_KNOWN`].
+const SIGN: &str = "#1146: the app's 2 s beat error has the opposite sign to series's";
+/// #1145, in [`PANES_KNOWN`].
+const SETTLE: &str = "#1145: the app leaves out the windows before the position's settle time";
+
+/// Whether the difference `what` is the known gap `known`.
+fn is_known(known: &str, what: &str) -> bool {
+    known
+        .strip_prefix("* ")
+        .map_or(known == what, |rest| what.ends_with(&format!(" {rest}")))
+}
+
+/// For each corpus take, opened whole in the app as File > Open Recording
+/// opens it, the Distributions pane's distributions are `series`'s, and
+/// the Power Reserve pane's run from a long take is `session`'s (#514).
+/// Both read through core, so any difference is logic written twice.
+#[test]
+fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
+    let Some((root, cli)) = corpus_and_cli() else {
+        return;
+    };
+    let ids = takes(&root);
+    assert!(!ids.is_empty(), "no take to compare in {root:?}");
+    let found: Vec<(String, String)> =
+        timegrapher_core::cores::on_every_core(&ids, |id| pane_differences(id, &root, &cli))
+            .into_iter()
+            .flatten()
+            .collect();
+    let mut wrong = Vec::new();
+    for (what, how) in &found {
+        match PANES_KNOWN.iter().find(|(k, _)| is_known(k, what)) {
+            Some((_, why)) => eprintln!("{what}: differs, as known ({why}): {how}"),
+            None => wrong.push(format!("{what}: {how}")),
+        }
+    }
+    for (known, _) in PANES_KNOWN {
+        if !found.iter().any(|(what, _)| is_known(known, what)) {
+            wrong.push(format!("{known}: now the same; take it off PANES_KNOWN"));
+        }
+    }
+    eprintln!("{} takes compared", ids.len());
+    assert!(
+        wrong.is_empty(),
+        "the app's panes and the command line differ:\n{}",
+        wrong.join("\n")
+    );
 }
