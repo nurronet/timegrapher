@@ -2,7 +2,7 @@
 
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use timegrapher_core::recorder;
 
 /// Saved takes whose hours are still WAVs (saved before hours were kept
@@ -15,6 +15,21 @@ pub(super) struct WavKeep {
     /// When it is over: the hours converted, and the takes that couldn't
     /// be, each with why.
     rx: mpsc::Receiver<(usize, Vec<String>)>,
+    /// The take on show ([`TimegrapherApp::take_on_show`]), kept up to
+    /// date each frame: its hours are left as WAVs for another time, so
+    /// none is converted from under its analysis.
+    open: Arc<Mutex<Option<PathBuf>>>,
+}
+
+impl WavKeep {
+    /// Whether take folder `dir` is the take on show, holds it, or lies
+    /// in it (a session folder's take of one position, Trevor).
+    fn is_open(open: &Mutex<Option<PathBuf>>, dir: &Path) -> bool {
+        open.lock().map_or(true, |o| {
+            o.as_deref()
+                .is_some_and(|o| o.starts_with(dir) || dir.starts_with(o))
+        })
+    }
 }
 
 impl WavKeep {
@@ -78,15 +93,19 @@ impl TimegrapherApp {
         let (tx, rx) = mpsc::channel();
         let done = Arc::new(AtomicUsize::new(0));
         let count = done.clone();
+        let open = Arc::new(Mutex::new(self.take_on_show()));
+        let on_show = open.clone();
         self.wav_keep = Some(WavKeep {
             done,
             of: dirs.len(),
             rx,
+            open,
         });
         std::thread::spawn(move || {
             let (mut hours, mut failed) = (0, Vec::new());
             for d in dirs {
-                match recorder::keep_saved_as_flac(&d) {
+                let stop = || WavKeep::is_open(&on_show, &d);
+                match recorder::keep_saved_as_flac_unless(&d, &stop) {
                     Ok(n) => hours += n,
                     Err(e) => failed.push(e),
                 }
@@ -101,6 +120,9 @@ impl TimegrapherApp {
     /// said.
     pub(super) fn poll_wav_keep(&mut self) {
         let Some(k) = &self.wav_keep else { return };
+        if let Ok(mut o) = k.open.lock() {
+            *o = self.take_on_show();
+        }
         // A thread that died sends nothing: its end all the same, so the
         // status bar doesn't keep its count (Trevor).
         let (hours, failed) = match k.rx.try_recv() {
@@ -298,6 +320,7 @@ mod tests {
             done: Arc::new(AtomicUsize::new(0)),
             of: 2,
             rx,
+            open: Arc::default(),
         });
         app.poll_wav_keep();
         assert!(app.wav_keep.is_none());
@@ -316,6 +339,7 @@ mod tests {
             done: Arc::new(AtomicUsize::new(0)),
             of: 2,
             rx,
+            open: Arc::default(),
         });
         let ctx = egui::Context::default();
         crate::theme::install(&ctx);

@@ -178,6 +178,15 @@ fn folder_files_join_in_the_agreed_order() {
         .unwrap();
     let w = order_warning(&recordings_in(&dir).unwrap()).unwrap();
     assert!(w.starts_with("a-2.wav was written before b-1.wav"), "{w}");
+    // Files a take's session.json lists as its segments are in its own
+    // order, whatever their times say: an hour kept as FLAC later is
+    // written after the hours that follow it (#503).
+    std::fs::write(
+        dir.join("session.json"),
+        r#"{"segments":["b-1.wav","a-2.wav","a-1.wav","a-10.wav"]}"#,
+    )
+    .unwrap();
+    assert_eq!(order_warning(&recordings_in(&dir).unwrap()), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

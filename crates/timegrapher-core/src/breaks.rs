@@ -523,27 +523,42 @@ pub fn of_files(
         Ok(json) => json,
         Err(why) => return of_clock(clock, why),
     };
-    // A WAV listed and the FLAC it was kept as are the same file (#503).
-    let kept = |n: &std::ffi::OsStr| crate::flac::kept_name(std::path::Path::new(n));
-    let names: Vec<std::path::PathBuf> = files
-        .iter()
-        .filter_map(|f| f.file_name().map(kept))
-        .collect();
-    let whole = json
-        .as_ref()
-        .is_some_and(|v| match v.get("segments").and_then(|s| s.as_array()) {
-            Some(list) => list
-                .iter()
-                .filter_map(|s| s.as_str())
-                .map(|s| kept(s.as_ref()))
-                .eq(names.iter().cloned()),
-            None => names.len() == 1,
-        });
+    let whole = json.as_ref().is_some_and(|v| lists_segments(v, files));
     let mut found = for_take(json.as_ref().filter(|_| whole), clock, sample_rate);
     if json.is_some() && !whole {
         found.unlisted = Some(Unlisted::NotTheTake);
     }
     found
+}
+
+/// Whether `json`, a take's `session.json`, lists `files` (in order) as
+/// its segments: the take's own order, which the files' times don't
+/// overrule. A WAV listed and the FLAC it was kept as are the same file
+/// (#503).
+pub fn lists_segments(json: &serde_json::Value, files: &[&std::path::Path]) -> bool {
+    let kept = |n: &std::ffi::OsStr| crate::flac::kept_name(std::path::Path::new(n));
+    let names: Vec<std::path::PathBuf> = files
+        .iter()
+        .filter_map(|f| f.file_name().map(kept))
+        .collect();
+    match json.get("segments").and_then(|s| s.as_array()) {
+        Some(list) => list
+            .iter()
+            .filter_map(|s| s.as_str())
+            .map(|s| kept(s.as_ref()))
+            .eq(names.iter().cloned()),
+        None => names.len() == 1,
+    }
+}
+
+/// Whether `files` (in order) are the segments the `session.json` beside
+/// the first lists ([`lists_segments`]); false with none there, or one
+/// that can't be read.
+pub fn are_take_segments(files: &[&std::path::Path]) -> bool {
+    let Some(dir) = files.first().and_then(|f| f.parent()) else {
+        return false;
+    };
+    matches!(read_session(&dir.join(crate::take::RECORD)), Ok(Some(v)) if lists_segments(&v, files))
 }
 
 /// [`of_files`], placed on the clock with [`on_clock`].
