@@ -132,7 +132,7 @@ impl Withheld {
     /// One line for a reader: what was measured and why it isn't applied.
     pub fn note(&self) -> String {
         let why = match self.reason {
-            "few_entries" => format!("too few entries to trust (under {MIN_POINTS})"),
+            FEW_ENTRIES => format!("too few entries to trust (under {MIN_POINTS})"),
             "usb_lines" => "the recording's USB lines measure it instead".into(),
             _ => format!("its uncertainty is over {MAX_SD_PPM:.0} ppm"),
         };
@@ -150,7 +150,7 @@ impl Withheld {
     pub fn ppm_text(&self) -> String {
         ppm_pm_text(
             self.ppm,
-            (self.reason != "few_entries").then_some(self.ppm_sd),
+            (self.reason != FEW_ENTRIES).then_some(self.ppm_sd),
         )
     }
 }
@@ -235,6 +235,9 @@ pub const MEASURE_S: f64 = 1200.0;
 
 /// Fewest log entries a clock correction is applied from.
 pub const MIN_POINTS: usize = 10;
+/// The reason a fit of under [`MIN_POINTS`] entries is withheld
+/// ([`Withheld::reason`]).
+pub const FEW_ENTRIES: &str = "few_entries";
 /// Largest standard error, ppm (1.7 s/d), a clock correction is applied
 /// with: about the error a crystal typically has (10–50 ppm), which is
 /// what leaving the correction out leaves in. A log every minute for
@@ -516,7 +519,7 @@ impl ClockFit {
             return None;
         }
         let reason = if self.points < MIN_POINTS {
-            "few_entries"
+            FEW_ENTRIES
         } else if self.ppm_sd.is_nan() || self.ppm_sd > MAX_SD_PPM {
             "unsure"
         } else {
