@@ -551,19 +551,66 @@ pub fn headline_lines(headline: &str) -> Vec<String> {
 /// step with round ends (Hugh's F3: 6 to 10 a side).
 pub const WALK_AXIS_STEPS: f64 = 10.0;
 
-/// The walk's axes, amplitude then rate, each `(lo, hi, step)` with round
-/// ends round its dots ([`chart_scale::round_ends_in`], [`WALK_AXIS_STEPS`]).
-pub fn walk_axes(dots: &[WalkDot]) -> [(f64, f64, f64); 2] {
+/// Amplitudes from `lo` to `hi`, padded by 5% and at least `min`: the
+/// isochronism curve's span (`min` its bin width) and the walk's
+/// ([`crate::steadiness::ISO_BIN_DEG`]).
+pub fn amp_padded(lo: f64, hi: f64, min: f64) -> (f64, f64) {
+    let pad = ((hi - lo) * 0.05).max(min);
+    (lo - pad, hi + pad)
+}
+
+/// Rates from `lo` to `hi`, padded by 15% as the charts are.
+pub fn rate_padded(lo: f64, hi: f64) -> (f64, f64) {
+    let pad = ((hi - lo) * 0.15).max(0.05);
+    (lo - pad, hi + pad)
+}
+
+/// The isochronism curve's amplitude span from its bins' amplitudes, in
+/// order: the first's to the last's, padded by the bin width
+/// ([`amp_padded`]); none with no bins.
+pub fn curve_amp(bin_amps: &[f64], bin_deg: f64) -> Option<(f64, f64)> {
+    Some(amp_padded(*bin_amps.first()?, *bin_amps.last()?, bin_deg))
+}
+
+/// The walk's amplitude and rate spans: its dots' padded
+/// ([`amp_padded`], [`rate_padded`]).
+pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
     let ends = |f: fn(&WalkDot) -> f64| {
-        let (lo, hi) = dots
-            .iter()
+        dots.iter()
             .map(f)
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
                 (l.min(v), h.max(v))
-            });
-        chart_scale::round_ends_in(lo, hi, WALK_AXIS_STEPS)
+            })
     };
-    [ends(|d| d.amplitude_deg), ends(|d| d.rate_s_per_day)]
+    let (a_lo, a_hi) = ends(|d| d.amplitude_deg);
+    let (r_lo, r_hi) = ends(|d| d.rate_s_per_day);
+    [
+        amp_padded(a_lo, a_hi, crate::steadiness::ISO_BIN_DEG),
+        rate_padded(r_lo, r_hi),
+    ]
+}
+
+/// One axis's `(lo, hi, step)` over `span`: round ends on a 1-2-5 step
+/// cut into about [`WALK_AXIS_STEPS`] ([`chart_scale::round_ends_in`]).
+pub fn walk_axis((lo, hi): (f64, f64)) -> (f64, f64, f64) {
+    chart_scale::round_ends_in(lo, hi, WALK_AXIS_STEPS)
+}
+
+/// The walk's amplitude span ([`walk_spans`]) widened to the curve's
+/// ([`curve_amp`]) when there is one, so a degree sits at one x in the
+/// curve and the walk.
+pub fn walk_amp(dots: &[WalkDot], curve_amp: Option<(f64, f64)>) -> (f64, f64) {
+    let (a_lo, a_hi) = walk_spans(dots)[0];
+    curve_amp.map_or((a_lo, a_hi), |(lo, hi)| (lo.min(a_lo), hi.max(a_hi)))
+}
+
+/// The walk's axes, amplitude ([`walk_amp`]) then rate ([`walk_spans`]),
+/// each `(lo, hi, step)` ([`walk_axis`]).
+pub fn walk_axes(dots: &[WalkDot], curve_amp: Option<(f64, f64)>) -> [(f64, f64, f64); 2] {
+    [
+        walk_axis(walk_amp(dots, curve_amp)),
+        walk_axis(walk_spans(dots)[1]),
+    ]
 }
 
 /// Hours as the card writes them: one decimal under 10 h, whole above.
@@ -1526,9 +1573,18 @@ mod tests {
                 joined: true,
             })
             .collect();
-        let [amp, rate] = walk_axes(&dots);
-        assert_eq!(amp, (210.0, 310.0, 10.0));
-        assert_eq!(rate, (-4.0, 5.0, 1.0));
+        // Padded as the charts are (5% or 2°, 15%), then rounded.
+        let [amp, rate] = walk_axes(&dots, None);
+        assert_eq!(amp, (200.0, 310.0, 10.0));
+        assert_eq!(rate, (-5.0, 6.0, 1.0));
+        // A curve reaching further widens the amplitude; the rate is the
+        // walk's own.
+        let curve = curve_amp(&[150.0, 200.0, 250.0], 10.0);
+        assert_eq!(curve, Some((140.0, 260.0)));
+        let [amp, wide_rate] = walk_axes(&dots, curve);
+        assert_eq!(amp, (140.0, 320.0, 20.0));
+        assert_eq!(wide_rate, rate);
+        assert_eq!(curve_amp(&[], 10.0), None);
     }
 
     #[test]

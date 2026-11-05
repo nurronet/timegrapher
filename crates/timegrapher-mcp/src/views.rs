@@ -525,24 +525,36 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
     if let Some(w) = &walk {
         doc["walk"] = walk_outline(w);
     }
-    let walk_view = walk
-        .as_ref()
-        .and_then(timegrapher_core::steady_views::walk_view)
-        .map(|v| {
-            let axes = timegrapher_core::steady_views::walk_axes(&v.dots);
-            let mut v = serde_json::to_value(v).unwrap_or(Value::Null);
-            v["axes"] = json!(axes);
-            // The curve's headline, one fact a line, over the walk (F4).
-            v["summary"] = json!(doc["isochronism"]["headline"]
-                .as_str()
-                .map(timegrapher_core::steady_views::headline_lines)
-                .unwrap_or_default());
-            v
-        });
+    let walk_view = walk.as_ref().and_then(|w| walk_chart(w, doc));
     json!({
         "views": views, "period_span": period_span, "spectra": spectra, "points": points,
         "maps": maps, "walk": walk_view,
     })
+}
+
+/// The walk as the card draws it: core's view of it, merged to the card's
+/// width, with core's axes (the amplitude widened to the curve's, as the
+/// app's is) and the curve's headline one fact a line (Hugh's F4).
+fn walk_chart(w: &IsochronismWalk, doc: &Value) -> Option<Value> {
+    let v = timegrapher_core::steady_views::walk_view(w)?;
+    let iso = &doc["isochronism"];
+    let amps: Vec<f64> = iso["bins"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b["amplitude_deg"].as_f64())
+        .collect();
+    let curve = iso["bin_deg"]
+        .as_f64()
+        .and_then(|bin| timegrapher_core::steady_views::curve_amp(&amps, bin));
+    let axes = timegrapher_core::steady_views::walk_axes(&v.dots, curve);
+    let mut v = serde_json::to_value(v).unwrap_or(Value::Null);
+    v["axes"] = json!(axes);
+    v["summary"] = json!(iso["headline"]
+        .as_str()
+        .map(timegrapher_core::steady_views::headline_lines)
+        .unwrap_or_default());
+    Some(v)
 }
 
 /// The `walk` a `series` document carries, as core's walk.
@@ -852,11 +864,14 @@ mod tests {
             })
             .collect();
         let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points },
-            "isochronism": { "headline": "The rate rises as the amplitude falls; flattest near 280°." } });
+            "isochronism": { "headline": "The rate rises as the amplitude falls; flattest near 280°.",
+                "bin_deg": 10.0, "bins": [{ "amplitude_deg": 200.0 }, { "amplitude_deg": 250.0 }] } });
         let charts = take_series_charts(&mut doc);
         let dots = charts["walk"]["dots"].as_array().unwrap();
         assert_eq!(dots.len(), 200);
-        assert_eq!(charts["walk"]["axes"][0], json!([240.0, 300.0, 10.0]));
+        // Core's axes: the amplitude widened to the curve's bins (190° to
+        // 260° padded) and the walk's own (237° to 303°), on round ends.
+        assert_eq!(charts["walk"]["axes"][0], json!([180.0, 320.0, 20.0]));
         assert_eq!(
             charts["walk"]["summary"],
             json!([

@@ -91,8 +91,18 @@ test("the start is a named ring, the end a large dot named with its hour, each b
   assert.equal((out.match(/r="5" fill="var\(--card\)" stroke="[^"]+" stroke-width="2.5"/g) || []).length, 2, "a ring per bead");
   assert.ok(out.includes(`r="6.5" fill="${rgb(1)}" stroke="var(--card)" stroke-width="2"`), "the end's dot");
   for (const name of ["Start", "38 h", "12 h", "24 h"]) {
-    assert.ok(new RegExp(`style="fill:var\\(--text\\);font-size:12px">${name}</text>`).test(out), name);
+    assert.ok(new RegExp(`paint-order="stroke" stroke="var\\(--card\\)" stroke-opacity="0.85" stroke-width="4" stroke-linejoin="round" style="fill:var\\(--text\\);font-size:12px">${name}</text>`).test(out), `${name} on a halo`);
   }
+});
+
+test("the end's hour goes 14 px off the trail on its roomier side, as a bead's does", () => {
+  const out = context.walkCard(walk);
+  const m = out.match(/<text x="([\d.]+)" y="([\d.]+)" text-anchor="(\w+)"[^>]*>38 h<\/text>/);
+  assert.ok(m, out);
+  // The same placement beadSide gives the last dot, 14 px out.
+  const ends = [...out.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="2.5"/g)].map((c) => [+c[1], +c[2]]);
+  const at = context.beadSide(ends, ends.length - 1, 14);
+  assert.deepEqual([+m[1], +m[2], m[3]], [+at.x.toFixed(1), +at.y.toFixed(1), at.anchor]);
 });
 
 test("a bead's name goes 11 px out, square to the trail, on the side with more room", () => {

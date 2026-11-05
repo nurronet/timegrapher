@@ -1987,7 +1987,9 @@ function walkMarks(w, sx, sy) {
     marks += `<g><title>${esc(d.hover)}</title><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="6" fill="transparent"/><circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="2.5" fill="${rgb(d.when)}"/></g>`;
   });
   const ring = (i, r) => `<circle cx="${f(P[i][0])}" cy="${f(P[i][1])}" r="${r}" fill="var(--card)" stroke="${rgb(dots[i].when)}" stroke-width="2.5" pointer-events="none"/>`;
-  const name = (x, y, anchor, text) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" style="fill:var(--text);font-size:12px">${esc(text)}</text>`;
+  // Each name on a halo of the card's colour, as the app's (#1155), so a
+  // trail behind it never runs through the text.
+  const name = (x, y, anchor, text) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" paint-order="stroke" stroke="var(--card)" stroke-opacity="0.85" stroke-width="4" stroke-linejoin="round" style="fill:var(--text);font-size:12px">${esc(text)}</text>`;
   for (const b of w.beads || []) {
     marks += ring(b.dot, 5);
     const at = beadSide(P, b.dot, 11);
@@ -1997,7 +1999,10 @@ function walkMarks(w, sx, sy) {
   marks += ring(0, 7);
   marks += `<circle cx="${f(P[last][0])}" cy="${f(P[last][1])}" r="6.5" fill="${rgb(dots[last].when)}" stroke="var(--card)" stroke-width="2" pointer-events="none"/>`;
   names += name(P[0][0] - 10, P[0][1] - 10, "end", WALK_WORDS.start);
-  names += name(P[last][0], P[last][1] + 22, "middle", w.last_text);
+  // The end's hour off the trail, as the beads' are, past its larger dot
+  // (the app's: 14 px on the roomier side).
+  const end = beadSide(P, last, 14);
+  names += name(end.x, end.y, end.anchor, w.last_text);
   return `<defs>${defs}</defs><g>${trail}</g>${marks}${names}`;
 }
 
