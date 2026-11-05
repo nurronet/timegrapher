@@ -93,7 +93,7 @@ impl TimegrapherApp {
         self.clipped_at = None;
         self.message = None;
         self.sound_history.clear();
-        self.no_sound = false;
+        self.no_sound = None;
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
@@ -437,7 +437,7 @@ impl TimegrapherApp {
         self.brush = None;
         self.clear_trends();
         self.sound_history.clear();
-        self.no_sound = false;
+        self.no_sound = None;
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
@@ -1780,7 +1780,7 @@ impl TimegrapherApp {
         self.opened_path = path.display().to_string();
         self.reset_session(header.sample_rate, label.clone());
         self.load_reserve(path);
-        self.no_sound = true;
+        self.no_sound = Some(Vec::new());
         self.session.analyse();
         self.live = None;
         // Nothing of the take before's clock carries over, whichever
@@ -2194,22 +2194,9 @@ impl TimegrapherApp {
                         self.opened_positions = opened;
                     }
                     // A take with no sound shows the profiles it kept,
-                    // thinned as listening thins them (#483).
+                    // averaged over the Average Over window (#979).
                     if let Some(k) = profiles {
-                        let span_s = timegrapher_core::analysis_take::PROFILE_EVERY_S;
-                        self.sound_history = k
-                            .into_iter()
-                            .map(|p| {
-                                (
-                                    p.end_s,
-                                    scope_panes::Kept {
-                                        span_s,
-                                        sides: p.sides,
-                                    },
-                                )
-                            })
-                            .collect();
-                        scope_panes::thin_sound(&mut self.sound_history);
+                        self.no_sound = Some(k);
                     }
                 }
                 Ok(None) => {}
@@ -2316,7 +2303,7 @@ impl TimegrapherApp {
         // A long take that isn't a test: its run, read as one in the
         // background.
         self.bg.reserve = Some(None);
-        let done = if self.no_sound {
+        let done = if self.no_sound.is_some() {
             "Opened the analysis kept without its sound: the readings, charts and tests are as \
              they were measured, and the Scope needs the sound. Drag the strip to look \
              back."

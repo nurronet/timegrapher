@@ -2256,8 +2256,8 @@ pub struct TimegrapherApp {
     analysis_save: Option<AnalysisSave>,
     /// Saving the session's sound, while the copy is written.
     saving: Option<Saving>,
-    /// The take on show was kept as its analysis alone, without its sound.
-    no_sound: bool,
+    /// Kept as its analysis alone: the 2 s profiles in its sound's place.
+    no_sound: Option<Vec<analysis_take::StretchProfiles>>,
     /// Where this session's analysis was last kept without its sound, and
     /// the seconds of sound it covers. The sound itself stays unsaved.
     analysis_kept_to: Option<(PathBuf, f64)>,
@@ -2687,7 +2687,7 @@ impl TimegrapherApp {
             sound_at: None,
             analysis_save: None,
             saving: None,
-            no_sound: false,
+            no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
             masks_let_go: false,
