@@ -87,7 +87,7 @@ pub fn encode<W: Write + Seek>(
         // than its plain samples (a 4096-sample block in up to a GB): still
         // lossless, so it checks, but a 12 minute take came out 40 GB. A
         // block that comes out bigger than plain is coded plain.
-        if frame.count_bits() > plain_bits(buf.len(), bps) {
+        if frame.count_bits() as u64 > plain_bits(buf.len() as u64, bps as u64, 1) {
             frame = flacenc::encode_fixed_size_frame(&plain, &fill.0, n, stream.stream_info())
                 .map_err(failed)?;
         }
@@ -114,11 +114,11 @@ pub fn encode<W: Write + Seek>(
     Ok(frames)
 }
 
-/// The most bits a frame of `samples` samples (all channels) of `bps` bits
-/// may take: its samples written plain, with room for the frame's and
-/// each subframe's header and the frame's checksums.
-fn plain_bits(samples: usize, bps: usize) -> usize {
-    samples * bps + 8 * (16 + 8 + 2)
+/// The most bits a stream's blocks may take: `samples` samples (all
+/// channels) of `bps` bits written plain, in `blocks` blocks, with room
+/// for each block's frame header, subframe headers and checksums.
+fn plain_bits(samples: u64, bps: u64, blocks: u64) -> u64 {
+    samples * bps + blocks * 8 * (16 + 8 + 2)
 }
 
 /// The FLAC file `wav` becomes: the same name with `.flac`.
@@ -220,9 +220,10 @@ fn write_checked(
     done
 }
 
-/// The format and length in frames a FLAC file's stream info names, read
-/// from its first 42 bytes; None when they are not a FLAC's.
-fn stream_info(flac: &Path) -> Option<(Format, u64)> {
+/// The format, largest block and length in frames a FLAC file's stream
+/// info names, read from its first 42 bytes; None when they are not a
+/// FLAC's.
+fn stream_info(flac: &Path) -> Option<(Format, u64, u64)> {
     use std::io::Read;
     let mut b = [0u8; 42];
     File::open(flac).ok()?.read_exact(&mut b).ok()?;
@@ -238,24 +239,32 @@ fn stream_info(flac: &Path) -> Option<(Format, u64)> {
         channels: ((x >> 41) & 0x7) as u16 + 1,
         bits_per_sample: ((x >> 36) & 0x1f) as u16 + 1,
     };
-    Some((format, x & 0xf_ffff_ffff))
+    let block = u64::from(u16::from_be_bytes([b[10], b[11]]));
+    Some((format, block, x & 0xf_ffff_ffff))
 }
 
 /// Whether the FLAC `flac` is bigger than its samples would be written
 /// plain, as flacenc wrote some blocks of loud 24-bit sound before
 /// [`encode`] checked each block's size (a 12:53 take kept in 40 GB).
-/// [`shrink`] writes such a one again.
+/// [`shrink`] writes such a one again. Never one whose stream info does
+/// not give its length or block size (0, "unknown").
 pub fn bloated(flac: &Path) -> bool {
-    let Some((f, frames)) = stream_info(flac) else {
+    let Some((f, block, frames)) = stream_info(flac) else {
         return false;
     };
     let Ok(size) = std::fs::metadata(flac).map(|m| m.len()) else {
         return false;
     };
-    let blocks = frames.div_ceil(4096);
+    if frames == 0 || block == 0 {
+        return false;
+    }
     let samples = frames * u64::from(f.channels);
-    let most = 42 + (blocks * 8 * (16 + 2) + samples * u64::from(f.bits_per_sample)) / 8;
-    size > most + 64 * 1024
+    let bits = plain_bits(
+        samples,
+        u64::from(f.bits_per_sample),
+        frames.div_ceil(block),
+    );
+    size > 42 + bits.div_ceil(8) + 64 * 1024
 }
 
 /// Write the FLAC `flac` again from its own samples, a block at a time,
@@ -642,6 +651,15 @@ mod tests {
         assert_eq!(back, samples);
         assert_eq!(std::fs::metadata(&f).unwrap().modified().unwrap(), then);
         assert!(!dir.join("audio-001.flac.part").exists());
+        // A stream whose info leaves its length unknown (0) is never
+        // taken for bloated, however big.
+        let mut bytes = std::fs::read(&f).unwrap();
+        bytes[21] &= 0xf0;
+        bytes[22..26].fill(0);
+        bytes.resize(bytes.len() + 128 * 1024, 0);
+        std::fs::write(&f, bytes).unwrap();
+        assert_eq!(stream_info(&f).unwrap().2, 0);
+        assert!(!bloated(&f));
         std::fs::remove_dir_all(&dir).ok();
     }
 }
