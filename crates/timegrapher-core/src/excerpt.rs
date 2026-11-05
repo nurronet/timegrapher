@@ -80,8 +80,13 @@ pub fn cut(files: &[PathBuf], from_s: f64, len_s: f64) -> Result<Pcm, AudioError
     out.ok_or_else(|| AudioError::Unsupported("no audio in that stretch".into()))
 }
 
-/// Every sample of a WAV or FLAC file.
+/// Every sample of a WAV or FLAC file (a WAV since kept as FLAC read
+/// from its FLAC, [`crate::audio::kept`]).
 pub fn read(path: &Path) -> Result<Pcm, AudioError> {
+    crate::audio::kept(path, read_at)
+}
+
+fn read_at(path: &Path) -> Result<Pcm, AudioError> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

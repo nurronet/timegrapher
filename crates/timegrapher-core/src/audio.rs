@@ -40,10 +40,42 @@ impl std::error::Error for AudioError {}
 /// Load a WAV or FLAC file (chosen by extension), averaging channels to mono
 /// and scaling integers to [-1, 1).
 pub fn load(path: &Path) -> Result<Audio, AudioError> {
-    match extension(path).as_str() {
+    kept(path, |path| match extension(path).as_str() {
         "wav" => load_wav(path),
         "flac" => load_flac(path),
         other => Err(AudioError::Unsupported(format!("file extension '{other}'"))),
+    })
+}
+
+/// Whether `e` says a file wasn't there to open.
+fn not_found(e: &AudioError) -> bool {
+    match e {
+        AudioError::Io(e) | AudioError::Wav(hound::Error::IoError(e)) => {
+            e.kind() == std::io::ErrorKind::NotFound
+        }
+        AudioError::Flac(claxon::Error::IoError(e)) => e.kind() == std::io::ErrorKind::NotFound,
+        _ => false,
+    }
+}
+
+/// Read `path` with `read`, or, when it names a WAV that is no longer
+/// there but its FLAC is, read that: the hour was kept as FLAC (#503)
+/// after the list naming it was made, for instance while a take was open.
+/// The FLAC holds the same samples, checked before the WAV went.
+pub(crate) fn kept<T>(
+    path: &Path,
+    mut read: impl FnMut(&Path) -> Result<T, AudioError>,
+) -> Result<T, AudioError> {
+    match read(path) {
+        Err(e) if not_found(&e) && crate::flac::is_wav(path) => {
+            let flac = crate::flac::flac_path(path);
+            if flac.is_file() {
+                read(&flac)
+            } else {
+                Err(e)
+            }
+        }
+        r => r,
     }
 }
 
@@ -113,6 +145,10 @@ fn extension(path: &Path) -> String {
 }
 
 pub fn info(path: &Path) -> Result<AudioInfo, AudioError> {
+    kept(path, info_of)
+}
+
+fn info_of(path: &Path) -> Result<AudioInfo, AudioError> {
     match extension(path).as_str() {
         "wav" => {
             let r = hound::WavReader::open(path).map_err(AudioError::Wav)?;
@@ -151,6 +187,17 @@ pub fn stream_head(
     block: usize,
     mut f: impl FnMut(&[f32]),
 ) -> Result<AudioInfo, AudioError> {
+    // A file is only found missing on opening it, before any frame is
+    // passed on, so reading the FLAC instead passes each frame once.
+    kept(path, |p| stream_head_of(p, frames, block, &mut f))
+}
+
+fn stream_head_of(
+    path: &Path,
+    frames: usize,
+    block: usize,
+    f: &mut impl FnMut(&[f32]),
+) -> Result<AudioInfo, AudioError> {
     let block = block.max(1);
     let mut buf: Vec<f32> = Vec::with_capacity(block);
     let mut left = frames;
@@ -167,7 +214,7 @@ pub fn stream_head(
         }
         left > 0
     };
-    let info = info(path)?;
+    let info = info_of(path)?;
     if frames > 0 {
         match extension(path).as_str() {
             "wav" => {
@@ -316,5 +363,36 @@ mod tests {
             assert_eq!(head(&cut, 2500).unwrap(), all[..2500], "{}", cut.display());
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_wav_kept_as_flac_since_it_was_listed_is_read_from_its_flac() {
+        let dir = std::env::temp_dir().join(format!("tg-audio-kept-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("audio-001.wav");
+        let sound = Audio {
+            sample_rate: 8000,
+            samples: (0..8000)
+                .map(|i| ((i % 50) as f32 - 25.0) / 100.0)
+                .collect(),
+        };
+        write_wav(&wav, &sound).unwrap();
+        let heard = load(&wav).unwrap().samples;
+        // Listed as a WAV, then kept as FLAC before it was read.
+        crate::flac::keep_as_flac(&wav).unwrap();
+        assert!(!wav.exists());
+        assert_eq!(load(&wav).unwrap().samples, heard);
+        assert_eq!(info(&wav).unwrap().frames, Some(8000));
+        assert_eq!(head(&wav, usize::MAX).unwrap(), heard);
+        assert_eq!(head(&wav, 100).unwrap(), heard[..100]);
+        let pcm = crate::excerpt::read(&wav).unwrap();
+        assert_eq!(pcm.samples.len(), 8000);
+        // A WAV with no FLAC is still missing, and said so.
+        let gone = dir.join("audio-002.wav");
+        assert!(not_found(&load(&gone).unwrap_err()));
+        assert!(not_found(&info(&gone).unwrap_err()));
+        assert!(not_found(&head(&gone, 10).unwrap_err()));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
