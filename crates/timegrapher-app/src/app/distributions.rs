@@ -166,7 +166,7 @@ impl TimegrapherApp {
     /// watch is in now: each 2 s stretch (`short`) or one reading per
     /// averaging time. With them, the scale they are on, their colour and
     /// what each value is.
-    fn hist_values(
+    pub(super) fn hist_values(
         &self,
         reading: SeriesKind,
         short: bool,
