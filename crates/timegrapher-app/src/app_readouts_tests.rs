@@ -460,7 +460,7 @@ fn the_profiles_marks_keep_off_the_names() {
     assert_eq!(plots.len(), 2);
     for p in &plots {
         let here: Vec<_> = facts.iter().filter(|f| p.contains_rect(**f)).collect();
-        assert_eq!(here.len(), 4, "two rows: {here:?}");
+        assert_eq!(here.len(), 2, "one row: {here:?}");
         assert!(
             here.iter().all(|f| f.left() > p.center().x),
             "{p:?}: {here:?}"
