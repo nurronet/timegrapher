@@ -263,6 +263,18 @@ fn session_keeps_its_fields() {
         let words: Vec<&str> = line[head.len()..].split_whitespace().collect();
         assert_eq!(words[1], "±", "{line}");
         assert_eq!(decimals(words[0]), decimals(words[2]), "{line}");
+        // Tick and Tock, and the drop's beat error, take the same decimals
+        // as the figure beside them.
+        if let Some((_, rest)) = line.split_once(" (Tick ") {
+            let (tick, rest) = rest.split_once(", Tock ").unwrap();
+            let tock = rest.split_once(';').unwrap().0;
+            assert_eq!(decimals(tick), decimals(words[0]), "{line}");
+            assert_eq!(decimals(tock), decimals(words[0]), "{line}");
+        }
+        if let Some((_, rest)) = line.split_once("(from the unlock; ") {
+            let drop = rest.split_once(" ms from the drop").unwrap().0;
+            assert_eq!(decimals(drop), decimals(words[0]), "{line}");
+        }
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
