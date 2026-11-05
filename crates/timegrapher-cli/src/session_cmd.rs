@@ -706,7 +706,7 @@ fn read_one_inner(
     (
         Reading,
         Option<crate::regress_provenance::ReadContext>,
-        Option<power_reserve::Results>,
+        EntryRun,
     ),
     take::EntryError,
 > {
@@ -736,7 +736,14 @@ fn read_one_inner(
     }
     let cycles = cycles_of(c, &read);
     let shape = shape_of(e, c, &read)?;
-    let run = long_run_of(c, &read);
+    // A take of one entry is read whole here; one of several is read
+    // whole once, after all of them ([`whole_take_run`], #1150).
+    let run = if c.m.recordings.len() == 1 {
+        long_run_of(c, &read)
+    } else {
+        None
+    };
+    let heard_s = read.log.duration_s;
     let take::EntryRead {
         files,
         log,
@@ -800,29 +807,27 @@ fn read_one_inner(
             reference: e.reference.clone(),
         },
         context,
-        run,
+        (run, heard_s),
     ))
 }
 
-/// A reading, and the run of its entry when that is a long take's.
-type ReadRun = (Reading, Option<power_reserve::Results>);
+/// The run of an entry when it is a take of its own and a long one, and
+/// the seconds of sound it holds.
+type EntryRun = (Option<power_reserve::Results>, f64);
+
+/// A reading, with its entry's [`EntryRun`].
+type ReadRun = (Reading, EntryRun);
 
 /// The run of an entry that is a long take in the session's one position,
 /// read as a Power Reserve Test's run (core
 /// [`power_reserve::from_long_take`]), as the app reads it.
 fn long_run_of(c: &Ctx, read: &take::EntryRead) -> Option<power_reserve::Results> {
-    let positions: Vec<&str> =
-        c.m.recordings
-            .iter()
-            .filter_map(|e| position_of(e).ok())
-            .map(Position::common)
-            .collect();
     power_reserve::from_long_take(
         &read.log,
         read.clock.as_ref(),
         &read.breaks,
         &read.masked,
-        &positions,
+        &positions_listed(c),
         "",
         read.kept.is_none(),
     )
@@ -949,16 +954,20 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
 
 /// Every entry of the session file read: an entry with nothing to read is
 /// left out, with a note, and the report lists it.
-/// With them, the first long take's run ([`long_run_of`]).
+/// With them, the take's run when it is a long one: a take of one entry
+/// from that entry's read ([`long_run_of`]), one of several read whole
+/// once ([`whole_take_run`]), as the app opens it (#1150).
 fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
     let mut readings = Vec::new();
     let mut left_out = Vec::new();
     let mut long_run = None;
+    let mut heard_s = 0.0;
     for e in &m.recordings {
         match read_one_or_left_out(e, ctx)? {
-            Ok((r, run)) => {
+            Ok((r, (run, s))) => {
                 readings.push(r);
                 long_run = long_run.or(run);
+                heard_s += s;
             }
             Err(l) => {
                 if ctx.tty {
@@ -969,7 +978,74 @@ fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
             }
         }
     }
+    // No run is that long in less sound: the take is read again only when
+    // it could hold one.
+    if m.recordings.len() > 1 && heard_s >= power_reserve::LONG_TAKE_S {
+        long_run = whole_take_run(ctx)?;
+    }
     Ok((readings, left_out, long_run))
+}
+
+/// The run of the take `c` names read whole, once, as its take context
+/// (core [`TakeContext`]: every recording end to end, each entry's masks
+/// at its recording's offset), when it is a long take in one position
+/// ([`power_reserve::from_long_take`]): a take of several entries is one
+/// run however its files are listed, as the app opens a take's folder
+/// (#1150), cut where the take's readings are cut. None for a take whose entries name more than one clock log,
+/// which core can't read whole.
+///
+/// [`TakeContext`]: timegrapher_core::take_context::TakeContext
+fn whole_take_run(c: &Ctx) -> Result<Option<power_reserve::Results>, String> {
+    use timegrapher_core::take_context::{Masks, TakeContext};
+    let mut clocks: Vec<&str> =
+        c.m.recordings
+            .iter()
+            .filter_map(|e| e.clock.as_deref())
+            .collect();
+    clocks.sort_unstable();
+    clocks.dedup();
+    if clocks.len() > 1 {
+        return Ok(None);
+    }
+    let (cfg, _) = stream_config(c)?;
+    let settings = take::EntrySettings {
+        stream: cfg,
+        card_clock: c.card_clock,
+        settle_s: c.o.settle,
+    };
+    if !c.quiet {
+        eprintln!("analysing the take whole for its run");
+    }
+    let (ctx, log) = TakeContext::open(
+        c.base,
+        c.m,
+        settings,
+        Masks::Cut,
+        take::usb,
+        |first| take::correction_for(c.m, first, None, None),
+        |_, _| {},
+    )?;
+    // Cut where the take's readings are cut, as the app cuts the take it
+    // opens.
+    let breaks = ctx.reading_breaks(c.m);
+    Ok(power_reserve::from_long_take(
+        &log,
+        ctx.clock.as_ref(),
+        &breaks,
+        &ctx.masked,
+        &positions_listed(c),
+        "",
+        !ctx.files.is_empty(),
+    ))
+}
+
+/// The positions the take's entries name, as core names them.
+fn positions_listed(c: &Ctx) -> Vec<&'static str> {
+    c.m.recordings
+        .iter()
+        .filter_map(|e| position_of(e).ok())
+        .map(Position::common)
+        .collect()
 }
 
 /// The readings, the entries left out, and a long take's run.

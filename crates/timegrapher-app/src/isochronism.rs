@@ -13,7 +13,9 @@ use egui_plot::{Line, Plot, PlotPoint, PlotTransform, Points, VLine};
 use timegrapher_core::chart_scale::{axis_number, round_ends_in, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
-use timegrapher_core::steady_views::{WalkDot, WalkView, WALK_HINT, WALK_KEY_START, WALK_SINCE};
+use timegrapher_core::steady_views::{
+    WalkDot, WalkView, WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE,
+};
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
 const GUTTER: f32 = 64.0;
@@ -186,7 +188,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(right, unit.top()),
         Align2::RIGHT_BOTTOM,
-        "Rate",
+        WALK_RATE_NAME,
         name.clone(),
         pal.text,
     );
@@ -200,7 +202,7 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
     p.text(
         Pos2::new(deg.left() - 3.0, deg.top()),
         Align2::RIGHT_TOP,
-        "Amp.",
+        WALK_AMP_NAME,
         name,
         pal.text,
     );
