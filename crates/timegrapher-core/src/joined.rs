@@ -108,6 +108,26 @@ pub fn take_spans(m: &Manifest, duration_s: f64) -> Option<Vec<(f64, f64)>> {
     }
 }
 
+/// The beats counted across a join, `between` beats as the times give it:
+/// the nearest count, at least one, that leaves the joined numbers on the
+/// beats' own sides, odd when `gap` (the beats' own numbers apart) is odd
+/// and even when it is even (#1146).
+fn beats_between(between: f64, gap: i64) -> i64 {
+    let n = between.round().max(1.0) as i64;
+    if (n - gap).rem_euclid(2) == 0 {
+        return n;
+    }
+    // The other parity: whichever neighbour is nearer, the later on a tie
+    // (to a microbeat, so a time read a hair short is no nearer), never
+    // below one.
+    let (down, up) = (between - (n - 1) as f64, (n + 1) as f64 - between);
+    if n > 1 && down < up - 1e-6 {
+        n - 1
+    } else {
+        n + 1
+    }
+}
+
 /// A log with `log`'s header and no beats, for [`join`] to fill.
 fn empty_like(log: &BeatLog) -> BeatLog {
     BeatLog {
@@ -171,15 +191,17 @@ pub fn join(
         };
         // Taken off this span's times and beat numbers: it starts JOIN_S
         // after the last one ended, its beats numbered on by the beats that
-        // would fit between.
+        // would fit between. The shift is always even, so every beat keeps
+        // the side the engine named it (#1146): a Tick stays a Tick.
         let (shift_t, shift_i) = match prev {
-            None => (time(a.max(0.0)), first.index),
+            None => (time(a.max(0.0)), first.index - first.index.rem_euclid(2)),
             Some((end, last_t, last_i)) => {
                 let shift_t = time(a) - (end + JOIN_S);
-                let n = ((time(first.time) - shift_t - last_t) / beat)
-                    .round()
-                    .max(1.0) as i64;
-                (shift_t, first.index - (last_i + n))
+                let between = (time(first.time) - shift_t - last_t) / beat;
+                (
+                    shift_t,
+                    first.index - (last_i + beats_between(between, first.index - last_i)),
+                )
             }
         };
         if prev.is_some() {
@@ -229,11 +251,6 @@ pub fn join(
                     let mut w = w.clone();
                     w.start_s = time(w.start_s) - shift_t;
                     w.end_s = time(w.end_s) - shift_t;
-                    // Beat indices changed sides; keep the existing side
-                    // measurements and signed errors on those same beats.
-                    if shift_i % 2 != 0 {
-                        w.swap_sides();
-                    }
                     w
                 }),
         );
@@ -296,15 +313,68 @@ mod tests {
     }
 
     /// The beats after a join are numbered on by the beats that would fit
-    /// across it: the 5 s join and the beat's step from the last beat
-    /// kept, 5.2 s at a beat every 0.2 s, hold 26.
+    /// across it, kept on their own sides (#1146): the 5 s join and the
+    /// beat's step from the last beat kept, 5.2 s at a beat every 0.2 s,
+    /// hold 26, but the beats are 351 apart in the recording, an odd
+    /// count, so 27 keep the next beat a Tock as the engine named it.
     #[test]
     fn a_join_numbers_the_beats_on_by_the_beats_it_holds() {
         let (joined, _) = join(&log(), &[(10.0, 40.0), (100.0, 190.0)], &[], None);
         let k = joined.beats.partition_point(|b| b.time < 30.0);
         let (last, next) = (&joined.beats[k - 1], &joined.beats[k]);
         assert!((last.time - 29.8).abs() < 1e-9 && (next.time - 35.0).abs() < 1e-9);
-        assert_eq!(next.index - last.index, 26);
+        assert_eq!(next.index - last.index, 27);
+        assert_eq!(beats_between(26.0, 26), 26);
+        assert_eq!(beats_between(26.4, 351), 27);
+        assert_eq!(beats_between(25.6, 351), 25);
+        assert_eq!(beats_between(1.2, 2), 2);
+    }
+
+    /// A join never renames a side (#1146): each beat keeps the side the
+    /// engine's side check named it, so a stretch that starts on a Tock,
+    /// and one after a join that starts on either, read the take's own
+    /// signed beat error, not its mirror.
+    #[test]
+    fn a_join_keeps_each_beat_on_its_own_side() {
+        let mut log = log();
+        log.amplitude_windows = (0..100)
+            .map(|i| crate::amplitude::AmplitudeWindow {
+                start_s: i as f64 * 2.0,
+                end_s: (i + 1) as f64 * 2.0,
+                even_deg: Some(280.0),
+                odd_deg: Some(270.0),
+                beat_error_ms: Some(0.3),
+                beat_error_unlock_ms: Some(0.5),
+                even_unlock_ms: Some(-7.0),
+                odd_unlock_ms: Some(-6.0),
+                even_drop_ms: None,
+                odd_drop_ms: None,
+            })
+            .collect();
+        // 10.2 s is beat 51, a Tock; 100.2 s is beat 501, a Tock too, and
+        // 140.0 s beat 700, a Tick.
+        for spans in [
+            vec![(10.2, 40.0)],
+            vec![(10.2, 40.0), (100.2, 130.0)],
+            vec![(10.2, 40.0), (140.0, 190.0)],
+            vec![(10.0, 40.0), (100.2, 190.0)],
+        ] {
+            let (joined, _) = join(&log, &spans, &[], None);
+            // Every kept beat, in order, on the side it had.
+            let sides: Vec<i64> = joined.beats.iter().map(|b| b.index.rem_euclid(2)).collect();
+            let own: Vec<i64> = spans
+                .iter()
+                .flat_map(|&(a, b)| log.beats.iter().filter(move |o| o.time >= a && o.time < b))
+                .map(|o| o.index.rem_euclid(2))
+                .collect();
+            assert_eq!(sides, own, "{spans:?}");
+            assert!(!joined.amplitude_windows.is_empty());
+            for w in &joined.amplitude_windows {
+                assert_eq!(w.beat_error_unlock_ms, Some(0.5), "{spans:?}");
+                assert_eq!(w.beat_error_ms, Some(0.3));
+                assert_eq!((w.even_deg, w.odd_deg), (Some(280.0), Some(270.0)));
+            }
+        }
     }
 
     /// On a card 100 ppm slow, the joined beats are on the take's clock:
@@ -406,7 +476,8 @@ mod tests {
 
     /// Each stretch's beats are kept and shifted: the first starts at 0
     /// with its own number, the second JOIN_S after the first ends, its
-    /// beats numbered on by the beats that would fit between (#692).
+    /// beats numbered on by the beats that would fit between (#692), on
+    /// their own sides (#1146).
     #[test]
     fn a_join_shifts_and_renumbers_each_stretchs_beats() {
         let (joined, cuts) = join(&log(), &SPANS, &[], None);
@@ -414,10 +485,11 @@ mod tests {
         assert_eq!((joined.beats[0].time, joined.beats[0].index), (0.0, 0));
         let last = &joined.beats[149];
         assert!((last.time - 29.8).abs() < 1e-9 && last.index == 149);
-        // 35 s is 5.2 s after the last beat: 26 beats on.
+        // 35 s is 5.2 s after the last beat, 26 beats on; beat 500 is a
+        // Tick and beat 149 a Tock, so 27 keep it one.
         let next = &joined.beats[150];
         assert!((next.time - 35.0).abs() < 1e-9, "{}", next.time);
-        assert_eq!(next.index, 149 + 26);
+        assert_eq!(next.index, 149 + 27);
         assert!(joined
             .beats
             .windows(2)
@@ -530,10 +602,9 @@ mod tests {
         assert_eq!(pauses_unseen(&SPANS, &breaks, None), None);
     }
 
-    /// An amplitude window inside a stretch is kept on the joined times;
-    /// where the stretch's beats were renumbered by an odd count its sides
-    /// trade places and its signed beat errors turn over, so each figure
-    /// stays on the beats it was read from.
+    /// An amplitude window inside a stretch is kept on the joined times,
+    /// its sides and signed beat errors as they were: the beats are only
+    /// ever renumbered by an even count, so no side is renamed (#1146).
     #[test]
     fn a_join_keeps_each_amplitude_window_on_its_beats() {
         use crate::amplitude::AmplitudeWindow;
@@ -560,17 +631,17 @@ mod tests {
             (w[0].even_deg, w[0].beat_error_ms),
             (Some(260.0), Some(0.4))
         );
-        // The second by 500 − 175 = 325, an odd one.
-        assert_eq!(joined.beats[150].index, 175);
+        // The second by 500 − 176 = 324, even too.
+        assert_eq!(joined.beats[150].index, 176);
         assert!((w[1].start_s - 55.0).abs() < 1e-9 && (w[1].end_s - 57.0).abs() < 1e-9);
-        assert_eq!((w[1].even_deg, w[1].odd_deg), (Some(280.0), Some(260.0)));
+        assert_eq!((w[1].even_deg, w[1].odd_deg), (Some(260.0), Some(280.0)));
         assert_eq!(
             (w[1].beat_error_ms, w[1].beat_error_unlock_ms),
-            (Some(-0.4), Some(0.2))
+            (Some(0.4), Some(-0.2))
         );
         assert_eq!(
             (w[1].even_unlock_ms, w[1].odd_drop_ms),
-            (Some(-4.0), Some(0.1))
+            (Some(-3.0), Some(0.5))
         );
     }
 
