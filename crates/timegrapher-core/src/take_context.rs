@@ -56,9 +56,9 @@ pub enum Masks {
 }
 
 /// The stretches of a take `series` and `long` read ([`TakeContext::spans`]),
-/// take seconds, in time order.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Stretches {
+/// take seconds, in time order; `P` is how a stretch's position is named.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stretches<P = Option<Position>> {
     /// The stretches read, joined end to end where they change position.
     pub read: Vec<(f64, f64)>,
     /// What is left out inside a stretch, between two entries in one
@@ -66,7 +66,52 @@ pub struct Stretches {
     /// time, not joined.
     pub holes: Vec<(f64, f64)>,
     /// Each stretch's position.
-    at: Vec<Option<Position>>,
+    pub at: Vec<P>,
+}
+
+impl<P> Default for Stretches<P> {
+    fn default() -> Self {
+        Stretches {
+            read: Vec::new(),
+            holes: Vec::new(),
+            at: Vec::new(),
+        }
+    }
+}
+
+/// The stretches `windows` read, each window (start, end, whether its
+/// file carries on the one before it, its position) in time order, as
+/// [`TakeContext::spans`] reads a take's entries and the app the
+/// stretches it was in each position: a window carrying on the one before
+/// runs on from it as one stretch; what is left out between two windows
+/// in one position, one after the other, is a hole in that run, kept at
+/// its width in true time as a mask is; between two positions the
+/// stretches are joined. None when two windows overlap (they disagree
+/// about where the watch was, and joined the sound they share would be
+/// read twice).
+pub fn stretches_of<P: PartialEq>(
+    windows: impl IntoIterator<Item = (f64, f64, bool, P)>,
+) -> Option<Stretches<P>> {
+    let mut out = Stretches::default();
+    for (a, b, carries_on, at) in windows {
+        match out.read.last_mut() {
+            Some(last) if a < last.1 - EDGE_S => return None,
+            // The file's start is where the one before it ends, to the
+            // rounding of the two lengths in seconds.
+            Some(last) if carries_on && a <= last.1 + EDGE_S => last.1 = b,
+            Some(last) if out.at.last() == Some(&at) => {
+                if a > last.1 + EDGE_S {
+                    out.holes.push((last.1, a));
+                }
+                last.1 = b;
+            }
+            _ => {
+                out.read.push((a, b));
+                out.at.push(at);
+            }
+        }
+    }
+    Some(out)
 }
 
 /// A take, opened once: what every surface reads it from.
@@ -283,42 +328,20 @@ impl TakeContext {
     /// The stretches of the take that are read, take seconds, in time
     /// order: each entry of `m` (the session file the context was opened
     /// from) read from its window ([`EntryWindow::window`]), so `series`
-    /// and `long` read exactly what `session` reads of each entry, joined.
-    /// A file that carries on the one before it in the same position
-    /// ([`take::continues_position`]) runs on from it as one stretch. What
-    /// is left out between two entries in one position is a hole in that
-    /// run, kept at its width in true time as a mask is
-    /// ([`Stretches::holes`]); between two positions the stretches are
-    /// joined. An entry for the take's whole folder, beside entries for
-    /// its files, that says no more than their position reads on from the
-    /// first file's settling to the take's end.
+    /// and `long` read exactly what `session` reads of each entry, joined
+    /// by [`stretches_of`]: a file carries on the one before it in the
+    /// same position as [`take::continues_position`] says. An entry for
+    /// the take's whole folder, beside entries for its files, that says no
+    /// more than their position reads on from the first file's settling to
+    /// the take's end.
     /// None, and the take read whole, when an entry names no position,
-    /// when two entries' stretches overlap (they disagree about where the
-    /// watch was, and joined the sound they share would be read twice),
-    /// or when the one stretch is the whole take and holds no hole.
+    /// when two entries' stretches overlap, or when the one stretch is the
+    /// whole take and holds no hole.
     pub fn spans(&self, m: &Manifest) -> Option<Stretches> {
         if m.recordings.iter().any(|e| e.position.is_none()) {
             return None;
         }
-        let mut out = Stretches::default();
-        for (a, b, carries_on, at) in self.windows_read(m) {
-            match out.read.last_mut() {
-                Some(last) if a < last.1 - EDGE_S => return None,
-                // The file's start is where the one before it ends, to the
-                // rounding of the two lengths in seconds.
-                Some(last) if carries_on && a <= last.1 + EDGE_S => last.1 = b,
-                Some(last) if out.at.last() == Some(&at) => {
-                    if a > last.1 + EDGE_S {
-                        out.holes.push((last.1, a));
-                    }
-                    last.1 = b;
-                }
-                _ => {
-                    out.read.push((a, b));
-                    out.at.push(at);
-                }
-            }
-        }
+        let out = stretches_of(self.windows_read(m))?;
         let total = self.length_s();
         match out.read.as_slice() {
             [] => None,

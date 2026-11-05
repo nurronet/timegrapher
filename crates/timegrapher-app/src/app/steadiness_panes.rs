@@ -111,11 +111,15 @@ impl TimegrapherApp {
             }
         }
         // Only the beats in the position the watch is in now, joined.
-        let spans = self.current_spans();
+        let runs = self.current_runs();
         let clock = Self::rate_clock(&self.take_clock).cloned();
         let joined = !self.session.stretches().is_empty();
         let dur = self.live.as_ref().map_or(0.0, |l| {
-            steady::joined_duration(&spans, l.duration_s(), clock.as_ref().filter(|_| joined))
+            steady::joined_duration(
+                &runs.read,
+                l.duration_s(),
+                clock.as_ref().filter(|_| joined),
+            )
         });
         let upto = self.steady.as_ref().map(|s| s.1.upto_s);
         let due = match upto {
@@ -125,7 +129,7 @@ impl TimegrapherApp {
         };
         if self.steady_job.is_none() && due && dur >= steady::MIN_S {
             let log = self.live.as_ref().and_then(steady::log_of);
-            if let Some((log, breaks)) = log.map(|l| self.steady_log(l, &spans, clock.as_ref())) {
+            if let Some((log, breaks)) = log.map(|l| self.steady_log(l, &runs, clock.as_ref())) {
                 let wheels = self.calibre_wheels();
                 let clock = clock.filter(|_| !joined); // A joined log is on it.
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -151,20 +155,25 @@ impl TimegrapherApp {
     /// What the steadiness tests read of `log`, and the cuts they stop at:
     /// a take with no position marked whole, at its own breaks with the time
     /// each gap held and every other jump, as `timegrapher series` reads it;
-    /// else the position's stretches `spans` joined end to end on the take's
-    /// `clock` ([`steady::join`]).
+    /// else the position's `runs` joined end to end on the take's `clock`
+    /// ([`steady::join`]), each hole in a run left out and cut at both ends.
     pub(super) fn steady_log(
         &self,
-        log: BeatLog,
-        spans: &[(f64, f64)],
+        mut log: BeatLog,
+        runs: &timegrapher_core::take_context::Stretches<Position>,
         clock: Option<&timegrapher_core::clock::ClockFit>,
     ) -> (BeatLog, Vec<timegrapher_core::breaks::Break>) {
-        let opened = self.take_breaks.clone().unwrap_or_default();
+        let mut opened = self.take_breaks.clone().unwrap_or_default();
         if self.session.stretches().is_empty() {
             let breaks = steady::reading_breaks(opened, &log);
             (log, breaks)
         } else {
-            steady::join(&log, spans, &opened, clock)
+            // A hole in a run is left out and cut at both ends, as a mask
+            // is and as `series` reads a take's holes (#1156).
+            timegrapher_core::session::mask_log(&mut log, &runs.holes);
+            opened.extend(timegrapher_core::clean::mask_breaks(&runs.holes));
+            opened.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+            steady::join(&log, &runs.read, &opened, clock)
         }
     }
 

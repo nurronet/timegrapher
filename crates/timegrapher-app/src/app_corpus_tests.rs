@@ -158,11 +158,18 @@ fn differences(id: &str, app: &Option<WholeTake>, cli: &serde_json::Value) -> Ve
 /// Each must still differ, so the list only shrinks as the app is fixed. A
 /// file the session file lists more than once is named with its entry's
 /// place among them: `file entry 1`.
-const KNOWN: &[(&str, &str)] = &[(
-    "ym42_CR_long/take_part01-003.flac entry 1",
-    "the first of two entries for one file, with its own measure_s: the app does not keep \
-         its end",
-)];
+const KNOWN: &[(&str, &str)] = &[
+    (
+        "ym42_CR_long/take_part01-003.flac entry 1",
+        "one of two readings of one file: the app opens a file whole, reading both \
+         entries' windows, not one of them",
+    ),
+    (
+        "ym42_CR_long/take_part01-003.flac entry 2",
+        "one of two readings of one file: the app opens a file whole, reading both \
+         entries' windows, not one of them",
+    ),
+];
 
 /// Each recording the takes under `root` list, read on the app's cards and
 /// by `timegrapher session`, compared: what differs and is not on `known`,
@@ -507,18 +514,17 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// held to that only where a surface reads a run: a pull request's corpus
 /// cut is too short for one.
 const PANES_KNOWN: &[(&str, &str)] = &[
-    ("ym42_CR_long amplitude 2 s", MEASURE),
-    ("ym42_CR_long beat_error 2 s", MEASURE),
-    ("ym42_CR_long rate readings", MEASURE),
-    ("ym42_CR_long amplitude readings", MEASURE),
-    ("ym42_CR_long beat_error readings", MEASURE),
+    ("ym42_CR_long amplitude 2 s", BREAK_EDGE),
+    ("ym42_CR_long beat_error 2 s", BREAK_EDGE),
 ];
 
-/// #1156, in [`PANES_KNOWN`]: ym42_CR_long's third file has two entries
-/// with their own `measure_s` and `settle_s`. Since #294 step 3 `series`
-/// reads session's windows of them; the app still reads its own cuts.
-const MEASURE: &str = "#1156: the app reads its own cuts of a take whose entries give their \
-                       own measure_s or a later file's settle_s, not session's windows";
+/// #636, in [`PANES_KNOWN`]: at ym42_CR_long's 5,400 s break (3.883 s
+/// gap) the app keeps the 2 s window ending at the break and leaves out
+/// the next, cut by a jump its engine finds 0.05 s after the break;
+/// `series` reads the break on true time with its gap and keeps the
+/// other. One window of about 3,700.
+const BREAK_EDGE: &str = "#636: the app and series pick a different 2 s window at a break \
+                          with a gap";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {

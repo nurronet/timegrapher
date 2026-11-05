@@ -480,3 +480,27 @@ fn a_takes_stretches_are_its_entries_windows() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The rule `spans` joins entries by, as the app joins its stretches
+/// (#1156): a window carrying on runs on; two in one position one after
+/// the other are one run with a hole between; another position between
+/// joins them; two that overlap read nothing joined.
+#[test]
+fn stretches_of_runs_on_holes_and_joins() {
+    use timegrapher_core::take_context::stretches_of;
+    let s = stretches_of([
+        (20.0, 300.0, false, 'R'),
+        (300.0, 337.0, true, 'R'),
+        (377.0, 900.0, false, 'R'),
+        (920.0, 1000.0, false, 'U'),
+        (1030.0, 1100.0, false, 'R'),
+    ])
+    .unwrap();
+    assert_eq!(s.read, [(20.0, 900.0), (920.0, 1000.0), (1030.0, 1100.0)]);
+    assert_eq!(s.holes, [(337.0, 377.0)]);
+    assert_eq!(s.at, ['R', 'U', 'R']);
+    assert_eq!(
+        stretches_of([(0.0, 300.0, false, 'R'), (200.0, 400.0, false, 'U')]),
+        None
+    );
+}

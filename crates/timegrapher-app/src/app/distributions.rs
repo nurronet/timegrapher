@@ -68,6 +68,12 @@ impl TimegrapherApp {
         );
     }
 
+    /// The runs in the position the watch is in now that the distributions
+    /// and the steadiness tests read, joined ([`Session::current_runs`]).
+    pub(super) fn current_runs(&self) -> timegrapher_core::take_context::Stretches<Position> {
+        self.session.current_runs(self.position)
+    }
+
     /// The 2-second stretches of amplitude and beat error in the position
     /// the watch is in now, settled: core's one rule for which windows a
     /// stretch takes ([`core_session::stretch_windows`], #636), so none
@@ -78,10 +84,20 @@ impl TimegrapherApp {
             return Vec::new();
         };
         let cuts = live.cuts();
-        self.session
-            .current_spans(self.position)
-            .into_iter()
-            .flat_map(|(a, b)| core_session::stretch_windows(&cuts, live.amplitude_windows(), a, b))
+        let runs = self.current_runs();
+        // None reaching into a hole in a run, as a mask leaves none (#1156).
+        let clear = |w: &&timegrapher_core::amplitude::AmplitudeWindow| {
+            !runs
+                .holes
+                .iter()
+                .any(|&(a, b)| w.start_s < b && w.end_s > a)
+        };
+        runs.read
+            .iter()
+            .flat_map(|&(a, b)| {
+                core_session::stretch_windows(&cuts, live.amplitude_windows(), a, b)
+            })
+            .filter(clear)
             .collect()
     }
 
@@ -200,14 +216,17 @@ impl TimegrapherApp {
                 Err(TryRecvError::Empty) => {}
             }
         }
-        let spans = self.current_spans();
+        let runs = self.current_runs();
         let clock = Self::rate_clock(&self.take_clock).cloned();
         let joined = !self.session.stretches().is_empty();
         let Some(live) = self.live.as_ref() else {
             return;
         };
-        let dur =
-            steady::joined_duration(&spans, live.duration_s(), clock.as_ref().filter(|_| joined));
+        let dur = steady::joined_duration(
+            &runs.read,
+            live.duration_s(),
+            clock.as_ref().filter(|_| joined),
+        );
         let due = self
             .dist_readings
             .as_ref()
@@ -216,7 +235,7 @@ impl TimegrapherApp {
             return;
         }
         let Some((log, breaks)) =
-            steady::log_of(live).map(|l| self.steady_log(l, &spans, clock.as_ref()))
+            steady::log_of(live).map(|l| self.steady_log(l, &runs, clock.as_ref()))
         else {
             return;
         };
