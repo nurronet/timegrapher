@@ -1505,7 +1505,7 @@ mod take_tests {
 
     /// A take saved by the app, one entry per position over one recording,
     /// is read with its session file's beat rate, lift angle, escape
-    /// teeth, wheels, card_ppm and masks, as `session` reads it.
+    /// teeth, wheels, card_ppm_fast and masks, as `session` reads it.
     #[test]
     fn a_take_folder_is_read_with_its_session_file() {
         let dir = take(
@@ -1543,7 +1543,7 @@ mod take_tests {
     }
 
     /// The clock log the entries name puts the readings on its clock,
-    /// before any card_ppm; a log given with --clock comes first.
+    /// before any card_ppm_fast; a log given with --clock comes first.
     #[test]
     fn a_take_folder_is_read_on_its_clock_log() {
         let dir = take(

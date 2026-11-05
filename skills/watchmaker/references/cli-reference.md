@@ -347,7 +347,7 @@ timegrapher long FILES... [--clock LOG] [--device NAME] [--card-ppm PPM]
 `FILES` are read as one continuous recording in the order given; a folder
 stands for its WAV and FLAC files in name order. `--clock` is the
 sound-card calibration log. Without one, `--card-ppm` corrects for a
-card that many ppm slow (negative if fast); else `--device` uses the
+card that many ppm fast (negative if slow); else `--device` uses the
 clock error stored for that input, and is an error when none is stored;
 else the error stored for the input the recording names, else the
 recording's USB lines; with none of these the rates are on the sound
@@ -371,7 +371,7 @@ JSON body:
 | --- | --- |
 | `duration_s`, `sample_rate`, `bph`, `lift_deg` | The recording and settings |
 | `beats_found`, `clean_fraction` | Beats, and the fraction matched well |
-| `clock` | Null, or `{ points, rejected, span_s, ppm, rate_error_s_per_day, residual_ms, tracks_drift }`. `ppm` positive: sound card slow, uncorrected rates read fast by `rate_error_s_per_day` |
+| `clock` | Null, or `{ points, rejected, span_s, ppm, rate_error_s_per_day, residual_ms, tracks_drift }`. `ppm` positive: sound card fast. `rate_error_s_per_day` is what the card adds to an uncorrected rate: negative for a fast card, whose rates read slow |
 | `overall` | As for `analyze` (rate corrected when `clock` is given) |
 | `rate_p05`, `rate_p95` | Spread of the rate over slices of about 1/400 of the run |
 | `amplitude_deg`, `amplitude_p05`, `amplitude_p95` | Median and spread |
