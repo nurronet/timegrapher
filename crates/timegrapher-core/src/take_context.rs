@@ -261,17 +261,7 @@ impl TakeContext {
             .iter()
             .zip(&self.entries)
             .filter_map(|(e, w)| {
-                let p = w.position?;
-                let at = w.offset_s;
-                let start = e.start_s.unwrap_or(0.0) + at;
-                let (from, to) = match &w.window {
-                    Ok(win) => (win.from_s, win.to_s),
-                    Err(_) => {
-                        let end = e.end_s.map_or(start, |t| t + at);
-                        (end, end)
-                    }
-                };
-                Some((start, from, to.is_finite().then_some(to), p))
+                take::listed_position(e, w.window.as_ref().ok().copied(), w.offset_s)
             })
             .collect()
     }

@@ -283,3 +283,26 @@ fn a_takes_positions_are_listed_in_take_seconds() {
     assert_eq!(want.len(), 5);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Masks that arrive out of order, or meet, are held in order and merged,
+/// as `take::open_entry` holds them.
+#[test]
+fn masks_out_of_order_or_meeting_are_held_in_order_and_merged() {
+    let dir = synthetic_take("merged");
+    let mut m = manifest(&dir);
+    m.recordings[0].masked = vec![[30.0, 35.0], [10.0, 20.0], [20.0, 25.0]];
+    m.recordings[1].masked = vec![[5.0, 6.0]];
+    m.recordings[2].masked = Vec::new();
+    let (ctx, _) = TakeContext::open(
+        &dir,
+        &m,
+        settings(None),
+        Masks::Kept,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    assert_eq!(ctx.masked, [(10.0, 25.0), (30.0, 35.0), (65.0, 66.0)]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
