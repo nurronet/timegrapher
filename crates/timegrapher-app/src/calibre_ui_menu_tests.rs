@@ -347,3 +347,75 @@ fn a_click_in_the_calibre_search_keeps_the_menu_open() {
     let second = names[1].split(" · ").next().unwrap().to_string();
     assert_eq!(picked.as_deref(), Some(second.as_str()));
 }
+
+/// Tab and Shift+Tab stay within the open search menu: however often they
+/// are pressed, the focus never reaches a control in the window behind.
+#[test]
+fn tab_stays_within_the_calibre_menu() {
+    let mut c = Calibres::in_memory();
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
+    let behind = std::cell::RefCell::new(Vec::new());
+    let mut run = |c: &mut Calibres, events: Vec<egui::Event>| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(300.0);
+                    let before = ui.button("Before").id;
+                    c.picker(ui, "", None);
+                    let after = ui.button("After").id;
+                    *behind.borrow_mut() = vec![before, after];
+                });
+            },
+        )
+    };
+    run(&mut c, vec![]);
+    let at = egui::pos2(60.0, 18.0 + 26.0);
+    let shown = (0..3).map(|_| run(&mut c, vec![])).last().unwrap();
+    // The menu's button, under "Before".
+    let button = shown
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Text(x) if x.galley.text() == "Not Set" => Some(x.visual_bounding_rect()),
+            _ => None,
+        })
+        .map_or(at, |r| r.center());
+    run(&mut c, click(button));
+    let open = run(&mut c, vec![]);
+    assert!(
+        drawn_at(&open, "Search every calibre").is_some(),
+        "the menu opened"
+    );
+    let field_focused = ctx.memory(|m| m.focused());
+    assert!(field_focused.is_some(), "the caret is in the field");
+    // A search with no hit: the field, its ⊗ and Manage Calibres… are all
+    // the menu holds, so a few Tabs run past its end.
+    run(&mut c, vec![egui::Event::Text("zzzq".into())]);
+    for shift in [true, false] {
+        for n in 0..8 {
+            let tab = |pressed| egui::Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers {
+                    shift,
+                    ..Default::default()
+                },
+            };
+            run(&mut c, vec![tab(true), tab(false)]);
+            let focused = ctx.memory(|m| m.focused());
+            assert!(
+                focused.is_none_or(|f| !behind.borrow().contains(&f)),
+                "Tab {n} (shift {shift}) reached the window behind"
+            );
+        }
+    }
+}

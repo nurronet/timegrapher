@@ -853,9 +853,17 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
 /// A pop-up menu's item: the one in use carries a ✓ before its words,
 /// and the highlight is the pointer's alone, as in a macOS pop-up.
 pub fn menu_item(ui: &mut Ui, on: bool, words: impl Into<String>) -> Response {
+    ui.add(egui::Button::new(ticked(on, words)).frame_when_inactive(false))
+}
+
+/// A menu item's words, with the ✓ that marks the current one.
+fn ticked(on: bool, words: impl Into<String>) -> String {
     let words = words.into();
-    let text = if on { format!("✓ {words}") } else { words };
-    ui.add(egui::Button::new(text).frame_when_inactive(false))
+    if on {
+        format!("✓ {words}")
+    } else {
+        words
+    }
 }
 
 pub fn segmented<T: PartialEq + Copy>(
@@ -2356,8 +2364,7 @@ impl MenuSearch {
     /// highlighted when ↑/↓ have brought the highlight to it. True when it
     /// is picked, by a click or by Enter on it; the menu then closes.
     pub fn item(&mut self, ui: &mut Ui, on: bool, words: impl Into<String>) -> (Response, bool) {
-        let words = words.into();
-        let text = if on { format!("✓ {words}") } else { words };
+        let text = ticked(on, words);
         let lit = self.items == self.highlight;
         self.items += 1;
         let r = ui.add(egui::Button::selectable(lit, text).frame_when_inactive(lit));

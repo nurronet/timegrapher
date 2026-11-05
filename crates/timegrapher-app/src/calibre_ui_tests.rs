@@ -819,3 +819,47 @@ fn custom_calibres_stay_at_the_top_whatever_the_sort() {
         assert!(rows[2].bph().is_some());
     }
 }
+
+/// Enter in a funnel is OK: the values ticked become the column's filter,
+/// as a click on OK makes them; without it nothing changes.
+#[test]
+fn enter_in_a_funnel_keeps_its_ticks() {
+    let mut c = Calibres::in_memory();
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 900.0));
+    let run = |c: &mut Calibres, events: Vec<egui::Event>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(230.0);
+                    c.funnel_menu(ui, Col::Maker, "Maker");
+                });
+            },
+        );
+    };
+    run(&mut c, vec![]);
+    let one: std::collections::BTreeSet<String> =
+        c.funnel_values(Col::Maker).into_iter().take(1).collect();
+    c.funnel_draft = Some(one.clone());
+    run(&mut c, vec![]);
+    assert!(
+        c.funnels[Col::Maker as usize].is_none(),
+        "nothing kept before OK"
+    );
+    let enter = |pressed| egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Default::default(),
+    };
+    run(&mut c, vec![enter(true), enter(false)]);
+    let kept = c.funnels[Col::Maker as usize].clone().expect("Enter is OK");
+    assert_eq!(kept, one);
+}
