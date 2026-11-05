@@ -655,19 +655,20 @@ mod tests {
     /// (#659, R9): 100 seeds a cell, the trend's F test and the period
     /// search held to Holm's correction, and the autocorrelation only
     /// refining a cycle the search kept. Each cap is the count the pane
-    /// gives today and may only fall. The target is 5: 30 min misses it
-    /// at every ρ and 2 h at ρ 0.9 (#916, #917). 2 h at ρ 0 to 0.5 is the
-    /// control test above; 8 h and 24 h are the test below.
+    /// gave at #1103 and may only fall. The target is 5: 30 min misses it
+    /// at ρ 0, 0.7 and 0.9 and 2 h at ρ 0.9 (#916's caveat, #917). 2 h at
+    /// ρ 0 to 0.5 is the control test above; 8 h and 24 h are the test
+    /// below.
     #[test]
     fn a_steady_watch_with_red_noise_names_little_on_the_whole_pane() {
         red_pane_within(&[
-            (1800.0, 0.0, 9),
-            (1800.0, 0.3, 9),
-            (1800.0, 0.5, 8),
-            (1800.0, 0.7, 19),
-            (1800.0, 0.9, 33),
+            (1800.0, 0.0, 7),
+            (1800.0, 0.3, 1),
+            (1800.0, 0.5, 2),
+            (1800.0, 0.7, 11),
+            (1800.0, 0.9, 32),
             (7200.0, 0.7, 2),
-            (7200.0, 0.9, 11),
+            (7200.0, 0.9, 8),
         ]);
     }
 
@@ -677,18 +678,20 @@ mod tests {
     #[ignore = "8 h and 24 h takes: run by hand"]
     fn long_steady_watches_with_red_noise_name_little_on_the_whole_pane() {
         red_pane_within(&[
-            (7200.0, 0.0, 4),
+            (7200.0, 0.0, 3),
             (7200.0, 0.3, 4),
             (7200.0, 0.5, 3),
-            (28800.0, 0.0, 2),
+            // One more take each from #1030's leveller clip, seed 82's
+            // rate (decided on #659).
+            (28800.0, 0.0, 3),
             (28800.0, 0.3, 3),
             (28800.0, 0.5, 2),
             (28800.0, 0.7, 2),
-            (28800.0, 0.9, 1),
-            (86400.0, 0.0, 1),
-            (86400.0, 0.3, 3),
-            (86400.0, 0.5, 3),
-            (86400.0, 0.7, 4),
+            (28800.0, 0.9, 2),
+            (86400.0, 0.0, 0),
+            (86400.0, 0.3, 2),
+            (86400.0, 0.5, 2),
+            (86400.0, 0.7, 2),
             (86400.0, 0.9, 1),
         ]);
     }
