@@ -1369,22 +1369,6 @@ function referenceLines(doc) {
 function steadyNote(text) { return `<p class="empty">${esc(text)}</p>`; }
 
 // One series' plot under the chosen view.
-// What a dot is, and how many are drawn, as the app's steady::readings_key:
-// "10 s readings (179)"; shorter than 10 s, "2 s windows (912)". On a long
-// take each dot is a chunk's mean, over the band of its readings, and it
-// says how many bands hold how many readings.
-function dotKey(r, drawn) {
-  const what = `${secs(r.step_s)} ${r.step_s >= 10 - 1e-9 ? "readings" : "windows"}`;
-  const k = (v) => v.toLocaleString("en-US");
-  // The readings the bands hold (their counts' sum), as the app's key.
-  const read = (r.counts || []).reduce((a, c) => a + c, 0);
-  return banded(r) ? `${what} in ${k(drawn)} bands (${k(read)})` : `${what} (${k(drawn)})`;
-}
-// steady_views::Readings: a long series comes in chunks, each a band.
-function banded(r) {
-  return (r.counts || []).some((c) => c > 1);
-}
-
 function steadyPlot(s, view, doc) {
   const [, color, unit] = SERIES[s.series] || ["", "--text", ""];
   const time = (px) => (lo, hi, w) => linTicks(lo, hi, w, Math.max(Math.min(80, w / 4), px), (v) => v);
@@ -1396,7 +1380,7 @@ function steadyPlot(s, view, doc) {
       const pts = r.t_s.map((t, i) => [t, r.values[i]]).filter(([, y]) => Number.isFinite(y));
       // Each chunk's band, lowest to highest, as the app's bars (#1034).
       const half = (r.chunk_s || r.step_s) / 2;
-      const bands = banded(r) ? r.t_s.map((t, i) => ({ x0: t - half, x1: t + half, y0: r.lo[i], y1: r.hi[i], color, fill: BOX_OPACITY })) : [];
+      const bands = r.banded ? r.t_s.map((t, i) => ({ x0: t - half, x1: t + half, y0: r.lo[i], y1: r.hi[i], color, fill: BOX_OPACITY })) : [];
       const [lo, hi] = r.y_range || [0, 1];
       // Level lines only where the words name the levels (#1112): the
       // detail row says why stretches of one level are not named.
@@ -1406,7 +1390,7 @@ function steadyPlot(s, view, doc) {
         title: "Readings", x: [Math.min(...r.t_s), Math.max(...r.t_s)], y: [lo, hi],
         xTicks: (a, b, w) => linTicks(a, b, w, Math.min(80, w / 4), (t) => fmtTime(t), TIME_STEPS),
         yTicks: (a, b, h) => linTicks(a, b, h, 24, (y, st) => stepText(y, st, unit)),
-        rects: bands, dots: [{ pts, color, r: 1.4 }], key: { color, text: dotKey(r, pts.length) },
+        rects: bands, dots: [{ pts, color, r: 1.4 }], key: { color, text: r.key },
         lines: segs.map((g) => ({ pts: [[g.start_s, g.mean], [g.end_s, g.mean]], color: "--text", width: 1.8 })),
         hlines: ts ? [ts.low, ts.high].map((y) => ({ y, color: "--callout", width: CALL_OUT_W, dash: "loose" })) : [],
       });
