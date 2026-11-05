@@ -249,3 +249,37 @@ fn a_stretch_of_the_take_is_split_into_its_files_own_seconds() {
     assert_eq!(in_files(&files, 183.0, 190.0), []);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The positions the context lists are `take`'s listed positions of each
+/// entry in its own recording, moved by that recording's offset.
+#[test]
+fn a_takes_positions_are_listed_in_take_seconds() {
+    let dir = synthetic_take("positions");
+    let m = manifest(&dir);
+    let (ctx, _) = TakeContext::open(
+        &dir,
+        &m,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    let mut want = Vec::new();
+    for (e, w) in m.recordings.iter().zip(&ctx.entries) {
+        let length = ctx.files[w.parts.clone()]
+            .iter()
+            .map(|f| f.duration_s)
+            .sum();
+        let at = w.offset_s;
+        want.extend(
+            take::listed_positions(&m, std::slice::from_ref(e), length)
+                .into_iter()
+                .map(|(s, f, t, p)| (s + at, f + at, t.map(|t| t + at), p)),
+        );
+    }
+    assert_eq!(ctx.listed_positions(&m), want);
+    assert_eq!(want.len(), 5);
+    let _ = std::fs::remove_dir_all(&dir);
+}

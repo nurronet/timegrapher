@@ -891,10 +891,10 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
             Ok(check(m.start_s, m.end_s, r.log.bph, Some(m)))
         }
         // Nothing to read once settled: the take is kept, with no readings.
-        Err(take::EntryError::NoReading(_)) => {
-            let (from, to) = take::measured(0.0, whole_s, set.settle_s, None);
-            Ok(check(from, to, whole_bph, None))
-        }
+        // Its one entry names the whole take, so its settling runs to the
+        // take's end and the stretch read is empty there, whichever of
+        // the reader's or the session file's settling it was.
+        Err(take::EntryError::NoReading(_)) => Ok(check(whole_s, whole_s, whole_bph, None)),
         Err(take::EntryError::Failed(why)) => Err(why),
     }
 }
@@ -1214,6 +1214,43 @@ mod tests {
         );
         fs::write(dir.join(MANIFEST), text).unwrap();
         check(dir, set)
+    }
+
+    /// A take that settles to its end, by its session file's own
+    /// `settle_s`, is checked over an empty stretch at its end, as
+    /// `session` reads nothing of it: not over the reader's default
+    /// settling (#294).
+    #[test]
+    fn a_take_that_settles_to_its_end_is_checked_over_nothing() {
+        let dir = std::env::temp_dir().join(format!("tg-record-unsettled-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let watch = timegrapher_core::synth::generate(
+            &timegrapher_core::synth::SynthConfig {
+                duration_s: 30.0,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        );
+        audio::write_wav(&dir.join("audio-001.wav"), &watch).unwrap();
+        let set = Settings {
+            watch: None,
+            calibre: None,
+            bph: Some(28800),
+            lift: 52.0,
+            lift_known: true,
+            settle_s: None,
+        };
+        let text = format!(
+            "{}\n[[recording]]\nfile = \".\"\nposition = \"DU\"\nsettle_s = 60\n",
+            header(&set)
+        );
+        fs::write(dir.join(MANIFEST), text).unwrap();
+        let c = check(&dir, &set).unwrap();
+        assert_eq!((c.from_s, c.to_s), (30.0, 30.0));
+        assert_eq!(c.rate_s_per_day, None);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     /// A noisy recording gives a percentage only when its beat rate was supplied.
