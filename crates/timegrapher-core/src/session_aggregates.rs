@@ -245,6 +245,6 @@ mod tests {
         assert!(unknown.beat_error_summary().contains("no mean"));
         assert!(unknown
             .beat_error_summary()
-            .contains("leaves out 1 readings"));
+            .contains("leaves out 1 reading whose"));
     }
 }

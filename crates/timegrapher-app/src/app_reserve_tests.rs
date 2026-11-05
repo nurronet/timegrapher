@@ -234,7 +234,8 @@ fn plot_frames(out: &egui::FullOutput, fill: egui::Color32, ran: egui::Rect) -> 
 /// in `fill`: a row half under it would show as a sliver of text.
 fn rows_cut(out: &egui::FullOutput, fill: egui::Color32) -> Vec<String> {
     let texts = clipped_texts(out);
-    let Some(title) = texts.iter().find(|t| t.0 == "Rate (s/d)") else {
+    // "Read" is the table's alone; the cards have a Rate.
+    let Some(title) = texts.iter().find(|t| t.0 == "Read") else {
         return Vec::new();
     };
     let band = out.shapes.iter().find_map(|c| match &c.shape {
@@ -298,23 +299,29 @@ fn pinned_key_and_hovers(
             .unwrap_or_else(|| panic!("{w}: {name} not whole: {texts:?}"))
     };
     let key = whole(reserve::DIM_KEY_TEXT);
-    let rate = whole("Rate (s/d)");
-    assert!(key.bottom() <= rate.top(), "{w}: {key:?} {rate:?}");
+    let read = whole("Read");
+    assert!(key.bottom() <= read.top(), "{w}: {key:?} {read:?}");
+    // The pinned titles sit tight over the first whole row, as in their
+    // own place, the band's slack above the key (Walter's walk of #1097).
+    let unit = whole("%");
+    let next_row = texts
+        .iter()
+        .filter(|t| t.2 == t.1 && t.0.ends_with(" h") && t.1.top() > unit.bottom())
+        .map(|t| t.1.top())
+        .fold(f32::INFINITY, f32::min);
+    assert!(next_row - unit.bottom() < 10.0, "{w}: {unit:?} {next_row}");
     // The table has scrolled: its first hour is out of sight.
     assert!(!texts.iter().any(|t| t.0 == "0–1 h" && t.2 == t.1), "{w}");
-    let mut out = run(app, vec![egui::Event::PointerMoved(rate.center())]);
+    let mut out = run(app, vec![egui::Event::PointerMoved(read.center())]);
     for _ in 0..2 {
         out = run(app, Vec::new());
     }
-    let hint = HOUR_RATE_HINT;
+    let hint = reserve::HOUR_COLUMNS[4].2;
     assert!(
         clipped_texts(&out).iter().any(|t| t.0 == hint),
         "{w}: no hover over the pinned title"
     );
 }
-
-/// The Rate title's hover, as a pinned title shows it.
-const HOUR_RATE_HINT: &str = "The hour's rate, s/d, as the command line reads a stretch";
 
 /// A 46 h run's take opened in `app`, as from the Watches view, its rate
 /// falling away and its amplitude with it; `tag` names its folder.
@@ -396,7 +403,7 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
             let rows = now
                 .iter()
                 .any(|t| whole(t) && t.0.ends_with(" h") && t.0.contains('–'));
-            let titled = now.iter().any(|t| whole(t) && t.0 == "Rate (s/d)");
+            let titled = now.iter().any(|t| whole(t) && t.0 == "Read");
             assert!(!rows || titled, "{w}, step {step}: {now:?}");
             shown.extend(now);
         }
@@ -427,17 +434,18 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
         );
         // No wider than the plots, scrolling sideways when it would be;
         // units in the titles, not the cells.
-        let read = head("Read (%)").1;
+        let read = head("%").1;
         assert!(
             read.right() <= plot_right + 1.0,
             "{w}: {read:?} {plot_right}"
         );
-        for title in ["Rate (s/d)", "Amplitude (°)", "Beat Error (ms)"] {
+        for title in ["Rate", "s/d", "Amplitude", "°", "Beat Error", "ms"] {
             head(title);
         }
         assert!(
             !shown.iter().any(|t| t.1.top() > ran.bottom()
                 && t.1.left() >= plot_left - 1.0
+                && t.0 != "%"
                 && (t.0.ends_with(" ms") || t.0.ends_with('%'))),
             "{w}: {shown:?}"
         );

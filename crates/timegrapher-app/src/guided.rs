@@ -935,40 +935,60 @@ fn position_head(ui: &mut egui::Ui) {
     );
 }
 
-/// A figure column's heading, at the right like its figures.
-fn column_head(ui: &mut egui::Ui, w: f32, text: &str, hint: &str) {
-    column_head_swatch(ui, w, text, hint, None);
+/// A figure column's heading, at the right like its figures: its name,
+/// and its unit on its own line under it (Hugh's ruling on #1086, as #1052
+/// set for axes); `unit` empty for none.
+fn column_head(ui: &mut egui::Ui, w: f32, name: &str, unit: &str, hint: &str) {
+    column_head_swatch(ui, w, name, unit, hint, None);
 }
 
-/// [`column_head`], with a swatch of `swatch` before the words: for a
+/// [`column_head`], with a swatch of `swatch` before the name: for a
 /// column whose figures are in the text colour because the reading's own
 /// is too faint for small text (beat error's amber in light mode).
 fn column_head_swatch(
     ui: &mut egui::Ui,
     w: f32,
-    text: &str,
+    name: &str,
+    unit: &str,
     hint: &str,
     swatch: Option<egui::Color32>,
 ) {
     let pal = theme::pal(ui);
     // Never narrower than its words, so a long heading can't run into the
     // one before it.
-    let w = w.max(head_w(ui, text) + if swatch.is_some() { 12.0 } else { 0.0 });
-    let size = Vec2::new(w, ui.spacing().interact_size.y);
-    ui.allocate_ui_with_layout(
-        size,
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            ui.set_min_size(size);
-            ui.spacing_mut().item_spacing.x = 4.0;
-            ui.label(theme::caption(text).color(pal.text_secondary))
-                .on_hover_text(hint);
-            if let Some(c) = swatch {
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
-                ui.painter().rect_filled(r, 2.0, c);
+    let w = w.max(head_w(ui, name) + if swatch.is_some() { 12.0 } else { 0.0 });
+    let line = Vec2::new(w, ui.spacing().interact_size.y);
+    // The grid's row takes the height asked for, not what overflows it:
+    // room for the unit's line (Walter's walk of #1110).
+    let lines = if unit.is_empty() { 1.0 } else { 2.0 };
+    let cell = Vec2::new(w, lines * line.y);
+    let r = ui
+        .allocate_ui_with_layout(cell, egui::Layout::top_down(egui::Align::Max), |ui| {
+            ui.set_min_width(w);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.allocate_ui_with_layout(
+                line,
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    ui.label(theme::caption(name).color(pal.text_secondary));
+                    if let Some(c) = swatch {
+                        let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
+                        ui.painter().rect_filled(r, 2.0, c);
+                    }
+                },
+            );
+            if !unit.is_empty() {
+                ui.label(RichText::new(unit).color(pal.text_secondary));
             }
-        },
-    );
+        })
+        .response;
+    ui.interact(
+        r.rect,
+        ui.id().with(("column head", name)),
+        egui::Sense::hover(),
+    )
+    .on_hover_text(hint);
 }
 
 /// How wide a column's heading is in its own type.
@@ -996,7 +1016,7 @@ fn table_grid(
     live: Option<&FreeCell>,
 ) {
     let pal = theme::pal(ui);
-    const FROM: &str = "From Average, s/d";
+    const FROM: &str = "From Average";
     let from_w = FIGURE_W.max(head_w(ui, FROM));
     // The dimming's key over the table, as the Power Reserve table's.
     crate::reserve::dim_key(ui, t.beat_error_dimmed.iter().any(|d| *d));
@@ -1010,19 +1030,21 @@ fn table_grid(
         .striped(true)
         .show(ui, |ui| {
             position_head(ui);
-            for (h, hint) in [
-                ("Rate, s/d", "Seconds a day gained (+) or lost (−)"),
+            for (h, unit, hint) in [
+                ("Rate", "s/d", "Seconds a day gained (+) or lost (−)"),
                 (
                     FROM,
+                    "s/d",
                     "This position's rate less the mean of the positions measured",
                 ),
                 (
-                    "Amplitude, °",
+                    "Amplitude",
+                    "°",
                     "The balance's swing, from the lift angle set",
                 ),
-                ("Beat Error, ms", be_hint.as_str()),
+                ("Beat Error", "ms", be_hint.as_str()),
             ] {
-                column_head(ui, FIGURE_W, h, hint);
+                column_head(ui, FIGURE_W, h, unit, hint);
             }
             ui.end_row();
             let mut status = status;
@@ -1129,33 +1151,39 @@ fn comparison_grid(ui: &mut egui::Ui, c: &Comparison) {
         .striped(true)
         .show(ui, |ui| {
             position_head(ui);
-            for (head, hint) in [
+            for (head, unit, hint) in [
                 (
-                    "Rate, Full".to_string(),
-                    "Rate at full wind, s/d".to_string(),
+                    "Rate at Full".to_string(),
+                    "s/d",
+                    "Rate at full wind (s/d)".to_string(),
                 ),
                 (
-                    format!("Rate, {h}"),
-                    format!("Rate {h} after full wind, s/d"),
+                    format!("Rate at {h}"),
+                    "s/d",
+                    format!("Rate {h} after full wind (s/d)"),
                 ),
                 (
-                    "Change".to_string(),
-                    "The later rate less the full-wind one, s/d".to_string(),
+                    "Rate Change".to_string(),
+                    "s/d",
+                    "The later rate less the full-wind one (s/d)".to_string(),
                 ),
                 (
-                    "Amplitude, Full".to_string(),
-                    "Amplitude at full wind, degrees".to_string(),
+                    "Amplitude at Full".to_string(),
+                    "°",
+                    "Amplitude at full wind (degrees)".to_string(),
                 ),
                 (
-                    format!("Amplitude, {h}"),
-                    format!("Amplitude {h} after full wind, degrees"),
+                    format!("Amplitude at {h}"),
+                    "°",
+                    format!("Amplitude {h} after full wind (degrees)"),
                 ),
                 (
-                    "Change".to_string(),
-                    "The later amplitude less the full-wind one, degrees".to_string(),
+                    "Amplitude Change".to_string(),
+                    "°",
+                    "The later amplitude less the full-wind one (degrees)".to_string(),
                 ),
             ] {
-                column_head(ui, WIDE_W, &head, &hint);
+                column_head(ui, WIDE_W, &head, unit, &hint);
             }
             ui.end_row();
             for (label, v) in &c.rows {
@@ -1675,23 +1703,25 @@ fn free_grid(ui: &mut egui::Ui, t: &FreeTable) {
         .striped(true)
         .show(ui, |ui| {
             position_head(ui);
-            for (h, hint) in [
+            for (h, unit, hint) in [
                 (
                     "Duration",
+                    "",
                     "Time marked in the position, less its settling and masked time",
                 ),
-                ("Rate, s/d", "Seconds a day gained (+) or lost (−)"),
+                ("Rate", "s/d", "Seconds a day gained (+) or lost (−)"),
                 (
-                    "Amplitude, °",
+                    "Amplitude",
+                    "°",
                     "The balance's swing, from the lift angle set",
                 ),
-                ("Beat Error, ms", "From the unlock, as a size"),
+                ("Beat Error", "ms", "From the unlock, as a size"),
             ] {
                 // Beat error's figures are in the text colour in light
                 // mode: its swatch beside the heading says whose they are.
                 let be = pal.trace_beat_error;
-                let swatch = (h == "Beat Error, ms" && pal.ink(be) != be).then_some(be);
-                column_head_swatch(ui, FIGURE_W, h, hint, swatch);
+                let swatch = (h == "Beat Error" && pal.ink(be) != be).then_some(be);
+                column_head_swatch(ui, FIGURE_W, h, unit, hint, swatch);
             }
             ui.end_row();
             for (label, duration, cell) in &t.rows {
@@ -1878,10 +1908,10 @@ pub fn table_text(t: &Table, sep: char) -> String {
     };
     let mut out = line(&[
         "Position".into(),
-        "Rate, s/d".into(),
-        "From Average, s/d".into(),
-        "Amplitude, °".into(),
-        "Beat Error, ms".into(),
+        "Rate (s/d)".into(),
+        "From Average (s/d)".into(),
+        "Amplitude (°)".into(),
+        "Beat Error (ms)".into(),
     ]);
     for (label, rate, from_mean, amp, be) in &t.rows {
         out += &line(&[
@@ -1908,11 +1938,11 @@ pub fn table_text(t: &Table, sep: char) -> String {
     ]);
     out.push('\n');
     out += &line(&[
-        "Vertical less horizontal rate, s/d".into(),
+        "Vertical less horizontal rate (s/d)".into(),
         num(t.dvh_rate, 1),
     ]);
     out += &line(&[
-        "Vertical less horizontal amplitude, °".into(),
+        "Vertical less horizontal amplitude (°)".into(),
         num(t.dvh_amplitude, 0),
     ]);
     for n in &t.notes {
@@ -2260,10 +2290,10 @@ mod tests {
         let found = drawn(&test, ph, None);
         let heads = [
             "Position",
-            "Rate, s/d",
-            "From Average, s/d",
-            "Amplitude, °",
-            "Beat Error, ms",
+            "Rate",
+            "From Average",
+            "Amplitude",
+            "Beat Error",
         ];
         let rects: Vec<egui::Rect> = heads
             .iter()
@@ -2285,6 +2315,19 @@ mod tests {
                 w[1].left()
             );
         }
+        // Each unit under its name, never the comma form (Hugh, #1086).
+        for (i, unit) in [(1, "s/d"), (2, "s/d"), (3, "°"), (4, "ms")] {
+            let n = rects[i];
+            let under = |r: &egui::Rect| r.top() >= n.bottom() - 1.0;
+            let at_right = |r: &egui::Rect| (r.right() - n.right()).abs() < 2.0;
+            let ok = found
+                .iter()
+                .any(|(t, r)| t == unit && under(r) && at_right(r));
+            assert!(ok, "{} over {unit}: {found:?}", heads[i]);
+        }
+        assert!(!found
+            .iter()
+            .any(|(t, _)| t.contains(", s/d") || t.contains(", ms")));
     }
 
     /// The position being measured shows its figures so far, once it has
@@ -2539,7 +2582,7 @@ mod tests {
         assert_eq!(lines[2], "\"Beat Rate, bph\",28800");
         assert_eq!(lines[3], "\"Lift Angle, °\",52");
         assert!(lines[4].starts_with("\"Test Began, UTC\",20"));
-        assert!(csv.contains("\nPosition,\"Rate, s/d\""));
+        assert!(csv.contains("\nPosition,Rate (s/d),"));
         let later: Vec<Reading> = readings
             .iter()
             .map(|r| {
@@ -2851,14 +2894,14 @@ mod tests {
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(
             lines[0],
-            "Position,\"Rate, s/d\",\"From Average, s/d\",\"Amplitude, °\",\"Beat Error, ms\""
+            "Position,Rate (s/d),From Average (s/d),Amplitude (°),Beat Error (ms)"
         );
         assert_eq!(lines[1], "Dial Up (DU),-3.2,-1.0,281,0.40");
         assert_eq!(lines[2], "\"Crown Up (CU, 3H)\",,,250,");
         assert_eq!(lines[3], "Average,-2.2,,266,0.40");
         assert_eq!(lines[4], "Largest Difference,,,31,");
         assert_eq!(lines[5], "");
-        assert_eq!(lines[7], "\"Vertical less horizontal amplitude, °\",-31");
+        assert_eq!(lines[7], "Vertical less horizontal amplitude (°),-31");
         assert_eq!(lines[8], "\"Crown Up (CU, 3H): no regular beat found\"");
         let tsv = table_text(&t, '\t');
         assert!(tsv
@@ -2944,7 +2987,7 @@ mod tests {
         );
         let key = find(&cells, crate::reserve::DIM_KEY_TEXT).expect("key drawn");
         assert_eq!(key.0, Some(ink.1));
-        let head = find(&cells, "Beat Error, ms").expect("title drawn");
+        let head = find(&cells, "Beat Error").expect("title drawn");
         assert!(key.1 < head.1, "{cells:?}");
         // Every row from the unlock: no grey cell, and no key.
         let (cells, ink) = draw(S::Unlock);
