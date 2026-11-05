@@ -588,14 +588,13 @@ fn map_outline(m: &Value) -> Value {
 /// `session` measured the beat shape of the first entry naming it (its
 /// `shape`'s `from_s` and `measured_s`, in `analyze`'s `take` block),
 /// none where it measured none. For a file alone, core's beat-shape
-/// stretch ([`analysis_take::shape_stretch`]): the first
-/// [`analysis_take::SHAPE_S`] once the watch has settled
-/// ([`take::measured`]), with nothing masked. None for an empty recording
-/// or one with no regular beat.
+/// stretch for a take of one entry naming it
+/// ([`analysis_take::shape_stretches`]): the first
+/// [`analysis_take::SHAPE_S`] once the watch has settled, with nothing
+/// masked. None for an empty recording or one with no regular beat.
 ///
-/// [`analysis_take::shape_stretch`]: timegrapher_core::analysis_take::shape_stretch
+/// [`analysis_take::shape_stretches`]: timegrapher_core::analysis_take::shape_stretches
 /// [`analysis_take::SHAPE_S`]: timegrapher_core::analysis_take::SHAPE_S
-/// [`take::measured`]: timegrapher_core::take::measured
 pub fn profile_stretch(doc: &Value) -> Option<(f64, f64)> {
     if let Some(readings) = doc["take"]["readings"].as_array() {
         return readings.iter().find_map(|r| {
@@ -606,9 +605,20 @@ pub fn profile_stretch(doc: &Value) -> Option<(f64, f64)> {
     if doc["watch_heard"] == json!(false) {
         return None;
     }
+    // A file alone reads as a take of one entry naming it, with no
+    // session file's settings: core's beat-shape stretch for that entry.
+    use timegrapher_core::session::{Manifest, RecordingEntry};
     let duration_s = doc["duration_s"].as_f64().unwrap_or(0.0);
-    let (from, to) = timegrapher_core::take::measured(0.0, duration_s, None, None);
-    timegrapher_core::analysis_take::shape_stretch(&[], from, to)
+    let alone = Manifest {
+        recordings: vec![RecordingEntry {
+            file: ".".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let shapes = timegrapher_core::analysis_take::shape_stretches(&alone, duration_s);
+    let (from, to) = shapes.into_iter().next().flatten()?;
+    Some((from, to - from))
 }
 
 /// What the Recording view needs beyond `analyze`'s document: the strip

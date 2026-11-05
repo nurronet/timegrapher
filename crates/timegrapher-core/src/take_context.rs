@@ -75,7 +75,8 @@ pub struct TakeContext {
     /// its analysis alone.
     pub files: Vec<FilePart>,
     /// The stretches masked by hand, in take seconds: each entry's masks
-    /// moved by its recording's offset.
+    /// moved by its recording's offset, in order and merged where they
+    /// meet ([`crate::session::masked_spans`]).
     pub masked: Vec<(f64, f64)>,
     /// Each session entry's window, in the session file's order.
     pub entries: Vec<EntryWindow>,
@@ -242,10 +243,27 @@ impl TakeContext {
             breaks: opened.breaks,
             unlisted: opened.unlisted,
             files,
-            masked: masked.iter().map(|&[a, b]| (a, b)).collect(),
+            masked: crate::session::masked_spans(&masked),
             entries,
         };
         Ok((ctx, opened.log))
+    }
+}
+
+impl TakeContext {
+    /// Each entry of `m` (the session file the context was opened from)
+    /// that names a position, as [`take::listed_positions`] gives them but
+    /// in take seconds: the stretch's start, the start of what is read once
+    /// the watch has settled and the end of that (an entry that reads
+    /// nothing settling to its end), and the position.
+    pub fn listed_positions(&self, m: &Manifest) -> Vec<(f64, f64, Option<f64>, Position)> {
+        m.recordings
+            .iter()
+            .zip(&self.entries)
+            .filter_map(|(e, w)| {
+                take::listed_position(e, w.window.as_ref().ok().copied(), w.offset_s)
+            })
+            .collect()
     }
 }
 

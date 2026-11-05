@@ -473,19 +473,30 @@ pub fn listed_positions(
 ) -> Vec<(f64, f64, Option<f64>, session::Position)> {
     entries
         .iter()
-        .filter_map(|e| {
-            let p = session::Position::parse(e.position.as_deref()?)?;
-            let start = e.start_s.unwrap_or(0.0);
-            let (from, to) = match reading_window(e, m, None, length_s) {
-                Ok(w) => (w.from_s, w.to_s),
-                Err(_) => {
-                    let end = e.end_s.unwrap_or(start);
-                    (end, end)
-                }
-            };
-            Some((start, from, to.is_finite().then_some(to), p))
-        })
+        .filter_map(|e| listed_position(e, reading_window(e, m, None, length_s).ok(), 0.0))
         .collect()
+}
+
+/// Entry `e`'s listed position, as [`listed_positions`] gives it, in take
+/// seconds: `offset_s` is where its recording starts in the take and
+/// `window` its reading window already moved there (none where it reads
+/// nothing); the entry's own `start_s` and `end_s` are moved by
+/// `offset_s`. None when it names no position.
+pub fn listed_position(
+    e: &RecordingEntry,
+    window: Option<Window>,
+    offset_s: f64,
+) -> Option<(f64, f64, Option<f64>, session::Position)> {
+    let p = session::Position::parse(e.position.as_deref()?)?;
+    let start = e.start_s.unwrap_or(0.0) + offset_s;
+    let (from, to) = match window {
+        Some(w) => (w.from_s, w.to_s),
+        None => {
+            let end = e.end_s.map_or(start, |t| t + offset_s);
+            (end, end)
+        }
+    };
+    Some((start, from, to.is_finite().then_some(to), p))
 }
 
 /// A take's changes of position (where each began, and the position)
