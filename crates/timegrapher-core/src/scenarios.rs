@@ -682,7 +682,7 @@ mod tests {
             (7200.0, 0.3, 4),
             (7200.0, 0.5, 3),
             // One more take each from #1030's leveller clip, seed 82's
-            // rate (Peter, 2026-11-05).
+            // rate (decided on #659).
             (28800.0, 0.0, 3),
             (28800.0, 0.3, 3),
             (28800.0, 0.5, 2),
