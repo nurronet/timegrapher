@@ -289,77 +289,23 @@ pub struct AppliedClock {
     pub from: String,
 }
 
-/// The clock for a take `total_s` long, read as `info` says: from the clock
-/// `log` when there is one, with the recording's `usb` lines setting its
-/// rate; else the USB lines, else a `correction` known for the input
-/// ([`take::clock_from`]). A log makes a correction unneeded, so
-/// `correction` is only asked for without one.
-pub fn resolve(
-    log: Option<&Path>,
-    info: &audio::AudioInfo,
-    total_s: f64,
-    usb: impl FnOnce() -> Result<Option<(f64, String)>, String>,
-    correction: impl FnOnce() -> Result<Option<(f64, String)>, String>,
-) -> Result<Option<AppliedClock>, String> {
-    let text = match log {
-        Some(path) => {
-            Some(fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?)
-        }
-        None => None,
-    };
-    let correction = match log {
-        Some(_) => None,
-        None => correction()?,
-    };
-    let usb = usb()?;
-    let fit = take::clock(
-        text.as_deref(),
-        info.sample_rate,
-        info.bytes_per_frame,
-        usb.as_ref().map(|(ppm, _)| *ppm),
-        correction.as_ref().map(|(ppm, _)| *ppm),
-        total_s,
-    )
-    .map_err(|e| match log {
-        Some(path) => format!("{}: {e}", path.display()),
-        None => e,
-    })?;
-    let source = take::clock_from(
-        log.is_some(),
-        usb.as_ref().map(|(ppm, _)| *ppm),
-        correction.as_ref().map(|(ppm, _)| *ppm),
-    );
-    Ok(applied(fit, source, usb, correction, log))
-}
-
-/// The clock `fit` read from `source`, with the rate the USB lines or the
-/// correction give and where it came from in words.
-pub fn applied(
-    fit: Option<ClockFit>,
-    source: Option<take::ClockFrom>,
-    usb: Option<(f64, String)>,
-    correction: Option<(f64, String)>,
-    log: Option<&Path>,
-) -> Option<AppliedClock> {
-    let source = source?;
-    let ppm = match source {
-        take::ClockFrom::Log => None,
-        take::ClockFrom::LogRatedByUsb | take::ClockFrom::Usb => usb.as_ref().map(|(p, _)| *p),
-        take::ClockFrom::Correction => correction.as_ref().map(|(p, _)| *p),
-    };
-    let from = take::clock_source_text(
-        source,
-        usb.as_ref().map(|(_, f)| f.as_str()),
-        correction.as_ref().map(|(_, f)| f.as_str()),
-        log,
-    );
-    fit.map(|fit| AppliedClock { fit, ppm, from })
+impl AppliedClock {
+    /// The clock core read (`take::open_entry`, `take::read_clock`): its
+    /// `fit`, the USB lines' or correction's `ppm`, and its `source` in
+    /// words; none on the sound card's clock.
+    pub fn of(fit: Option<ClockFit>, ppm: Option<f64>, source: Option<String>) -> Option<Self> {
+        fit.map(|fit| AppliedClock {
+            fit,
+            ppm,
+            from: source.unwrap_or_default(),
+        })
+    }
 }
 
 /// The correction to apply to a recording, and the sound card's error
 /// read from its USB lines, each with its source text, as core reads
 /// them for every surface.
-pub use take::{correction, usb};
+pub use take::correction;
 
 #[cfg(test)]
 #[expect(

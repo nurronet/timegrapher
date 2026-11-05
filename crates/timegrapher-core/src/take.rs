@@ -935,60 +935,115 @@ pub fn open_entry(
         Some(_) => Vec::new(),
         None => sound_files(std::slice::from_ref(&path))?,
     };
+    // A take kept as its analysis alone: every part of the take was in
+    // it, so its session.json lists its breaks for the whole take's sound.
+    // One that is there but can't be read is said, as for a take with its
+    // sound ([`breaks::Unlisted::Unreadable`]), never taken for none.
+    let json = kept
+        .as_ref()
+        .map(|_| breaks::read_session(&path.join(RECORD)));
+    let sound = Sound {
+        name: &e.file,
+        kept,
+        json,
+        files,
+        clock_path: e.clock.as_ref().map(|p| base.join(p)),
+        masked: &e.masked,
+    };
+    open_sound(sound, m, s, usb, correction, progress)
+}
+
+/// Open the sound `files` as one recording with no session file, as
+/// [`open_entry`] opens a take: each a sound file or a folder of them,
+/// read in order ([`sound_files`]), on the clock log `clock_log` when one
+/// is given, with no masks. `usb`, `correction` and `progress` are as
+/// [`open_entry`] takes them.
+pub fn open_files(
+    files: &[PathBuf],
+    clock_log: Option<&Path>,
+    s: &EntrySettings,
+    usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
+    correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
+    progress: impl FnMut(f64, f64),
+) -> Result<OpenedEntry, String> {
+    let files = sound_files(files)?;
+    let name = files
+        .first()
+        .ok_or("no recording given")?
+        .display()
+        .to_string();
+    let sound = Sound {
+        name: &name,
+        kept: None,
+        json: None,
+        files,
+        clock_path: clock_log.map(Path::to_path_buf),
+        masked: &[],
+    };
+    open_sound(sound, &Manifest::default(), s, usb, correction, progress)
+}
+
+/// What [`open_sound`] opens: a take's entry, or loose sound files.
+struct Sound<'a> {
+    /// The name its errors are given under.
+    name: &'a str,
+    /// The take kept as its analysis alone, when it is one.
+    kept: Option<analysis_take::Stored>,
+    /// That take's `session.json`, read.
+    json: Option<Result<Option<serde_json::Value>, breaks::Unlisted>>,
+    /// The sound files, in order; empty for a kept take.
+    files: Vec<PathBuf>,
+    clock_path: Option<PathBuf>,
+    /// The stretches masked by hand, as the session file lists them.
+    masked: &'a [[f64; 2]],
+}
+
+/// Open `sound` with session file `m` (none for loose files), as
+/// [`open_entry`] says.
+fn open_sound(
+    sound: Sound,
+    m: &Manifest,
+    s: &EntrySettings,
+    usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
+    correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
+    progress: impl FnMut(f64, f64),
+) -> Result<OpenedEntry, String> {
+    let Sound {
+        name,
+        kept,
+        json,
+        files,
+        clock_path,
+        masked,
+    } = sound;
     let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
-    let mut log = entry_log(kept.as_ref(), &paths, &s.stream, &e.file, progress)?;
-    let clock_path = e.clock.as_ref().map(|p| base.join(p));
+    let mut log = entry_log(kept.as_ref(), &paths, &s.stream, name, progress)?;
     let clock_text = match &clock_path {
         Some(f) => Some(fs::read_to_string(f).map_err(|err| format!("{}: {err}", f.display()))?),
         None => None,
     };
-    let EntryClock {
+    let ReadClock {
         mut fit,
         from: clock_from,
-        usb_known,
-        correction_known,
+        ppm: clock_ppm,
+        source: clock_source,
     } = entry_clock(
         kept.as_ref(),
         &files,
         m,
         s.card_clock,
-        clock_text.as_deref(),
-        clock_path.as_deref(),
+        (clock_text.as_deref(), clock_path.as_deref()),
         log.duration_s,
         usb,
         correction,
     )?;
-    let clock_from = clock_from.filter(|_| fit.is_some());
-    // The steady error the clock puts on the take, and where it came from
-    // in words, said once for every surface.
-    let clock_ppm = clock_from.and_then(|from| match from {
-        ClockFrom::Log => None,
-        ClockFrom::LogRatedByUsb | ClockFrom::Usb => usb_known.as_ref().map(|(p, _)| *p),
-        ClockFrom::Correction => correction_known.as_ref().map(|(p, _)| *p),
-    });
-    let clock_source = clock_from.map(|from| {
-        clock_source_text(
-            from,
-            usb_known.as_ref().map(|(_, t)| t.as_str()),
-            correction_known.as_ref().map(|(_, t)| t.as_str()),
-            clock_path.as_deref(),
-        )
-    });
-    // A take kept as its analysis alone: every part of the take was in
-    // it, so its session.json lists its breaks for the whole take's sound.
-    // One that is there but can't be read is said, as for a take with its
-    // sound ([`breaks::Unlisted::Unreadable`]), never taken for none.
-    let json = match &kept {
-        Some(_) => breaks::read_session(&path.join(RECORD)),
-        None => Ok(None),
-    };
-    let listed = match &kept {
-        Some(_) => Listed::Session(json.as_ref().map(Option::as_ref).map_err(|w| *w)),
+    let listed = match &json {
+        Some(json) => Listed::Session(json.as_ref().map(Option::as_ref).map_err(|w| *w)),
         None => Listed::Files(&paths),
     };
     let breaks::Found { breaks, unlisted } = breaks(&mut log, listed, fit.as_mut());
     // Stretches masked by hand are left out of everything read below.
-    let masked = session::masked_spans(&e.masked);
+    let masked = session::masked_spans(masked);
     session::mask_log(&mut log, &masked);
     Ok(OpenedEntry {
         files,
@@ -1066,18 +1121,77 @@ fn entry_log(
     }
 }
 
-/// The clock an entry is read on ([`entry_clock`]): its fit, where it
-/// came from, and the USB and correction readings it was given, each
-/// with its words.
-struct EntryClock {
-    fit: Option<ClockFit>,
-    from: Option<ClockFrom>,
-    usb_known: Option<(f64, String)>,
-    correction_known: Option<(f64, String)>,
+/// A take's clock, read as [`read_clock`] reads it.
+#[derive(Debug, Clone, Default)]
+pub struct ReadClock {
+    /// The clock the readings are on, and where it came from; both `None`
+    /// on the sound card's clock.
+    pub fit: Option<ClockFit>,
+    pub from: Option<ClockFrom>,
+    /// The steady error, ppm slow, the clock puts on the take: a USB or
+    /// known correction's; `None` for a clock log's fit or the card's.
+    pub ppm: Option<f64>,
+    /// Where the clock came from, in words ([`clock_source_text`]).
+    pub source: Option<String>,
 }
 
-/// The clock of an entry, from its clock log `clock_text` (read from
-/// `clock_path`), the USB clock and the card correction: as it was
+/// A take's clock, as every surface reads it: [`clock`] from its clock
+/// log (`log`: its text, and the file it was read from), the USB lines
+/// `usb` gives and the correction `correction` gives (each ppm slow, with
+/// its words), on sound at `rate` Hz with `bytes_per_frame`, `duration_s`
+/// long; with its steady error and where it came from in words, said
+/// once for every surface. A clock log makes a correction unneeded, so
+/// `correction` is asked only without one, and before `usb`.
+pub fn read_clock(
+    (text, path): (Option<&str>, Option<&Path>),
+    (rate, bytes_per_frame): (u32, u32),
+    duration_s: f64,
+    usb: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+    correction: impl FnOnce() -> Result<Option<(f64, String)>, String>,
+) -> Result<ReadClock, String> {
+    let correction_known = match text {
+        Some(_) => None,
+        None => correction()?,
+    };
+    let usb_known = usb()?;
+    let usb_ppm = usb_known.as_ref().map(|(p, _)| *p);
+    let correction_ppm = correction_known.as_ref().map(|(p, _)| *p);
+    let fit = clock(
+        text,
+        rate,
+        bytes_per_frame,
+        usb_ppm,
+        correction_ppm,
+        duration_s,
+    )
+    .map_err(|err| match path {
+        Some(p) => format!("{}: {err}", p.display()),
+        None => err,
+    })?;
+    let from = clock_from(text.is_some(), usb_ppm, correction_ppm).filter(|_| fit.is_some());
+    let ppm = from.and_then(|from| match from {
+        ClockFrom::Log => None,
+        ClockFrom::LogRatedByUsb | ClockFrom::Usb => usb_ppm,
+        ClockFrom::Correction => correction_ppm,
+    });
+    let source = from.map(|from| {
+        clock_source_text(
+            from,
+            usb_known.as_ref().map(|(_, t)| t.as_str()),
+            correction_known.as_ref().map(|(_, t)| t.as_str()),
+            path,
+        )
+    });
+    Ok(ReadClock {
+        fit,
+        from,
+        ppm,
+        source,
+    })
+}
+
+/// The clock of an entry ([`read_clock`]), from its clock `log` (its
+/// text and file), the USB clock and the card correction: as it was
 /// recorded for a take `kept` as its analysis alone, or from its sound
 /// `files`. None of it when the rates stay on the card's own clock.
 #[expect(
@@ -1089,26 +1203,13 @@ fn entry_clock(
     files: &[PathBuf],
     m: &Manifest,
     card_clock: bool,
-    clock_text: Option<&str>,
-    clock_path: Option<&Path>,
+    log: (Option<&str>, Option<&Path>),
     duration_s: f64,
     usb: impl FnOnce(&[PathBuf]) -> Result<Option<(f64, String)>, String>,
     correction: impl FnOnce(&Path) -> Result<Option<(f64, String)>, String>,
-) -> Result<EntryClock, String> {
-    let named = |err: String| match clock_path {
-        Some(p) => format!("{}: {err}", p.display()),
-        None => err,
-    };
-    let has_log = clock_text.is_some();
-    let (rate, bytes, usb_known, correction_known, card_ppm) = match kept {
-        _ if card_clock => {
-            return Ok(EntryClock {
-                fit: None,
-                from: None,
-                usb_known: None,
-                correction_known: None,
-            })
-        }
+) -> Result<ReadClock, String> {
+    match kept {
+        _ if card_clock => Ok(ReadClock::default()),
         // Read as it was recorded: its sound is not here.
         Some(k) => {
             let usb_known = k.header.usb_clock.map(|u| {
@@ -1119,44 +1220,30 @@ fn entry_clock(
                 }
                 .correction()
             });
-            let correction_known = m
-                .card_ppm
-                .map(|p| (p, format!("card_ppm {p} in {MANIFEST}")));
             let h = &k.header;
-            (
-                h.sample_rate,
-                h.bytes_per_frame,
-                usb_known,
-                correction_known,
-                m.card_ppm,
+            read_clock(
+                log,
+                (h.sample_rate, h.bytes_per_frame),
+                duration_s,
+                || Ok(usb_known),
+                || {
+                    Ok(m.card_ppm
+                        .map(|p| (p, format!("card_ppm {p} in {MANIFEST}"))))
+                },
             )
         }
         None => {
             let info = crate::audio::info(&files[0])
                 .map_err(|err| format!("{}: {err}", files[0].display()))?;
-            let correction_known = match clock_text {
-                Some(_) => None,
-                None => correction(&files[0])?,
-            };
-            let usb_known = usb(files)?;
-            let correction_ppm = correction_known.as_ref().map(|(p, _)| *p);
-            (
-                info.sample_rate,
-                info.bytes_per_frame,
-                usb_known,
-                correction_known,
-                correction_ppm,
+            read_clock(
+                log,
+                (info.sample_rate, info.bytes_per_frame),
+                duration_s,
+                || usb(files),
+                || correction(&files[0]),
             )
         }
-    };
-    let usb_ppm = usb_known.as_ref().map(|(p, _)| *p);
-    let fit = clock(clock_text, rate, bytes, usb_ppm, card_ppm, duration_s).map_err(named)?;
-    Ok(EntryClock {
-        fit,
-        from: clock_from(has_log, usb_ppm, card_ppm),
-        usb_known,
-        correction_known,
-    })
+    }
 }
 
 /// Read entry `e` of the take described by `m` in the folder `base`, as
@@ -1870,6 +1957,100 @@ mod tests {
             card.clock_from
         );
         assert_eq!(card.clock_ppm, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Loose sound files open as a take of them opens (#508): the same
+    /// beats, clock and breaks, on the clock log given, which makes a
+    /// correction unneeded.
+    #[test]
+    fn loose_files_open_as_the_take_of_them_opens() {
+        use crate::synth::{generate, SynthConfig};
+        let dir = std::env::temp_dir().join(format!("tg-open-files-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = SynthConfig {
+            duration_s: 40.0,
+            ..SynthConfig::default()
+        };
+        let audio = generate(&cfg, |_| 280.0, |_| 5.0);
+        let half = audio.samples.len() / 2;
+        for (name, part) in [
+            ("audio-001.wav", &audio.samples[..half]),
+            ("audio-002.wav", &audio.samples[half..]),
+        ] {
+            let a = crate::audio::Audio {
+                samples: part.to_vec(),
+                sample_rate: audio.sample_rate,
+            };
+            crate::audio::write_wav(&dir.join(name), &a).unwrap();
+        }
+        // A line every 4 s, the card 20 ppm slow.
+        let mut text = String::from("unix_s,frames\n");
+        for k in 0..=10 {
+            let audio_s = k as f64 * 4.0;
+            let frames = (audio_s * f64::from(audio.sample_rate)) as u64;
+            text.push_str(&format!("{},{frames}\n", 1.7e9 + audio_s * (1.0 + 20e-6)));
+        }
+        let log = dir.join("clock.csv");
+        fs::write(&log, &text).unwrap();
+        let m: Manifest =
+            toml::from_str("bph = 28800\n\n[[recording]]\nfile = \".\"\nclock = \"clock.csv\"\n")
+                .unwrap();
+        let s = EntrySettings {
+            stream: stream_settings(&m, None, Given::default()),
+            card_clock: false,
+            settle_s: None,
+        };
+        let no_correction = |_: &Path| -> Result<Option<(f64, String)>, String> {
+            panic!("a clock log makes a correction unneeded")
+        };
+        let take = open_entry(
+            &dir,
+            &m,
+            &m.recordings[0],
+            &s,
+            |_| Ok(None),
+            no_correction,
+            |_, _| {},
+        )
+        .unwrap();
+        let files = [dir.join("audio-001.wav"), dir.join("audio-002.wav")];
+        let loose = open_files(
+            &files,
+            Some(&log),
+            &s,
+            |_| Ok(None),
+            no_correction,
+            |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&loose.log).unwrap(),
+            serde_json::to_value(&take.log).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&loose.breaks).unwrap(),
+            serde_json::to_value(&take.breaks).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(&loose.clock).unwrap(),
+            serde_json::to_value(&take.clock).unwrap()
+        );
+        assert_eq!(loose.files, take.files);
+        assert_eq!(loose.clock_from, Some(ClockFrom::Log));
+        assert_eq!(loose.clock_source, take.clock_source);
+        assert_eq!(
+            loose.clock_source.as_deref(),
+            Some("from clock log clock.csv")
+        );
+        assert!(loose
+            .clock
+            .as_ref()
+            .is_some_and(|c| (c.ppm - 20.0).abs() < 0.5));
+        assert!(loose.masked.is_empty() && loose.kept.is_none());
+        // With no files there is nothing to open.
+        assert!(open_files(&[], None, &s, |_| Ok(None), |_| Ok(None), |_, _| {}).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
