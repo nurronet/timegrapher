@@ -274,7 +274,14 @@ impl TakeContext {
     /// hours, is cut by, as the app cuts the take it opens.
     pub fn reading_breaks(&self, m: &Manifest) -> Vec<Break> {
         let (stretches, settles) = take::positions_of(self.listed_positions(m).into_iter());
-        let changes: Vec<f64> = stretches.iter().map(|s| s.0).collect();
+        // An entry in the position the one before it was in (the next file
+        // of a take split into files) is no change of position.
+        let changes: Vec<f64> = stretches
+            .iter()
+            .enumerate()
+            .filter(|&(i, s)| i == 0 || stretches[i - 1].1 != s.1)
+            .map(|(_, s)| s.0)
+            .collect();
         breaks::with_jumps(
             self.breaks.clone(),
             &take::reading_cuts(&self.breaks, &changes, &settles),
