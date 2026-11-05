@@ -540,10 +540,6 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ("ym42_DD_30min beat_error 2 s", SETTLE),
     ("ym42_DU_2h amplitude 2 s", SETTLE),
     ("ym42_DU_2h beat_error 2 s", SETTLE),
-    (
-        "reverso21600_DU_level_overnight power reserve",
-        "#1150: session reads each 10-minute entry alone, too short for a run",
-    ),
 ];
 
 /// #1145, in [`PANES_KNOWN`].
