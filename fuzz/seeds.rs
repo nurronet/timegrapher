@@ -23,7 +23,7 @@ fn seed(target: &str, name: &str, data: &[u8]) {
 fn main() {
     let manifests = [
         "bph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\nclock = \"clock.csv\"\n",
-        "audio = false\nbph = 21600\nlift_known = false\ncard_ppm = -3.5\nsettle_s = 20\nmeasure_s = 60\n\
+        "audio = false\nbph = 21600\nlift_known = false\ncard_ppm_fast = 3.5\nsettle_s = 20\nmeasure_s = 60\n\
          wheels = { \"third wheel\" = 450.0 }\n\n\
          [[recording]]\nfile = \"du.flac\"\nposition = \"DU\"\nwind_h = 0\nstart_s = 5\nend_s = 50\n\
          masked = [[10.0, 12.5], [30.0, 31.0]]\n\n\
@@ -135,4 +135,27 @@ fn main() {
         "seed-raw",
         &[b"!".as_slice(), &raw.join(common::SPLIT)].concat(),
     );
+
+    // Real watch sound (the core test fixture, CC0), as 24-bit mono at
+    // gains 1, 4, 32 and 512: flacenc once wrote the last three in up to
+    // 1,400 times their plain size.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../crates/timegrapher-core/tests/fixtures/aquanaut324_DU_1s.flac");
+    let real: Vec<i32> = claxon::FlacReader::open(fixture)
+        .unwrap()
+        .samples()
+        .map(Result::unwrap)
+        .collect();
+    let as_24: Vec<u8> = real
+        .iter()
+        .flat_map(|&v| (v << 8).to_be_bytes()[1..].to_vec())
+        .collect();
+    for gain in [0u8, 2, 5, 9] {
+        let pick = 2 | gain << 3;
+        seed(
+            "flac_encode",
+            &format!("real-x{}", 1u32 << gain),
+            &[&[pick], as_24.as_slice()].concat(),
+        );
+    }
 }
