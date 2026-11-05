@@ -949,7 +949,7 @@ fn a_readings_limits_never_cut_its_caption() {
         let texts = window_texts(&mut app, &ctx, w);
         for caption in ["Rate", "Amplitude", "Beat Error"] {
             // Whole, or by its short name on a narrow card (#1061).
-            let short = theme::short_name(caption).unwrap_or(caption);
+            let short = timegrapher_core::steady_views::short_name(caption).unwrap_or(caption);
             assert!(
                 texts.iter().any(|t| t == caption || t == short),
                 "{caption} at {w}: {texts:?}"
@@ -1004,10 +1004,10 @@ fn the_cards_read_position_calibre_listen_then_the_readings() {
             line.as_str(),
             "Listen",
             "Rate",
-            theme::short_name("Amplitude")
+            timegrapher_core::steady_views::short_name("Amplitude")
                 .filter(|_| w <= 800.0)
                 .unwrap_or("Amplitude"),
-            theme::short_name("Beat Error")
+            timegrapher_core::steady_views::short_name("Beat Error")
                 .filter(|_| w <= 800.0)
                 .unwrap_or("Beat Error"),
         ];

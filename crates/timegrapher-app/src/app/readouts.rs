@@ -4,6 +4,7 @@ use super::*;
 use crate::sparkline;
 use timegrapher_core::figure_text::{figure, figure_with_pm as with_pm, true_minus};
 use timegrapher_core::library::{base_digits as base, fixed_text, pm_text, signed_text};
+use timegrapher_core::steady_views;
 
 /// What the reading cards draw from.
 struct CardCtx<'a> {
@@ -234,7 +235,8 @@ pub(crate) fn card_title(
             // Too narrow for the whole caption (800 pt), its short form as
             // the axes have it, the whole one on a hover, rather than a
             // cut "Ampli…" that names nothing (#1061).
-            let short = theme::short_name(caption).filter(|_| caption_w > ui.available_width());
+            let short =
+                steady_views::short_name(caption).filter(|_| caption_w > ui.available_width());
             let r = ui.add(
                 egui::Label::new(
                     RichText::new(short.unwrap_or(caption))
