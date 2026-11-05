@@ -389,6 +389,9 @@ pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
         && position(before) == position(e)
         && e.start_s.is_none()
         && before.end_s.is_none()
+        // An entry that gives its own settling settles: the watch was
+        // handled there (ym42_CR_long's third file, #1184).
+        && e.settle_s.is_none_or(|s| s == 0.0)
 }
 
 /// The stretch entry `e` of the take `m` reads in a recording of
@@ -464,18 +467,24 @@ pub fn whole_entry(
 /// Each of `entries` of the take `m` that names a position: the
 /// stretch's start, the start of what is read once the watch has settled
 /// and the end of that ([`reading_window`], an entry that reads nothing
-/// settling to its end), and the position. `length_s` is the recording's
-/// length, infinite where it is not known.
+/// settling to its end), the position, and whether it carries on the
+/// entry before it ([`continues_position`]). `length_s` is the
+/// recording's length, infinite where it is not known.
 pub fn listed_positions(
     m: &Manifest,
     entries: &[RecordingEntry],
     length_s: f64,
-) -> Vec<(f64, f64, Option<f64>, session::Position)> {
+) -> Vec<ListedPosition<session::Position>> {
     entries
         .iter()
-        .filter_map(|e| listed_position(e, reading_window(e, m, None, length_s).ok(), 0.0))
+        .filter_map(|e| listed_position(e, m, reading_window(e, m, None, length_s).ok(), 0.0))
         .collect()
 }
+
+/// A listed position: the stretch's start, the start of what is read,
+/// the end of that, the position, and whether the entry carries on the
+/// one before it ([`continues_position`]), so that it is no change.
+pub type ListedPosition<P> = (f64, f64, Option<f64>, P, bool);
 
 /// Entry `e`'s listed position, as [`listed_positions`] gives it, in take
 /// seconds: `offset_s` is where its recording starts in the take and
@@ -484,9 +493,10 @@ pub fn listed_positions(
 /// `offset_s`. None when it names no position.
 pub fn listed_position(
     e: &RecordingEntry,
+    m: &Manifest,
     window: Option<Window>,
     offset_s: f64,
-) -> Option<(f64, f64, Option<f64>, session::Position)> {
+) -> Option<ListedPosition<session::Position>> {
     let p = session::Position::parse(e.position.as_deref()?)?;
     let start = e.start_s.unwrap_or(0.0) + offset_s;
     let (from, to) = match window {
@@ -496,25 +506,35 @@ pub fn listed_position(
             (end, end)
         }
     };
-    Some((start, from, to.is_finite().then_some(to), p))
+    Some((
+        start,
+        from,
+        to.is_finite().then_some(to),
+        p,
+        continues_position(e, m),
+    ))
 }
 
 /// A take's changes of position (where each began, and the position)
 /// and the settling after each (start, end).
 pub type Positions<P> = (Vec<(f64, P)>, Vec<(f64, f64)>);
 
-/// The positions listed (start, start of what is read, end, position),
-/// as changes oldest first and the settling before each: from the end of
-/// the one before (or the take's start, for the first) to where its
-/// reading starts.
-pub fn positions_of<P: Copy>(
-    listed: impl Iterator<Item = (f64, f64, Option<f64>, P)>,
-) -> Positions<P> {
-    let mut listed: Vec<(f64, f64, Option<f64>, P)> = listed.collect();
+/// The positions listed (start, start of what is read, end, position,
+/// carried on), as changes oldest first and the settling before each:
+/// from the end of the one before (or the take's start, for the first) to
+/// where its reading starts. An entry that carries on the one before it
+/// ([`continues_position`]: the next file of one recording, the watch not
+/// handled) is no change, so the take is one stretch across it and
+/// nothing is cut there (#1166).
+pub fn positions_of<P: Copy>(listed: impl Iterator<Item = ListedPosition<P>>) -> Positions<P> {
+    let mut listed: Vec<ListedPosition<P>> = listed.collect();
     listed.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut out = Vec::new();
     let mut settles = Vec::new();
-    for (i, &(start, from, _, p)) in listed.iter().enumerate() {
+    for (i, &(start, from, _, p, carried)) in listed.iter().enumerate() {
+        if carried && i > 0 {
+            continue;
+        }
         // The position began where the one before it ended, the first at
         // the take's start: the app saves each entry from the end of its
         // settling, the first's too.
@@ -1735,9 +1755,9 @@ mod tests {
         assert_eq!(
             listed,
             vec![
-                (0.0, 30.0, Some(600.0), p("DU")),
-                (650.0, 660.0, Some(660.0), p("CD")),
-                (700.0, 730.0, None, p("CU")),
+                (0.0, 30.0, Some(600.0), p("DU"), false),
+                (650.0, 660.0, Some(660.0), p("CD"), false),
+                (700.0, 730.0, None, p("CU"), false),
             ]
         );
     }
@@ -1749,13 +1769,68 @@ mod tests {
     #[test]
     fn a_position_begins_where_the_one_before_ended() {
         let listed = [
-            (290.0, 320.0, None, 'C'),
-            (0.0, 0.0, Some(100.0), 'A'),
-            (120.0, 150.0, Some(300.0), 'B'),
+            (290.0, 320.0, None, 'C', false),
+            (0.0, 0.0, Some(100.0), 'A', false),
+            (120.0, 150.0, Some(300.0), 'B', false),
         ];
         let (changes, settles) = positions_of(listed.into_iter());
         assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (290.0, 'C')]);
         assert_eq!(settles, vec![(100.0, 150.0), (290.0, 320.0)]);
+    }
+
+    /// An entry that carries on the one before it ([`continues_position`])
+    /// is no change: the take is one stretch across it (#1166). Two entries
+    /// of one file split at 600 s with `settle_s = 0` do not carry on, so
+    /// they stay two, as `series` cuts them.
+    #[test]
+    fn a_carried_on_entry_is_no_change_of_position() {
+        let m: Manifest = toml::from_str(
+            "[[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nsettle_s = 20.0\n\
+             [[recording]]\nfile = \"b.flac\"\nposition = \"DD\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"DD\"\n",
+        )
+        .unwrap();
+        let carried: Vec<bool> = m
+            .recordings
+            .iter()
+            .map(|e| continues_position(e, &m))
+            .collect();
+        assert_eq!(carried, [false, true, true]);
+        let listed = [
+            (0.0, 20.0, Some(600.0), 'D', false),
+            (600.0, 600.0, Some(1200.0), 'D', true),
+            (1200.0, 1200.0, None, 'D', true),
+        ];
+        let (changes, settles) = positions_of(listed.into_iter());
+        assert_eq!(changes, vec![(0.0, 'D')]);
+        assert_eq!(settles, vec![(0.0, 20.0)]);
+        let split: Manifest = toml::from_str(
+            "settle_s = 0.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nstart_s = 600.0\n",
+        )
+        .unwrap();
+        let listed = listed_positions(&split, &split.recordings, 1200.0);
+        assert!(listed.iter().all(|l| !l.4), "{listed:?}");
+        // ym42_CR_long's third file: a carried-on entry with its own
+        // measure_s, then one of the same file with its own settle_s. The
+        // second settles, so it is a change, however the first is read.
+        let own: Manifest = toml::from_str(
+            "[[recording]]\nfile = \"b.flac\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"CR\"\nmeasure_s = 337.0\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"CR\"\nsettle_s = 377.0\n",
+        )
+        .unwrap();
+        assert!(continues_position(&own.recordings[1], &own));
+        assert!(!continues_position(&own.recordings[2], &own));
+        let listed = listed_positions(&own, &own.recordings[1..], 600.0);
+        assert_eq!(
+            listed.iter().map(|l| l.4).collect::<Vec<_>>(),
+            [true, false]
+        );
+        assert_eq!(listed[1].1, 377.0);
+        let (changes, _) = positions_of(listed.into_iter());
+        assert_eq!(changes.len(), 2);
     }
 
     /// A reading reaches across no break, no change of position after the
@@ -2082,8 +2157,8 @@ mod tests {
 
     /// The next file of a recording in the same position carries on the
     /// one before and does not settle again; a new position, a file read
-    /// from partway in, one after a file stopped early, or the first, does
-    /// (#1145).
+    /// from partway in, one after a file stopped early, one with its own
+    /// settling, or the first, does (#1145, #1184).
     #[test]
     fn a_file_carrying_on_its_position_does_not_settle_again() {
         let m: Manifest = toml::from_str(
@@ -2093,7 +2168,8 @@ mod tests {
              [[recording]]\nfile = \"d.flac\"\nposition = \"CU\"\nstart_s = 30\n\
              [[recording]]\nfile = \"e.flac\"\nposition = \"CU\"\nend_s = 500\n\
              [[recording]]\nfile = \"f.flac\"\nposition = \"CU\"\n\
-             [[recording]]\nfile = \"g.flac\"\nposition = \"CU\"\nsettle_s = 40\n",
+             [[recording]]\nfile = \"g.flac\"\nposition = \"CU\"\nsettle_s = 40\n\
+             [[recording]]\nfile = \"h.flac\"\nposition = \"CU\"\nsettle_s = 0\n",
         )
         .unwrap();
         let carries: Vec<bool> = m
@@ -2101,7 +2177,12 @@ mod tests {
             .iter()
             .map(|e| continues_position(e, &m))
             .collect();
-        assert_eq!(carries, [false, true, false, false, true, false, true]);
+        // g gives its own settling, so the watch was handled there: it does
+        // not carry f on; h's settling of none still carries g on (#1184).
+        assert_eq!(
+            carries,
+            [false, true, false, false, true, false, false, true]
+        );
         let from = |i: usize| {
             reading_window(&m.recordings[i], &m, None, 600.0)
                 .unwrap()

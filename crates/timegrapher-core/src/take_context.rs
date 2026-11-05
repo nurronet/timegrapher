@@ -270,12 +270,12 @@ impl TakeContext {
     /// in take seconds: the stretch's start, the start of what is read once
     /// the watch has settled and the end of that (an entry that reads
     /// nothing settling to its end), and the position.
-    pub fn listed_positions(&self, m: &Manifest) -> Vec<(f64, f64, Option<f64>, Position)> {
+    pub fn listed_positions(&self, m: &Manifest) -> Vec<take::ListedPosition<Position>> {
         m.recordings
             .iter()
             .zip(&self.entries)
             .filter_map(|(e, w)| {
-                take::listed_position(e, w.window.as_ref().ok().copied(), w.offset_s)
+                take::listed_position(e, m, w.window.as_ref().ok().copied(), w.offset_s)
             })
             .collect()
     }
