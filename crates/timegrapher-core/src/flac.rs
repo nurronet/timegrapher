@@ -28,6 +28,12 @@ fn failed(e: impl std::fmt::Debug) -> AudioError {
 /// ([`header`], [`at_rate`]).
 const FLACENC_MAX_RATE: u32 = 96_000;
 
+/// Where in a FLAC file the stream info's sample rate starts: after
+/// "fLaC" (4 bytes), the stream info block's own header (4) and its block
+/// and frame sizes (2, 2, 3 and 3). From there: 20 bits of sample rate, 3
+/// of channels less one, 5 of bits per sample less one, 36 of frames.
+const RATE_AT: usize = 18;
+
 /// "fLaC" and the stream info block, as `stream` (with no frames) gives
 /// them, with `rate` as its sample rate: the same length whatever the
 /// figures in it.
@@ -35,9 +41,7 @@ fn header(stream: &Stream, rate: u32) -> Result<Vec<u8>, AudioError> {
     let mut sink = flacenc::bitsink::ByteSink::new();
     stream.write(&mut sink).map_err(failed)?;
     let mut bytes = sink.as_slice().to_vec();
-    // The stream info's 20-bit sample rate starts 18 bytes in: after
-    // "fLaC", the block's own header, and the block and frame sizes.
-    let (Some(b), true) = (bytes.get_mut(18..21), rate < 1 << 20) else {
+    let (Some(b), true) = (bytes.get_mut(RATE_AT..RATE_AT + 3), rate < 1 << 20) else {
         return Err(failed(format!("sample rate {rate}")));
     };
     b[0] = (rate >> 12) as u8;
@@ -266,9 +270,7 @@ fn stream_info(flac: &Path) -> Option<(Format, u64, u64)> {
     if &b[..4] != b"fLaC" || b[4] & 0x7f != 0 || b[5..8] != [0, 0, 34] {
         return None;
     }
-    // From byte 18: 20 bits of sample rate, 3 of channels less one, 5 of
-    // bits per sample less one, 36 of frames.
-    let x = u64::from_be_bytes(b[18..26].try_into().ok()?);
+    let x = u64::from_be_bytes(b[RATE_AT..RATE_AT + 8].try_into().ok()?);
     let format = Format {
         sample_rate: (x >> 44) as u32,
         channels: ((x >> 41) & 0x7) as u16 + 1,
