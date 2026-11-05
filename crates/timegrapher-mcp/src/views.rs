@@ -47,6 +47,7 @@ pub fn page() -> &'static str {
         HTML.replace("/*PALETTE*/", &css)
             .replace("/*BASE_DIGITS*/null", &base_digits())
             .replace("/*VIRIDIS*/null", &viridis)
+            .replace("/*TIME_MAP*/null", &time_map())
             .replace("/*PERIOD_TICKS*/null", &period_ticks)
             .replace("/*REFERENCE_HOVER*/null", &reference_hover())
             .replace("/*SCORE_WORDS*/null", &score_words())
@@ -86,11 +87,24 @@ fn score_words() -> String {
     .to_string()
 }
 
+/// Core `palette::time_colour` (Hugh's M3, viridis lifted into each
+/// theme) as core's `time_table` reads it, for the page's `TIME_MAP`, so
+/// the page draws the one map and holds no copy of it.
+fn time_map() -> String {
+    let side = |dark: bool| -> Vec<[u8; 3]> {
+        timegrapher_core::palette::time_table(dark)
+            .into_iter()
+            .map(|c| [c.r, c.g, c.b])
+            .collect()
+    };
+    json!({ "dark": side(true), "light": side(false) }).to_string()
+}
+
 /// The Isochronism card's words from core, for the page's `WALK_WORDS`.
 fn walk_words() -> String {
     use timegrapher_core::steady_views as v;
     json!({
-        "title": v::WALK_TITLE, "hint": v::WALK_HINT, "since": v::WALK_SINCE, "key_start": v::WALK_KEY_START,
+        "title": v::WALK_TITLE, "hint": v::WALK_HINT, "since": v::WALK_SINCE, "key_start": v::WALK_KEY_START, "start": v::WALK_START,
         "rate_name": v::WALK_RATE_NAME, "rate_unit": v::WALK_RATE_UNIT,
         "amp_name": v::WALK_AMP_NAME, "amp_unit": v::WALK_AMP_UNIT,
     })
@@ -511,13 +525,36 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
     if let Some(w) = &walk {
         doc["walk"] = walk_outline(w);
     }
-    let walk_view = walk
-        .as_ref()
-        .and_then(timegrapher_core::steady_views::walk_view);
+    let walk_view = walk.as_ref().and_then(|w| walk_chart(w, doc));
     json!({
         "views": views, "period_span": period_span, "spectra": spectra, "points": points,
         "maps": maps, "walk": walk_view,
     })
+}
+
+/// The walk as the card draws it: core's view of it, merged to the card's
+/// width, with core's axes (the amplitude widened to the curve's, as the
+/// app's is) and the curve's headline one fact a line (Hugh's F4).
+fn walk_chart(w: &IsochronismWalk, doc: &Value) -> Option<Value> {
+    let v = timegrapher_core::steady_views::walk_view(w)?;
+    let iso = &doc["isochronism"];
+    let amps: Vec<f64> = iso["bins"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| b["amplitude_deg"].as_f64())
+        .collect();
+    let curve = iso["bin_deg"]
+        .as_f64()
+        .and_then(|bin| timegrapher_core::steady_views::curve_amp(&amps, bin));
+    let axes = timegrapher_core::steady_views::walk_axes(&v.dots, curve);
+    let mut v = serde_json::to_value(v).unwrap_or(Value::Null);
+    v["axes"] = json!(axes);
+    v["summary"] = json!(iso["headline"]
+        .as_str()
+        .map(timegrapher_core::steady_views::headline_lines)
+        .unwrap_or_default());
+    Some(v)
 }
 
 /// The `walk` a `series` document carries, as core's walk.
@@ -826,10 +863,26 @@ mod tests {
                     "amplitude_deg": 300.0 - i as f64 / 10.0, "readings": 30, "amp_windows": 150 })
             })
             .collect();
-        let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points } });
+        let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points },
+            "isochronism": { "headline": "The rate rises as the amplitude falls; flattest near 280°.",
+                "bin_deg": 10.0, "bins": [{ "amplitude_deg": 200.0 }, { "amplitude_deg": 250.0 }] } });
         let charts = take_series_charts(&mut doc);
         let dots = charts["walk"]["dots"].as_array().unwrap();
         assert_eq!(dots.len(), 200);
+        // Core's axes: the amplitude widened to the curve's bins (190° to
+        // 260° padded) and the walk's own (237° to 303°), on round ends.
+        assert_eq!(charts["walk"]["axes"][0], json!([180.0, 320.0, 20.0]));
+        assert_eq!(
+            charts["walk"]["summary"],
+            json!([
+                "The rate rises as the amplitude falls",
+                "Flattest near 280°"
+            ])
+        );
+        assert!(
+            doc["isochronism"]["headline"].is_string(),
+            "the model keeps it"
+        );
         assert_eq!(dots[0]["hover"], "0.1 h after start · 300° · 0.0 s/d");
         assert_eq!(doc["walk"]["points"], 600);
         assert_eq!(doc["walk"]["merged_points"], 200);
@@ -1022,6 +1075,8 @@ mod tests {
         assert!(page.contains(&format!("\"1 min\":\"{hover}\"")));
         assert!(!page.contains("/*SCORE_WORDS*/"));
         assert!(!page.contains("/*WALK_WORDS*/"));
+        assert!(!page.contains("/*TIME_MAP*/"));
+        assert!(page.contains(&format!("const TIME_MAP = {};", time_map())));
         let false_alarm = timegrapher_core::longterm::LongConfig::default().false_alarm;
         let hover = timegrapher_core::steady_views::threshold_hover(false_alarm);
         assert!(page.contains(&hover));
@@ -1071,5 +1126,24 @@ mod tests {
         for banned in ["http://", "https://", "<script src", "@import", "fetch("] {
             assert!(!page().contains(banned), "view.html contains {banned}");
         }
+    }
+
+    /// The view's tests draw on the map the page gets: core's time colour
+    /// map as `time_map` reads it, kept in a fixture they read
+    /// (TIMEGRAPHER_BLESS=1 writes it afresh).
+    #[test]
+    fn the_time_map_fixture_is_core_s() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/time_map.json");
+        let now = time_map();
+        if std::env::var_os("TIMEGRAPHER_BLESS").is_some() {
+            std::fs::write(&path, format!("{now}\n")).unwrap();
+        }
+        let kept = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            kept.trim(),
+            now,
+            "run with TIMEGRAPHER_BLESS=1 to write the fixture"
+        );
     }
 }
