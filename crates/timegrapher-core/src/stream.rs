@@ -380,6 +380,17 @@ pub fn analyze_files(
     cfg: &StreamConfig,
     progress: impl FnMut(f64),
 ) -> Result<BeatLog, AudioError> {
+    analyze_files_peak(paths, cfg, progress).map(|(log, _)| log)
+}
+
+/// [`analyze_files`], with the size of the loudest sample read (full
+/// scale 1), found as each block is read: for the take's peak level
+/// ([`crate::analysis::Clipping::of`]) with no second pass.
+pub fn analyze_files_peak(
+    paths: &[&Path],
+    cfg: &StreamConfig,
+    progress: impl FnMut(f64),
+) -> Result<(BeatLog, f32), AudioError> {
     let Some(first) = paths.first() else {
         return Err(AudioError::Unsupported("no files given".into()));
     };
@@ -396,7 +407,8 @@ pub fn analyze_files(
             )));
         }
     }
-    analyze_fed(
+    let mut peak = 0f32;
+    let log = analyze_fed(
         info.sample_rate,
         cfg,
         prepare_threads(),
@@ -408,12 +420,18 @@ pub fn analyze_files(
                 if !wanted {
                     break;
                 }
-                audio::stream(path, 1 << 16, |block| wanted = wanted && push(block))?;
+                audio::stream(path, 1 << 16, |block| {
+                    if wanted {
+                        peak = block.iter().fold(peak, |m, v| m.max(v.abs()));
+                    }
+                    wanted = wanted && push(block);
+                })?;
             }
             Ok(())
         },
         progress,
-    )
+    )?;
+    Ok((log, peak))
 }
 
 /// Analyse a recording held in memory into a beat log, chunk by chunk
