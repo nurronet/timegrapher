@@ -332,8 +332,8 @@ pub static ISOCHRONISM: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
      {ISO_MIN_READINGS} readings in each, which a session of some hours from full wind gives. It comes \
      from the same tests as Steadiness, which the command line runs too."
         ),
-        "Under it, the walk shows the rate against the amplitude stretch by stretch through \
-     the session, each dot coloured by its time from the start, from dark to bright as the \
+        "View in the toolbar picks the curve or the walk. The walk shows the rate against the \
+     amplitude stretch by stretch through the session, each dot coloured by its time from the start, from dark to bright as the \
      key says. The faint line joins the dots in time order and breaks wherever a stretch was \
      masked or the session broke. Hover a dot for its time, amplitude and rate."
             .into(),

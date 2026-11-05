@@ -2072,6 +2072,9 @@ pub enum Icon {
     Fit,
     Highlighter,
     Info,
+    /// Isochronism's views: the curve, and the walk.
+    IsoCurve,
+    IsoWalk,
 }
 
 /// What an alert says about itself: a warning (a triangle in the text

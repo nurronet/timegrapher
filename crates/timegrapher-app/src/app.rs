@@ -2126,6 +2126,7 @@ pub struct TimegrapherApp {
     /// The histograms count the readings rather than each 2 seconds of
     /// beats.
     hist_readings: bool,
+    iso_view: isochronism::View,
     /// The rate over each 2 seconds of beats, for the rate's distribution.
     rate_2s: RateTwoS,
     /// The series each Steadiness pane shows: rate, amplitude, beat error.
@@ -2326,6 +2327,7 @@ impl TimegrapherApp {
             dist_series: self.dist_series,
             hist_cumulative: self.hist_cumulative,
             hist_readings: self.hist_readings,
+            iso_view: self.iso_view,
             sound: self.sound_opts,
             folded: self.folded.iter().cloned().collect(),
             theme: self.theme,
@@ -2377,6 +2379,7 @@ impl TimegrapherApp {
             dist_series,
             hist_cumulative,
             hist_readings,
+            iso_view,
             sound,
             folded,
             theme,
@@ -2445,6 +2448,7 @@ impl TimegrapherApp {
         self.dist_series = some(dist_series);
         self.hist_cumulative = hist_cumulative;
         self.hist_readings = hist_readings;
+        self.iso_view = iso_view;
         self.sound_opts = sound;
         self.folded = folded.into_iter().collect();
         self.theme = theme;
@@ -2636,6 +2640,7 @@ impl TimegrapherApp {
             steady_job: None,
             steady_work: (Default::default(), std::time::Instant::now()),
             hist_readings: true,
+            iso_view: Default::default(),
             rate_2s: RateTwoS::default(),
             cursor_t: None,
             cursor_next: None,
@@ -3039,6 +3044,7 @@ impl TimegrapherApp {
                 self.steady_info = info;
             }
             Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
+                isochronism::view_choice(ui, &mut self.iso_view);
                 self.export_button(ui, pane)
             }),
             Pane::PositionsTest => theme::pane_toolbar(ui, title, &help::POSITIONS_TEST, |ui| {

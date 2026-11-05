@@ -7,7 +7,7 @@
 
 use crate::marks;
 use crate::strength::{self, Grid, Strength};
-use crate::theme;
+use crate::theme::{self, Icon};
 use eframe::egui::{self, RichText};
 use egui_plot::{Line, Plot, Points, VLine};
 use timegrapher_core::steadiness::IsochronismCurve;
@@ -15,36 +15,78 @@ use timegrapher_core::steady_views::{WalkView, WALK_HINT, WALK_KEY_START, WALK_S
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
 const GUTTER: f32 = 64.0;
+/// Room beside the widest rate label for its tick.
+const GUTTER_PAD: f32 = 12.0;
 
-/// Draw the pane: the rate by amplitude, and under it the walk through
-/// rate and amplitude over time when core has one.
-pub fn ui(ui: &mut egui::Ui, curve: Option<&IsochronismCurve>, walk: Option<&WalkView>) {
+/// How the pane shows isochronism: the classic curve of rate by
+/// amplitude, or the walk through rate and amplitude over time (Peter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum View {
+    #[default]
+    Curve,
+    Walk,
+}
+
+/// The toolbar's choice of [`View`].
+pub fn view_choice(ui: &mut egui::Ui, view: &mut View) {
+    theme::tool_choice(
+        ui,
+        "View",
+        "Isochronism the classic way, or as a walk through time",
+        view,
+        &[
+            (
+                View::Curve,
+                Icon::IsoCurve,
+                "Curve",
+                "The median rate in each 2° of amplitude, and the curve through them",
+            ),
+            (
+                View::Walk,
+                Icon::IsoWalk,
+                "Walk",
+                "The rate at each amplitude as the watch runs down, each dot coloured by its \
+                 time",
+            ),
+        ],
+    );
+}
+
+/// The Walk view's note when core has no walk yet.
+const NO_WALK: &str = "No walk yet: it needs the rate and amplitude over a longer stretch of \
+                       the take.";
+
+/// Draw the pane in `view`: the rate by amplitude, or the walk through
+/// rate and amplitude over time when core has one. Both span the same
+/// amplitudes, so a degree stays put when the view changes.
+pub fn ui(
+    ui: &mut egui::Ui,
+    curve: Option<&IsochronismCurve>,
+    walk: Option<&WalkView>,
+    view: View,
+) {
     let pal = theme::pal(ui);
     let missing = "No isochronism curve yet: the amplitude has not moved enough. It needs at \
                    least three 2° steps of amplitude with 10 readings in each, which a run-down \
                    over some hours gives.";
-    match (curve, walk) {
-        (None, None) => note(ui, missing),
-        (None, Some(w)) => {
-            ui.label(RichText::new(missing).small().color(pal.text_tertiary));
-            let h = room(ui);
-            walk_part(ui, w, h, None);
-        }
-        (Some(c), w) => {
-            ui.label(RichText::new(&c.headline).small().color(pal.text_secondary));
+    let frame = Frame {
+        amp: curve.zip(walk).and_then(|(c, w)| shared_amp(c, w)),
+        gutter: gutter(ui, curve, walk),
+    };
+    if let Some(c) = curve {
+        ui.label(RichText::new(&c.headline).small().color(pal.text_secondary));
+    }
+    match (view, curve, walk) {
+        (View::Curve, None, _) => note(ui, missing),
+        (View::Curve, Some(c), _) => {
             ui.label(RichText::new(caption(c)).small().color(pal.text_tertiary));
-            let left = room(ui);
-            // With a walk the two share the pane, the curve on top.
-            let h = if w.is_some() { left / 2.0 } else { left };
-            // Stacked, the two read as sharing one amplitude axis, so they
-            // do (Walter's walk of #1111).
-            let amp = w.and_then(|w| shared_amp(c, w));
-            chart(ui, c, h, amp);
-            if let Some(w) = w {
-                ui.add_space(WALK_GAP);
-                let h = room(ui);
-                walk_part(ui, w, h, amp);
-            }
+            let h = room(ui);
+            chart(ui, c, h, frame);
+        }
+        (View::Walk, _, None) => note(ui, NO_WALK),
+        (View::Walk, _, Some(w)) => {
+            let h = room(ui);
+            walk_part(ui, w, h, frame);
         }
     }
 }
@@ -82,16 +124,55 @@ fn curve_at(c: &IsochronismCurve, a: f64) -> f64 {
 /// A rate on the axis: as few decimals as the grid step needs, signed as
 /// every rate is (core's `signed_text`: a zero has no sign).
 fn rate_label(v: f64, step: f64) -> String {
-    let d = timegrapher_core::chart_scale::axis_decimals(step);
-    format!("{} s/d", timegrapher_core::library::signed_text(v, d))
+    rate_text(v, timegrapher_core::chart_scale::axis_decimals(step))
 }
 
-fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, amp: Option<Span>) {
+/// A rate axis label with `decimals` decimals.
+fn rate_text(v: f64, decimals: usize) -> String {
+    format!(
+        "{} s/d",
+        timegrapher_core::library::signed_text(v, decimals)
+    )
+}
+
+/// What the two views share, so a degree sits at one x in either: the
+/// amplitude range ([`shared_amp`]) and the rate axis's width.
+#[derive(Clone, Copy)]
+struct Frame {
+    amp: Option<Span>,
+    gutter: f32,
+}
+
+/// The rate axis's width for either view: room for the widest label at
+/// the ends of both views' rate ranges, never under [`GUTTER`].
+fn gutter(ui: &egui::Ui, curve: Option<&IsochronismCurve>, walk: Option<&WalkView>) -> f32 {
+    let spans = curve
+        .and_then(curve_and_bounds)
+        .map(|b| b.2)
+        .into_iter()
+        .chain(walk.map(|w| walk_bounds(w).1));
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    spans
+        .flat_map(|(lo, hi)| [lo, hi])
+        .map(|v| {
+            // With a decimal, so either view's labels fit whatever step
+            // its height picks.
+            let text = rate_text(v, 1);
+            ui.fonts_mut(|f| {
+                f.layout_no_wrap(text, font.clone(), egui::Color32::WHITE)
+                    .size()
+                    .x
+            })
+        })
+        .fold(GUTTER, |g, w| g.max(w + GUTTER_PAD))
+}
+
+fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, frame: Frame) {
     let pal = theme::pal(ui);
     let Some((curve, x_bounds, y_bounds)) = curve_and_bounds(c) else {
         return;
     };
-    let x_bounds = amp.unwrap_or(x_bounds);
+    let x_bounds = frame.amp.unwrap_or(x_bounds);
     // The turn is named in a lane of one row above the plot, as every
     // named line is (see `marks`); on a short plot, inside along its top.
     let names_id = ui.id().with("turn");
@@ -127,18 +208,19 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, amp: Option<Span>) {
         |g| theme::even_grid(g, 24.0, &[]),
     )
     .zero_y();
-    let resp = chart_plot("isochronism", &grid, h, x_bounds, y_bounds).show(ui, |p| {
-        grid.draw(p, pal);
-        chart_items(p, c, curve, pal);
-        if inside {
-            p.add(marks::InsideNames {
-                base: egui_plot::PlotItemBase::new("turn name".into()),
-                names: names.clone(),
-                tops: tops.clone(),
-                fill,
-            });
-        }
-    });
+    let resp =
+        chart_plot("isochronism", &grid, (h, frame.gutter), x_bounds, y_bounds).show(ui, |p| {
+            grid.draw(p, pal);
+            chart_items(p, c, curve, pal);
+            if inside {
+                p.add(marks::InsideNames {
+                    base: egui_plot::PlotItemBase::new("turn name".into()),
+                    names: names.clone(),
+                    tops: tops.clone(),
+                    fill,
+                });
+            }
+        });
     let hover = |t: f64| format!("Turn: {t:.0}°");
     if inside {
         let placed = marks::inside_placed(ui, &resp.transform, &names, &tops);
@@ -207,7 +289,7 @@ fn rate_padded(lo: f64, hi: f64) -> Span {
 fn chart_plot(
     id: &str,
     grid: &Grid,
-    h: f32,
+    (h, gutter): (f32, f32),
     (x_lo, x_hi): Span,
     (y_lo, y_hi): Span,
 ) -> Plot<'static> {
@@ -220,7 +302,7 @@ fn chart_plot(
         .allow_double_click_reset(false)
         .show_x(false)
         .show_y(false)
-        .y_axis_min_width(GUTTER)
+        .y_axis_min_width(gutter)
         .height(h)
         .x_axis_formatter(|m, r| {
             theme::clear_of_right_edge(format!("{:.0}°", m.value), m.value, r, 0.03)
@@ -270,8 +352,6 @@ fn chart_items(
     }
 }
 
-/// Space between the curve and the walk under it.
-const WALK_GAP: f32 = 10.0;
 /// The walk's dots, as the chart app draws them.
 const DOT_R: f32 = 3.0;
 /// How near the pointer must be to a dot, in points, for its hover.
@@ -279,20 +359,20 @@ const HOVER_PX: f32 = 8.0;
 
 /// The walk: its hint, the plot of rate against amplitude with each dot
 /// coloured by its time, and the colour key, `h` high in all. `amp` is
-/// the amplitude range it shares with the curve above, if any.
-fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, amp: Option<Span>) {
+/// the amplitude range and axis width it shares with the curve.
+fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
     let pal = theme::pal(ui);
     ui.label(RichText::new(WALK_HINT).small().color(pal.text_secondary));
     let key_h = ui.text_style_height(&egui::TextStyle::Small) + ui.spacing().item_spacing.y;
     let h = plot_h(h - 2.0 * key_h);
     let (x, y) = walk_bounds(w);
-    let x = amp.unwrap_or(x);
+    let x = frame.amp.unwrap_or(x);
     let grid = Grid::new(
         |g| theme::even_grid(g, 80.0, &[]),
         |g| theme::even_grid(g, 24.0, &[]),
     )
     .zero_y();
-    let resp = chart_plot("isochronism walk", &grid, h, x, y).show(ui, |p| {
+    let resp = chart_plot("isochronism walk", &grid, (h, frame.gutter), x, y).show(ui, |p| {
         grid.draw(p, pal);
         walk_items(p, w, pal);
     });
@@ -312,8 +392,7 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, amp: Option<Span>) {
     });
 }
 
-/// One amplitude range for the curve and the walk under it: the span of
-/// both.
+/// One amplitude range for the curve and the walk: the span of both.
 fn shared_amp(c: &IsochronismCurve, w: &WalkView) -> Option<Span> {
     let (_, (a_lo, a_hi), _) = curve_and_bounds(c)?;
     let ((b_lo, b_hi), _) = walk_bounds(w);
@@ -460,7 +539,7 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, None));
+                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, None, View::Curve));
             });
             assert!(!out.shapes.is_empty());
         }
@@ -481,7 +560,8 @@ mod tests {
             ..Default::default()
         };
         let out = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |u| super::ui(u, Some(&curve), None));
+            egui::CentralPanel::default()
+                .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
         });
         let texts: Vec<(String, egui::Rect)> = out
             .shapes
@@ -525,7 +605,8 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |u| super::ui(u, Some(&curve), None));
+                egui::CentralPanel::default()
+                    .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
             });
             texts = out
                 .shapes
@@ -580,10 +661,10 @@ mod tests {
         assert_eq!(r[1][0], [w.dots[6].amplitude_deg, w.dots[6].rate_s_per_day]);
     }
 
-    /// Under the curve the walk is drawn with core's hint, its dots in
-    /// viridis by time, the key's ends and core's hover on a dot.
+    /// The Walk view draws the walk with core's hint, its dots in viridis
+    /// by time, the key's ends and core's hover on a dot.
     #[test]
-    fn the_walk_is_drawn_under_the_curve() {
+    fn the_walk_view_draws_the_walk() {
         let (curve, w) = (run_down(), walk());
         let ctx = egui::Context::default();
         theme::install(&ctx);
@@ -607,7 +688,7 @@ mod tests {
             };
             let o = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |u| {
-                    super::ui(u, Some(&curve), Some(&w));
+                    super::ui(u, Some(&curve), Some(&w), View::Walk);
                 });
             });
             at = o.shapes.iter().find_map(|c| match &c.shape {
@@ -664,8 +745,58 @@ mod tests {
         );
         let ctx = egui::Context::default();
         theme::install(&ctx);
-        let mut texts: Vec<(String, f32)> = Vec::new();
-        for _ in 0..2 {
+        // The amplitude labels each view draws, and where.
+        let labels = |view: View| {
+            let mut texts: Vec<(String, f32)> = Vec::new();
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(700.0, 700.0),
+                    )),
+                    ..Default::default()
+                };
+                let out = ctx.run(input, |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |u| super::ui(u, Some(&curve), Some(&w), view));
+                });
+                texts = out
+                    .shapes
+                    .iter()
+                    .filter_map(|c| match &c.shape {
+                        egui::Shape::Text(t)
+                            if t.galley.text().ends_with('°') && !t.galley.text().contains(' ') =>
+                        {
+                            Some((
+                                t.galley.text().to_string(),
+                                t.galley.rect.translate(t.pos.to_vec2()).center().x,
+                            ))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+            }
+            texts
+        };
+        // Every amplitude label sits at one x in either view, so a degree
+        // stays put when the view changes.
+        let (curve_x, walk_x) = (labels(View::Curve), labels(View::Walk));
+        assert_eq!(curve_x.len(), walk_x.len(), "{curve_x:?} {walk_x:?}");
+        assert!(curve_x.len() >= 4, "{curve_x:?}");
+        for ((a, x), (b, y)) in curve_x.iter().zip(&walk_x) {
+            assert_eq!(a, b);
+            assert!((x - y).abs() < 1.0, "{a}: {x} and {y}");
+        }
+    }
+
+    /// One view at a time: the Curve view has no walk, the Walk view no
+    /// curve; and each says what it lacks (Peter).
+    #[test]
+    fn the_pane_shows_one_view_at_a_time() {
+        let (curve, w) = (run_down(), walk());
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let texts = |c: Option<&IsochronismCurve>, wv: Option<&WalkView>, view: View| {
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -674,36 +805,33 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |u| super::ui(u, Some(&curve), Some(&w)));
+                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, wv, view));
             });
-            texts = out
-                .shapes
+            out.shapes
                 .iter()
                 .filter_map(|c| match &c.shape {
-                    egui::Shape::Text(t)
-                        if t.galley.text().ends_with('°') && !t.galley.text().contains(' ') =>
-                    {
-                        Some((
-                            t.galley.text().to_string(),
-                            t.galley.rect.translate(t.pos.to_vec2()).center().x,
-                        ))
-                    }
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
                     _ => None,
                 })
-                .collect();
-        }
-        // Every amplitude label is drawn twice, once under each plot, at
-        // one x.
-        let mut pairs = 0;
-        for (name, x) in &texts {
-            let same: Vec<f32> = texts.iter().filter(|t| &t.0 == name).map(|t| t.1).collect();
-            assert_eq!(same.len(), 2, "{name}: {texts:?}");
-            assert!(
-                same.iter().all(|o| (o - x).abs() < 1.0),
-                "{name}: {texts:?}"
-            );
-            pairs += 1;
-        }
-        assert!(pairs >= 4, "{texts:?}");
+                .collect::<Vec<_>>()
+        };
+        let both = texts(Some(&curve), Some(&w), View::Curve);
+        assert!(both.iter().any(|t| t == &caption(&curve)), "{both:?}");
+        assert!(!both.iter().any(|t| t == WALK_HINT), "{both:?}");
+        let walk_only = texts(Some(&curve), Some(&w), View::Walk);
+        assert!(walk_only.iter().any(|t| t == WALK_HINT), "{walk_only:?}");
+        assert!(
+            walk_only.iter().any(|t| t == &curve.headline),
+            "{walk_only:?}"
+        );
+        assert!(
+            !walk_only.iter().any(|t| t == &caption(&curve)),
+            "{walk_only:?}"
+        );
+        let none = texts(Some(&curve), None, View::Walk);
+        assert!(
+            none.iter().any(|t| t.starts_with("No walk yet")),
+            "{none:?}"
+        );
     }
 }
