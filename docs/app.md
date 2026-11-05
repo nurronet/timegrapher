@@ -200,8 +200,11 @@ Takes or the folder, and it has no Save Again. File ▸ Save is dimmed
 for the same reason, and the status bar says "Saved". Stop and quitting
 add the last seconds and close the take with no question. A save that
 fails says so, and the next is tried a minute later. Only the new
-sound is written each time. A Positions Test's or Power Reserve Test's take
-is saved as the test ends, as before. Until it
+sound is written each time. A Positions or Power Reserve Test of a watch
+picked records into the watch the same way, and its results are written
+as it ends. One with no watch picked asks where it goes as it ends, so
+until then its sound is kept only on this computer, and it is offered
+back at the next start after a crash. Until it
 is kept, its sound goes without a question when you quit, start another
 take or open a recording, and is not kept for the next start to offer
 back. Starting a take of a watch ends Quick Listen.

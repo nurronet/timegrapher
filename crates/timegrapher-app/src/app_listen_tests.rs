@@ -347,3 +347,56 @@ fn a_watchs_take_records_into_its_folder_as_it_goes() {
     assert!(!app.needs_save_confirmation());
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A Power Reserve Test of a watch picked records into its folder as it
+/// goes too, in the folder the test's end saves into, with no results file
+/// until then: a crash 39 h in loses only seconds (Hugh, 5 Nov). Its end
+/// saves into the same folder, with its results.
+#[test]
+fn a_power_reserve_test_records_into_its_folder_as_it_goes() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-reserve-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    r.write(&timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * 6],
+        at: std::time::SystemTime::now(),
+    })
+    .unwrap();
+    let started = r.started_utc().to_string();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    app.reserve = Some(reserve::Test::new(app.position, true, started, 0.0));
+    assert!(app.streams(), "a test of a watch picked records as it goes");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("saved as it goes")
+        .to_path_buf();
+    let name = take.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.ends_with(" Power Reserve"), "{name}");
+    assert!(!take.join(timegrapher_core::power_reserve::FILE).exists());
+    assert!(app.message.is_none(), "{:?}", app.message);
+    // With no watch picked, the end asks where it goes: nothing until then.
+    app.watch_open = None;
+    assert!(!app.streams());
+    app.watch_open = Some(pepsi.clone());
+    // Its end saves into the same folder, and nothing more streams.
+    app.end_reserve();
+    app.wait_for_save();
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!app.streams());
+    let _ = std::fs::remove_dir_all(&base);
+}

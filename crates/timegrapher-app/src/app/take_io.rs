@@ -354,14 +354,14 @@ impl TimegrapherApp {
 
     /// Whether the take being heard records into its folder as it goes: a
     /// kept take ([`TimegrapherApp::kept_take`]) while the microphone is
-    /// listening, but not a Positions Test's or a Power Reserve Test's,
-    /// which are saved as they end.
+    /// listening, a Positions or Power Reserve Test's of a watch picked
+    /// too (its results are written as it ends). A test with no watch
+    /// picked is asked where it goes as it ends, so it has no folder until
+    /// then; its sound is kept here meanwhile, offered back after a crash.
     pub(super) fn streams(&self) -> bool {
         self.session.mic()
             && self.session.state() == session::State::Listening
             && self.session.recording_fault().is_none()
-            && !self.positions_take
-            && self.reserve.is_none()
             && self.kept_take()
     }
 
@@ -809,7 +809,13 @@ impl TimegrapherApp {
         };
         let started = watches::local_minute(r.started_utc())
             .unwrap_or_else(|| r.started_utc().replace(':', "."));
-        let dir = library::unused_dir(takes, &library::take_name(&started, &positions));
+        // A Power Reserve Test's take is named as the test names it at
+        // its end, so that save lands in the same folder.
+        let name = match self.reserve {
+            Some(_) => power_reserve_pane::reserve_take_name(&started),
+            None => library::take_name(&started, &positions),
+        };
+        let dir = library::unused_dir(takes, &name);
         if let Some(name) = dir.file_name() {
             r.name_first_copy(name.to_owned());
         }
@@ -857,7 +863,12 @@ impl TimegrapherApp {
                 .map_err(|e| format!("Couldn't prepare the saved reading: {e}"))?;
             let manifest = toml::to_string_pretty(&self.take_manifest())
                 .map_err(|e| format!("Couldn't prepare {MANIFEST}: {e}"))?;
-            let kept = self.results_files()?;
+            // A test's results are written as it ends, never part way:
+            // a take recording into its folder holds none until then.
+            let kept = match streamed {
+                Streamed::No => self.results_files()?,
+                Streamed::Yes => Vec::new(),
+            };
             Ok((result, manifest, kept))
         })();
         let (result, manifest, kept) = match prepared {
