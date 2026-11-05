@@ -329,7 +329,7 @@ One gesture means one thing on every plot that moves in time (the Paper Strip an
 - **⌘+scroll (Ctrl+scroll on Windows and Linux), or a pinch, zooms time.** This is the zoom modifier in browsers, design tools and audio editors.
 - **⌥+scroll (Alt+scroll) zooms the other axis,** such as the Paper Strip's ms Width.
 - **Shift+scroll pans like plain scroll.** Elsewhere it means a sideways scroll, so it never zooms here.
-- **Drag pans, double-click resets,** and Follow Live (or Show Whole Session once stopped) brings the plot back.
+- **Drag pans, double-click resets,** and a Fit switch in the pane's toolbar (one per pane, never one per plot) brings the plot back.
 - **An axis that can't zoom ignores the gesture.** Where an axis is scaled by the app (auto-scale to the data, a fixed range, a plot that always shows the whole take), scroll, the modifiers, pinch and drag do nothing on that axis. They never move it for a moment before the auto-scale pulls it back, so the plot cannot jitter or fight the pointer. If no axis of a plot can move, the plot takes no scroll at all, and the scroll passes to whatever holds the plot.
 - **The pane's "?"** lists the gestures that work on its plots, and only those.
 

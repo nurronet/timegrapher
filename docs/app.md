@@ -1196,17 +1196,24 @@ use the strip with its overlays and masks. Wherever the pointer is on the
 strip or a chart, a thin line marks that moment on all of them, and on the
 strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
-anywhere over a chart, a vertical line marks that moment and a box lists
-every line's value there. Their time axes move together:
+anywhere over a chart, a vertical line marks that moment on every chart,
+and each chart's lane, the strip above its plot, reads every line's value
+there. Their time axes move together:
 the mouse wheel, a swipe or dragging pans time, never past the take's
 first or last reading, Cmd or Ctrl and the wheel (or a pinch) zooms it
 around the pointer, and zoomed out to the whole take it shows the whole
 session again; the
 vertical scale fits the lines on its own. A double click fits the whole
 session again and, while listening, follows new beats as they come in.
-Once a chart has been panned or zoomed a **Follow Live** button
-(**Show Whole Session** for a recording) appears on it and does the same,
-and the box at the pointer lists these controls. Clicking a moment shows it on the strip and in the
+The pane's **Fit** switch, in its toolbar as on the Paper Strip, is on
+while the charts show the whole session; a pan or a zoom turns it off,
+and turning it on does what a double click does. A chart's lane holds
+its name at the left, then, while the pointer is over a chart, the time
+(in the lane of the chart under the pointer) and each line's value in its
+colour beside its mark, to the decimals its card writes it to, then its
+lines' key at the right, which is left out first where the lane is
+narrow. Nothing covers the lines or the time labels, and the values clear
+when the pointer leaves; the pane's "?" lists the controls. Clicking a moment shows it on the strip and in the
 readings. The scale holds every value in view, so no point is drawn
 off the chart. Beat error is charted as a
 size, as on its card. Changing the averaging time or the
