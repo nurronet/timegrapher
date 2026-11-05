@@ -753,18 +753,19 @@ fn a_summary_names_each_lead_in_a_few_words() {
 }
 
 /// A plot's title and its text say the same shifts: every level, the
-/// middle one too, in the same words (Walter's walk of #1096, #734).
+/// middle one too, in the same words: three levels, the middle one
+/// highest, that the change finder splits (Walter's walk of #1096, #734).
 #[test]
 fn a_summary_names_every_level_the_headline_names() {
     let mut z = Noise(734);
     let s = check_series(
         SeriesKind::Rate,
         grid(
-            (0..2700)
+            (0..3000)
                 .map(|i| match i {
-                    0..=899 => 5.0,
-                    900..=1799 => 9.0,
-                    _ => 3.0,
+                    0..=999 => 5.0,
+                    1000..=1999 => 9.0,
+                    _ => 7.0,
                 } + 2.0 * z.next())
                 .collect(),
             2.0,
