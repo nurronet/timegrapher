@@ -76,9 +76,12 @@ impl PerPane {
         self.set.get(&view).copied().unwrap_or(self.unset)
     }
 
-    /// `view`'s pane's switch, to change.
-    pub fn of(&mut self, view: View) -> &mut bool {
-        self.set.entry(view).or_insert(self.unset)
+    /// Switch `view`'s pane to `on`. Only a change is noted, so the panes
+    /// never switched keep the default.
+    pub fn set(&mut self, view: View, on: bool) {
+        if on != self.on(view) {
+            self.set.insert(view, on);
+        }
     }
 
     /// The panes switched, as settings keep them.

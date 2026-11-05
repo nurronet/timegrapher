@@ -3065,7 +3065,7 @@ impl TimegrapherApp {
                     self.steady_settings(ui, p);
                     self.export_button(ui, p);
                 });
-                *self.steady_info.of(view) = info;
+                self.steady_info.set(view, info);
             }
             Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
                 isochronism::view_choice(ui, &mut self.iso_view);

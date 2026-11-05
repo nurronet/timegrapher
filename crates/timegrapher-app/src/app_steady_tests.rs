@@ -242,8 +242,12 @@ fn a_panes_wheel_periods_switch_changes_that_pane_only() {
     pass(&mut app, Vec::new());
     assert_eq!(app.show_wheels.on(View::Fft), !fft);
     assert_eq!(app.show_wheels.on(View::Periods), periods);
-    *app.maps_db.of(View::Wavelet) = true;
-    *app.steady_info.of(View::Cusum) = true;
+    // Only the pane switched is noted: Periods, drawn too, keeps the
+    // default, as do the panes' Info and dB Scale.
+    assert_eq!(app.show_wheels.saved(), vec![(View::Fft, !fft)]);
+    assert!(app.steady_info.saved().is_empty() && app.maps_db.saved().is_empty());
+    app.maps_db.set(View::Wavelet, true);
+    app.steady_info.set(View::Cusum, true);
 
     let mut back = TimegrapherApp::with_devices(Vec::new(), None);
     back.apply_settings(app.settings());
