@@ -173,34 +173,6 @@ fn figures(doc: &Value, readings: &[Value]) -> Vec<(String, String, String)> {
     found
 }
 
-/// Runs `work` on each item, on as many threads as the machine has, and
-/// returns what it gives in the items' order.
-fn on_every_core<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(items.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    let mut mine = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { break };
-                        mine.push((i, work(item)));
-                    }
-                    mine
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("a worker finishes"))
-            .collect()
-    });
-    done.sort_by_key(|(i, _)| *i);
-    done.into_iter().map(|(_, r)| r).collect()
-}
-
 /// Every sound file of each take of the corpus at `root`, read through
 /// the MCP server's `analyze_recording` and from `timegrapher session`
 /// (`cli`): how many files were compared, and each figure that differs.
@@ -210,7 +182,7 @@ fn on_every_core<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -
 fn compare(root: &Path, cli: &Path) -> (usize, Vec<String>) {
     let ids = takes(root);
     let dirs: Vec<PathBuf> = ids.iter().map(|id| root.join("takes").join(id)).collect();
-    let sessions = on_every_core(&dirs, |dir| session(cli, dir));
+    let sessions = timegrapher_core::cores::on_every_core(&dirs, |dir| session(cli, dir));
     // Each take's sound files, as core lists them.
     let sounds: Vec<Vec<PathBuf>> = dirs
         .iter()
@@ -221,7 +193,7 @@ fn compare(root: &Path, cli: &Path) -> (usize, Vec<String>) {
         .enumerate()
         .flat_map(|(t, fs)| fs.iter().map(move |f| (t, f.clone())))
         .collect();
-    let docs = on_every_core(&files, |(t, file)| {
+    let docs = timegrapher_core::cores::on_every_core(&files, |(t, file)| {
         let doc = &sessions[*t];
         analyze(cli, file, &doc["bph"], &doc["lift_deg"])
     });

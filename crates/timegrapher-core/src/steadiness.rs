@@ -1408,7 +1408,7 @@ fn refined_candidates(
             cands.push((q, 0.01, CycleSource::PeriodSearch));
         }
     }
-    let refined = par_map(&cands, |&(p, rel, src)| {
+    let refined = crate::cores::on_every_core(&cands, |&(p, rel, src)| {
         let q = refine(&d, p, rel);
         (q, src, fold(&d, q).0)
     });
@@ -1467,7 +1467,7 @@ fn strongest_cycle(
     };
     // Each candidate is tested on its own, several at once; the strongest
     // is kept as when they were tested in turn (the last of equals).
-    let tested = par_map(cands, |&cand| {
+    let tested = crate::cores::on_every_core(cands, |&cand| {
         std::iter::once(cand)
             // At least three turns for the period search, which tests its own
             // significance; five for the others.
@@ -1554,41 +1554,6 @@ fn same_peaks_once(refined: &[(f64, CycleSource, f64)], span: f64) -> Vec<(f64, 
     kept.into_iter()
         .map(|i| (refined[i].0, refined[i].1))
         .collect()
-}
-
-/// `f` of every item, in order, spread over the machine's cores: each
-/// item's answer is the same as on one thread.
-fn par_map<T: Sync, U: Send>(items: &[T], f: impl Fn(&T) -> U + Sync) -> Vec<U> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    if threads <= 1 || items.len() <= 1 {
-        return items.iter().map(f).collect();
-    }
-    // Each thread takes the next item not yet taken, as the items' costs
-    // differ widely; the answers are put back in the items' order.
-    let next = AtomicUsize::new(0);
-    let (f, next) = (&f, &next);
-    let mut done: Vec<(usize, U)> = std::thread::scope(|sc| {
-        let parts: Vec<_> = (0..threads.min(items.len()))
-            .map(|_| {
-                sc.spawn(move || {
-                    let mut out = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { break };
-                        out.push((i, f(item)));
-                    }
-                    out
-                })
-            })
-            .collect();
-        parts
-            .into_iter()
-            .flat_map(|h| h.join().expect("a candidate's test panicked"))
-            .collect()
-    });
-    done.sort_by_key(|d| d.0);
-    done.into_iter().map(|d| d.1).collect()
 }
 
 /// Whether a cycle of `period` stands apart from a fast line's alias.

@@ -152,41 +152,13 @@ const KNOWN: &[(&str, &str)] = &[(
          its end",
 )];
 
-/// Runs `work` on each item, on as many threads as the machine has, and
-/// returns what it gives in the items' order.
-fn on_every_core<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let mut done: Vec<(usize, R)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(items.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    let mut mine = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(item) = items.get(i) else { break };
-                        mine.push((i, work(item)));
-                    }
-                    mine
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().expect("a worker finishes"))
-            .collect()
-    });
-    done.sort_by_key(|(i, _)| *i);
-    done.into_iter().map(|(_, r)| r).collect()
-}
-
 /// Each recording the takes under `root` list, read on the app's cards and
 /// by `timegrapher session`, compared: what differs and is not on `known`,
 /// or is on it and no longer differs. Takes, and then recordings, are read
 /// side by side, one to a core, so the whole corpus fits CI's time.
 fn compare(root: &Path, cli: &Path, known: &[(&str, &str)]) -> Vec<String> {
     let ids = takes(root);
-    let readings = on_every_core(&ids, |id| {
+    let readings = timegrapher_core::cores::on_every_core(&ids, |id| {
         session_readings(cli, &root.join("takes").join(id))
     });
     let entries: Vec<(String, serde_json::Value)> = ids
@@ -213,7 +185,7 @@ fn compare(root: &Path, cli: &Path, known: &[(&str, &str)]) -> Vec<String> {
         })
         .collect();
     let named: Vec<_> = entries.iter().zip(names).collect();
-    let found = on_every_core(&named, |((id, reading), name)| {
+    let found = timegrapher_core::cores::on_every_core(&named, |((id, reading), name)| {
         let label = label(reading);
         let name = name.clone();
         let app = opened(&root.join("takes").join(id).join(label));
