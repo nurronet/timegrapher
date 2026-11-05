@@ -863,3 +863,43 @@ fn enter_in_a_funnel_keeps_its_ticks() {
     let kept = c.funnels[Col::Maker as usize].clone().expect("Enter is OK");
     assert_eq!(kept, one);
 }
+
+/// A search typed in a funnel narrows what OK keeps to the values it
+/// lists, as a spreadsheet's filter keeps its search results (Walter's
+/// walk of #1192: "rol" then Enter left the table unfiltered).
+#[test]
+fn a_funnels_search_narrows_what_ok_keeps() {
+    let mut c = Calibres::in_memory();
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 900.0));
+    let run = |c: &mut Calibres, events: Vec<egui::Event>| {
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(230.0);
+                    c.funnel_menu(ui, Col::Maker, "Maker");
+                });
+            },
+        );
+    };
+    run(&mut c, vec![]);
+    run(&mut c, vec![egui::Event::Text("rol".into())]);
+    let listed: std::collections::BTreeSet<String> =
+        c.funnel_listed(Col::Maker).into_iter().collect();
+    assert!(!listed.is_empty() && listed.len() < c.funnel_values(Col::Maker).len());
+    let enter = |pressed| egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Default::default(),
+    };
+    run(&mut c, vec![enter(true), enter(false)]);
+    assert_eq!(c.funnels[Col::Maker as usize], Some(listed));
+}

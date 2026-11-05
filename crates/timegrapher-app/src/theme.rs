@@ -2263,6 +2263,9 @@ pub struct MenuSearch {
     highlight: usize,
     items: usize,
     moved: bool,
+    /// The search was empty as the menu opened or was cleared: the
+    /// highlight goes to the current item, so Enter keeps it.
+    seek_current: bool,
     /// Enter, this frame: the item highlighted is picked.
     pub enter: bool,
 }
@@ -2292,12 +2295,15 @@ impl MenuSearch {
             typed.clear();
         }
         let mut refocus = opened;
-        // Esc clears the text first; on an empty field the menu closes.
-        if !typed.is_empty()
-            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
-        {
-            typed.clear();
-            refocus = true;
+        // Esc clears the text first; on an empty field it closes the menu,
+        // and only the menu: a dialog behind it never sees the Esc.
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if typed.is_empty() {
+                ui.close();
+            } else {
+                typed.clear();
+                refocus = true;
+            }
         }
         let (down, up, enter) = ui.input_mut(|i| {
             (
@@ -2351,11 +2357,13 @@ impl MenuSearch {
         if refocus {
             field.request_focus();
         }
+        let seek_current = typed.is_empty() && (opened || cleared || refocus) && !down && !up;
         MenuSearch {
             id,
             highlight,
             items: 0,
             moved: down || up,
+            seek_current,
             enter,
         }
     }
@@ -2365,9 +2373,20 @@ impl MenuSearch {
     /// is picked, by a click or by Enter on it; the menu then closes.
     pub fn item(&mut self, ui: &mut Ui, on: bool, words: impl Into<String>) -> (Response, bool) {
         let text = ticked(on, words);
-        let lit = self.items == self.highlight;
-        self.items += 1;
+        // With nothing typed, the highlight starts on the current item.
+        if self.seek_current && on {
+            self.highlight = self.items;
+            self.seek_current = false;
+        }
+        // Still looking for the current item: none lit before it.
+        let lit = !self.seek_current && self.items == self.highlight;
         let r = ui.add(egui::Button::selectable(lit, text).frame_when_inactive(lit));
+        // Tab moves the one highlight too, so focus is never unseen.
+        if r.gained_focus() && !lit {
+            self.highlight = self.items;
+            ui.ctx().request_repaint();
+        }
+        self.items += 1;
         if lit && self.moved {
             r.scroll_to_me(None);
         }

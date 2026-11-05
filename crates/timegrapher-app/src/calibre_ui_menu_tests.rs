@@ -419,3 +419,62 @@ fn tab_stays_within_the_calibre_menu() {
         }
     }
 }
+
+/// Enter straight after opening keeps the calibre picked: the highlight
+/// starts on it (Walter's walk of #1192: it picked Not Set and wiped the
+/// watch's calibre). Esc on the empty field closes the menu alone: a
+/// dialog behind it never sees the key.
+#[test]
+fn enter_on_opening_keeps_the_calibre_and_esc_stays_in_the_menu() {
+    let mut c = Calibres::in_memory();
+    let current = calibres::all()
+        .iter()
+        .find(|x| c.in_short(x))
+        .expect("a calibre on the short list")
+        .calibre
+        .clone();
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0));
+    let picked = std::cell::RefCell::new(None);
+    let esc_behind = std::cell::Cell::new(false);
+    let run = |c: &mut Calibres, events: Vec<egui::Event>| {
+        ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(300.0);
+                    if let Some(p) = c.picker(ui, &current, None) {
+                        *picked.borrow_mut() = Some(p);
+                    }
+                    esc_behind.set(ui.input(|i| i.key_pressed(egui::Key::Escape)));
+                });
+            },
+        )
+    };
+    run(&mut c, vec![]);
+    run(&mut c, click(egui::pos2(60.0, 18.0)));
+    run(&mut c, vec![]);
+    run(&mut c, key(egui::Key::Enter));
+    assert_eq!(picked.borrow().as_deref(), Some(current.as_str()));
+    // Again, and Esc on the empty field.
+    run(&mut c, vec![]);
+    run(&mut c, vec![]);
+    run(&mut c, click(egui::pos2(60.0, 18.0)));
+    let open = run(&mut c, vec![]);
+    assert!(
+        drawn_at(&open, "Search every calibre").is_some(),
+        "open again"
+    );
+    run(&mut c, key(egui::Key::Escape));
+    assert!(!esc_behind.get(), "the window behind saw the menu's Esc");
+    let shut = run(&mut c, vec![]);
+    assert!(
+        drawn_at(&shut, "Search every calibre").is_none(),
+        "Esc closed the menu"
+    );
+}

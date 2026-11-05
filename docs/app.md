@@ -164,7 +164,8 @@ its two icons, gives the take's length beside its caption ("Listen
 and shows Average Over's pop-up as **Avg 10 s**. Compact, Calibre keeps
 its pop-up with the lift and beat rate under it; on the narrowest
 windows the lift alone, since nothing finds the lift while Auto finds the
-beat rate, with the beat rates heading the Calibre menu. For a watch
+beat rate, with the beat rates in a **Beat Rate** submenu under the
+Calibre menu's search. For a watch
 with no calibre they head the title's menu instead, under **Beat Rate
 (hidden at this width)**: the rate set, Auto and Other Rates, a change
 saved to the watch. On the narrowest windows the title is a step
@@ -1593,8 +1594,10 @@ folder can't be moved while another copy has it open. The Watches view adds watc
     works as every search menu does (design guide, Search menus):
     - A click in the box never closes the menu.
     - ↑/↓ move the highlight from the first match, and Enter picks it.
+      With the box empty the highlight starts on the current calibre, so
+      Enter straight after opening keeps it.
     - A ⊗ clears the search, and so does Esc. Esc in an empty box closes
-      the menu.
+      the menu, and never the New Watch form behind it.
     - Tab stays in the menu. Empty, the menu offers Not
     Set, then **Recent**, the **Short List** by maker and **Custom** (your
     own calibres). The list keeps one height while you search, and
@@ -1644,7 +1647,8 @@ folder can't be moved while another copy has it open. The Watches view adds watc
       Starred ticked shows just the short list. The
       ticks apply on **OK** or Enter. **Cancel**, or Esc with the search
       empty, leaves the filter as it was, and OK needs at least one value
-      ticked. Its search works as the Calibre menu's: a click in it keeps the
+      ticked. With a search typed, OK keeps only the ticked values the
+      search lists. Its search works as the Calibre menu's: a click in it keeps the
       menu open, a ⊗ or Esc clears it, and Tab stays in the menu. It lists the values the other
       filters let through; the funnels combine, so a row shows only when
       every column's value is ticked, and the search over the table

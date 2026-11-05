@@ -503,13 +503,15 @@ impl Calibres {
             // A click in its search field never closes it.
             .close_behavior(theme::SEARCH_MENU_CLOSE)
             .show_ui(ui, |ui| {
-                if let Some(before) = before.as_mut() {
-                    before(ui);
-                }
+                // The search field first, where the caret is: what the
+                // menu adds above the list comes under it.
                 let list = Picked {
                     keys: search_field(ui, &mut typed).into(),
                     name: Default::default(),
                 };
+                if let Some(before) = before.as_mut() {
+                    before(ui);
+                }
                 let q = typed.trim();
                 // The list scrolls between the search field and Manage
                 // Calibres…, so both stay in view however long the
@@ -1443,18 +1445,39 @@ impl Calibres {
             {
                 ui.close();
             }
-            let none = self.funnel_draft.as_ref().is_some_and(|k| k.is_empty());
+            let kept = self.funnel_kept(col);
+            let none = kept.as_ref().is_some_and(|k| k.is_empty());
             if ui
                 .add_enabled(!none, egui::Button::new("OK"))
-                .on_hover_text(format!("Show only the {title} values ticked"))
+                .on_hover_text(format!(
+                    "Show only the {title} values ticked, of those the search lists"
+                ))
                 .on_disabled_hover_text("Tick at least one value")
                 .clicked()
                 || (enter && !none)
             {
-                self.funnels[col as usize] = self.funnel_draft.take();
+                self.funnels[col as usize] = kept;
+                self.funnel_draft = None;
                 ui.close();
             }
         });
+    }
+
+    /// What OK keeps as `col`'s filter: the values ticked, and with a
+    /// search typed only those of them it lists, as a spreadsheet's filter
+    /// keeps its search results. Every value kept is no filter.
+    fn funnel_kept(&self, col: Col) -> Option<std::collections::BTreeSet<String>> {
+        let draft = self.funnel_draft.as_ref();
+        if self.funnel_search.trim().is_empty() {
+            return draft.cloned();
+        }
+        let kept: std::collections::BTreeSet<String> = self
+            .funnel_listed(col)
+            .into_iter()
+            .filter(|v| draft.is_none_or(|k| k.contains(v)))
+            .collect();
+        let offered = self.funnel_offered(col);
+        (!offered.iter().all(|v| kept.contains(v))).then_some(kept)
     }
 
     /// Tick or untick `value` in the funnel menu open, the other values
