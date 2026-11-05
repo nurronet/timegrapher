@@ -225,6 +225,35 @@ fn a_narrow_cards_title_is_short_not_cut() {
     }
 }
 
+/// The readings cards switch to their short names together (Hugh, #1061):
+/// one too narrow for its caption takes the others with it, so a row
+/// never mixes "Amplitude" with "B.E.".
+#[test]
+fn the_cards_name_their_readings_short_together() {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let rect = |x: f32, w: f32| egui::Rect::from_min_size(egui::pos2(x, 10.0), egui::vec2(w, 24.0));
+    let mut texts = Vec::new();
+    for _ in 0..3 {
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                readouts::card_title(ui, rect(10.0, 300.0), "Amplitude", &["Help."], &[], None);
+                readouts::card_title(ui, rect(400.0, 76.0), "Beat Error", &["Help."], &[], None);
+            });
+        });
+        texts = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .filter(|t| t != "?")
+            .collect::<Vec<_>>();
+    }
+    assert_eq!(texts, ["Amp.", "B.E."]);
+}
+
 /// The texts a readings card's figure row paints in `rect`, and where.
 fn figure_texts(
     rect: egui::Rect,

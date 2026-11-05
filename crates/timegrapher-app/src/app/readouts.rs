@@ -234,9 +234,12 @@ pub(crate) fn card_title(
         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
             // Too narrow for the whole caption (800 pt), its short form as
             // the axes have it, the whole one on a hover, rather than a
-            // cut "Ampli…" that names nothing (#1061).
-            let short =
-                steady_views::short_name(caption).filter(|_| caption_w > ui.available_width());
+            // cut "Ampli…" that names nothing (#1061); and the cards
+            // switch together, so a row never mixes "Amplitude" with
+            // "B.E." (Hugh).
+            let short = steady_views::short_name(caption);
+            let need = short.is_some() && caption_w > ui.available_width();
+            let short = short.filter(|_| cards_short(ui, need));
             let r = ui.add(
                 egui::Label::new(
                     RichText::new(short.unwrap_or(caption))
@@ -255,6 +258,27 @@ pub(crate) fn card_title(
             }
         });
     });
+}
+
+/// Whether the readings cards name their readings short: where any of
+/// them `need`s to this pass or did last pass, all of them do, each card
+/// above the first one that needs it a pass late.
+fn cards_short(ui: &egui::Ui, need: bool) -> bool {
+    let id = egui::Id::new("readings cards short");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let (at, now, last) = ui
+        .data(|d| d.get_temp::<(u64, bool, bool)>(id))
+        .unwrap_or_default();
+    let (now, last) = if at == pass {
+        (now, last)
+    } else {
+        (false, now)
+    };
+    if need && !now && !last {
+        ui.ctx().request_repaint();
+    }
+    ui.data_mut(|d| d.insert_temp(id, (pass, now || need, last)));
+    need || now || last
 }
 
 /// A figure's hover, with the moment it is read at first when the strip
