@@ -865,3 +865,25 @@ fn the_scope_says_masked_where_the_profile_does() {
     let scope = painted_text(&out);
     assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
 }
+
+/// Tick's and Tock's amplitudes take the decimals of the figure beside
+/// them, its ±'s, as the CLI writes them (Walter's and Rico's note).
+#[test]
+fn tick_and_tock_take_the_amplitudes_decimals() {
+    assert_eq!(
+        readouts::sides_text(279.494, 279.571, Some(0.04)),
+        "Tick 279.49°, Tock 279.57°: each side's own amplitude."
+    );
+    // With no ±, the amplitude's base decimals, as before.
+    let base = |x| {
+        timegrapher_core::library::fixed_text(x, timegrapher_core::library::base_digits::AMPLITUDE)
+    };
+    assert_eq!(
+        readouts::sides_text(279.494, 279.571, None),
+        format!(
+            "Tick {}°, Tock {}°: each side's own amplitude.",
+            base(279.494),
+            base(279.571)
+        )
+    );
+}

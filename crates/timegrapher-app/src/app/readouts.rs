@@ -141,6 +141,17 @@ pub(super) fn amplitude_figure(r: &LiveReading) -> Option<String> {
     Some(format!("{f}°"))
 }
 
+/// The Amplitude card's hover on Tick's and Tock's own amplitudes, to the
+/// decimals of the figure beside them (its ±'s, as the CLI writes them).
+pub(super) fn sides_text(tick: f64, tock: f64, se: Option<f64>) -> String {
+    let deg = |x| figure(x, se, base::AMPLITUDE, false);
+    format!(
+        "Tick {}°, Tock {}°: each side's own amplitude.",
+        deg(tick),
+        deg(tock)
+    )
+}
+
 /// The Beat Error card's figure: its size, timed from the unlock where
 /// it can be, to the unlock's ±'s decimals.
 pub(super) fn beat_error_figure(r: &LiveReading) -> Option<String> {
@@ -558,12 +569,7 @@ impl TimegrapherApp {
             ..
         }) = r
         {
-            let deg = |x| fixed_text(x, base::AMPLITUDE);
-            behind = format!(
-                "Tick {}°, Tock {}°: each side's own amplitude.",
-                deg(a),
-                deg(b)
-            );
+            behind = sides_text(a, b, amp_pm);
         }
         if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.amplitude_deg?))) {
             let se = w.m.confidence.and_then(|c| c.amplitude.se);
