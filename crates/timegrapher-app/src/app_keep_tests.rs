@@ -1462,6 +1462,12 @@ fn the_take_on_show_keeps_its_wavs_for_another_time() {
     assert!(take.join("audio-001.wav").is_file());
     assert!(!take.join("audio-001.flac").exists());
     assert!(app.message.is_none(), "{:?}", app.message);
+    // A session folder on show holds the take: it is left too (Trevor).
+    app.opened_path = take.parent().unwrap().display().to_string();
+    app.keep_saved_wavs();
+    wav_keep_ends(&mut app);
+    assert!(take.join("audio-001.wav").is_file());
+    assert!(!take.join("audio-001.flac").exists());
     // Closed, the next start keeps it.
     app.session.set_state(session::State::Idle);
     app.keep_saved_wavs();

@@ -22,10 +22,13 @@ pub(super) struct WavKeep {
 }
 
 impl WavKeep {
-    /// Whether take folder `dir` is the take on show, or holds it.
+    /// Whether take folder `dir` is the take on show, holds it, or lies
+    /// in it (a session folder's take of one position, Trevor).
     fn is_open(open: &Mutex<Option<PathBuf>>, dir: &Path) -> bool {
-        open.lock()
-            .map_or(true, |o| o.as_deref().is_some_and(|o| o.starts_with(dir)))
+        open.lock().map_or(true, |o| {
+            o.as_deref()
+                .is_some_and(|o| o.starts_with(dir) || dir.starts_with(o))
+        })
     }
 }
 
