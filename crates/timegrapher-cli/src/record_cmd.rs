@@ -848,7 +848,10 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         log.clipped_samples,
         log.clipped_beats.len(),
         log.beats.len(),
-        opened.peak.unwrap_or(0.0),
+        // A take `record` just saved has its sound: never read as silence.
+        opened
+            .peak
+            .ok_or_else(|| format!("{}: no sound to read the peak level from", dir.display()))?,
     );
     let (whole_bph, whole_s) = (log.bph, log.duration_s);
     // The readings as `session` will take them: after the same settling
