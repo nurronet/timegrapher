@@ -506,8 +506,12 @@ pub type Positions<P> = (Vec<(f64, P)>, Vec<(f64, f64)>);
 /// The positions listed (start, start of what is read, end, position),
 /// as changes oldest first and the settling before each: from the end of
 /// the one before (or the take's start, for the first) to where its
-/// reading starts.
-pub fn positions_of<P: Copy>(
+/// reading starts. An entry that carries on the position before it, in
+/// the same position from where that one was read to and with no settling
+/// of its own (as [`continues_position`] reads the next file of one
+/// recording), is no change: the watch was not handled there, so the take
+/// is one stretch across it and nothing is cut (#1166).
+pub fn positions_of<P: Copy + PartialEq>(
     listed: impl Iterator<Item = (f64, f64, Option<f64>, P)>,
 ) -> Positions<P> {
     let mut listed: Vec<(f64, f64, Option<f64>, P)> = listed.collect();
@@ -515,10 +519,17 @@ pub fn positions_of<P: Copy>(
     let mut out = Vec::new();
     let mut settles = Vec::new();
     for (i, &(start, from, _, p)) in listed.iter().enumerate() {
+        let before = i.checked_sub(1).map(|j| listed[j]);
+        // Where the one before was read to is where this one starts, to
+        // within rounding of the files' lengths.
+        let abuts = |to: Option<f64>| to.is_some_and(|t| (t - start).abs() < 1e-6);
+        if before.is_some_and(|b| b.3 == p && abuts(b.2) && from == start) {
+            continue;
+        }
         // The position began where the one before it ended, the first at
         // the take's start: the app saves each entry from the end of its
         // settling, the first's too.
-        let began = match i.checked_sub(1).map(|j| listed[j].2) {
+        let began = match before.map(|b| b.2) {
             None => 0.0,
             Some(Some(end)) if end < start => end,
             Some(_) => start,
@@ -1680,6 +1691,34 @@ mod tests {
         let (changes, settles) = positions_of(listed.into_iter());
         assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (290.0, 'C')]);
         assert_eq!(settles, vec![(100.0, 150.0), (290.0, 320.0)]);
+    }
+
+    /// An entry that carries on the position before it, from where that
+    /// one was read to and with no settling of its own, is no change: the
+    /// take is one stretch across it (#1166). One that settles, starts
+    /// elsewhere or names another position still is.
+    #[test]
+    fn a_carried_on_entry_is_no_change_of_position() {
+        let listed = [
+            (0.0, 20.0, Some(600.0), 'D'),
+            (600.0, 600.0, Some(1200.0), 'D'),
+            (1200.0, 1200.0, None, 'D'),
+        ];
+        let (changes, settles) = positions_of(listed.into_iter());
+        assert_eq!(changes, vec![(0.0, 'D')]);
+        assert_eq!(settles, vec![(0.0, 20.0)]);
+        let listed = [
+            (0.0, 20.0, Some(600.0), 'D'),
+            (600.0, 620.0, Some(1200.0), 'D'),
+            (1300.0, 1300.0, Some(1400.0), 'D'),
+            (1400.0, 1400.0, None, 'U'),
+        ];
+        let (changes, settles) = positions_of(listed.into_iter());
+        assert_eq!(
+            changes,
+            vec![(0.0, 'D'), (600.0, 'D'), (1200.0, 'D'), (1400.0, 'U')]
+        );
+        assert_eq!(settles, vec![(0.0, 20.0), (600.0, 620.0), (1200.0, 1300.0)]);
     }
 
     /// A reading reaches across no break, no change of position after the
