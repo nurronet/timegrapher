@@ -1,6 +1,8 @@
 //! Masks and positions saved into a take's session file.
 
+use super::take_io::folder_layout;
 use super::*;
+use timegrapher_core::take_context::{in_files, FilePart};
 
 /// Save `masked` to the entries for `path` in its take's session file,
 /// leaving the rest of the file as it was, comments and keys this app
@@ -43,10 +45,17 @@ pub(super) fn save_marks_to_take(
             Ok(())
         }
     };
+    let files = read_manifest(path)
+        .ok()
+        .flatten()
+        .and_then(|(m, entries)| folder_layout(path, &m, &entries))
+        .map(|l| l.0);
     let marks = Marks {
         listed: &listed,
         one_file: &one_file,
         masked,
+        dir: &dir,
+        files: files.as_deref(),
     };
     let changed = match doc.get_mut("recording") {
         Some(toml_edit::Item::ArrayOfTables(tables)) => marks.in_tables(tables, positions)?,
@@ -77,19 +86,49 @@ struct Marks<'a> {
     /// Refuses positions where the entries list more than one file.
     one_file: &'a dyn Fn(Vec<String>) -> Result<(), String>,
     masked: &'a [[f64; 2]],
+    /// The take's folder, and where each of its sound files sits on the
+    /// strip when it has several: an entry for one of them keeps the masks
+    /// over it, in seconds into it (#1154).
+    dir: &'a Path,
+    files: Option<&'a [FilePart]>,
 }
 
 impl Marks<'_> {
     /// An entry's masked stretches, or none.
     fn set(&self, t: &mut dyn toml_edit::TableLike) {
-        if self.masked.is_empty() {
+        let masked = self.masked_in(&file_of(t));
+        if masked.is_empty() {
             t.remove("masked");
         } else {
             let mut spans = toml_edit::Array::new();
-            for m in self.masked {
+            for m in masked {
                 spans.push(toml_edit::Array::from_iter([m[0], m[1]]));
             }
             t.insert("masked", toml_edit::value(spans));
+        }
+    }
+
+    /// The masks an entry naming `file` keeps: for one file of a folder
+    /// take, those over it, cut at its ends and in seconds into it; else
+    /// every mask, in the strip's seconds.
+    fn masked_in(&self, file: &str) -> Vec<[f64; 2]> {
+        let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        let named = self.dir.join(file);
+        let at = self
+            .files
+            .and_then(|f| Some((f, f.iter().position(|p| same(&p.path, &named))?)));
+        match at {
+            Some((files, i)) => self
+                .masked
+                .iter()
+                .flat_map(|m| in_files(files, m[0], m[1]))
+                .filter(|&(j, _, _)| j == i)
+                .map(|(_, a, b)| [a, b])
+                .collect(),
+            None => self.masked.to_vec(),
         }
     }
 
