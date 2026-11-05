@@ -298,7 +298,8 @@ the timegrapher app draws them:
   `series` words it, and its statistics; the Readings view's key says what
   a dot is and how many are drawn, over its Readings, Periods,
   Cycle, Autocorrelation, Allan Deviation, CUSUM or FFT view, picked with
-  the buttons above it; Periods has a Log Scale switch, and the FFT draws
+  the buttons above it; each view keeps its own switches, so turning one
+  on in one view leaves the others as they were; Periods has a Log Scale switch, and the FFT draws
   the rate as the swing it makes in the rate readings, peak to peak in
   s/d, or with Timing as the beat timing in ms), the readings on
   probability paper as the app's Distribution panes draw them (one steady

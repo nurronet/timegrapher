@@ -16,7 +16,8 @@ const constant = (name) => html.match(new RegExp(`^const ${name} = [\\s\\S]*?;\\
 const context = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
   periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false });
 vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
-  ...["esc", "num", "pText", "steadyStats", "steadySwitch", "dotKey", "ordinal", "steadinessCard"].map(definition)].join("\n"), context);
+  constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
+  ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "ordinal", "steadinessCard"].map(definition)].join("\n"), context);
 
 const rate = { series: "rate", unit: "s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
   headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak" };
@@ -71,7 +72,8 @@ test("a series' own caveat shows once, on that series, in the server's words", (
     periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false, steadyPlot: () => "<svg/>",
     distributionCards: () => "", walkCard: () => "", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
-    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "dotKey", "ordinal", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
+    constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
+    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "dotKey", "ordinal", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
   const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 10, not 1 in 33: this cycle may be noise.";
   const series = [rate, { ...rate, series: "amplitude", unit: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },

@@ -14,14 +14,14 @@ const context = vm.createContext({});
 vm.runInContext(source[0], context);
 
 const facts = {
-  names: ["Beats", "Unlock", "Drop", "Unlock to Drop", "Amplitude"],
-  a: ["120", "−0.27 ms", "+1.20 ms", "1.47 ms", "281°"],
-  b: ["119", "–", "+1.00 ms", "–", "out of range"],
+  names: ["Beats", "Unlock", "Drop", "Unlock to Drop"],
+  a: ["120", "−0.27 ms", "+1.20 ms", "1.47 ms"],
+  b: ["119", "–", "+1.00 ms", "–"],
 };
 
 test("each side's line is the server's facts with their names", () => {
-  assert.equal(context.profileSummary(facts, 0), "Beats 120 · Unlock −0.27 ms · Drop +1.20 ms · Unlock to Drop 1.47 ms · Amplitude 281°");
-  assert.equal(context.profileSummary(facts, 1), "Beats 119 · Unlock – · Drop +1.00 ms · Unlock to Drop – · Amplitude out of range");
+  assert.equal(context.profileSummary(facts, 0), "Beats 120 · Unlock −0.27 ms · Drop +1.20 ms · Unlock to Drop 1.47 ms");
+  assert.equal(context.profileSummary(facts, 1), "Beats 119 · Unlock – · Drop +1.00 ms · Unlock to Drop –");
 });
 
 test("without the server's facts the line is empty, not the view's own", () => {

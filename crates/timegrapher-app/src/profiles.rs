@@ -50,8 +50,8 @@ fn level_label(value: f64, step: f64) -> String {
     format!("{:.*}", places, value + 0.0)
 }
 
-/// Below this height a plot's facts keep only their last two rows, Unlock
-/// to Drop and Amplitude; the rest are in the hover. Its names go inside
+/// Below this height a plot's facts keep only their last row, Unlock to
+/// Drop; the rest are in the hover. Its names go inside
 /// it below the same height.
 const SHORT_PLOT: f32 = marks::SHORT_PLOT;
 /// The least height a side takes stacked: its name and a plot of 40 pt.
@@ -60,18 +60,17 @@ const STACKED_MIN: f32 = 64.0;
 /// A side's facts before it has beats.
 const NO_FACTS: &str = "Not enough beats yet";
 
-/// Which of a side's five facts its box shows, top to bottom: on a plot
-/// `plot_h` tall with room for `fit_frame` rows inside it, all five, else
-/// (as on a short plot) two, Unlock to Drop and Amplitude, Amplitude last
-/// to go. The same in dB as in linear, so nothing moves with the scale.
-/// The hover has all five.
+/// Which of a side's four facts its box shows, top to bottom: on a plot
+/// `plot_h` tall with room for `fit_frame` rows inside it, all four, else
+/// (as on a short plot) Unlock to Drop alone. The same in dB as in linear,
+/// so nothing moves with the scale. The hover has all four.
 fn keep_rows(plot_h: f32, fit_frame: usize) -> Vec<usize> {
-    let by_height = if plot_h >= SHORT_PLOT && fit_frame >= 5 {
-        5
+    let by_height = if plot_h >= SHORT_PLOT && fit_frame >= 4 {
+        4
     } else {
-        fit_frame.min(2)
+        fit_frame.min(1)
     };
-    let mut keep = [4, 3, 0, 1, 2][..by_height].to_vec();
+    let mut keep = [3, 0, 1, 2][..by_height].to_vec();
     keep.sort_unstable();
     keep
 }
@@ -83,7 +82,7 @@ fn keep_rows(plot_h: f32, fit_frame: usize) -> Vec<usize> {
 #[derive(Clone)]
 struct FactBox {
     base: egui_plot::PlotItemBase,
-    /// The five facts, or the one line saying there are none yet.
+    /// The four facts, or the one line saying there are none yet.
     rows: Vec<(String, String)>,
     plot_h: f32,
     /// The trace at each time, plot coordinates: the box takes the top
@@ -126,10 +125,10 @@ const FACT_SIZE: f32 = 12.0;
 
 impl FactBox {
     /// Where the box goes in a plot whose frame is `frame`, `rows` tall.
-    /// Fewer than five rows of facts make a short box, as narrow as its
+    /// Fewer than four rows of facts make a short box, as narrow as its
     /// rows and tight around them.
     fn rect(&self, frame: egui::Rect, rows: usize) -> egui::Rect {
-        let short = rows < 5 && self.rows.len() == 5;
+        let short = rows < 4 && self.rows.len() == 4;
         let (name_w, value_w) = if short {
             (self.short_name_w, self.short_value_w)
         } else {
@@ -147,7 +146,7 @@ impl FactBox {
 
     /// The room around `rows` of a box holding `of` facts.
     fn pad(rows: usize, of: usize) -> f32 {
-        if rows < 5 && of == 5 {
+        if rows < 4 && of == 4 {
             FACT_PAD_SHORT
         } else {
             FACT_PAD
@@ -156,7 +155,7 @@ impl FactBox {
 
     /// Each row's height in a box of `rows` holding `of` facts.
     fn row_h(rows: usize, of: usize) -> f32 {
-        if rows < 5 && of == 5 {
+        if rows < 4 && of == 4 {
             FACT_ROW_SHORT
         } else {
             FACT_ROW
@@ -172,15 +171,15 @@ impl FactBox {
         };
         // A short plot's box is tight around its rows.
         let full =
-            self.plot_h >= SHORT_PLOT && room(frame.bottom() - FACT_INSET, FACT_PAD, FACT_ROW) >= 5;
-        let (pad, row) = if full || self.rows.len() != 5 {
+            self.plot_h >= SHORT_PLOT && room(frame.bottom() - FACT_INSET, FACT_PAD, FACT_ROW) >= 4;
+        let (pad, row) = if full || self.rows.len() != 4 {
             (FACT_PAD, FACT_ROW)
         } else {
             (FACT_PAD_SHORT, FACT_ROW_SHORT)
         };
         let fit_frame = room(frame.bottom() - FACT_INSET, pad, row);
         match self.rows.len() {
-            5 => keep_rows(self.plot_h, fit_frame),
+            4 => keep_rows(self.plot_h, fit_frame),
             1 if fit_frame >= 1 => vec![0],
             _ => Vec::new(),
         }
@@ -210,9 +209,9 @@ impl FactBox {
     /// The rows drawn and where: those [`Self::shown`] keeps, in the top
     /// left corner, or the top right where the trace runs under the left
     /// and not the right. Where the trace runs under both corners the
-    /// box keeps fewer rows, Amplitude last, and none where even one row
+    /// box keeps fewer rows, Unlock to Drop last, and none where even one row
     /// would sit on it: the picture comes first, and the box's hover has
-    /// all five. A layout other than the one last drawn must clear the
+    /// all four. A layout other than the one last drawn must clear the
     /// trace by [`FACT_HOLD`] more.
     fn layout(&self, t: &egui_plot::PlotTransform) -> (Vec<usize>, egui::Rect) {
         let shown = self.shown(t);
@@ -233,7 +232,7 @@ impl FactBox {
                 }
             }
         }
-        (Vec::new(), self.corners(t, 2).0)
+        (Vec::new(), self.corners(t, 1).0)
     }
 
     /// The span of x the box takes, as `t` draws it, its sides 0 wide at
@@ -384,7 +383,7 @@ pub fn draw(
         Scale::Linear => (0.0, (top as f64 * 1.08).max(1e-6)),
         Scale::Decibels => (FLOOR_DB, 3.0),
     };
-    let facts: Vec<Option<[String; 5]>> = profiles.iter().map(|p| p.as_ref().map(facts)).collect();
+    let facts: Vec<Option<[String; 4]>> = profiles.iter().map(|p| p.as_ref().map(facts)).collect();
     let boxes = fact_boxes(ui, &facts);
     // `axis`: the time axis under this side; stacked, Tock's serves both,
     // as their time runs together.
@@ -514,7 +513,7 @@ fn arrange(ui: &mut egui::Ui, opt: Options, side: impl Fn(&mut egui::Ui, usize, 
 
 /// Each side's facts box, its height set where it is drawn: the columns'
 /// widths are taken over both sides, so the two boxes match.
-fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 5]>]) -> [FactBox; 2] {
+fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
     let pal = theme::pal(ui);
     let name_w = widest(ui, FACT_NAMES.iter().copied());
     let value_w = widest(
@@ -524,7 +523,7 @@ fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 5]>]) -> [FactBox; 2] {
             .flatten()
             .flat_map(|f| f.iter().map(String::as_str)),
     );
-    // The two rows a short plot keeps, Unlock to Drop and Amplitude.
+    // The row a short plot keeps, Unlock to Drop.
     let short_name_w = widest(ui, FACT_NAMES[3..].iter().copied());
     let short_value_w = widest(
         ui,
@@ -726,20 +725,20 @@ fn paint_trace(
     m
 }
 
-/// A box that keeps fewer rows: the hover has all five. With a `note` on
+/// A box that keeps fewer rows: the hover has all four. With a `note` on
 /// what the profiles are (a moment's sound kept coarsely), the hover leads
 /// with it, however many rows the box keeps.
 fn facts_hover(
     resp: &egui_plot::PlotResponse<()>,
     facts_here: &FactBox,
-    f: &[String; 5],
+    f: &[String; 4],
     note: Option<&str>,
 ) {
     let (shown, r) = facts_here.layout(&resp.transform);
     if shown.len() < FACT_NAMES.len() || note.is_some() {
-        // Where no row is drawn, the corner a two-row box would take.
+        // Where no row is drawn, the corner a one-row box would take.
         let r = if shown.is_empty() {
-            facts_here.corners(&resp.transform, 2).0
+            facts_here.corners(&resp.transform, 1).0
         } else {
             r
         };
@@ -1272,23 +1271,25 @@ mod tests {
             sound2_ms: None,
             sound3_ms: None,
         };
+        // The box leaves the amplitude to the Amplitude card, which reads
+        // the same moment with its ± (Norm, #1068 item 6).
         assert_eq!(
             facts(&p),
-            ["40", "−7.64 ms", "−0.67 ms", "6.97 ms", "286°"].map(String::from)
+            ["40", "−7.64 ms", "−0.67 ms", "6.97 ms"].map(String::from)
         );
+        assert!(!FACT_NAMES.contains(&"Amplitude"));
         assert_eq!(FACT_NAMES[3], "Unlock to Drop");
-        // A short plot keeps Unlock to Drop and Amplitude.
         let names = |k: Vec<usize>| k.into_iter().map(|i| FACT_NAMES[i]).collect::<Vec<_>>();
-        // A short plot keeps Unlock to Drop and Amplitude.
-        assert_eq!(names(keep_rows(80.0, 3)), ["Unlock to Drop", "Amplitude"]);
-        assert_eq!(keep_rows(150.0, 6), [0, 1, 2, 3, 4]);
-        // Two or five: a tall plot without room for five keeps two.
-        assert_eq!(keep_rows(110.0, 4), [3, 4]);
+        // A short plot keeps Unlock to Drop.
+        assert_eq!(names(keep_rows(80.0, 3)), ["Unlock to Drop"]);
+        assert_eq!(keep_rows(150.0, 6), [0, 1, 2, 3]);
+        // One or four: a tall plot without room for four keeps one.
+        assert_eq!(keep_rows(110.0, 3), [3]);
         // Never taller than the plot: one row, then none.
-        assert_eq!(names(keep_rows(40.0, 1)), ["Amplitude"]);
+        assert_eq!(names(keep_rows(40.0, 1)), ["Unlock to Drop"]);
         assert_eq!(keep_rows(30.0, 0), Vec::<usize>::new());
         // The noise floor sheds nothing: the box is the same in dB.
-        assert_eq!(keep_rows(150.0, 6).len(), 5);
+        assert_eq!(keep_rows(150.0, 6).len(), 4);
     }
 
     /// The facts box sits in the plot's top-left corner, as tall as its
@@ -1297,7 +1298,7 @@ mod tests {
     fn the_facts_box_sits_in_the_plots_corner() {
         let b = FactBox {
             base: egui_plot::PlotItemBase::new("Tick facts".into()),
-            rows: vec![(String::new(), String::new()); 5],
+            rows: vec![(String::new(), String::new()); 4],
             plot_h: 150.0,
             tops: Vec::new(),
             held: egui::Id::new("held"),
@@ -1311,15 +1312,15 @@ mod tests {
             value_color: Color32::BLACK,
         };
         let frame = egui::Rect::from_min_size(egui::pos2(50.0, 30.0), egui::vec2(800.0, 150.0));
-        let r = b.rect(frame, 5);
+        let r = b.rect(frame, 4);
         assert_eq!(r.min, egui::pos2(54.0, 34.0));
         assert_eq!(r.width(), 90.0 + FACT_GAP + 60.0 + 2.0 * FACT_PAD);
-        assert_eq!(r.height(), 5.0 * FACT_ROW + 2.0 * FACT_PAD);
-        // A short plot's two rows: as narrow as they are, tight around them.
-        let r = b.rect(frame, 2);
+        assert_eq!(r.height(), 4.0 * FACT_ROW + 2.0 * FACT_PAD);
+        // A short plot's one row: as narrow as it is, tight around it.
+        let r = b.rect(frame, 1);
         assert_eq!(r.width(), 80.0 + FACT_GAP + 40.0 + 2.0 * FACT_PAD_SHORT);
-        assert_eq!(r.height(), 2.0 * FACT_ROW_SHORT + 2.0 * FACT_PAD_SHORT);
-        // A plot 44 pt tall holds the two rows; never none.
+        assert_eq!(r.height(), FACT_ROW_SHORT + 2.0 * FACT_PAD_SHORT);
+        // A plot 44 pt tall holds the row; never none.
         let short = FactBox {
             plot_h: 44.0,
             ..b.clone()
@@ -1330,7 +1331,7 @@ mod tests {
             egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
             egui::Vec2b::new(false, false),
         );
-        assert_eq!(short.shown(&t), vec![3, 4]);
+        assert_eq!(short.shown(&t), vec![3]);
         // Over a trace that rises under the left corner and is low on the
         // right, the box takes the top right corner.
         let rising = FactBox {
@@ -1340,7 +1341,7 @@ mod tests {
             ..short.clone()
         };
         let (rows, r) = rising.layout(&t);
-        assert_eq!(rows, vec![3, 4]);
+        assert_eq!(rows, vec![3]);
         assert!(
             (r.right() - (frame.right() - FACT_INSET)).abs() < 1e-3,
             "{r:?}"
@@ -1358,18 +1359,26 @@ mod tests {
         };
         assert!(high.layout(&t).0.is_empty());
         assert_eq!(high.span(&t), (frame.left(), frame.left()));
-        // Where one row clears the trace on the right and two don't, it
-        // keeps Amplitude there.
+        // A tall box over a trace high under the left corner, and on the
+        // right low enough for one row but not two: it sheds rows,
+        // keeping Unlock to Drop, in the right corner.
         let peak = FactBox {
             tops: (0..=10)
-                .map(|i| [i as f64 / 10.0, if i < 5 { 0.95 } else { 0.4 }])
+                .map(|i| [i as f64 / 10.0, if i < 5 { 0.95 } else { 0.78 }])
                 .collect(),
-            ..short.clone()
+            ..b.clone()
         };
-        let (rows, r) = peak.layout(&t);
-        assert_eq!(rows, vec![4]);
+        let tall = egui::Rect::from_min_size(egui::pos2(50.0, 30.0), egui::vec2(800.0, 150.0));
+        let tt = egui_plot::PlotTransform::new(
+            tall,
+            egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
+            egui::Vec2b::new(false, false),
+        );
+        assert_eq!(peak.shown(&tt), vec![0, 1, 2, 3]);
+        let (rows, r) = peak.layout(&tt);
+        assert_eq!(rows, vec![3]);
         assert!(
-            (r.right() - (frame.right() - FACT_INSET)).abs() < 1e-3,
+            (r.right() - (tall.right() - FACT_INSET)).abs() < 1e-3,
             "{r:?}"
         );
         // It adds nothing to the plot's bounds.
@@ -1387,13 +1396,13 @@ mod tests {
             egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
             egui::Vec2b::new(false, false),
         );
-        // Two rows end 68 pt down; the trace runs at 73, clear of them by
+        // The row ends 54 pt down; the trace runs at 59, clear of it by
         // 5 pt: more than the 2 pt any layout needs, less than another
         // layout's 2 pt and `FACT_HOLD`.
-        let y = (frame.bottom() - 73.0) as f64 / 44.0;
+        let y = (frame.bottom() - 59.0) as f64 / 44.0;
         let b = FactBox {
             base: egui_plot::PlotItemBase::new("Tick facts".into()),
-            rows: vec![(String::new(), String::new()); 5],
+            rows: vec![(String::new(), String::new()); 4],
             plot_h: 44.0,
             tops: (0..=10).map(|i| [i as f64 / 10.0, y]).collect(),
             held: egui::Id::new("held"),
@@ -1406,26 +1415,30 @@ mod tests {
             name_color: Color32::GRAY,
             value_color: Color32::BLACK,
         };
-        assert_eq!(b.rect(frame, 2).bottom(), 68.0);
-        // First drawn, or drawn with two rows last frame: two rows.
-        assert_eq!(b.layout(&t).0, vec![3, 4]);
-        let two = FactBox {
-            was: Some((2, false)),
-            ..b.clone()
-        };
-        assert_eq!(two.layout(&t).0, vec![3, 4]);
-        // Drawn with one row last frame, it keeps one until the trace is
-        // clear by the hold as well, or lies at the plot's foot.
-        let one = FactBox {
+        assert_eq!(b.rect(frame, 1).bottom(), 54.0);
+        // First drawn, or drawn in the left corner last frame: the left.
+        let left = |b: &FactBox| b.layout(&t).1.left() < frame.center().x;
+        assert_eq!(b.layout(&t).0, vec![3]);
+        assert!(left(&b));
+        let was_left = FactBox {
             was: Some((1, false)),
             ..b.clone()
         };
-        assert_eq!(one.layout(&t).0, vec![4]);
+        assert!(left(&was_left));
+        // Drawn in the right corner last frame, it stays there until the
+        // trace clears the left by the hold as well, or lies at the
+        // plot's foot.
+        let was_right = FactBox {
+            was: Some((1, true)),
+            ..b.clone()
+        };
+        assert_eq!(was_right.layout(&t).0, vec![3]);
+        assert!(!left(&was_right));
         let clear = FactBox {
             tops: (0..=10).map(|i| [i as f64 / 10.0, 0.0]).collect(),
-            ..one.clone()
+            ..was_right.clone()
         };
-        assert_eq!(clear.layout(&t).0, vec![3, 4]);
+        assert!(left(&clear));
     }
 
     #[test]
