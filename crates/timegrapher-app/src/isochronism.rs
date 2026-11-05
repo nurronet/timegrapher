@@ -304,12 +304,22 @@ fn chart_plot(
         .show_y(false)
         .y_axis_min_width(gutter)
         .height(h)
-        .x_axis_formatter(|m, r| {
-            theme::clear_of_right_edge(format!("{:.0}°", m.value), m.value, r, 0.03)
-        })
+        .x_axis_formatter(|m, r| amp_label(m.value, r))
         .y_axis_formatter(|m, _| rate_label(m.value, m.step_size))
         .default_x_bounds(x_lo, x_hi)
         .default_y_bounds(y_lo, y_hi)
+}
+
+/// An amplitude axis label, or none within 3% of either end:
+/// past the right it runs off the plot, and at the left it sits on the
+/// lowest rate label in the corner (Walter's walk of #1133).
+fn amp_label(v: f64, range: &std::ops::RangeInclusive<f64>) -> String {
+    let edge = 0.03;
+    if theme::near_an_end(v, range, edge, edge) {
+        String::new()
+    } else {
+        format!("{v:.0}°")
+    }
 }
 
 /// The bins' middle halves, the curve, the medians and the turn's line.
@@ -787,6 +797,17 @@ mod tests {
             assert_eq!(a, b);
             assert!((x - y).abs() < 1.0, "{a}: {x} and {y}");
         }
+    }
+
+    /// An amplitude label at either end of the axis is left off: at the
+    /// left it would sit on the lowest rate label (Walter, #1133).
+    #[test]
+    fn no_amplitude_label_sits_in_a_corner() {
+        let r = 275.0..=285.0;
+        assert_eq!(amp_label(275.0, &r), "");
+        assert_eq!(amp_label(285.0, &r), "");
+        assert_eq!(amp_label(276.0, &r), "276°");
+        assert_eq!(amp_label(284.0, &r), "284°");
     }
 
     /// One view at a time: the Curve view has no walk, the Walk view no
