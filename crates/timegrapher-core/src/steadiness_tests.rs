@@ -1653,3 +1653,44 @@ fn candidates_on_the_same_peak_are_tested_once_with_the_same_answer() {
     let c = kept.unwrap();
     assert!((c.period_s - 257.4).abs() < 0.5, "{c:?}");
 }
+
+/// A window goes in the cell its middle lies in, as `Cuts::window_in`
+/// takes a window into a stretch (#636): a short window from 3.2 to
+/// 4.0 s on a 2 s grid sits in cell 1, where rounding its start would
+/// have put it in cell 2.
+#[test]
+fn a_window_goes_in_the_cell_its_middle_lies_in() {
+    let w = |start_s: f64, end_s: f64, deg: f64| crate::amplitude::AmplitudeWindow {
+        start_s,
+        end_s,
+        even_deg: Some(deg),
+        odd_deg: Some(deg),
+        beat_error_ms: None,
+        beat_error_unlock_ms: None,
+        even_unlock_ms: None,
+        odd_unlock_ms: None,
+        even_drop_ms: None,
+        odd_drop_ms: None,
+    };
+    let log = BeatLog {
+        sample_rate: 48000,
+        duration_s: 10.0,
+        bph: 28800,
+        lift_deg: 52.0,
+        beats: Vec::new(),
+        amplitude_windows: vec![w(0.0, 2.0, 250.0), w(3.2, 4.0, 260.0), w(6.0, 8.0, 270.0)],
+        clipped_beats: vec![],
+        clipped_samples: 0,
+        jumps: vec![],
+        sided: vec![],
+        by_count: vec![],
+        snippets: Vec::new(),
+    };
+    let g = windows_grid(&log, None, &[], &|w| w.mean());
+    assert_eq!((g.t0, g.step), (0.0, 2.0));
+    assert_eq!(g.y.len(), 4, "{:?}", g.y);
+    assert_eq!(g.y[0], 250.0);
+    assert_eq!(g.y[1], 260.0, "{:?}", g.y);
+    assert!(g.y[2].is_nan(), "{:?}", g.y);
+    assert_eq!(g.y[3], 270.0);
+}
