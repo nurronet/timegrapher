@@ -22,6 +22,14 @@ pub fn viridis(t: f32) -> Color32 {
     Color32::from_rgb(c.r, c.g, c.b)
 }
 
+/// The time colour map at `t`, 0 to 1, in the dark theme or the light:
+/// core's [`time_colour`](timegrapher_core::palette::time_colour), for
+/// every mark coloured by its time.
+pub fn time_colour(dark: bool, t: f32) -> Color32 {
+    let c = timegrapher_core::palette::time_colour(t, dark);
+    Color32::from_rgb(c.r, c.g, c.b)
+}
+
 /// The map's cells, one column per slot of time `dt` from the first
 /// column's: `(t0, dt, columns)`. Columns that aren't there (a window
 /// left out) leave their slot empty.
@@ -297,8 +305,8 @@ fn key_ends(s: Scale) -> (String, String) {
     }
 }
 
-/// A colour key's bar, `width` wide: viridis from its start to its end.
-pub fn ramp(ui: &mut egui::Ui, width: f32) {
+/// A colour key's bar, `width` wide: `map` from its start to its end.
+pub fn ramp(ui: &mut egui::Ui, width: f32, map: impl Fn(f32) -> Color32) {
     let (r, _) = ui.allocate_exact_size(Vec2::new(width, 10.0), egui::Sense::hover());
     let n = 60;
     for i in 0..n {
@@ -307,7 +315,7 @@ pub fn ramp(ui: &mut egui::Ui, width: f32) {
         ui.painter().rect_filled(
             egui::Rect::from_x_y_ranges(x0..=x1 + 0.5, r.y_range()),
             0.0,
-            viridis(i as f32 / (n - 1) as f32),
+            map(i as f32 / (n - 1) as f32),
         );
     }
 }
@@ -321,7 +329,7 @@ fn key_row(ui: &mut egui::Ui, m: &TimeFrequency, s: Scale, pal: &theme::Palette)
         ui.add_space(6.0);
         let (lo, hi) = key_ends(s);
         ui.label(small(lo));
-        ramp(ui, 120.0);
+        ramp(ui, 120.0, viridis);
         ui.label(small(hi));
         ui.add_space(12.0);
         let (e, _) = ui.allocate_exact_size(Vec2::new(14.0, 10.0), egui::Sense::hover());

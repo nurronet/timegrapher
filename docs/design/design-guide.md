@@ -172,6 +172,7 @@ For colour-blind viewers (protan and deutan), light mode is worst: Rate and Tock
    - **Warn:** a warning-triangle icon in text colour. Today's amber Warn sits 1.8 from Beat Error's new amber, which would break "one colour, one meaning", so the shape carries the warning instead.
 4. **Accent blue is for interface only:** the default button, a switch that is on, and the selected item. It never marks a quantity.
 5. **The time-frequency maps** keep viridis, the same in both modes.
+6. **The time colour map** (a mark coloured by its time: the Isochronism walk, the Cycle view) is viridis with its OKLab lightness rescaled from viridis's own range to 0.60–0.92 in dark mode and 0.30–0.64 in light, its a and b kept, so its start stands off a dark plot and its end off a light one (Hugh's M3, Peter 11-05). Core's `palette::time_colour` is the one source.
 
 ### The position track
 
