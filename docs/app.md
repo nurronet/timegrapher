@@ -764,8 +764,13 @@ when not read.
 
 **Isochronism.** A tab beside the Steadiness panes, from the same run of tests: the
 rate by amplitude in 2° steps (the median rate as a dot, with bars over the
-middle half), the curve through them and where it turns, filling the
-pane. It needs the amplitude to fall
+middle half), the curve through them and where it turns. Under it, when
+core has one, the walk (#741): the rate against the amplitude for each
+merged stretch of time, each dot coloured by hours since the take's start
+(viridis, with a key), joined in time order by a faint line that breaks
+where core says a stretch was left out or the take broke; each dot's hover
+is core's. With no curve the walk fills the pane under a note. The curve
+needs the amplitude to fall
 through at least three 2° steps, which a run-down over some hours gives
 (a long run-down is one way; any take over a wide range of amplitude
 does).
