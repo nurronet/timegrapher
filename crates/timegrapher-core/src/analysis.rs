@@ -33,7 +33,7 @@ impl Default for AnalysisConfig {
             bph: None,
             envelope: EnvelopeConfig::default(),
             amplitude: AmplitudeConfig::default(),
-            rate_window_s: 10.0,
+            rate_window_s: crate::measure::RATE_WINDOW_S,
             amplitude_window_s: 2.0,
             escape_teeth: crate::take::ESCAPE_TEETH,
             lift_known: false,

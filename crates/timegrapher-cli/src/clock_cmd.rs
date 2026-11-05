@@ -10,7 +10,8 @@ use std::time::SystemTime;
 use timegrapher_core::audio;
 use timegrapher_core::clock::{self, ClockFit};
 use timegrapher_core::clockstore::{self, ClockStore, DeviceClock};
-use timegrapher_core::library::{fixed_text, signed_text};
+use timegrapher_core::figure_text::{base_digits, figure, figure_with_pm};
+use timegrapher_core::library::fixed_text;
 use timegrapher_core::recorder::utc;
 use timegrapher_core::take;
 
@@ -128,21 +129,23 @@ fn list(json: bool) -> Result<(), String> {
 
 /// One line about a stored correction.
 pub fn describe(d: &DeviceClock) -> String {
-    let sd = d
-        .ppm_sd
-        .map(|s| format!(" ± {}", fixed_text(s, 2)))
-        .unwrap_or_default();
     let span = if d.span_s > 0.0 {
         format!(" over {} min", fixed_text(d.span_s / 60.0, 0))
     } else {
         String::new()
     };
     format!(
-        "{}: {}{sd} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
+        "{}: {} ppm {} (rates read {} s/d {} on it); {}, {}{span}",
         d.device,
-        fixed_text(d.ppm.abs(), 2),
+        // Each to its ±'s decimals (#510 K3).
+        figure_with_pm(d.ppm.abs(), d.ppm_sd, base_digits::CLOCK, false),
         if d.ppm >= 0.0 { "slow" } else { "fast" },
-        d.rate_error_s_per_day().abs(),
+        figure(
+            d.rate_error_s_per_day().abs(),
+            d.ppm_sd.map(|s| clock::rate_error_s_per_day(s).abs()),
+            base_digits::RATE,
+            false
+        ),
         if d.ppm >= 0.0 { "fast" } else { "slow" },
         d.how_text(),
         d.measured_utc
@@ -217,12 +220,11 @@ fn report(
 /// Why a measurement is not stored: what it measured, and the rule.
 fn refusal(d: &DeviceClock, w: &clock::Withheld) -> String {
     format!(
-        "not stored: {} entries over {} s measure '{}' at {} ± {} ppm; a stored correction needs {} entries or more and a standard error of at most {} ppm (as a take's own log does to correct its rates)",
+        "not stored: {} entries over {} s measure '{}' at {} ppm; a stored correction needs {} entries or more and a standard error of at most {} ppm (as a take's own log does to correct its rates)",
         w.points,
         fixed_text(w.span_s, 0),
         d.device,
-        signed_text(w.ppm, 1),
-        fixed_text(w.ppm_sd, 1),
+        w.ppm_text(),
         clock::MIN_POINTS,
         fixed_text(clock::MAX_SD_PPM, 0)
     )
@@ -257,10 +259,9 @@ fn measure(device: Option<&str>, minutes: f64, save: bool, json: bool) -> Result
             next += 60.0;
             if let Some(f) = tr.fit() {
                 eprintln!(
-                    "{:>5} min  {} ± {} ppm",
+                    "{:>5} min  {} ppm",
                     fixed_text(tr.audio_s() / 60.0, 1),
-                    signed_text(f.ppm, 2),
-                    fixed_text(f.ppm_sd, 2)
+                    clock::ppm_pm_text(f.ppm, Some(f.ppm_sd))
                 );
             }
         }

@@ -206,7 +206,7 @@ fn usb_lines_and_a_good_log_apart_say_so_in_the_status_bar() {
     let (short, long) = app.clock_disagreement().expect("100 ppm apart");
     assert_eq!(short, "USB lines and clock log 100 ppm apart");
     assert!(
-        long.contains("+120.0 ppm") && long.contains("+20 ± 0 ppm"),
+        long.contains("+120.0 ppm") && long.contains("+20.000 ± <0.001 ppm"),
         "{long}"
     );
     app.put_take_clock(Some(rated(24.0)), None);

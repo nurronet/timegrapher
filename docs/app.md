@@ -768,7 +768,8 @@ middle half), the curve through them and where it turns. **View** in its
 toolbar picks this **Curve** or the **Walk** (#741), when core has one:
 the rate against the amplitude for each
 merged stretch of time, each dot coloured by hours since the take's start
-(viridis, with a key), joined in time order by a faint line that breaks
+(viridis, with a key), joined in time order by lines, each in the colour of the dot it goes
+from, that break
 where core says a stretch was left out or the take broke; each dot's hover
 is core's. Both views span the same amplitudes, so a degree stays put
 when the view changes, and the curve's headline stays above either. The

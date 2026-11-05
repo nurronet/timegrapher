@@ -2677,7 +2677,7 @@ fn isochronism_curve(
         .then(|| centre - curve[1] / (2.0 * curve[2]))
         .filter(|t| *t > b0 + 0.1 * (b1 - b0) && *t < b1 - 0.1 * (b1 - b0));
     // Said as going together, not as cause: the amplitude and the rate
-    // both change with what is not logged, such as temperature.
+    // can both change with what else changes over the take.
     let goes = match (shown, eiv) {
         (Some(e), _) => format!("the rate goes with the amplitude by {}", slope_text(&e)),
         (None, Some(_)) => format!("{TOO_NOISY}, so no slope is read"),
@@ -2686,7 +2686,7 @@ fn isochronism_curve(
     // The end bins as a sentence of their own: two medians, not the
     // slope's own evidence.
     let headline = format!(
-        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}. Temperature is not logged.",
+        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}.",
         b0,
         b1,
         crate::library::signed_text(by[0], 1),
