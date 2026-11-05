@@ -556,3 +556,54 @@ fn enter_on_opening_picks_nothing_when_the_calibre_isnt_listed() {
         "↓ lights Not Set first"
     );
 }
+
+/// Walter's walk of #1194: the second New Watch of a session drew its
+/// Calibre menu behind the dialog, since egui lifts the dialog on the
+/// same press that opens the menu. Each time, the menu is on top.
+#[test]
+fn a_dialogs_calibre_menu_opens_above_it_every_time() {
+    let mut c = Calibres::in_memory();
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
+    let input = |events| egui::RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..Default::default()
+    };
+    for round in 0..3 {
+        let mut f = crate::watches::Form {
+            watch: timegrapher_core::library::Watch::new("Test"),
+            new: true,
+            error: None,
+        };
+        let mut run = |events: Vec<egui::Event>| {
+            ctx.run(input(events), |ctx| {
+                egui::CentralPanel::default().show(ctx, |_ui| {});
+                let _ = crate::watches::form(ctx, &mut f, &mut c);
+                crate::theme::popups_above_dialogs(ctx);
+            })
+        };
+        run(vec![]);
+        let out = run(vec![]);
+        let at = drawn_at(&out, "Not Set").expect("the Calibre button");
+        run(click(at.center() + egui::vec2(100.0, 0.0)));
+        run(vec![]);
+        let out = run(vec![]);
+        let search = drawn_at(&out, "Search every calibre").expect("the menu open");
+        assert_ne!(
+            ctx.layer_id_at(search.center()).map(|l| l.id),
+            Some(egui::Id::new("watch form")),
+            "round {round}: the dialog covers its Calibre menu"
+        );
+        let title = drawn_at(&out, "New Watch").expect("the dialog's title");
+        run(click(title.center()));
+        run(vec![]);
+        // The dialog closed: frames without it.
+        for _ in 0..2 {
+            let _ = ctx.run(input(vec![]), |ctx| {
+                egui::CentralPanel::default().show(ctx, |_ui| {});
+            });
+        }
+    }
+}

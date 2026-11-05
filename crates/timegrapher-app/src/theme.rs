@@ -2412,3 +2412,16 @@ impl MenuSearch {
         ui.data_mut(|d| d.insert_temp(self.id, highlight));
     }
 }
+
+/// Keep every open menu and pop-up above any dialog. egui lifts a dialog
+/// to the top on each press inside it, so a menu that opens on that same
+/// press, from a dialog shown a second time, can land behind it. Called
+/// once a frame, after every dialog is drawn.
+pub fn popups_above_dialogs(ctx: &egui::Context) {
+    let shown = ctx.memory(|m| m.areas().visible_layer_ids());
+    for l in shown {
+        if l.order == egui::Order::Foreground && egui::Popup::is_id_open(ctx, l.id) {
+            ctx.move_to_top(l);
+        }
+    }
+}
