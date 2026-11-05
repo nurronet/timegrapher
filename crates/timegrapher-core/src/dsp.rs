@@ -276,6 +276,12 @@ pub fn quantile(sorted: &[f64], q: f64) -> f64 {
     sorted[i] + (sorted[j] - sorted[i]) * (x - i as f64)
 }
 
+/// [`quantile`] of `f32` values, by the same rule.
+pub fn quantile_f32(sorted: &[f32], q: f64) -> f32 {
+    let w: Vec<f64> = sorted.iter().map(|&x| f64::from(x)).collect();
+    quantile(&w, q) as f32
+}
+
 /// [`quantile`] `q` of the finite values in `v`, in any order; `None`
 /// when there are none.
 pub fn percentile(v: &[f64], q: f64) -> Option<f64> {
