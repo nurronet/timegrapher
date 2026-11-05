@@ -50,29 +50,51 @@ pub(crate) fn want() {
     }
 }
 
-/// Before the window goes at quit: each window's first responder is
-/// the window itself, so nothing AppKit watches in its views (the Touch
-/// Bar's finder) is left watching a view about to go (#1071).
+/// Before the window goes at quit, for every window the app has: its
+/// first responder becomes the window itself, and the window and its
+/// views are kept until the process ends (#1071).
+///
+/// AppKit's Touch Bar finder watches the views in the responder chain
+/// and stops watching them later, on its next display cycle. Making the
+/// window first responder only asks it to update; if eframe has already
+/// dropped the window by then, the view it stops watching is gone and
+/// AppKit aborts ("quit unexpectedly"). That race made the first fix
+/// work on some quits and not others. A window and view that are never
+/// freed can always be stopped watching. The app is quitting, so
+/// what it keeps is freed with the process.
 pub(crate) fn before_close() {
     if !WANTED.load(Ordering::Relaxed) {
         return;
     }
-    // SAFETY: NSApplication's shared instance and its key and main
-    // windows, each nil or a live NSWindow, and makeFirstResponder: with
-    // nil, which makes the window its own first responder; on the main
-    // thread, where eframe calls `on_exit`.
+    // SAFETY: NSApplication's shared instance and its `windows` array,
+    // each entry a live NSWindow; makeFirstResponder: with nil, which
+    // makes the window its own first responder; `retain` on the window
+    // and its content view (nil or a live NSView), each balanced by no
+    // release, so they outlive winit's drop of the window. All on the
+    // main thread, where eframe calls `on_exit`.
     unsafe {
         let app: *mut objc2::runtime::AnyObject =
             objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
         if app.is_null() {
             return;
         }
-        let key: *mut objc2::runtime::AnyObject = objc2::msg_send![app, keyWindow];
-        let main: *mut objc2::runtime::AnyObject = objc2::msg_send![app, mainWindow];
-        for w in [key, main] {
-            if !w.is_null() {
-                let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
-                let _: bool = objc2::msg_send![w, makeFirstResponder: none];
+        let windows: *mut objc2::runtime::AnyObject = objc2::msg_send![app, windows];
+        if windows.is_null() {
+            return;
+        }
+        let count: usize = objc2::msg_send![windows, count];
+        for i in 0..count {
+            let w: *mut objc2::runtime::AnyObject = objc2::msg_send![windows, objectAtIndex: i];
+            if w.is_null() {
+                continue;
+            }
+            let none: *mut objc2::runtime::AnyObject = std::ptr::null_mut();
+            let _: bool = objc2::msg_send![w, makeFirstResponder: none];
+            let view: *mut objc2::runtime::AnyObject = objc2::msg_send![w, contentView];
+            for keep in [w, view] {
+                // Retained::retain is null-safe; forgetting it leaves the
+                // extra retain in place for the life of the process.
+                std::mem::forget(objc2::rc::Retained::retain(keep));
             }
         }
     }

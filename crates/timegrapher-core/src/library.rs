@@ -501,7 +501,7 @@ type Readings = BTreeMap<String, Kept>;
 /// The engine that works the readings out: this build's version and a
 /// hash of core's source (`build.rs`), so a reading kept by other code
 /// within the same version is worked out again (audit: engine identity).
-const ENGINE: &str = concat!(
+pub(crate) const ENGINE: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     "+",
     env!("TIMEGRAPHER_ENGINE_SOURCE")

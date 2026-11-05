@@ -177,6 +177,10 @@ fn main() -> ExitCode {
     // The log and crash records live beside the settings.
     // The settings folder `timegrapher report` collects logs from.
     applog::init(timegrapher_core::clockstore::config_dir());
+    // The beats of each take opened are kept in the system's cache folder,
+    // so it opens again in seconds (#726); headless runs read the sound
+    // every time, and so does the window with TIMEGRAPHER_NO_BEAT_CACHE set.
+    timegrapher_core::beat_cache::set_dir(timegrapher_core::beat_cache::default_dir());
     let file = args.file.clone();
     // OpenGL first; where the graphics can't do OpenGL 2.0 (a virtual
     // machine or remote desktop without 3D, an old driver), wgpu, which on

@@ -1179,21 +1179,48 @@ fn entry_log(
     paths: &[&Path],
     cfg: &StreamConfig,
     file: &str,
-    mut progress: impl FnMut(f64, f64),
+    progress: impl FnMut(f64, f64),
 ) -> Result<(BeatLog, Option<f32>), String> {
     match kept {
         Some(k) => Ok((kept_at_lift(&k.log, cfg.analysis.amplitude.lift_deg), None)),
-        None => {
-            let mut total_s = 0.0;
-            for p in paths {
-                let i = crate::audio::info(p).map_err(|err| format!("{}: {err}", p.display()))?;
-                total_s += i.frames.unwrap_or(0) as f64 / i.sample_rate as f64;
-            }
-            stream::analyze_files_peak(paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
-                .map(|(log, peak)| (log, Some(peak)))
-                .map_err(|err| format!("{file}: {err}"))
-        }
+        None => sound_log(
+            crate::beat_cache::dir().as_deref(),
+            paths,
+            cfg,
+            file,
+            progress,
+        )
+        .map(|(log, peak)| (log, Some(peak))),
     }
+}
+
+/// The beats found in the sound `paths`, as [`entry_log`] finds them:
+/// from the copy kept in `cache` when it has one that matches
+/// ([`crate::beat_cache`]), else from the sound, then kept there.
+fn sound_log(
+    cache: Option<&Path>,
+    paths: &[&Path],
+    cfg: &StreamConfig,
+    file: &str,
+    mut progress: impl FnMut(f64, f64),
+) -> Result<(BeatLog, f32), String> {
+    let mut total_s = 0.0;
+    for p in paths {
+        let i = crate::audio::info(p).map_err(|err| format!("{}: {err}", p.display()))?;
+        total_s += i.frames.unwrap_or(0) as f64 / i.sample_rate as f64;
+    }
+    if let Some(got) = cache.and_then(|d| crate::beat_cache::read(d, paths, cfg)) {
+        progress(total_s, total_s);
+        return Ok(got);
+    }
+    let (log, peak) =
+        stream::analyze_files_peak(paths, cfg, |done_s| progress(done_s, total_s.max(done_s)))
+            .map_err(|err| format!("{file}: {err}"))?;
+    if let Some(d) = cache {
+        // A copy that can't be kept only costs the next open its time.
+        let _ = crate::beat_cache::write(d, paths, cfg, &log, peak);
+    }
+    Ok((log, peak))
 }
 
 /// A take's clock, read as [`read_clock`] reads it.
@@ -1547,6 +1574,55 @@ mod tests {
         .unwrap();
         assert!(told.len() > 1 && told[0].0 < 30.0, "{told:?}");
         assert!(told.iter().all(|t| t.1 == 30.0), "{told:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// With a folder of copies, the first open finds the beats in the
+    /// sound and keeps them; the next reads them from the copy, telling
+    /// `progress` once that all the sound is done, and gives the same
+    /// beats to the bit (#726).
+    #[test]
+    fn a_take_opened_again_reads_its_kept_beats() {
+        use std::time::{Duration, SystemTime};
+        let dir = std::env::temp_dir().join(format!("tg-sound-log-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.wav");
+        let audio = crate::synth::generate(
+            &crate::synth::SynthConfig {
+                duration_s: 60.0,
+                ..Default::default()
+            },
+            |_| 270.0,
+            |_| 0.0,
+        );
+        crate::audio::write_wav(&file, &audio).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        let cache = dir.join("cache");
+        let cfg = StreamConfig::default();
+        let paths = [file.as_path()];
+        let mut first = 0;
+        let found = sound_log(Some(&cache), &paths, &cfg, "a.wav", |_, _| first += 1).unwrap();
+        let mut told = Vec::new();
+        let kept = sound_log(Some(&cache), &paths, &cfg, "a.wav", |d, t| {
+            told.push((d, t))
+        })
+        .unwrap();
+        assert!(first > 1);
+        assert_eq!(told, [(60.0, 60.0)]);
+        assert_eq!(
+            crate::beat_cache::encode(&kept.0, kept.1),
+            crate::beat_cache::encode(&found.0, found.1)
+        );
+        // With no folder, nothing is kept or read.
+        let mut none = 0;
+        sound_log(None, &paths, &cfg, "a.wav", |_, _| none += 1).unwrap();
+        assert!(none > 1);
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -158,7 +158,9 @@ in its `clock` block where it applied a correction (stored, given, or the
 recording's USB lines, in that order), else the rate on the sound card's
 clock. They do not choose `rate_corrected_s_per_day` themselves. The lead's
 beat error is core's: the unlock's where it was found, else the drop's, as
-a size.
+a size. The Beat Error chart over time draws the same choice reading by
+reading (`session::chosen_beat_error`): the unlock's line wherever core read
+it, and the drop's only where it fell back, as the app's strip does.
 
 ### Repeated and overlapping calls
 
