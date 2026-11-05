@@ -376,8 +376,15 @@ fn strip(csv: &str, duration_s: f64) -> Value {
         };
         average_s = average_s.or(get(col("average_s")));
         clock_ppm = clock_ppm.or(get(col("clock_ppm")));
-        for (k, c) in cols.iter().enumerate() {
-            match get(*c) {
+        let mut row = cols.map(get);
+        // Beat error from the unlock where core read it there, from the
+        // drop only where it fell back, as the app's strip draws it.
+        let chosen = timegrapher_core::session::chosen_beat_error(row[4], row[5]);
+        let from = |s| chosen.filter(|c| c.1 == s).map(|c| c.0);
+        row[4] = from(timegrapher_core::session::BeatErrorSource::Unlock);
+        row[5] = from(timegrapher_core::session::BeatErrorSource::Drop);
+        for (k, v) in row.into_iter().enumerate() {
+            match v {
                 Some(v) => series[k].push([t, v]),
                 // No figure here (a cut, a mask, too few beats): the line
                 // lifts, as the app's does, with one gap for the run.
@@ -977,7 +984,8 @@ mod tests {
         );
         assert_eq!(
             s["beat_error_drop"],
-            json!([[2.0, -0.39], [3.0, -0.41], [4.0, null], [6.0, -0.40]])
+            json!([[3.0, -0.41], [4.0, null]]),
+            "the drop's only where core fell back to it"
         );
         // Each chart's scale is core's, over every point of its lines.
         let range = |ys: &[f64]| {
@@ -986,10 +994,7 @@ mod tests {
         };
         assert_eq!(s["y_range"]["rate"], range(&[4.5, 4.7, 4.9]));
         assert_eq!(s["y_range"]["amplitude"], range(&[268.0, 272.0]));
-        assert_eq!(
-            s["y_range"]["beat_error"],
-            range(&[-0.36, -0.38, -0.39, -0.40, -0.41])
-        );
+        assert_eq!(s["y_range"]["beat_error"], range(&[-0.36, -0.38, -0.41]));
     }
 
     #[test]
