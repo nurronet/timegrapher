@@ -978,7 +978,7 @@ fn read_all(m: &Manifest, ctx: &Ctx<'_>) -> Result<ReadAll, String> {
 /// at its recording's offset), when it is a long take in one position
 /// ([`power_reserve::from_long_take`]): a take of several entries is one
 /// run however its files are listed, as the app opens a take's folder
-/// (#1150). None for a take whose entries name more than one clock log,
+/// (#1150), cut where the take's readings are cut. None for a take whose entries name more than one clock log,
 /// which core can't read whole.
 ///
 /// [`TakeContext`]: timegrapher_core::take_context::TakeContext
@@ -1012,10 +1012,13 @@ fn whole_take_run(c: &Ctx) -> Result<Option<power_reserve::Results>, String> {
         |first| take::correction_for(c.m, first, None, None),
         |_, _| {},
     )?;
+    // Cut where the take's readings are cut, as the app cuts the take it
+    // opens.
+    let breaks = ctx.reading_breaks(c.m);
     Ok(power_reserve::from_long_take(
         &log,
         ctx.clock.as_ref(),
-        &ctx.breaks,
+        &breaks,
         &ctx.masked,
         &positions_listed(c),
         "",
