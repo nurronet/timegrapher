@@ -341,3 +341,54 @@ fn a_takes_reading_breaks_cut_at_changes_of_position_and_settling() {
     assert!(ctx.reading_breaks(&m).iter().all(|b| b.gap_s == 0.0));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The stretches `series` and `long` read are the entries' windows joined
+/// in take seconds: files carrying on one position run on as one stretch,
+/// a file's entries split around a stretch left out stay apart, and an
+/// entry for the folder that only says the position reads on from the
+/// first file's settling to the take's end (#294, #1156).
+#[test]
+fn a_takes_stretches_are_its_entries_windows_joined() {
+    let dir = synthetic_take("spans");
+    let spans = |toml: &str| {
+        let m: Manifest = toml::from_str(toml).unwrap();
+        let (ctx, _) = TakeContext::open(
+            &dir,
+            &m,
+            settings(None),
+            Masks::Cut,
+            |_| Ok(None),
+            |_| Ok(None),
+            |_, _| {},
+        )
+        .unwrap();
+        ctx.spans(&m)
+    };
+    // a.wav settles 20 s, b.wav carries on from 60 s; c.wav (121 s on) is
+    // measured for 10 s, then read again from 40 s into it to its end.
+    assert_eq!(
+        spans(
+            "bph = 28800\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"b.wav\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"c.wav\"\nposition = \"CR\"\nmeasure_s = 10\n\
+             [[recording]]\nfile = \"c.wav\"\nposition = \"CR\"\nsettle_s = 40\n"
+        ),
+        Some(vec![(20.0, 131.0), (161.0, 183.0)])
+    );
+    // The folder in the first file's position, beside that file alone.
+    assert_eq!(
+        spans(
+            "bph = 28800\n\
+             [[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n"
+        ),
+        Some(vec![(20.0, 183.0)])
+    );
+    // One stretch that is the whole take is no stretch: read whole.
+    assert_eq!(
+        spans("bph = 28800\n[[recording]]\nfile = \".\"\nposition = \"DU\"\nsettle_s = 0\n"),
+        None
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

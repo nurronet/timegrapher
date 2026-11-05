@@ -266,6 +266,85 @@ impl TakeContext {
             .collect()
     }
 
+    /// The stretches of the take that are read, take seconds, in time
+    /// order: each entry of `m` (the session file the context was opened
+    /// from) read from its window ([`EntryWindow::window`]), so `series`
+    /// and `long` read exactly what `session` reads of each entry, joined.
+    /// A file that carries on the one before it in the same position
+    /// ([`take::continues_position`]) runs on from it as one stretch. An
+    /// entry for the take's whole folder, beside entries for its files,
+    /// that says no more than their position reads on from the first
+    /// file's settling to the take's end.
+    /// None, and the take read whole, when an entry names no position,
+    /// when two entries' stretches overlap (they disagree about where the
+    /// watch was, and joined the sound they share would be read twice),
+    /// or when the one stretch is the whole take.
+    pub fn spans(&self, m: &Manifest) -> Option<Vec<(f64, f64)>> {
+        if m.recordings.iter().any(|e| e.position.is_none()) {
+            return None;
+        }
+        let folder = |e: &RecordingEntry| take::names_whole_folder(&e.file);
+        let first_file = m.recordings.iter().find(|e| !folder(e));
+        // A whole-folder entry beside the files' entries only says their
+        // position when it is the first file's and names nothing more.
+        let says_only_position = |e: &RecordingEntry| {
+            first_file.is_some_and(|f| {
+                e.position == f.position
+                    && e.start_s.is_none()
+                    && e.end_s.is_none()
+                    && e.settle_s.is_none()
+                    && e.measure_s.is_none()
+            })
+        };
+        let total = self
+            .files
+            .iter()
+            .map(|f| f.offset_s + f.duration_s)
+            .fold(0.0, f64::max);
+        let window = |w: &EntryWindow| w.window.as_ref().ok().map(|w| (w.from_s, w.to_s));
+        // Such an entry reads the take on from the first file's settling to
+        // its end, as `session` reads the folder (#1145); the files' own
+        // stretches inside that are read there.
+        let whole: Option<(f64, f64)> = m
+            .recordings
+            .iter()
+            .any(|e| folder(e) && says_only_position(e))
+            .then(|| {
+                let at = m.recordings.iter().position(|e| !folder(e))?;
+                window(&self.entries[at]).map(|(a, _)| (a, total))
+            })
+            .flatten();
+        let inside_whole =
+            |(a, b): (f64, f64)| whole.is_some_and(|(wa, wb)| a >= wa - EDGE_S && b <= wb + EDGE_S);
+        let mut read: Vec<(f64, f64, bool)> = m
+            .recordings
+            .iter()
+            .zip(&self.entries)
+            .filter(|(e, _)| !(folder(e) && says_only_position(e)))
+            .filter_map(|(e, w)| {
+                let (a, b) = window(w)?;
+                (b > a && !inside_whole((a, b))).then(|| (a, b, take::continues_position(e, m)))
+            })
+            .chain(whole.map(|(a, b)| (a, b, false)))
+            .collect();
+        read.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut spans: Vec<(f64, f64)> = Vec::with_capacity(read.len());
+        for (a, b, carries_on) in read {
+            match spans.last_mut() {
+                Some(last) if a < last.1 - EDGE_S => return None,
+                // The file's start is where the one before it ends, to the
+                // rounding of the two lengths in seconds.
+                Some(last) if carries_on && a <= last.1 + EDGE_S => last.1 = b,
+                _ => spans.push((a, b)),
+            }
+        }
+        match spans.as_slice() {
+            [] => None,
+            [(a, b)] if *a <= 0.0 && *b >= total - EDGE_S => None,
+            _ => Some(spans),
+        }
+    }
+
     /// The take's breaks with a cut, of no gap, wherever its readings are
     /// cut and no break already is ([`take::reading_cuts`]): each change
     /// of position after the first and the end of each settling, from the
@@ -353,6 +432,11 @@ pub fn entry_layout(
     };
     Ok((files, entry_windows(m, given_settle_s, &places)))
 }
+
+/// How far apart two times may be and still be one place on the take's
+/// timeline: a file's end and the next one's start, each summed from
+/// lengths in seconds, can differ in their last bits.
+const EDGE_S: f64 = 1e-9;
 
 /// An entry's recording on the take's timeline: the sound files it is,
 /// where it starts in the take and its length, seconds.

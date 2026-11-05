@@ -522,10 +522,11 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
 
-/// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
-/// entries with their own `measure_s` and `settle_s`.
-const MEASURE: &str = "#1156: series reads a take whose entries give their own \
-                       measure_s or a later file's settle_s whole, not session's windows";
+/// #1156, in [`PANES_KNOWN`]: ym42_CR_long's third file has two entries
+/// with their own `measure_s` and `settle_s`. Since #294 step 3 `series`
+/// reads session's windows of them; the app still reads its own cuts.
+const MEASURE: &str = "#1156: the app reads its own cuts of a take whose entries give their \
+                       own measure_s or a later file's settle_s, not session's windows";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {
