@@ -206,7 +206,13 @@ impl TimegrapherApp {
                     .as_ref()
                     .and_then(timegrapher_core::steady_views::walk_view);
                 let view = self.iso_view;
-                isochronism::ui(ui, s.report.isochronism.as_ref(), walk.as_ref(), view);
+                isochronism::ui(
+                    ui,
+                    s.report.isochronism.as_ref(),
+                    walk.as_ref(),
+                    view,
+                    self.iso_info,
+                );
             }
             None if self.steady_job.is_some() => {}
             None => {

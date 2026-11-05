@@ -479,27 +479,7 @@ impl egui_plot::PlotItem for InsideNames {
         }
     }
 
-    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
-
-    fn color(&self) -> Color32 {
-        Color32::TRANSPARENT
-    }
-
-    fn geometry(&self) -> egui_plot::PlotGeometry<'_> {
-        egui_plot::PlotGeometry::None
-    }
-
-    fn bounds(&self) -> egui_plot::PlotBounds {
-        egui_plot::PlotBounds::NOTHING
-    }
-
-    fn base(&self) -> &egui_plot::PlotItemBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut egui_plot::PlotItemBase {
-        &mut self.base
-    }
+    crate::marks::plot_item_plumbing!(|_| Color32::TRANSPARENT);
 }
 
 /// "escape wheel" as "Escape Wheel": a wheel's name as the app shows it.
@@ -1247,5 +1227,70 @@ mod tests {
         let px = (top - 10.0) / top * 200.0;
         assert!((px - f64::from(NOTE_ROOM)).abs() < 1e-3, "{px}");
         assert_eq!(room_above(0.0, 10.0, 20.0, 200.0), 20.0);
+    }
+}
+
+/// What every plot item here that only paints has alike: no data of its
+/// own, no bounds, so it never moves the plot's scale, and its `base`
+/// field. `$color`, from the item, is the colour a legend would give it.
+macro_rules! plot_item_plumbing {
+    ($color:expr) => {
+        fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
+
+        fn color(&self) -> eframe::egui::Color32 {
+            let colour: fn(&Self) -> eframe::egui::Color32 = $color;
+            colour(self)
+        }
+
+        fn geometry(&self) -> egui_plot::PlotGeometry<'_> {
+            egui_plot::PlotGeometry::None
+        }
+
+        fn bounds(&self) -> egui_plot::PlotBounds {
+            egui_plot::PlotBounds::NOTHING
+        }
+
+        fn base(&self) -> &egui_plot::PlotItemBase {
+            &self.base
+        }
+
+        fn base_mut(&mut self) -> &mut egui_plot::PlotItemBase {
+            &mut self.base
+        }
+    };
+}
+pub(crate) use plot_item_plumbing;
+
+/// A facts box's plate and the colours of its names and values.
+#[derive(Debug, Clone, Copy)]
+pub struct FactsLook {
+    pub fill: Color32,
+    pub name: Color32,
+    pub value: Color32,
+}
+
+/// A facts box in `r`: its plate, then each of `rows` a line `row` tall
+/// inside `pad`, its name at the left and its value at the right, in
+/// `size` pt type. The Tick Tock Profile's and the Isochronism pane's.
+pub fn fact_rows<'a>(
+    ui: &egui::Ui,
+    shapes: &mut Vec<egui::Shape>,
+    r: egui::Rect,
+    rows: impl Iterator<Item = &'a (String, String)>,
+    (size, row, pad): (f32, f32, f32),
+    look: FactsLook,
+) {
+    shapes.push(egui::Shape::rect_filled(r, 6.0, look.fill));
+    let font = egui::FontId::proportional(size);
+    for (i, (name, value)) in rows.enumerate() {
+        let y = r.top() + pad + (i as f32 + 0.5) * row;
+        ui.fonts_mut(|f| {
+            let g = f.layout_no_wrap(name.clone(), font.clone(), look.name);
+            let at = egui::pos2(r.left() + pad, y - g.size().y / 2.0);
+            shapes.push(egui::Shape::galley(at, g, look.name));
+            let g = f.layout_no_wrap(value.clone(), font.clone(), look.value);
+            let at = egui::pos2(r.right() - pad - g.size().x, y - g.size().y / 2.0);
+            shapes.push(egui::Shape::galley(at, g, look.value));
+        });
     }
 }

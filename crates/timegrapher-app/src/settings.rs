@@ -61,6 +61,8 @@ pub struct Settings {
     pub show_wheels: bool,
     /// The Steadiness panes' Info panel open: one setting for all of them.
     pub steady_info: bool,
+    /// The Isochronism pane's Info panel open.
+    pub iso_info: bool,
     /// The Positions Test's settling and measuring in each position,
     /// seconds.
     pub positions_settle_s: f64,
@@ -158,6 +160,7 @@ impl Default for Settings {
             maps_db: false,
             show_wheels: true,
             steady_info: false,
+            iso_info: false,
             positions_settle_s: crate::guided::SETTLE_S,
             positions_measure_s: crate::guided::MEASURE_S,
             scope: scope::View::default(),

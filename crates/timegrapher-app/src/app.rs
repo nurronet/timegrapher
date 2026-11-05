@@ -857,6 +857,19 @@ const MASK_HINT: &str = "Drag across a stretch to leave it out of the readings. 
 /// The Steadiness panes' Info button.
 const INFO_HINT: &str =
     "Info: what this view shows, and each reading's findings and statistics, in full.";
+const ISO_INFO_HINT: &str = "Info: what this view shows, what isochronism is, and what affects it.";
+
+/// The "i" at the right of a pane's toolbar: opens and closes its Info
+/// panel, `hint` on its hover.
+fn info_toggle(ui: &mut egui::Ui, info: &mut bool, hint: &str) {
+    let accent = theme::pal(ui).accent;
+    if theme::icon_toggle(ui, Icon::Info, *info, accent)
+        .on_hover_text(hint)
+        .clicked()
+    {
+        *info = !*info;
+    }
+}
 
 const EXPORT_HINT: &str = "Save this pane as a picture: a PNG of it as it is on the screen, \
      or an SVG drawing whose lines and text stay sharp at any size. The file name's ending, \
@@ -2146,6 +2159,8 @@ pub struct TimegrapherApp {
     show_wheels: bool,
     /// The Steadiness panes' Info panel open, in every view alike.
     steady_info: bool,
+    /// The Isochronism pane's Info panel open.
+    iso_info: bool,
     scope_view: scope::View,
     /// Sound read from the recording for the Scope once stopped: the
     /// stretch asked for (seconds) and what was read of it.
@@ -2352,6 +2367,7 @@ impl TimegrapherApp {
             maps_db: self.maps_db,
             show_wheels: self.show_wheels,
             steady_info: self.steady_info,
+            iso_info: self.iso_info,
             positions_settle_s: self.guided_settle_s,
             positions_measure_s: self.guided_measure_s,
             scope: self.scope_view,
@@ -2404,6 +2420,7 @@ impl TimegrapherApp {
             maps_db,
             show_wheels,
             steady_info,
+            iso_info,
             positions_settle_s,
             positions_measure_s,
             scope,
@@ -2471,6 +2488,7 @@ impl TimegrapherApp {
         self.maps_db = maps_db;
         self.show_wheels = show_wheels;
         self.steady_info = steady_info;
+        self.iso_info = iso_info;
         self.set_positions_times(positions_settle_s, positions_measure_s);
         self.steady_series = steady_series_from(steady_shown, steady_series);
         self.scope_view = scope;
@@ -2646,6 +2664,7 @@ impl TimegrapherApp {
             maps_db: false,
             show_wheels: true,
             steady_info: false,
+            iso_info: false,
             scope_view: scope::View::default(),
             scope_audio: None,
             scope_traces: std::collections::VecDeque::new(),
@@ -3045,25 +3064,22 @@ impl TimegrapherApp {
             Pane::Sound | Pane::Scope => self.sound_tools(ui, pane),
             p if p.steady_view().is_some() => {
                 let mut info = self.steady_info;
-                let mut pin = |ui: &mut egui::Ui| {
-                    let accent = theme::pal(ui).accent;
-                    if theme::icon_toggle(ui, Icon::Info, info, accent)
-                        .on_hover_text(INFO_HINT)
-                        .clicked()
-                    {
-                        info = !info;
-                    }
-                };
+                let mut pin = |ui: &mut egui::Ui| info_toggle(ui, &mut info, INFO_HINT);
                 theme::pane_toolbar_pinned(ui, title, help::STEADINESS, Some(&mut pin), |ui| {
                     self.steady_settings(ui, p);
                     self.export_button(ui, p);
                 });
                 self.steady_info = info;
             }
-            Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
-                isochronism::view_choice(ui, &mut self.iso_view);
-                self.export_button(ui, pane)
-            }),
+            Pane::Isochronism => {
+                let mut info = self.iso_info;
+                let mut pin = |ui: &mut egui::Ui| info_toggle(ui, &mut info, ISO_INFO_HINT);
+                theme::pane_toolbar_pinned(ui, title, &help::ISOCHRONISM, Some(&mut pin), |ui| {
+                    isochronism::view_choice(ui, &mut self.iso_view);
+                    self.export_button(ui, pane);
+                });
+                self.iso_info = info;
+            }
             Pane::PositionsTest => theme::pane_toolbar(ui, title, &help::POSITIONS_TEST, |ui| {
                 self.positions_settings(ui);
                 self.export_button(ui, pane);

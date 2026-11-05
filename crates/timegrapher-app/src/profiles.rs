@@ -266,42 +266,16 @@ impl egui_plot::PlotItem for FactBox {
         }
         let pad = Self::pad(shown.len(), self.rows.len());
         let row = Self::row_h(shown.len(), self.rows.len());
-        shapes.push(egui::Shape::rect_filled(r, 6.0, self.fill));
-        let font = egui::FontId::proportional(FACT_SIZE);
-        for (i, (name, value)) in shown.iter().map(|&k| &self.rows[k]).enumerate() {
-            let y = r.top() + pad + (i as f32 + 0.5) * row;
-            ui.fonts_mut(|f| {
-                let g = f.layout_no_wrap(name.clone(), font.clone(), self.name_color);
-                let at = egui::pos2(r.left() + pad, y - g.size().y / 2.0);
-                shapes.push(egui::Shape::galley(at, g, self.name_color));
-                let g = f.layout_no_wrap(value.clone(), font.clone(), self.value_color);
-                let at = egui::pos2(r.right() - pad - g.size().x, y - g.size().y / 2.0);
-                shapes.push(egui::Shape::galley(at, g, self.value_color));
-            });
-        }
+        let look = marks::FactsLook {
+            fill: self.fill,
+            name: self.name_color,
+            value: self.value_color,
+        };
+        let rows = shown.iter().map(|&k| &self.rows[k]);
+        marks::fact_rows(ui, shapes, r, rows, (FACT_SIZE, row, pad), look);
     }
 
-    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
-
-    fn color(&self) -> Color32 {
-        self.value_color
-    }
-
-    fn geometry(&self) -> egui_plot::PlotGeometry<'_> {
-        egui_plot::PlotGeometry::None
-    }
-
-    fn bounds(&self) -> egui_plot::PlotBounds {
-        egui_plot::PlotBounds::NOTHING
-    }
-
-    fn base(&self) -> &egui_plot::PlotItemBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut egui_plot::PlotItemBase {
-        &mut self.base
-    }
+    marks::plot_item_plumbing!(|b| b.value_color);
 }
 
 /// The widest of `texts` in the facts' type, points.
@@ -862,27 +836,7 @@ impl egui_plot::PlotItem for EdgeNames {
         }
     }
 
-    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
-
-    fn color(&self) -> Color32 {
-        self.ink
-    }
-
-    fn geometry(&self) -> egui_plot::PlotGeometry<'_> {
-        egui_plot::PlotGeometry::None
-    }
-
-    fn bounds(&self) -> egui_plot::PlotBounds {
-        egui_plot::PlotBounds::NOTHING
-    }
-
-    fn base(&self) -> &egui_plot::PlotItemBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut egui_plot::PlotItemBase {
-        &mut self.base
-    }
+    marks::plot_item_plumbing!(|n| n.ink);
 }
 
 /// The time axis's labels under the sounds' lane.

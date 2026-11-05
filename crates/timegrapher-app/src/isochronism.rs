@@ -14,9 +14,11 @@ use timegrapher_core::chart_scale::{axis_number, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
-    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
+    curve_amp, iso_facts, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
     WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
 };
+
+mod facts;
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
 const GUTTER: f32 = 64.0;
@@ -63,14 +65,26 @@ const NO_WALK: &str = "No walk yet: it needs the rate and amplitude over a longe
 
 /// Draw the pane in `view`: the rate by amplitude, or the walk through
 /// rate and amplitude over time when core has one. Both span the same
-/// amplitudes, so a degree stays put when the view changes.
+/// amplitudes, so a degree stays put when the view changes. Nothing is
+/// written above the plot: its facts are in a box on it, and what it
+/// shows is in the Info panel, open when `info` (Hugh's rules 12 to 14).
 pub fn ui(
     ui: &mut egui::Ui,
     curve: Option<&IsochronismCurve>,
     walk: Option<&WalkView>,
     view: View,
+    info: bool,
 ) {
-    let pal = theme::pal(ui);
+    crate::steady::with_info(
+        ui,
+        info,
+        |ui| body(ui, curve, walk, view),
+        |ui, h| info_panel(ui, curve, view, h),
+    );
+}
+
+/// The pane's plot in `view`, or why there is none.
+fn body(ui: &mut egui::Ui, curve: Option<&IsochronismCurve>, walk: Option<&WalkView>, view: View) {
     let missing = "No isochronism curve yet: the amplitude has not moved enough. It needs at \
                    least three 2° steps of amplitude with 10 readings in each, which a run-down \
                    over some hours gives.";
@@ -78,24 +92,106 @@ pub fn ui(
         amp: curve.zip(walk).and_then(|(c, w)| shared_amp(c, w)),
         gutter: gutter(ui, curve, walk),
     };
-    for line in curve
-        .map(|c| headline_lines(&c.headline))
-        .unwrap_or_default()
-    {
-        ui.label(RichText::new(line).small().color(pal.text_secondary));
-    }
     match (view, curve, walk) {
         (View::Curve, None, _) => note(ui, missing),
         (View::Curve, Some(c), _) => {
-            ui.label(RichText::new(caption(c)).small().color(pal.text_tertiary));
             let h = room(ui);
             chart(ui, c, h, frame);
         }
         (View::Walk, _, None) => note(ui, NO_WALK),
         (View::Walk, _, Some(w)) => {
             let h = room(ui);
-            walk_part(ui, w, h, frame);
+            walk_part(ui, (w, curve), h, frame);
         }
+    }
+}
+
+/// What the Info panel says of isochronism (Hugh's rule 14, Peter's
+/// words of 11-05): a lead, then what the facts mean, then what moves it.
+const ABOUT: &str = "Isochronism is how steady the rate stays as the amplitude changes. As \
+                     the mainspring runs down the balance swings less, and few watches keep \
+                     exactly the same rate the whole way.";
+const ABOUT_FACTS: [&str; 2] = [
+    "Slope: how far the rate moves for each degree of amplitude. Nearer zero is better.",
+    "Flattest: the amplitude where the rate changes least.",
+];
+const ABOUT_CAUSES: [&str; 6] = [
+    "The hairspring: its shape (flat or overcoil), how well it is centred, and its pinning \
+     and play in the regulator pins.",
+    "Poise: an out-of-poise balance changes the rate in vertical positions, by an amount \
+     that depends on amplitude and changes sign near 220°.",
+    "The escapement: the lift angle and beat error disturb the balance more at low \
+     amplitude.",
+    "Mainspring torque and lubrication: these set the amplitude, and so where the watch \
+     sits on this curve.",
+    "Temperature: warmth and cold change the hairspring's stiffness, so a take through warm \
+     and cool hours mixes temperature into the walk.",
+    "Position: each position has its own curve, so compare takes made in the same position.",
+];
+
+/// The Info panel: what the view draws, then [`ABOUT`]; `max_h` tall at
+/// most, scrolling.
+fn info_panel(ui: &mut egui::Ui, curve: Option<&IsochronismCurve>, view: View, max_h: f32) {
+    let pal = theme::pal(ui);
+    let id = egui::Id::new(("isochronism info", view == View::Walk));
+    crate::steady::info_scroll(ui, id, max_h, |ui| {
+        let text = |t: &str, c: Color32| {
+            egui::Label::new(RichText::new(t).small().color(c))
+                .wrap()
+                .selectable(true)
+        };
+        ui.label(theme::caption("Isochronism").color(pal.text_secondary));
+        let hint = match (view, curve) {
+            (View::Curve, Some(c)) => caption(c),
+            _ => WALK_HINT.to_string(),
+        };
+        ui.add(text(&hint, pal.text_secondary));
+        ui.add_space(8.0);
+        // Its lead word, and each fact's name, in bold.
+        let led = |ui: &mut egui::Ui, word: &str, rest: &str| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label(RichText::new(word).small().strong().color(pal.text));
+                ui.add(text(rest, pal.text));
+            });
+        };
+        if let Some((word, rest)) = ABOUT.split_once(' ') {
+            led(ui, word, &format!(" {rest}"));
+        }
+        for (word, rest) in ABOUT_FACTS.iter().filter_map(|t| t.split_once(": ")) {
+            led(ui, &format!("• {word}"), &format!(": {rest}"));
+        }
+        ui.add_space(8.0);
+        ui.label(theme::caption("What affects it").color(pal.text_secondary));
+        for t in ABOUT_CAUSES {
+            ui.add(text(&format!("• {t}"), pal.text));
+        }
+    });
+}
+
+/// The facts box for curve `c` on a plot drawing `points`, kept under
+/// `id` (Hugh's rule 13).
+fn facts_box(
+    ui: &egui::Ui,
+    c: &IsochronismCurve,
+    points: Vec<[f64; 2]>,
+    id: egui::Id,
+) -> facts::FactsBox {
+    let pal = theme::pal(ui);
+    // The take, by where its points start: a new take picks its corner
+    // again, more readings of this one don't.
+    let take = points
+        .first()
+        .map_or(0, |p| p[0].to_bits() ^ p[1].to_bits().rotate_left(17));
+    facts::FactsBox {
+        base: egui_plot::PlotItemBase::new("facts".into()),
+        rows: iso_facts(c),
+        points,
+        held: id,
+        take,
+        fill: ui.visuals().extreme_bg_color.gamma_multiply(0.8),
+        name_color: pal.text_secondary,
+        value_color: pal.text,
     }
 }
 
@@ -291,9 +387,18 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, frame: Frame) {
         .collect();
     let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
     let h = plot_h(h + head - head.max(lane));
+    let points: Vec<[f64; 2]> = tops
+        .iter()
+        .copied()
+        .chain(c.bins.iter().map(|b| [b.amplitude_deg, b.rate_q25]))
+        .collect();
+    let facts = facts_box(ui, c, points, ui.id().with("curve facts"));
+    let shown = facts.clone();
     let resp =
         chart_plot("isochronism", &grid, (h, frame.gutter), x_bounds, y_bounds).show(ui, |p| {
             grid.draw(p, pal);
+            // Under the curve: drawn first.
+            p.add(shown);
             chart_items(p, c, curve, pal);
             if inside {
                 p.add(marks::InsideNames {
@@ -305,6 +410,7 @@ fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, frame: Frame) {
             }
         });
     axis_names(ui, resp.response.rect, *resp.transform.frame());
+    facts.hover(&resp);
     ui.add_space(foot);
     let hover = |t: f64| format!("Turn: {t:.0}°");
     if inside {
@@ -434,22 +540,44 @@ fn chart_items(
 /// How near the pointer must be to a dot, in points, for its hover.
 const HOVER_PX: f32 = 8.0;
 
-/// The walk: its hint, the plot of rate against amplitude with each dot
-/// coloured by its time, and the colour key, `h` high in all. `amp` is
-/// the amplitude range and axis width it shares with the curve.
-fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
+/// The walk: the plot of rate against amplitude with each dot coloured
+/// by its time, the curve's facts on it, and the colour key, `h` high in
+/// all. `frame` is the amplitude range and axis width it shares with the
+/// curve.
+fn walk_part(
+    ui: &mut egui::Ui,
+    (w, curve): (&WalkView, Option<&IsochronismCurve>),
+    h: f32,
+    frame: Frame,
+) {
     let pal = theme::pal(ui);
-    ui.label(RichText::new(WALK_HINT).small().color(pal.text_secondary));
     let key_h = ui.text_style_height(&egui::TextStyle::Small) + ui.spacing().item_spacing.y;
     let (head, foot) = (2.0 * name_row(ui), name_row(ui));
     let (h, centre) = shaped(ui, h - 2.0 * key_h - head - foot, frame.gutter);
     ui.add_space(centre + head);
     let (x, y) = walk_bounds(w);
     let (x, y, grid) = axes(frame.amp.unwrap_or(x), y);
-    let resp = chart_plot("isochronism walk", &grid, (h, frame.gutter), x, y)
-        .show(ui, |p| grid.draw(p, pal));
+    let facts = curve.map(|c| {
+        facts_box(
+            ui,
+            c,
+            w.dots.iter().map(dot_at).collect(),
+            ui.id().with("walk facts"),
+        )
+    });
+    let shown = facts.clone();
+    let resp = chart_plot("isochronism walk", &grid, (h, frame.gutter), x, y).show(ui, |p| {
+        grid.draw(p, pal);
+        // Under the walk, painted over the plot after it.
+        if let Some(b) = shown {
+            p.add(b);
+        }
+    });
     paint_walk(ui, &resp.transform, w);
     axis_names(ui, resp.response.rect, *resp.transform.frame());
+    if let Some(b) = &facts {
+        b.hover(&resp);
+    }
     ui.add_space(foot);
     let at = ui
         .ctx()
@@ -681,7 +809,8 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, None, View::Curve));
+                egui::CentralPanel::default()
+                    .show(ctx, |u| super::ui(u, c, None, View::Curve, false));
             });
             assert!(!out.shapes.is_empty());
         }
@@ -702,8 +831,9 @@ mod tests {
             ..Default::default()
         };
         let out = ctx.run(input, |ctx| {
-            egui::CentralPanel::default()
-                .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
+            egui::CentralPanel::default().show(ctx, |u| {
+                super::ui(u, Some(&curve), None, View::Curve, false)
+            });
         });
         let texts: Vec<(String, egui::Rect)> = out
             .shapes
@@ -751,8 +881,9 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default()
-                    .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
+                egui::CentralPanel::default().show(ctx, |u| {
+                    super::ui(u, Some(&curve), None, View::Curve, false)
+                });
             });
             texts = out
                 .shapes
@@ -850,7 +981,7 @@ mod tests {
             };
             let o = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |u| {
-                    super::ui(u, Some(&curve), Some(&w), View::Walk);
+                    super::ui(u, Some(&curve), Some(&w), View::Walk, false);
                 });
             });
             at = o.shapes.iter().find_map(|c| match &c.shape {
@@ -868,7 +999,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        for want in [WALK_HINT, WALK_KEY_START, w.last_text.as_str(), WALK_SINCE] {
+        for want in [WALK_KEY_START, w.last_text.as_str(), WALK_SINCE] {
             assert!(texts.iter().any(|t| t == want), "{want}: {texts:?}");
         }
         assert!(
@@ -917,7 +1048,7 @@ mod tests {
                 };
                 let out = ctx.run(input, |ctx| {
                     egui::CentralPanel::default()
-                        .show(ctx, |u| super::ui(u, Some(&curve), Some(&w), view));
+                        .show(ctx, |u| super::ui(u, Some(&curve), Some(&w), view, false));
                 });
                 texts = out
                     .shapes
@@ -962,20 +1093,75 @@ mod tests {
     }
 
     /// The headline goes in short lines, one fact a line (Hugh's F4).
+    /// The "i" opens the Info panel beside the plot: what the view draws
+    /// (the curve's caption, or the walk's hint), what isochronism is and
+    /// what affects it (Hugh's rule 14).
     #[test]
-    fn the_summary_is_one_fact_a_line() {
-        let h = "Between 145° and 251° the rate goes with the amplitude by -0.23 ± 0.01 s/d \
-                 per degree. The rate reads +1.0 s/d at 145° and -3.0 s/d at 251°; it changes \
-                 least near 213°.";
-        assert_eq!(
-            headline_lines(h),
-            [
-                "Between 145° and 251° the rate goes with the amplitude by -0.23 ± 0.01 s/d per \
-                 degree",
-                "The rate reads +1.0 s/d at 145° and -3.0 s/d at 251°",
-                "It changes least near 213°",
-            ]
+    fn the_info_panel_says_what_isochronism_is() {
+        let (curve, w) = (run_down(), walk());
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let texts = |view: View| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 700.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |u| super::ui(u, Some(&curve), Some(&w), view, true));
+            });
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let curve_info = texts(View::Curve);
+        assert!(
+            curve_info.iter().any(|t| t == &caption(&curve)),
+            "{curve_info:?}"
         );
+        assert!(
+            curve_info.iter().any(|t| t == "Isochronism"),
+            "{curve_info:?}"
+        );
+        assert!(curve_info.iter().any(|t| t == "• Slope"), "{curve_info:?}");
+        assert!(
+            curve_info.iter().any(|t| t.starts_with("• The hairspring")),
+            "{curve_info:?}"
+        );
+        let walk_info = texts(View::Walk);
+        assert!(walk_info.iter().any(|t| t == WALK_HINT), "{walk_info:?}");
+    }
+
+    /// The facts sit in a box on the plot, a row each from core's
+    /// fields, never parsed from the headline; a short plot keeps Slope
+    /// and Flattest, and its hover gives every fact (Hugh's rule 13).
+    #[test]
+    fn the_facts_are_a_box_on_the_plot() {
+        let c = run_down();
+        let rows = iso_facts(&c);
+        let b = facts_box(
+            &egui::Ui::new(
+                egui::Context::default(),
+                egui::Id::new("t"),
+                egui::UiBuilder::new(),
+            ),
+            &c,
+            vec![[240.0, 10.0]],
+            egui::Id::new("held"),
+        );
+        assert_eq!(b.rows, rows);
+        let tall = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0));
+        assert_eq!(b.shown(tall).len(), rows.len());
+        let short = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 80.0));
+        let names: Vec<&str> = b.shown(short).iter().map(|r| r.0.as_str()).collect();
+        assert_eq!(names, ["Slope", "Flattest"]);
     }
 
     /// Both axes run between round values on 1-2-5 steps, about 6 to 10
@@ -1025,7 +1211,8 @@ mod tests {
             ..Default::default()
         };
         ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |u| super::ui(u, Some(&run_down()), w, view));
+            egui::CentralPanel::default()
+                .show(ctx, |u| super::ui(u, Some(&run_down()), w, view, false));
         })
         .shapes
     }
@@ -1173,7 +1360,7 @@ mod tests {
                 ..Default::default()
             };
             let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, wv, view));
+                egui::CentralPanel::default().show(ctx, |u| super::ui(u, c, wv, view, false));
             });
             out.shapes
                 .iter()
@@ -1183,21 +1370,15 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         };
+        // Nothing written above the plot: the facts are in its box.
         let both = texts(Some(&curve), Some(&w), View::Curve);
-        assert!(both.iter().any(|t| t == &caption(&curve)), "{both:?}");
+        assert!(!both.iter().any(|t| t == &caption(&curve)), "{both:?}");
         assert!(!both.iter().any(|t| t == WALK_HINT), "{both:?}");
+        assert!(!both.iter().any(|t| t == &curve.headline), "{both:?}");
+        assert!(both.iter().any(|t| t == "Slope"), "{both:?}");
         let walk_only = texts(Some(&curve), Some(&w), View::Walk);
-        assert!(walk_only.iter().any(|t| t == WALK_HINT), "{walk_only:?}");
-        assert!(
-            walk_only
-                .iter()
-                .any(|t| t == &headline_lines(&curve.headline)[0]),
-            "{walk_only:?}"
-        );
-        assert!(
-            !walk_only.iter().any(|t| t == &caption(&curve)),
-            "{walk_only:?}"
-        );
+        assert!(!walk_only.iter().any(|t| t == WALK_HINT), "{walk_only:?}");
+        assert!(walk_only.iter().any(|t| t == "Flattest"), "{walk_only:?}");
         let none = texts(Some(&curve), None, View::Walk);
         assert!(
             none.iter().any(|t| t.starts_with("No walk yet")),

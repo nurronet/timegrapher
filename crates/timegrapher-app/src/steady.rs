@@ -722,30 +722,47 @@ pub fn draw(
                 .is_none_or(|j| shown[j])
         })
         .collect();
+    with_info(
+        ui,
+        opts.info,
+        |ui| rows(ui, s, &series, view, opts),
+        |ui, h| info_panel(ui, &series, status, view, h),
+    );
+}
+
+/// A pane's `body`, and when `open` its Info panel (`panel`, given the
+/// height it has): down the right of the pane, 300 pt or a third of it,
+/// or over the body from its top right corner in a pane under 600 pt
+/// wide. The Steadiness views and Isochronism alike (design guide §9).
+pub fn with_info(
+    ui: &mut egui::Ui,
+    open: bool,
+    body: impl FnOnce(&mut egui::Ui),
+    panel: impl FnOnce(&mut egui::Ui, f32),
+) {
+    let pal = theme::pal(ui);
     let full = ui.available_rect_before_wrap();
     let beside = full.width() >= INFO_BESIDE_W;
-    if opts.info && beside {
+    if open && beside {
         let w = INFO_W.min(full.width() / 3.0);
         let gap = 12.0;
         let plots = full.with_max_x(full.right() - w - gap);
         // Only the part of the pane on screen, so the panel scrolls rather
         // than running off the bottom.
-        let panel = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
+        let side = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
         ui.painter().vline(
-            panel.left() - gap / 2.0,
-            panel.y_range(),
+            side.left() - gap / 2.0,
+            side.y_range(),
             egui::Stroke::new(1.0_f32, pal.separator),
         );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
-            info_panel(ui, &series, status, view, panel.height());
+        ui.scope_builder(egui::UiBuilder::new().max_rect(side), |ui| {
+            panel(ui, side.height());
         });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), |ui| {
-            rows(ui, s, &series, view, opts);
-        });
+        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), body);
         ui.allocate_rect(full, egui::Sense::hover());
     } else {
-        rows(ui, s, &series, view, opts);
-        if opts.info {
+        body(ui);
+        if open {
             // Over the plots, from the pane's top right corner.
             let w = INFO_W.min(full.width() - 16.0).max(120.0);
             let seen = full.intersect(ui.clip_rect());
@@ -757,27 +774,17 @@ pub fn draw(
                         ui.set_width(w - 16.0);
                         let h = (seen.height() - 24.0).max(80.0);
                         ui.set_max_height(h);
-                        info_panel(ui, &series, status, view, h);
+                        panel(ui, h);
                     });
                 });
         }
     }
 }
 
-/// The Info panel: what the view shows, then a block for each series
-/// shown under its coloured title (its findings and statistics in full),
-/// then what was tested. It scrolls, and its words can be selected.
-fn info_panel(
-    ui: &mut egui::Ui,
-    series: &[(usize, &SeriesCheck)],
-    status: &str,
-    view: View,
-    max_h: f32,
-) {
-    let pal = theme::pal(ui);
-    // Each view's panel its own, opening at its top: from the top again
-    // when it was not drawn the pass before.
-    let id = egui::Id::new(("steady info", view));
+/// An Info panel's text, `max_h` tall at most, scrolling, its bar always
+/// showing, kept under `id` and opening at its top when it was not drawn
+/// the pass before.
+pub fn info_scroll(ui: &mut egui::Ui, id: egui::Id, max_h: f32, add: impl FnOnce(&mut egui::Ui)) {
     let pass = ui.ctx().cumulative_pass_nr();
     let last = ui.ctx().data_mut(|d| {
         let last = d.get_temp::<u64>(id);
@@ -796,6 +803,24 @@ fn info_panel(
     }
     area.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
+        add(ui);
+    });
+}
+
+/// The Info panel: what the view shows, then a block for each series
+/// shown under its coloured title (its findings and statistics in full),
+/// then what was tested. It scrolls, and its words can be selected.
+fn info_panel(
+    ui: &mut egui::Ui,
+    series: &[(usize, &SeriesCheck)],
+    status: &str,
+    view: View,
+    max_h: f32,
+) {
+    let pal = theme::pal(ui);
+    // Each view's panel its own, opening at its top.
+    let id = egui::Id::new(("steady info", view));
+    info_scroll(ui, id, max_h, |ui| {
         let text = |t: &str, c: Color32| {
             egui::Label::new(RichText::new(t).small().color(c))
                 .wrap()

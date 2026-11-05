@@ -573,6 +573,52 @@ pub fn headline_lines(headline: &str) -> Vec<String> {
         .collect()
 }
 
+/// The isochronism facts box's row names, in its order (Hugh's rule 13,
+/// Peter 11-05): the slope, the amplitudes the bins span, the rate at
+/// each end, and where the curve is flattest. "At" rows carry their
+/// amplitude: "At 145°".
+pub const ISO_SLOPE: &str = "Slope";
+pub const ISO_RANGE: &str = "Range";
+pub const ISO_FLATTEST: &str = "Flattest";
+/// The rows a short plot keeps; the rest go to the box's hover.
+pub const ISO_SHORT_FACTS: [&str; 2] = [ISO_SLOPE, ISO_FLATTEST];
+
+/// The isochronism facts as (name, value) rows, from the curve's own
+/// fields, never parsed from its headline: Slope (with its ±, "–" where
+/// the amplitude is too noisy to read one), Range, the rate at the
+/// lowest and highest bin, and Flattest where the curve turns inside.
+pub fn iso_facts(c: &crate::steadiness::IsochronismCurve) -> Vec<(String, String)> {
+    use crate::figure_text::{base_digits, figure_with_pm, signed_text, true_minus};
+    let (Some(lo), Some(hi)) = (c.bins.first(), c.bins.last()) else {
+        return Vec::new();
+    };
+    let deg = |a: f64| format!("{a:.0}°");
+    let rate = |r: f64| true_minus(&format!("{} s/d", signed_text(r, 1)));
+    let slope = c.s_per_day_per_deg.map_or("–".to_string(), |v| {
+        let t = figure_with_pm(v, c.s_per_day_per_deg_se, base_digits::SLOPE, true);
+        true_minus(&format!("{t} s/d per °"))
+    });
+    let mut rows = vec![
+        (ISO_SLOPE.to_string(), slope),
+        (
+            ISO_RANGE.to_string(),
+            format!("{}–{}", deg(lo.amplitude_deg), deg(hi.amplitude_deg)),
+        ),
+        (
+            format!("At {}", deg(lo.amplitude_deg)),
+            rate(lo.rate_s_per_day),
+        ),
+        (
+            format!("At {}", deg(hi.amplitude_deg)),
+            rate(hi.rate_s_per_day),
+        ),
+    ];
+    if let Some(t) = c.turn_deg {
+        rows.push((ISO_FLATTEST.to_string(), deg(t)));
+    }
+    rows
+}
+
 /// About how many steps each of the walk's axes is cut into, on a 1-2-5
 /// step with round ends (Hugh's F3: 6 to 10 a side).
 pub const WALK_AXIS_STEPS: f64 = 10.0;
@@ -1575,6 +1621,60 @@ mod tests {
         let long = beads(&dots_to(120.0, 0.0..0.0), 120.0);
         let texts: Vec<&str> = long.iter().map(|b| b.1.as_str()).collect();
         assert_eq!(texts, ["24 h", "48 h", "72 h", "96 h"]);
+    }
+
+    /// The isochronism facts come from the curve's fields, each with its
+    /// unit and a true minus, Slope with its ±; no Flattest where the
+    /// curve doesn't turn inside, and "–" for a slope not read.
+    #[test]
+    fn the_isochronism_facts_are_the_curves_fields() {
+        use crate::steadiness::{AmplitudeBin, IsochronismCurve};
+        let bin = |a: f64, r: f64| AmplitudeBin {
+            amplitude_deg: a,
+            readings: 50,
+            rate_s_per_day: r,
+            rate_q25: r,
+            rate_q75: r,
+            from_wind_h: 0.0,
+            to_wind_h: 1.0,
+        };
+        let mut c = IsochronismCurve {
+            step_s: 10.0,
+            bin_deg: 2.0,
+            bins: vec![bin(145.0, -36.3), bin(200.0, -45.0), bin(251.0, -57.6)],
+            amplitude_from_deg: 144.0,
+            amplitude_to_deg: 252.0,
+            s_per_day_per_deg: Some(-0.231),
+            s_per_day_per_deg_se: Some(0.012),
+            rate_change_s_per_day: None,
+            reliability: Some(0.9),
+            curve_centre_deg: 200.0,
+            curve: [0.0; 3],
+            curve_explained: 0.9,
+            turn_deg: Some(213.2),
+            headline: String::new(),
+        };
+        let rows = |c: &IsochronismCurve| -> Vec<(String, String)> { iso_facts(c) };
+        let want = [
+            ("Slope", "\u{2212}0.23 ± 0.01 s/d per °"),
+            ("Range", "145°–251°"),
+            ("At 145°", "\u{2212}36.3 s/d"),
+            ("At 251°", "\u{2212}57.6 s/d"),
+            ("Flattest", "213°"),
+        ];
+        let got = rows(&c);
+        assert_eq!(got.len(), want.len());
+        for ((n, v), (wn, wv)) in got.iter().zip(want) {
+            assert_eq!((n.as_str(), v.as_str()), (wn, wv));
+        }
+        c.turn_deg = None;
+        c.s_per_day_per_deg = None;
+        let got = rows(&c);
+        assert_eq!(got.len(), 4);
+        assert_eq!(got[0].1, "–");
+        assert!(ISO_SHORT_FACTS
+            .iter()
+            .all(|n| want.iter().any(|w| w.0 == *n)));
     }
 
     #[test]
