@@ -603,17 +603,19 @@ fn record_and_reopen(
     list_cuts: bool,
     keep_list: bool,
 ) -> (Vec<(f64, f64)>, Vec<breaks::Break>) {
-    record_and_reopen_glitching(name, arrive, list_cuts, keep_list, &[])
+    record_and_reopen_glitching(name, arrive, list_cuts, keep_list, &[], &[])
 }
 
 /// [`record_and_reopen`], with the input glitching
-/// (`capture::Event::Glitch`) before each block in `glitches`.
+/// (`capture::Event::Glitch`) before each block in `glitches`, and
+/// dropping 0.1 s of sound (`capture::Event::Lost`) before each in `drops`.
 fn record_and_reopen_glitching(
     name: &str,
     arrive: &dyn Fn(usize) -> f64,
     list_cuts: bool,
     keep_list: bool,
     glitches: &[usize],
+    drops: &[usize],
 ) -> (Vec<(f64, f64)>, Vec<breaks::Break>) {
     use std::time::{Duration, SystemTime};
     use timegrapher_core::capture::Block;
@@ -639,6 +641,9 @@ fn record_and_reopen_glitching(
         for _ in glitches.iter().filter(|&&g| g == k) {
             out.extend(watch.glitch());
         }
+        for _ in drops.iter().filter(|&&d| d == k) {
+            out.extend(watch.lost(800));
+        }
         out.extend(watch.push(Block {
             samples: vec![0.0; 800],
             at: t0 + Duration::from_secs_f64(arrive(k)),
@@ -655,7 +660,11 @@ fn record_and_reopen_glitching(
                 written += b.samples.len();
                 rec.write(&b).unwrap();
             }
-            breaks::Live::Dropped(g) => panic!("nothing was dropped, but {g} s"),
+            // As the app takes a drop: a break of the time lost.
+            breaks::Live::Dropped(gap) => {
+                live.push((written as f64 / 8000.0, gap));
+                rec.sound_lost(gap);
+            }
             breaks::Live::Cut => {
                 live.push((written as f64 / 8000.0, 0.0));
                 if list_cuts {
@@ -691,7 +700,7 @@ fn record_and_reopen_glitching(
 #[test]
 fn a_glitch_is_a_break_live_and_saved() {
     let check = |name: &str, arrive: &dyn Fn(usize) -> f64, glitches: &[usize]| {
-        let (seen, saved) = record_and_reopen_glitching(name, arrive, true, true, glitches);
+        let (seen, saved) = record_and_reopen_glitching(name, arrive, true, true, glitches, &[]);
         // Breaks with no sound between are one where the sound jumps: the
         // recorder lists the last before the next block, and a glitch's
         // is of no time.
@@ -882,4 +891,44 @@ fn a_list_of_breaks_left_unused_says_why() {
     assert_eq!(none.unlisted, None);
     assert_eq!(none.breaks, clock.breaks);
     assert!((clock.breaks[0].audio_s - join_s).abs() < 5.1);
+}
+
+/// A drop the input tells of at the first late block after a suspend,
+/// when nothing is held yet, hides neither the gap nor its backlog
+/// (#1051): live and saved, the sound stops for the suspend's 10 s and the
+/// 0.1 s dropped (one break where the sound jumps: the drop, and the 10 s
+/// found after it), and the backlog that came late with it is culled.
+#[test]
+fn a_drop_at_the_first_late_block_after_a_suspend_hides_no_gap() {
+    // 10 s asleep before block 300; blocks 300 to 319 are a 2 s backlog
+    // that comes at once on waking, and the input's clock carries on 0.1 s
+    // later for the sound it dropped.
+    let arrive = |k: usize| match k {
+        0..300 => 0.1 * (k + 1) as f64,
+        300..320 => 42.1,
+        _ => 0.1 * (k + 1) as f64 + 10.1,
+    };
+    let (seen, saved) =
+        record_and_reopen_glitching("drop-suspend", &arrive, true, true, &[], &[300]);
+    // The recorder lists breaks with no sound between as one.
+    let mut live: Vec<(f64, f64)> = Vec::new();
+    for b in seen {
+        match live.last_mut() {
+            Some(l) if (l.0 - b.0).abs() < 1e-9 => l.1 += b.1,
+            _ => live.push(b),
+        }
+    }
+    assert_eq!(live.len(), 2, "{live:?}");
+    assert!(
+        (live[0].0 - 30.0).abs() < 1e-6 && (live[0].1 - 10.1).abs() < 1e-3,
+        "{live:?}"
+    );
+    assert_eq!(live[1], (32.0, 0.0), "{live:?}");
+    assert_eq!(saved.len(), live.len(), "live {live:?} saved {saved:?}");
+    for (l, s) in live.iter().zip(&saved) {
+        assert!(
+            (l.0 - s.audio_s).abs() < 1e-6 && (l.1 - s.gap_s).abs() < 1e-3,
+            "live {live:?} saved {saved:?}"
+        );
+    }
 }
