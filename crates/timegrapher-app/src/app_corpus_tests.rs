@@ -518,11 +518,18 @@ const PANES_KNOWN: &[(&str, &str)] = &[
         "* beat_error readings",
         "#1144: the app counts its trend's readings, not core's readings grid",
     ),
+    ("ym42_CR_long amplitude 2 s", MEASURE),
+    ("ym42_CR_long beat_error 2 s", MEASURE),
     (
         "reverso21600_DU_level_overnight power reserve",
         "#1150: session reads each 10-minute entry alone, too short for a run",
     ),
 ];
+
+/// #1156 (#294 step 3), in [`PANES_KNOWN`]: ym42_CR_long's third file has two
+/// entries with their own `measure_s` and `settle_s`.
+const MEASURE: &str = "#1156: series reads a take whose entries give their own \
+                       measure_s or a later file's settle_s whole, not session's windows";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {
