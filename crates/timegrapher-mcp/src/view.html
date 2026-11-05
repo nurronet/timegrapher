@@ -814,6 +814,16 @@ let steadyView = null;
 // steady::TIME_BANDS: the Cycle view's dots, coloured by when they came.
 const TIME_BANDS = 12;
 let fftTiming = false, mapsLog = false, showWheels = true, showInfo = false;
+// A switch in a view's toolbar changes only that view (Hugh, 11-05), as
+// the app's panes do: each view keeps its own, from these at first.
+const SWITCH_DEFAULTS = { fftTiming: false, mapsLog: false, showWheels: true, showInfo: false };
+const viewSwitches = {};
+// Put the switches the current view shows away, and take out `view`'s.
+function switchView(view) {
+  viewSwitches[steadyView] = { fftTiming, mapsLog, showWheels, showInfo };
+  ({ fftTiming, mapsLog, showWheels, showInfo } = viewSwitches[view] || SWITCH_DEFAULTS);
+  steadyView = view;
+}
 
 // steady::secs: "45 s", "12 min", "2.5 h".
 function secs(t) {
@@ -1596,7 +1606,7 @@ function steadinessCard(doc) {
   if (!series.length) return "";
   const has = { readings: (s) => s.views && s.views.readings, periods: (s) => s.views && s.views.search, cycle: (s) => s.views && s.views.fold, spectrum: (s) => spectrumOf(doc, s), stft: () => !!doc.time_frequency, wavelet: () => !!doc.time_frequency };
   const offered = STEADY_VIEWS.filter(([key]) => !has[key] || series.some(has[key]));
-  if (!offered.some(([k]) => k === steadyView)) steadyView = offered[0][0];
+  if (!offered.some(([k]) => k === steadyView)) switchView(offered[0][0]);
   // A series too short for the tests has no autocorrelation: no plot.
   const tested = (s) => !!s.autocorrelation;
   const drawn = series.some(tested);
@@ -1649,7 +1659,7 @@ const WHEELS_HINT = "Mark the period each of the calibre's wheels turns in, in a
 
 function wireSteadiness(root) {
   for (const b of root.querySelectorAll("button[data-steady]")) {
-    b.addEventListener("click", () => { steadyView = b.dataset.steady; redraw(); });
+    b.addEventListener("click", () => { switchView(b.dataset.steady); redraw(); });
   }
   for (const b of root.querySelectorAll("button[data-switch]")) {
     b.addEventListener("click", () => {
