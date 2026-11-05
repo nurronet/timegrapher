@@ -315,9 +315,14 @@ the timegrapher app draws them:
   `coherence` and `phase_deg` grids, which no view draws; the CLI's
   `series --maps --json` gives both whole. After Steadiness, the
   Isochronism card draws the rate against the amplitude as the take runs
-  (#741): core's walk merged to at most 250 points, each dot coloured by
-  its time since the take's start on the same viridis and saying its time,
-  amplitude and rate on hover, joined in time order. The model reads the
+  (#741), as the app's pane draws it (look C): core's walk merged to at
+  most 250 points, each dot coloured by its time since the take's start
+  and saying its time, amplitude and rate on hover, joined in time order
+  by a trail shading from one dot's colour to the next, with a ring at
+  the start, a large dot at the end and a ring every 12 h, each named,
+  under the curve's headline a fact a line. The walk, its key and the
+  Cycle view's dots are coloured on core's time colour map, viridis
+  lifted into each theme so both ends stand off the plot. The model reads the
   walk's outline in `walk` (how many points, at what width, the first and
   last); `series --json` gives every 5 min point.
 

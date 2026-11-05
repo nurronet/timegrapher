@@ -200,6 +200,21 @@ pub fn time_colour(t: f32, dark: bool) -> Rgb {
     from_oklab(c)
 }
 
+/// How many points [`time_table`] reads the map at: drawn linearly
+/// between them, a surface is within three units a channel (rounding to
+/// whole units in both the table and the map) of
+/// [`time_colour`].
+pub const TIME_TABLE_POINTS: usize = 129;
+
+/// [`time_colour`] read at [`TIME_TABLE_POINTS`] evenly spaced points
+/// from 0 to 1, for a surface that draws the map from a table (the MCP
+/// view) rather than calling it.
+pub fn time_table(dark: bool) -> Vec<Rgb> {
+    (0..TIME_TABLE_POINTS)
+        .map(|i| time_colour(i as f32 / (TIME_TABLE_POINTS - 1) as f32, dark))
+        .collect()
+}
+
 /// sRGB's transfer, one channel 0–255 to linear 0–1.
 fn to_linear(v: u8) -> f64 {
     let v = v as f64 / 255.0;
@@ -264,6 +279,34 @@ mod tests {
                 b: 95
             }
         );
+    }
+
+    /// The table read between its points stays within three units a channel
+    /// of the map.
+    #[test]
+    fn the_time_table_is_the_map_between_its_points() {
+        for dark in [true, false] {
+            let table = time_table(dark);
+            assert_eq!(table.len(), TIME_TABLE_POINTS);
+            for k in 0..=1000 {
+                let t = k as f32 / 1000.0;
+                let x = t * (TIME_TABLE_POINTS - 1) as f32;
+                let i = (x.floor() as usize).min(TIME_TABLE_POINTS - 2);
+                let f = x - i as f32;
+                let (a, b, c) = (table[i], table[i + 1], time_colour(t, dark));
+                let lerp = |p: u8, q: u8| p as f32 + (q as f32 - p as f32) * f;
+                for (got, want) in [
+                    (lerp(a.r, b.r), c.r),
+                    (lerp(a.g, b.g), c.g),
+                    (lerp(a.b, b.b), c.b),
+                ] {
+                    assert!(
+                        (got - want as f32).abs() <= 3.0,
+                        "{dark} {t}: {got} vs {want}"
+                    );
+                }
+            }
+        }
     }
 
     /// The time map's lightness runs over its theme's range, start to end,
