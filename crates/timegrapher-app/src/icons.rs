@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 80] = [
+const ALL: [Icon; 82] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
@@ -89,6 +89,8 @@ const ALL: [Icon; 80] = [
     Icon::Fit,
     Icon::Highlighter,
     Icon::Info,
+    Icon::IsoCurve,
+    Icon::IsoWalk,
 ];
 
 /// The drawing behind each icon, with the pun it makes.
@@ -379,6 +381,14 @@ fn drawing(icon: Icon) -> &'static str {
         }
         // A back chevron: Back to the list.
         Icon::Back => r#"<path d="M15 4l-8 8 8 8"/>"#,
+        // Dots on a curve that dips and rises: Isochronism the classic way.
+        Icon::IsoCurve => {
+            r#"<path d="M3.5 20.5h17M3.5 20.5V3.5" stroke-width="1.2"/><path d="M6 7c3 10 9 10 13 3"/><circle cx="6.6" cy="9" r="1.1" fill="currentColor"/><circle cx="12.2" cy="14.4" r="1.1" fill="currentColor"/><circle cx="17.6" cy="11.6" r="1.1" fill="currentColor"/>"#
+        }
+        // Dots joined in time order: The walk through the run-down.
+        Icon::IsoWalk => {
+            r#"<path d="M3.5 20.5h17M3.5 20.5V3.5" stroke-width="1.2"/><path d="M19 5l-4 6-3-1-3 6-3 1" stroke-width="0.8"/><circle cx="19" cy="5" r="1.1" fill="currentColor"/><circle cx="15" cy="11" r="1.1" fill="currentColor"/><circle cx="12" cy="10" r="1.1" fill="currentColor"/><circle cx="9" cy="16" r="1.1" fill="currentColor"/><circle cx="6" cy="17" r="1.1" fill="currentColor"/>"#
+        }
         // A watchmaker's screwdriver: Change the watch's details.
         Icon::Screwdriver => {
             r#"<path d="M15 2.5l6.5 6.5-3 3L12 5.5z"/><path d="M13.5 10.5L5 19"/><path d="M5 19l-2 2"/>"#

@@ -37,6 +37,8 @@ pub struct Settings {
     pub dist_series: [bool; 3],
     pub hist_cumulative: bool,
     pub hist_readings: bool,
+    /// The Isochronism pane's view: the curve, or the walk.
+    pub iso_view: crate::isochronism::View,
     pub sound: profiles::Options,
     pub folded: Vec<String>,
     pub theme: ThemePreference,
@@ -145,6 +147,7 @@ impl Default for Settings {
             dist_series: RATE_ONLY,
             hist_cumulative: false,
             hist_readings: true,
+            iso_view: Default::default(),
             sound: profiles::Options::default(),
             folded: Vec::new(),
             theme: ThemePreference::System,
