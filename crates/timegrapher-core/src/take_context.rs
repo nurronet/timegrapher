@@ -57,8 +57,9 @@ pub enum Masks {
 
 /// A take, opened once: what every surface reads it from.
 pub struct TakeContext {
-    /// Bumped by every change to what the context holds; a cache of
-    /// anything read from it keys on this.
+    /// 0 when opened. Nothing here changes a context once opened; a
+    /// holder that changes it (the app editing masks, #294 step 5) bumps
+    /// this, and a cache of anything read from it keys on it.
     pub rev: u64,
     /// How the take is read: beat rate, lift, escape teeth, the card's
     /// clock or not, and a settling time given to the reader.
@@ -202,12 +203,7 @@ impl TakeContext {
         let whole = whole_recording(m)?;
         let kept = crate::analysis_take::is_analysis_only(&base.join(&whole.file));
         let (files, mut places) = if kept {
-            let places = m
-                .recordings
-                .iter()
-                .map(|e| kept_place(e, f64::INFINITY))
-                .collect::<Result<Vec<_>, _>>()?;
-            (Vec::new(), places)
+            (Vec::new(), kept_places(m, f64::INFINITY)?)
         } else {
             layout(base, m, &whole)?
         };
@@ -287,6 +283,14 @@ fn kept_place(e: &RecordingEntry, length_s: f64) -> Result<Place, String> {
     }
 }
 
+/// Every entry of a take kept as its analysis alone, `length_s` long.
+fn kept_places(m: &Manifest, length_s: f64) -> Result<Vec<Place>, String> {
+    m.recordings
+        .iter()
+        .map(|e| kept_place(e, length_s))
+        .collect()
+}
+
 /// The session entries of a take, laid on its timeline as [`TakeContext`]
 /// lays them, from the sound files' headers alone (or, for a take kept as
 /// its analysis alone, its kept length): for a reader that needs the
@@ -303,12 +307,7 @@ pub fn entry_layout(
             .map_err(|err| format!("{}: {err}", path.display()))?
             .log
             .duration_s;
-        let places = m
-            .recordings
-            .iter()
-            .map(|e| kept_place(e, length_s))
-            .collect::<Result<Vec<_>, _>>()?;
-        (Vec::new(), places)
+        (Vec::new(), kept_places(m, length_s)?)
     } else {
         layout(base, m, &whole)?
     };
@@ -334,7 +333,7 @@ pub fn in_files(files: &[FilePart], a: f64, b: f64) -> Vec<(usize, f64, f64)> {
         .filter_map(|(i, f)| {
             let from = a.max(f.offset_s);
             let to = b.min(f.offset_s + f.duration_s);
-            (from < to).then(|| (i, from - f.offset_s, to - f.offset_s))
+            (from < to).then_some((i, from - f.offset_s, to - f.offset_s))
         })
         .collect()
 }
