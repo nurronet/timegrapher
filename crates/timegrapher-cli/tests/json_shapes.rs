@@ -252,6 +252,18 @@ fn session_keeps_its_fields() {
     ] {
         assert!(line.contains(&format!(" ± {t}{unit}")), "{t}{unit}: {line}");
     }
+    // The whole file's rate, amplitude and beat error carry as many
+    // decimals as their ± (decimals follow the ±, #510 K3).
+    let decimals = |t: &str| t.split_once('.').map_or(0, |(_, d)| d.len());
+    for head in ["Rate         ", "Amplitude    ", "Beat error   "] {
+        let line = text[at("Whole file ")..]
+            .lines()
+            .find(|l| l.starts_with(head))
+            .unwrap_or_else(|| panic!("no {head:?} in\n{text}"));
+        let words: Vec<&str> = line[head.len()..].split_whitespace().collect();
+        assert_eq!(words[1], "±", "{line}");
+        assert_eq!(decimals(words[0]), decimals(words[2]), "{line}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
