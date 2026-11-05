@@ -864,29 +864,31 @@ impl TimegrapherApp {
 
     /// The input's clock in words, for Settings' Quartz Correction: as
     /// timed and offered to keep, as kept, or not timed yet.
-    fn clock_words(
+    pub(super) fn clock_words(
         &self,
         measured: Option<&timegrapher_core::clock::ClockFit>,
         kept: Option<&clockstore::DeviceClock>,
     ) -> ClockWords {
-        let words = |ppm: f64| {
+        use timegrapher_core::figure_text::{base_digits, figure_with_pm};
+        // A clock's figure, and its ± where it has one, to the decimals
+        // the ± calls for (#510 K3), its sign said as fast or slow.
+        let clock = |ppm: f64, sd: Option<f64>| {
             format!(
-                "{:.1} ppm {}",
-                ppm.abs(),
+                "{} ppm {}",
+                figure_with_pm(ppm.abs(), sd, base_digits::CLOCK, false),
                 if ppm >= 0.0 { "fast" } else { "slow" }
             )
         };
+        let words = |ppm: f64| clock(ppm, None);
         if let Some(f) = measured {
-            let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let mut hint = format!(
                 "Timed against the computer's clock over {} of listening, this input's \
-                 clock runs {:.1} ± {:.1} ppm {way}: {:+.1} seconds per day on every rate. \
+                 clock runs {}: {:+.1} seconds per day on every rate. \
                  Keep it to show the corrected rate as True Clock from now on; the command \
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
                 length_text(f.span_s),
-                f.ppm.abs(),
-                f.ppm_sd,
+                clock(f.ppm, Some(f.ppm_sd)),
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {

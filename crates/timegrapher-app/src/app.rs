@@ -1063,10 +1063,10 @@ impl CardRows {
 }
 
 /// The input's clock in words, as Quartz Correction gives it.
-struct ClockWords {
+pub(super) struct ClockWords {
     /// "20.2 ppm fast", or "Not Timed".
-    value: String,
-    hint: String,
+    pub(super) value: String,
+    pub(super) hint: String,
 }
 
 /// A reading's limit in short in Title Case, for its chip: "9 s of Beats",
