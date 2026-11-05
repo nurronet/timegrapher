@@ -185,6 +185,66 @@ pub fn viridis(t: f32) -> Rgb {
     }
 }
 
+/// The time colour map: [`viridis`] with its OKLab lightness rescaled
+/// from viridis's own range to 0.60–0.92 in the dark theme and 0.30–0.64
+/// in the light, its hue and chroma (OKLab a and b) kept, so its start
+/// stands off a dark plot and its end off a light one (Hugh's M3, Peter
+/// 11-05). What every time-coloured mark calls: the Isochronism walk and
+/// the Cycle view.
+pub fn time_colour(t: f32, dark: bool) -> Rgb {
+    let (lo, hi) = if dark { (0.60, 0.92) } else { (0.30, 0.64) };
+    let [first, last] =
+        [VIRIDIS[0], VIRIDIS[VIRIDIS.len() - 1]].map(|[r, g, b]| oklab(Rgb { r, g, b })[0]);
+    let mut c = oklab(viridis(t));
+    c[0] = lo + (c[0] - first) / (last - first) * (hi - lo);
+    from_oklab(c)
+}
+
+/// sRGB's transfer, one channel 0–255 to linear 0–1.
+fn to_linear(v: u8) -> f64 {
+    let v = v as f64 / 255.0;
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// A linear channel 0–1 back to sRGB 0–255, clamped.
+fn from_linear(c: f64) -> u8 {
+    let c = if c <= 0.0031308 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (c.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// OKLab, from sRGB (Björn Ottosson's matrices).
+pub fn oklab(c: Rgb) -> [f64; 3] {
+    let (r, g, b) = (to_linear(c.r), to_linear(c.g), to_linear(c.b));
+    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    [
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    ]
+}
+
+/// sRGB from OKLab, each channel clamped into range.
+fn from_oklab([l, a, b]: [f64; 3]) -> Rgb {
+    let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+    let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+    let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    Rgb {
+        r: from_linear(4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_),
+        g: from_linear(-1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_),
+        b: from_linear(-0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,25 +266,23 @@ mod tests {
         );
     }
 
-    /// OKLab, from sRGB (Björn Ottosson's matrices).
-    fn oklab(c: Rgb) -> [f64; 3] {
-        let lin = |v: u8| {
-            let v = v as f64 / 255.0;
-            if v <= 0.04045 {
-                v / 12.92
-            } else {
-                ((v + 0.055) / 1.055).powf(2.4)
+    /// The time map's lightness runs over its theme's range, start to end,
+    /// steadily, with viridis's hue kept (Hugh's M3).
+    #[test]
+    fn the_time_map_is_viridis_lifted_into_each_theme() {
+        for (dark, lo, hi) in [(true, 0.60, 0.92), (false, 0.30, 0.64)] {
+            let l = |t: f32| oklab(time_colour(t, dark))[0];
+            assert!((l(0.0) - lo).abs() < 0.01, "{dark}: {}", l(0.0));
+            assert!((l(1.0) - hi).abs() < 0.01, "{dark}: {}", l(1.0));
+            let steps: Vec<f64> = (0..=16).map(|i| l(i as f32 / 16.0)).collect();
+            assert!(steps.windows(2).all(|w| w[1] > w[0]), "{dark}: {steps:?}");
+            // Still purple to yellow: the hue angle of viridis at each end.
+            for t in [0.0, 1.0] {
+                let ([_, a, b], [_, va, vb]) = (oklab(time_colour(t, dark)), oklab(viridis(t)));
+                let turn = (b.atan2(a) - vb.atan2(va)).abs();
+                assert!(turn < 0.35, "{dark} {t}: {turn}");
             }
-        };
-        let (r, g, b) = (lin(c.r), lin(c.g), lin(c.b));
-        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
-        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
-        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
-        [
-            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
-        ]
+        }
     }
 
     /// OKLab ΔE × 100.

@@ -768,10 +768,13 @@ middle half), the curve through them and where it turns. **View** in its
 toolbar picks this **Curve** or the **Walk** (#741), when core has one:
 the rate against the amplitude for each
 merged stretch of time, each dot coloured by hours since the take's start
-(viridis, with a key), joined in time order by lines, each in the colour of the dot it goes
-from, that break
-where core says a stretch was left out or the take broke; each dot's hover
-is core's. Both views span the same amplitudes, so a degree stays put
+(the time colour map, with a key), joined in time order by a trail that
+shades from each dot's colour to the next's and breaks
+where core says a stretch was left out or the take broke; a ring marks the
+start, a large dot the end with its hour, and a ring each 12 h (24 h on a
+take over 96 h) with its hour beside it; each dot's hover
+is core's. Each axis is named with its unit over the numbers, and the plot
+is never taller than 1.1 times its width. Both views span the same amplitudes, so a degree stays put
 when the view changes, and the curve's headline stays above either. The
 setting is kept between runs. The curve
 needs the amplitude to fall
@@ -1284,8 +1287,8 @@ Scale** in its toolbar draws the scores in decibels below the tallest,
 0 dB at the top down to −30 dB, so a small peak beside a tall one still
 shows), **Cycle**
 (the readings folded at the cycle the tests found: every cycle as dots,
-coloured by when it came from purple for the first to yellow-green for the
-last, so slow wander shows as a run of colour; a box round the middle half
+coloured by when it came on the time colour map, purple for the first to
+yellow for the last, so slow wander shows as a run of colour; a box round the middle half
 of each phase's readings, for a phase with at least four; the median shape
 as a line; and a note giving the line's swing, highest less lowest, beside
 the boxes' median height), **Autocorrelation** (with the ±1.96/√n band

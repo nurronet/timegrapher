@@ -334,8 +334,9 @@ pub static ISOCHRONISM: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         ),
         "View in the toolbar picks the curve or the walk. The walk shows the rate against the \
      amplitude stretch by stretch through the session, each dot coloured by its time from the start, from dark to bright as the \
-     key says. A line in each dot's colour joins it to the next in time order and breaks wherever a stretch was \
-     masked or the session broke. Hover a dot for its time, amplitude and rate."
+     key says. A trail shading from each dot's colour to the next's joins them in time order and breaks wherever \
+     a stretch was masked or the session broke. A ring marks the start, a large dot the end, and a ring each \
+     12 hours. Hover a dot for its time, amplitude and rate."
             .into(),
     ])
 });
