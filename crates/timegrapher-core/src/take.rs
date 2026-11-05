@@ -1338,6 +1338,225 @@ mod tests {
         assert_eq!(starts, vec![18.5]);
     }
 
+    /// A take's clock from a known correction runs over all its sound
+    /// files, and so does what its reading says there is to read: their
+    /// frames added up, at the first file's rate (#756).
+    #[test]
+    fn a_takes_clock_and_reading_span_all_its_files() {
+        let dir = std::env::temp_dir().join(format!("tg-clock-files-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let files = [dir.join("a.wav"), dir.join("b.wav")];
+        for (f, s) in files.iter().zip([10, 20]) {
+            let audio = crate::audio::Audio {
+                samples: vec![0.0; 8000 * s],
+                sample_rate: 8000,
+            };
+            crate::audio::write_wav(f, &audio).unwrap();
+        }
+        let fit = clock_of_files(&dir, None, &files, None, Some(10.0))
+            .unwrap()
+            .unwrap();
+        assert_eq!((fit.ppm, fit.span_s), (10.0, 30.0));
+        // The sound to read is all of it, known before any is read.
+        let cfg = StreamConfig {
+            chunk_s: 5.0,
+            ..StreamConfig::default()
+        };
+        let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+        let mut told = Vec::new();
+        entry_log(None, &paths, &cfg, "a.wav", |done, total| {
+            told.push((done, total))
+        })
+        .unwrap();
+        assert!(told.len() > 1 && told[0].0 < 30.0, "{told:?}");
+        assert!(told.iter().all(|t| t.1 == 30.0), "{told:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A log of `duration_s` seconds holding `beats` at those times and
+    /// nothing else.
+    fn bare_log(duration_s: f64, beats: &[f64]) -> BeatLog {
+        BeatLog {
+            sample_rate: 48000,
+            duration_s,
+            bph: 28800,
+            lift_deg: 52.0,
+            beats: beats
+                .iter()
+                .enumerate()
+                .map(|(i, &time)| crate::beats::Beat {
+                    index: i as i64,
+                    time,
+                    quality: 1.0,
+                })
+                .collect(),
+            amplitude_windows: Vec::new(),
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        }
+    }
+
+    /// The measured part holds what lies from the settling up to the end,
+    /// timed from the settling: beats from its first instant, and only
+    /// the breaks strictly inside it. A listed pause keeps its gap; each
+    /// end of a mask is a break with none (#756).
+    #[test]
+    fn the_measured_part_is_what_lies_inside_it_timed_from_its_settling() {
+        let mut log = bare_log(200.0, &[9.5, 10.0, 50.0, 99.5, 100.0]);
+        log.amplitude_windows = vec![crate::amplitude::AmplitudeWindow {
+            start_s: 50.0,
+            end_s: 52.0,
+            even_deg: Some(250.0),
+            odd_deg: Some(250.0),
+            beat_error_ms: None,
+            beat_error_unlock_ms: None,
+            even_unlock_ms: None,
+            odd_unlock_ms: None,
+            even_drop_ms: None,
+            odd_drop_ms: None,
+        }];
+        log.snippets = [9.5, 10.0, 50.0, 100.0].map(|t| (t, Vec::new())).to_vec();
+        let pause = |audio_s| Break {
+            audio_s,
+            gap_s: 3.0,
+        };
+        let read = EntryRead {
+            files: Vec::new(),
+            kept: None,
+            log: log.clone(),
+            // A clock with no log of its own keeps every listed gap.
+            clock: Some(ClockFit::fixed(0.0, 200.0)),
+            clock_from: None,
+            clock_ppm: None,
+            clock_source: None,
+            clock_text: None,
+            breaks: vec![pause(5.0), pause(10.0), pause(60.0), pause(100.0)],
+            unlisted: None,
+            masked: vec![(30.0, 40.0)],
+            start_s: 0.0,
+            stop_s: 200.0,
+            settle_s: 10.0,
+            end_s: 100.0,
+            measurement: session::measure(&log, None, 10.0, 100.0),
+        };
+        let part = read.measured_part();
+        let times: Vec<f64> = part.log.beats.iter().map(|b| b.time).collect();
+        assert_eq!(times, vec![0.0, 40.0, 89.5]);
+        let w = &part.log.amplitude_windows;
+        assert_eq!((w.len(), w[0].start_s, w[0].end_s), (1, 40.0, 42.0));
+        let sounds: Vec<f64> = part.log.snippets.iter().map(|s| s.0).collect();
+        assert_eq!(sounds, vec![0.0, 40.0]);
+        assert_eq!(part.log.duration_s, 90.0);
+        let breaks: Vec<(f64, f64)> = part.breaks.iter().map(|b| (b.audio_s, b.gap_s)).collect();
+        assert_eq!(breaks, vec![(20.0, 0.0), (30.0, 0.0), (50.0, 3.0)]);
+        assert!(part.clock.is_some());
+    }
+
+    /// A take's whole entry: a folder with a take's entries is the take
+    /// read whole ([`whole_take`]); a file, or a take that lists nothing,
+    /// is that sound on its own, in the folder that holds it (#756).
+    #[test]
+    fn a_whole_entry_is_the_take_or_else_the_sound_named() {
+        let dir = std::env::temp_dir();
+        let m = Manifest {
+            recordings: vec![entry("take.flac", Some("clock.csv"), &[])],
+            ..Default::default()
+        };
+        let (base, read, e) = whole_entry(&dir, Some(&m)).unwrap();
+        assert_eq!((base, read.recordings.len()), (dir.clone(), 1));
+        assert_eq!(
+            (e.file.as_str(), e.clock.as_deref()),
+            ("take.flac", Some("clock.csv"))
+        );
+        let file = dir.join("one.wav");
+        for listed in [None, Some(&Manifest::default())] {
+            let (base, read, e) = whole_entry(&file, listed).unwrap();
+            assert_eq!((base, read.recordings.len()), (dir.clone(), 0));
+            assert_eq!((e.file.as_str(), e.clock), ("one.wav", None));
+        }
+    }
+
+    /// Each entry that names a position is listed with its start, where
+    /// its reading starts and ends (no end when it runs to the end of a
+    /// recording of unknown length) and its position; an entry that reads
+    /// nothing, at its end (#756).
+    #[test]
+    fn the_listed_positions_are_the_entries_that_name_one() {
+        let m: Manifest = toml::from_str(
+            "settle_s = 30.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nstart_s = 600.0\nend_s = 650.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"CD\"\nstart_s = 650.0\nend_s = 660.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 700.0\n",
+        )
+        .unwrap();
+        let listed = listed_positions(&m, &m.recordings, f64::INFINITY);
+        let p = |s: &str| session::Position::parse(s).unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                (0.0, 30.0, Some(600.0), p("DU")),
+                (650.0, 660.0, Some(660.0), p("CD")),
+                (700.0, 730.0, None, p("CU")),
+            ]
+        );
+    }
+
+    /// Each position begins where the one before it ended, or at its own
+    /// start when that one ran on past it; the first at the take's start.
+    /// Its settling runs from there to where its reading starts, and is
+    /// none when the reading starts there (#756).
+    #[test]
+    fn a_position_begins_where_the_one_before_ended() {
+        let listed = [
+            (290.0, 320.0, None, 'C'),
+            (0.0, 0.0, Some(100.0), 'A'),
+            (120.0, 150.0, Some(300.0), 'B'),
+        ];
+        let (changes, settles) = positions_of(listed.into_iter());
+        assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (290.0, 'C')]);
+        assert_eq!(settles, vec![(100.0, 150.0), (290.0, 320.0)]);
+    }
+
+    /// A reading reaches across no break, no change of position after the
+    /// first and no end of a settling; each place is said once, in order.
+    #[test]
+    fn a_reading_is_cut_at_breaks_changes_and_settled_ends() {
+        let b = Break {
+            audio_s: 130.0,
+            gap_s: 2.0,
+        };
+        let cuts = reading_cuts(&[b], &[0.0, 100.0, 200.0], &[(0.0, 30.0), (100.0, 130.0)]);
+        assert_eq!(cuts, vec![30.0, 100.0, 130.0, 200.0]);
+    }
+
+    /// A take keeps WAV and FLAC files, in any case, and a folder holds
+    /// sound when it holds one of them.
+    #[test]
+    fn a_take_keeps_wav_and_flac_sound() {
+        for (name, kept) in [
+            ("a.WAV", true),
+            ("b.flac", true),
+            ("c.mp3", false),
+            ("wav", false),
+        ] {
+            assert_eq!(is_sound(Path::new(name)), kept, "{name}");
+        }
+        let dir = std::env::temp_dir().join(format!("tg-has-sound-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("notes.txt"), "").unwrap();
+        assert!(!has_sound(&dir));
+        fs::write(dir.join("take.flac"), "").unwrap();
+        assert!(has_sound(&dir));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     fn entry(file: &str, clock: Option<&str>, masked: &[[f64; 2]]) -> RecordingEntry {
         RecordingEntry {
             file: file.into(),

@@ -5,7 +5,7 @@
 use timegrapher_core::audio::Audio;
 use timegrapher_core::measure::Caveat;
 use timegrapher_core::synth::{generate, noise_rms, Rng, SynthConfig, SCALE};
-use timegrapher_core::{analyze, AnalysisConfig};
+use timegrapher_core::{analyze, take, AnalysisConfig};
 
 /// `noise_s` of the synthetic stand noise (as the live tests make it),
 /// then `watch_s` of a watch at +5 s/d and 270°.
@@ -83,4 +83,30 @@ fn a_brief_watch_after_a_long_noise_lead_is_still_no_watch() {
         assert!(!got.watch_heard, "{what}: {:?}", got.caveats);
         assert!(lead_left_out(&got.caveats).is_none(), "{what}");
     }
+}
+
+/// An entry of a take that starts into its recording names the lead it
+/// leaves out from its own start, not the recording's (#756).
+#[test]
+fn an_entrys_lead_is_counted_from_its_own_start() {
+    let (_, led) = noise_then_watch(60.0, 40.0);
+    let dir = std::env::temp_dir().join(format!("tg-entry-lead-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    timegrapher_core::audio::write_wav(&dir.join("take.wav"), &led).unwrap();
+    let m: timegrapher_core::session::Manifest = toml::from_str(
+        "bph = 28800\nsettle_s = 0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nstart_s = 20.0\n",
+    )
+    .unwrap();
+    let s = take::EntrySettings {
+        stream: take::stream_settings(&m, None, take::Given::default()),
+        card_clock: false,
+        settle_s: None,
+    };
+    let read =
+        take::measure_entry(&dir, &m, &m.recordings[0], &s, |_| Ok(None), |_| Ok(None)).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(read.start_s, 20.0);
+    let lead = lead_left_out(&read.measurement.caveats).expect("the lead named");
+    assert!((lead - 40.0).abs() < 1.0, "lead {lead}");
 }

@@ -422,4 +422,34 @@ mod tests {
             "stored for 'USB', 2026-10-10T03:00:00Z"
         );
     }
+
+    /// Each way a correction was measured has its own words, and any
+    /// other source reads as typed in (#756).
+    #[test]
+    fn each_source_says_how_the_correction_was_measured() {
+        let how = |source: &str| {
+            let mut d = entry("USB", 3.0);
+            d.source = source.into();
+            d.how_text()
+        };
+        assert_eq!(how("log"), "from a recording's clock log");
+        assert_eq!(
+            how("measure"),
+            "while listening, against the computer's clock"
+        );
+        assert_eq!(how("set"), "typed in");
+        assert_eq!(how(""), "typed in");
+    }
+
+    /// Only a store that isn't there reads as empty: a path that can't be
+    /// read for another reason (here a folder) is an error that names it
+    /// (#756).
+    #[test]
+    fn a_store_that_cannot_be_read_is_an_error_not_empty() {
+        let dir = std::env::temp_dir().join(format!("tg-clock-unreadable-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let error = ClockStore::load_from(&dir).unwrap_err();
+        assert!(error.contains(&dir.display().to_string()), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -574,6 +574,84 @@ mod tests {
         );
     }
 
+    /// A stretch of no length adds no join (#756).
+    #[test]
+    fn a_stretch_of_no_length_adds_no_join() {
+        let spans = [(10.0, 40.0), (50.0, 50.0)];
+        assert_eq!(joined_duration(&spans, 200.0, None), 30.0);
+    }
+
+    /// Entries whose stretches only touch, one ending where the next
+    /// starts after its settling, share no sound and are read joined; an
+    /// entry left with nothing after its settling, or that measures for no
+    /// time, adds no stretch (#756).
+    #[test]
+    fn stretches_that_only_touch_are_read_joined() {
+        let touch = manifest(
+            "settle_s = 30.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 570.0\n",
+        );
+        assert_eq!(
+            take_spans(&touch, 1200.0),
+            Some(vec![(30.0, 600.0), (600.0, 1200.0)])
+        );
+        let settled_out = manifest(
+            "settle_s = 30.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 600.0\nend_s = 630.0\n",
+        );
+        assert_eq!(take_spans(&settled_out, 1200.0), Some(vec![(30.0, 600.0)]));
+        let measured_none = manifest(
+            "settle_s = 30.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"CU\"\nstart_s = 600.0\nmeasure_s = 0.0\n",
+        );
+        assert_eq!(
+            take_spans(&measured_none, 1200.0),
+            Some(vec![(30.0, 600.0)])
+        );
+    }
+
+    /// Only a pause strictly inside a stretch can be one the joined
+    /// reading doesn't see: none at a stretch's ends or outside them, even
+    /// where the clock log witnesses it (#756).
+    #[test]
+    fn only_a_pause_inside_a_stretch_is_unseen() {
+        let pairs: Vec<(f64, f64)> = (0..=12)
+            .map(|i| (i as f64 * 10.0, 1.79e9 + i as f64 * 10.0))
+            .collect();
+        let clock = ClockFit::new(&pairs).unwrap();
+        let outside = [
+            cut(5.0, 9.0),
+            cut(10.0, 9.0),
+            cut(40.0, 9.0),
+            cut(60.0, 9.0),
+        ];
+        assert_eq!(pauses_unseen(&SPANS, &outside, Some(&clock)), None);
+    }
+
+    /// A step in the clock log at either end of a stretch is not a cut
+    /// inside it; one a hair inside is, unless it is a listed break
+    /// already (within 1e-9 s) (#756).
+    #[test]
+    fn a_clock_step_is_a_cut_only_strictly_inside_a_stretch() {
+        let mut clock = ClockFit::fixed(0.0, 200.0);
+        clock.breaks = vec![
+            cut(10.0, 3.0),
+            cut(40.0, 3.0),
+            cut(100.0, 3.0),
+            cut(190.0, 3.0),
+        ];
+        let (_, cuts) = join(&log(), &SPANS, &[], Some(&clock));
+        // Only the join itself.
+        assert_eq!(cuts.len(), 1, "{cuts:?}");
+        // A step 1e-9 s after a listed break is its own cut.
+        clock.breaks = vec![cut(1e-9, 1.0)];
+        let (_, cuts) = join(&log(), &[(0.0, 40.0)], &[cut(0.0, 5.0)], Some(&clock));
+        assert_eq!(cuts.len(), 1, "{cuts:?}");
+    }
+
     /// The joined length: each stretch inside the recording, on the clock,
     /// and JOIN_S between each two, as [`join`] makes it.
     #[test]
