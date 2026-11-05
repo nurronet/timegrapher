@@ -389,6 +389,9 @@ pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
         && position(before) == position(e)
         && e.start_s.is_none()
         && before.end_s.is_none()
+        // An entry that gives its own settling settles: the watch was
+        // handled there (ym42_CR_long's third file, #1184).
+        && e.settle_s.is_none_or(|s| s == 0.0)
 }
 
 /// The stretch entry `e` of the take `m` reads in a recording of
@@ -480,8 +483,7 @@ pub fn listed_positions(
 
 /// A listed position: the stretch's start, the start of what is read,
 /// the end of that, the position, and whether the entry carries on the
-/// one before it ([`continues_position`]) with no settling of its own,
-/// so that it is no change.
+/// one before it ([`continues_position`]), so that it is no change.
 pub type ListedPosition<P> = (f64, f64, Option<f64>, P, bool);
 
 /// Entry `e`'s listed position, as [`listed_positions`] gives it, in take
@@ -504,11 +506,13 @@ pub fn listed_position(
             (end, end)
         }
     };
-    // Carried on only where its reading starts at its start: an entry's
-    // own settling wins over carrying on (`reading_window`), so one that
-    // settles is a change, as `session` reads it.
-    let carried = continues_position(e, m) && from <= start;
-    Some((start, from, to.is_finite().then_some(to), p, carried))
+    Some((
+        start,
+        from,
+        to.is_finite().then_some(to),
+        p,
+        continues_position(e, m),
+    ))
 }
 
 /// A take's changes of position (where each began, and the position)
@@ -1817,6 +1821,8 @@ mod tests {
              [[recording]]\nfile = \"c.flac\"\nposition = \"CR\"\nsettle_s = 377.0\n",
         )
         .unwrap();
+        assert!(continues_position(&own.recordings[1], &own));
+        assert!(!continues_position(&own.recordings[2], &own));
         let listed = listed_positions(&own, &own.recordings[1..], 600.0);
         assert_eq!(
             listed.iter().map(|l| l.4).collect::<Vec<_>>(),
@@ -2151,8 +2157,8 @@ mod tests {
 
     /// The next file of a recording in the same position carries on the
     /// one before and does not settle again; a new position, a file read
-    /// from partway in, one after a file stopped early, or the first, does
-    /// (#1145).
+    /// from partway in, one after a file stopped early, one with its own
+    /// settling, or the first, does (#1145, #1184).
     #[test]
     fn a_file_carrying_on_its_position_does_not_settle_again() {
         let m: Manifest = toml::from_str(
@@ -2170,7 +2176,9 @@ mod tests {
             .iter()
             .map(|e| continues_position(e, &m))
             .collect();
-        assert_eq!(carries, [false, true, false, false, true, false, true]);
+        // g gives its own settling, so the watch was handled there: it does
+        // not carry f on (#1184).
+        assert_eq!(carries, [false, true, false, false, true, false, false]);
         let from = |i: usize| {
             reading_window(&m.recordings[i], &m, None, 600.0)
                 .unwrap()
