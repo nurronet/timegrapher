@@ -537,6 +537,9 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ("ym42_DU_2h rate readings", ENTRY_CUTS),
     ("ym42_DU_2h amplitude readings", ENTRY_CUTS),
     ("ym42_DU_2h beat_error readings", ENTRY_CUTS),
+    // The app cuts each of its 96 ten-minute files, so each hour reads less
+    // and carries a breaks caveat; session reads one run (#1159).
+    ("reverso21600_DU_level_overnight power reserve", ENTRY_CUTS),
     ("ym42_CR_long amplitude 2 s", MEASURE),
     ("ym42_CR_long beat_error 2 s", MEASURE),
 ];
