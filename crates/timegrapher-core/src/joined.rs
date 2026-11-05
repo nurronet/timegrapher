@@ -83,11 +83,23 @@ pub fn pauses_unseen(
 /// when the entries are not like that: the take is then read whole.
 pub fn take_spans(m: &Manifest, duration_s: f64) -> Option<Vec<(f64, f64)>> {
     let first = m.recordings.first()?;
-    if m.recordings
-        .iter()
-        .any(|e| e.file != first.file || e.position.is_none())
-    {
+    if m.recordings.iter().any(|e| e.position.is_none()) {
         return None;
+    }
+    // Files one after another in one position, each carrying on the one
+    // before ([`take::continues_position`]): one stretch, from the first
+    // file's settling to the end, as `session` and the app read it (#1145).
+    if m.recordings.iter().any(|e| e.file != first.file) {
+        let measured = m.measure_s.is_some() || m.recordings.iter().any(|e| e.measure_s.is_some());
+        if measured
+            || !m.recordings[1..]
+                .iter()
+                .all(|e| take::continues_position(e, m))
+        {
+            return None;
+        }
+        let w = take::reading_window(first, m, None, duration_s).ok()?;
+        return (w.from_s > 0.0).then(|| vec![(w.from_s, duration_s)]);
     }
     let mut spans: Vec<(f64, f64)> = m
         .recordings
@@ -458,6 +470,32 @@ mod tests {
              [[recording]]\nfile = \"b.flac\"\nposition = \"CU\"\n",
         );
         assert_eq!(take_spans(&files, 3600.0), None);
+        // Files one after another in one position settle once, at the
+        // start, as session and the app read them (#1145).
+        let parts = manifest(
+            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"dial up\"\n",
+        );
+        assert_eq!(
+            take_spans(&parts, 1800.0),
+            Some(vec![(take::SETTLE_S, 1800.0)])
+        );
+        // The same stretch `session` reads, file by file, laid end to end:
+        // the first from its settling, the others whole.
+        let read: Vec<(f64, f64)> = parts
+            .recordings
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let w = take::reading_window(e, &parts, None, 600.0).unwrap();
+                (600.0 * i as f64 + w.from_s, 600.0 * i as f64 + w.to_s)
+            })
+            .collect();
+        assert_eq!(
+            read,
+            [(take::SETTLE_S, 600.0), (600.0, 1200.0), (1200.0, 1800.0)]
+        );
         // Entries that overlap would read their shared sound twice.
         let overlap = manifest(
             "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\nend_s = 500.0\n\
