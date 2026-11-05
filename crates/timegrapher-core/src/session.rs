@@ -18,8 +18,8 @@ use crate::beats::Beat;
 use crate::breaks::Break;
 use crate::clean::Cuts;
 use crate::clock::ClockFit;
-use crate::dsp::median;
 use crate::dsp::percentile;
+use crate::dsp::{mean_of, median_of};
 use crate::longrun::LongReport;
 use crate::periodicity::Wheel;
 use crate::shape::{ShapeReport, SideReport};
@@ -493,10 +493,7 @@ pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
-/// Rate and timing-scatter fits use ten seconds to collect enough beats.
-const RATE_WINDOW_S: f64 = 10.0;
-/// Half-window spacing keeps the existing overlapping rate-reading grid.
-const RATE_WINDOW_STEP_S: f64 = 5.0;
+use crate::measure::{RATE_WINDOW_S, RATE_WINDOW_STEP_S};
 
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
@@ -567,11 +564,6 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
         }
     }
     None
-}
-
-fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| median(&mut w))
 }
 
 /// [`watch_lead_s`] for the stretch of `log` from `from_s` to `to_s`
@@ -1235,11 +1227,6 @@ pub struct SessionReport {
     pub findings: Vec<Finding>,
 }
 
-fn mean(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| w.iter().sum::<f64>() / w.len() as f64)
-}
-
 fn spread(v: impl Iterator<Item = f64>) -> Option<f64> {
     let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
     if w.len() < 2 {
@@ -1434,7 +1421,7 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             // The positions with a rate in both states, so each mean is
             // over the same positions.
             let common = |s: &StateIndices, o: &StateIndices| {
-                mean(
+                mean_of(
                     s.positions
                         .iter()
                         .filter(|v| {
