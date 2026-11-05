@@ -341,3 +341,142 @@ fn a_takes_reading_breaks_cut_at_changes_of_position_and_settling() {
     assert!(ctx.reading_breaks(&m).iter().all(|b| b.gap_s == 0.0));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The stretches of the synthetic take (a.wav 60 s, b.wav 61 s, c.wav
+/// 62 s) that `series` and `long` read for the session file `toml`.
+/// Stretches read and holes, take seconds.
+type Read = (Vec<(f64, f64)>, Vec<(f64, f64)>);
+
+fn spans_of(dir: &Path, toml: &str) -> Option<Read> {
+    let m: Manifest = toml::from_str(toml).unwrap();
+    let (ctx, _) = TakeContext::open(
+        dir,
+        &m,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    ctx.spans(&m).map(|s| (s.read, s.holes))
+}
+
+/// The stretches `series` and `long` read are the entries' windows in
+/// take seconds: joined where the position changes, run on where a file
+/// carries on the one before it, and with a hole, kept at its width,
+/// where an entry leaves out part of one position's run (#294, #1156).
+#[test]
+fn a_takes_stretches_are_its_entries_windows() {
+    let dir = synthetic_take("spans");
+    let spans = |toml: &str| spans_of(&dir, toml);
+    let s = take::SETTLE_S;
+    let read = |r: &[(f64, f64)]| Some((r.to_vec(), Vec::new()));
+    // One file in one position, from its settling.
+    assert_eq!(
+        spans("[[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n"),
+        read(&[(s, 60.0)])
+    );
+    // Two positions in one file, each from its settling.
+    assert_eq!(
+        spans(
+            "settle_s = 5.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\nend_s = 30.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"CU\"\nstart_s = 30.0\n"
+        ),
+        read(&[(5.0, 30.0), (35.0, 60.0)])
+    );
+    // Read from its start: the whole take. No position named: whole.
+    assert_eq!(
+        spans("[[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\nsettle_s = 0.0\n"),
+        None
+    );
+    assert_eq!(spans("[[recording]]\nfile = \"a.wav\"\n"), None);
+    // Two files in two positions, each from its settling.
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.wav\"\nposition = \"CU\"\n"
+        ),
+        read(&[(s, 60.0), (60.0 + s, 121.0)])
+    );
+    // Files one after another in one position settle once (#1145).
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.wav\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"c.wav\"\nposition = \"dial up\"\n"
+        ),
+        read(&[(s, 183.0)])
+    );
+    // A later file that settles on its own, in the same position: a hole
+    // in the run where it settles.
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.wav\"\nposition = \"DU\"\nsettle_s = 40.0\n"
+        ),
+        Some((vec![(s, 121.0)], vec![(60.0, 100.0)]))
+    );
+    // A file measured for 10 s, then read again from 40 s into it, as
+    // ym42_CR_long's third file is (#1156): one run, with a hole.
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \"a.wav\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"b.wav\"\nposition = \"CR\"\n\
+             [[recording]]\nfile = \"c.wav\"\nposition = \"CR\"\nmeasure_s = 10\n\
+             [[recording]]\nfile = \"c.wav\"\nposition = \"CR\"\nsettle_s = 40\n"
+        ),
+        Some((vec![(s, 183.0)], vec![(131.0, 161.0)]))
+    );
+    // The folder in the first file's position, before the files or
+    // beside the first alone: from that file's settling to the end.
+    for files in ["a.wav\", \"b.wav", "a.wav"] {
+        let mut toml = "[[recording]]\nfile = \".\"\nposition = \"DU\"\n".to_string();
+        for f in files.split("\", \"") {
+            toml += &format!("[[recording]]\nfile = \"{f}\"\nposition = \"DU\"\n");
+        }
+        assert_eq!(spans(&toml), read(&[(s, 183.0)]), "{files}");
+    }
+    // In another position, or naming more, it is a reading of its own,
+    // over the first file's: read whole.
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \".\"\nposition = \"CU\"\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n"
+        ),
+        None
+    );
+    assert_eq!(
+        spans(
+            "[[recording]]\nfile = \".\"\nposition = \"DU\"\nend_s = 50.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n"
+        ),
+        None
+    );
+    // Entries that overlap would read their shared sound twice: whole.
+    assert_eq!(
+        spans(
+            "settle_s = 5.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\nend_s = 40.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DD\"\nstart_s = 30.0\n"
+        ),
+        None
+    );
+    // Stretches that only touch are joined; an entry with nothing left
+    // after its settling, or that measures for no time, adds none (#756).
+    let two = |second: &str| {
+        spans(&format!(
+            "settle_s = 5.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\nend_s = 30.0\n\
+             [[recording]]\nfile = \"a.wav\"\nposition = \"CU\"\n{second}"
+        ))
+    };
+    assert_eq!(two("start_s = 25.0\n"), read(&[(5.0, 30.0), (30.0, 60.0)]));
+    assert_eq!(two("start_s = 30.0\nend_s = 35.0\n"), read(&[(5.0, 30.0)]));
+    assert_eq!(
+        two("start_s = 30.0\nmeasure_s = 0.0\n"),
+        read(&[(5.0, 30.0)])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

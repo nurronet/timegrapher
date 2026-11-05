@@ -338,6 +338,20 @@ all at once, which is how a watchmaker looks back through a take.
 Dropping a file or folder on the window opens it too where the desktop
 passes drops to the app (Windows, macOS and X11; not Wayland).
 
+The beats found in a take's sound are kept in the system's cache folder
+(`~/.cache/timegrapher/beats` on Linux, `~/Library/Caches/timegrapher/beats`
+on macOS, `%LOCALAPPDATA%\timegrapher\beats` on Windows), so the take
+opens again in seconds rather than minutes. A copy is only read back
+for the same sound files (each one's name, length, modified time and
+start), the same analysis settings and the same build of the engine, and
+then it is exact to the bit; anything else reads the sound again. A take
+whose files changed in the last two minutes, which may still be
+recording, gets no copy. The folder is held to 2 GB, the copies used
+longest ago going first, and deleting it only makes the next open slow.
+Starting the app with `TIMEGRAPHER_NO_BEAT_CACHE=1` set reads every take
+from its sound. Opening without a window, the command line and the MCP
+server always read the sound.
+
 When viewing a recording analysed as a whole, known jumps in its beat log also
 bound each reading. Saved position and settling boundaries add to those cuts;
 they do not replace them. Earlier and later pieces remain available to inspect.
