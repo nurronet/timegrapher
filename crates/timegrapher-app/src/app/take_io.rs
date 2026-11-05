@@ -2387,13 +2387,17 @@ fn recordings_info(
 /// session file `m` and that file's `entries` for the folder, laid out by
 /// core (`take_context::entry_layout`): each sound file's place on the
 /// strip, and each entry's window there, one per entry (#1154). None for
-/// a lone file, a folder of one, or one core can't lay out.
+/// a lone file, a folder of one, one core can't lay out, or one with an
+/// entry for the whole folder, which reads over the take whole as before.
 pub(super) fn folder_layout(
     path: &Path,
     m: &Manifest,
     entries: &[RecordingEntry],
 ) -> Option<(Vec<FilePart>, Vec<EntryWindow>)> {
-    if !path.is_dir() {
+    let whole = entries
+        .iter()
+        .any(|e| timegrapher_core::take::names_whole_folder(&e.file));
+    if !path.is_dir() || whole {
         return None;
     }
     let listed = Manifest {
