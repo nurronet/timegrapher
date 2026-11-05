@@ -21,6 +21,9 @@ pub(super) struct ShownSound {
     pub(super) profiles: Profiles,
     pub(super) line: Option<String>,
     pub(super) hover: Option<String>,
+    /// What the band is ([`profiles::BAND_BEATS`] or
+    /// [`profiles::BAND_AVERAGED`]).
+    pub(super) band: &'static str,
     /// The moment shown is masked out, by core's rule for the sound kept
     /// there ([`timegrapher_core::profile::sound_at`]): the Scope draws no
     /// beats there either.
@@ -33,6 +36,7 @@ fn not_shown(line: String, masked: bool) -> ShownSound {
         profiles: [None, None],
         line: Some(line),
         hover: None,
+        band: profiles::BAND_BEATS,
         masked,
     }
 }
@@ -159,6 +163,7 @@ impl TimegrapherApp {
             self.sound_opts,
             drop_be,
             note.as_deref(),
+            shown.band,
         );
     }
 
@@ -205,6 +210,7 @@ impl TimegrapherApp {
             profiles,
             line: None,
             hover,
+            band: profiles::BAND_BEATS,
             masked: false,
         };
         let line = |l: String| not_shown(l, false);
@@ -294,21 +300,24 @@ impl TimegrapherApp {
             .iter()
             .zip(&sides)
             .map(|(name, s)| match s {
-                Some(s) => format!(
-                    "{name}: average of {} 2 s profiles, {} to {}",
-                    s.stretches,
-                    length_text(s.from_s),
-                    length_text(s.to_s)
-                ),
+                Some(s) => {
+                    let what = match s.stretches {
+                        1 => "the 2 s profile".to_string(),
+                        n => format!("average of {n} 2 s profiles"),
+                    };
+                    let (a, b) = (length_text(s.from_s), length_text(s.to_s));
+                    format!("{name}: {what}, {a} to {b}")
+                }
                 None => format!("{name}: none kept"),
             })
             .collect();
-        hover.push("Band: range of the 2 s bands".to_string());
+        hover.push(format!("Band: {}", profiles::BAND_AVERAGED));
         hover.push("This take kept no sound".to_string());
         ShownSound {
             profiles: sides.map(|s| s.map(|s| s.profile)),
             line: None,
             hover: Some(hover.join("\n")),
+            band: profiles::BAND_AVERAGED,
             masked: false,
         }
     }

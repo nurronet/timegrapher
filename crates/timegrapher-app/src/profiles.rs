@@ -369,6 +369,7 @@ pub fn draw(
     opt: Options,
     drop_beat_error_ms: Option<f64>,
     note: Option<&str>,
+    band: &str,
 ) {
     let shift = offsets(opt, drop_beat_error_ms);
     let pal = theme::pal(ui);
@@ -454,7 +455,7 @@ pub fn draw(
                     lines: [pal.unlock, pal.drop, pal.peak],
                 });
             }
-            med = paint_trace(pl, p, dx, top, scale, c);
+            med = paint_trace(pl, p, dx, top, scale, (c, band));
         });
         if let Some(f) = &facts[k] {
             facts_hover(&resp, &facts_here, f, note);
@@ -673,7 +674,12 @@ fn short_edge_names(
         .collect()
 }
 
-/// A side's typical sound and the band of the middle 80% of its beats,
+/// What a profile's band is: the middle 80% of its beats.
+pub const BAND_BEATS: &str = "middle 80% of beats";
+/// What an averaged profile's band is ([`timegrapher_core::profile::profile_at`]).
+pub const BAND_AVERAGED: &str = "range of the 2 s bands";
+
+/// A side's typical sound in colour `c` and its band (named `band`),
 /// `dx` along: the typical sound's levels, as plotted.
 fn paint_trace(
     pl: &mut egui_plot::PlotUi,
@@ -681,7 +687,7 @@ fn paint_trace(
     dx: f64,
     top: f32,
     scale: Scale,
-    c: Color32,
+    (c, band_name): (Color32, &str),
 ) -> Vec<f64> {
     let x = |i: usize| p.t0_ms + dx + i as f64 * p.step_ms;
     let (m, lo, hi) = (
@@ -694,7 +700,7 @@ fn paint_trace(
     for i in 1..m.len().min(lo.len()).min(hi.len()) {
         pl.polygon(
             Polygon::new(
-                "middle 80% of beats",
+                band_name,
                 vec![
                     [x(i - 1), lo[i - 1]],
                     [x(i), lo[i]],

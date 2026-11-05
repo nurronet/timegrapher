@@ -1316,6 +1316,25 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
     assert!(hover.contains("Tock: average of 5 2 s profiles"), "{hover}");
     assert!(hover.contains("Band: range of the 2 s bands"), "{hover}");
     assert!(shown.line.is_none() && shown.profiles.iter().all(Option::is_some));
+    assert_eq!(shown.band, crate::profiles::BAND_AVERAGED);
+    // A break in the window leaves out the stretch it falls in.
+    a.take_breaks = Some(vec![timegrapher_core::breaks::Break {
+        audio_s: 15.0,
+        gap_s: 0.0,
+    }]);
+    let hover = a.profiles_at(20.0).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: average of 4 2 s profiles, 0:10 to 0:20"),
+        "{hover}"
+    );
+    a.take_breaks = None;
+    // One stretch is the 2 s profile, not an average of one.
+    a.average_s = 2.0;
+    let hover = a.profiles_at(20.0).hover.expect("what it is made of");
+    assert!(
+        hover.contains("Tick: the 2 s profile, 0:18 to 0:20"),
+        "{hover}"
+    );
     // A masked moment is masked, as with the sound.
     let shown = a.profiles_at(31.0);
     assert!(shown.masked && shown.profiles.iter().all(Option::is_none));
