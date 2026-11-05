@@ -62,6 +62,8 @@ fn frames(path: &Path, lo: u64, hi: u64) -> Result<Vec<f32>, String> {
         .unwrap_or("")
         .to_ascii_lowercase();
     match ext.as_str() {
+        // A WAV kept as FLAC since it was listed is read as its FLAC (#503).
+        "wav" if !path.exists() => flac_frames(&timegrapher_core::flac::kept_name(path), lo, hi),
         "wav" => wav_frames(path, lo, hi),
         "flac" => flac_frames(path, lo, hi),
         other => Err(format!("file extension '{other}'")),
@@ -255,6 +257,23 @@ mod tests {
             }
         }
         assert!(read(&files, 200.0, 1.0).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A WAV listed before it was kept as FLAC is read as the FLAC (#503).
+    #[test]
+    fn a_wav_kept_as_flac_is_read_from_the_flac() {
+        let dir = std::env::temp_dir().join(format!("tg-span-twin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        excerpt::write_flac(&dir.join("audio-001.flac"), &tone(8000 * 3, 1)).unwrap();
+        let wav = dir.join("audio-001.wav");
+        assert!(!wav.exists());
+        let got = frames(&wav, 8000, 8100).unwrap();
+        assert_eq!(
+            got,
+            frames(&dir.join("audio-001.flac"), 8000, 8100).unwrap()
+        );
+        assert_eq!(got.len(), 100);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
