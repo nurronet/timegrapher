@@ -2168,7 +2168,8 @@ mod tests {
              [[recording]]\nfile = \"d.flac\"\nposition = \"CU\"\nstart_s = 30\n\
              [[recording]]\nfile = \"e.flac\"\nposition = \"CU\"\nend_s = 500\n\
              [[recording]]\nfile = \"f.flac\"\nposition = \"CU\"\n\
-             [[recording]]\nfile = \"g.flac\"\nposition = \"CU\"\nsettle_s = 40\n",
+             [[recording]]\nfile = \"g.flac\"\nposition = \"CU\"\nsettle_s = 40\n\
+             [[recording]]\nfile = \"h.flac\"\nposition = \"CU\"\nsettle_s = 0\n",
         )
         .unwrap();
         let carries: Vec<bool> = m
@@ -2177,8 +2178,11 @@ mod tests {
             .map(|e| continues_position(e, &m))
             .collect();
         // g gives its own settling, so the watch was handled there: it does
-        // not carry f on (#1184).
-        assert_eq!(carries, [false, true, false, false, true, false, false]);
+        // not carry f on; h's settling of none still carries g on (#1184).
+        assert_eq!(
+            carries,
+            [false, true, false, false, true, false, false, true]
+        );
         let from = |i: usize| {
             reading_window(&m.recordings[i], &m, None, 600.0)
                 .unwrap()
