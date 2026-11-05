@@ -1178,7 +1178,8 @@ impl Drop for SaveUpdate {
 /// The recordings in `take` whose `session.json` lists an hour still
 /// kept as a WAV: `take` itself, and the takes a session folder holds
 /// (`timegrapher record` makes one per position). These were saved before
-/// hours were kept as FLAC (#503), or stopped before one was converted.
+/// hours were kept as FLAC (#503), or stopped before one was converted. A
+/// recording being made ([`in_use`]) is never listed.
 pub fn holding_wav(take: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![take.to_path_buf()];
     if let Ok(entries) = fs::read_dir(take) {
@@ -1194,8 +1195,13 @@ pub fn holding_wav(take: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// The hours `session.json` in `dir` lists that are WAVs there now.
+/// The hours `session.json` in `dir` lists that are WAVs there now. None
+/// while it is being recorded ([`in_use`]): its open hour is a WAV the
+/// recorder is still writing, and its closed ones the recorder converts.
 fn wav_hours(dir: &Path) -> Vec<String> {
+    if in_use(dir) {
+        return Vec::new();
+    }
     let Ok(text) = fs::read_to_string(dir.join(take::RECORD)) else {
         return Vec::new();
     };
@@ -1217,8 +1223,9 @@ fn wav_hours(dir: &Path) -> Vec<String> {
 /// FLAC, one at a time ([`crate::flac::keep_as_flac`]: encoded, checked
 /// sample for sample, then the WAV deleted), and name the FLAC in
 /// `session.json` (its `segments` and breaks) after each. An hour that
-/// cannot be converted stays a whole WAV, and the error says which.
-/// Returns how many hours were converted.
+/// cannot be converted stays a whole WAV, and the error says which. A
+/// recording being made ([`in_use`]) is left alone. Returns how many hours
+/// were converted.
 pub fn keep_saved_as_flac(dir: &Path) -> Result<usize, String> {
     let record = dir.join(take::RECORD);
     let mut done = 0;
@@ -2477,6 +2484,45 @@ mod tests {
         assert!(!dir.join("audio-001.flac").exists());
         assert_eq!(fs::read(dir.join("session.json")).unwrap(), before);
         assert_eq!(holding_wav(&dir), std::slice::from_ref(&dir));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_take_being_recorded_is_never_converted_from_under_its_recorder() {
+        let (mut r, base) = save_fixture("saved-live");
+        r.keep_flac = false;
+        append_second(&mut r, 2);
+        r.pause().unwrap();
+        r.resume("test");
+        append_second(&mut r, 30);
+        r.note("turned to DD").unwrap();
+        r.flush().unwrap();
+        let dir = r.dir().to_path_buf();
+        // Its session.json lists both hours as WAVs: one closed, one open.
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap();
+        assert_eq!(
+            v["segments"],
+            serde_json::json!(["audio-001.wav", "audio-002.wav"])
+        );
+        let before = saved_bytes(&dir);
+        assert!(holding_wav(&base.join("live")).is_empty());
+        assert!(holding_wav(&dir).is_empty());
+        assert_eq!(keep_saved_as_flac(&dir).unwrap(), 0);
+        assert_eq!(saved_bytes(&dir), before);
+        // The recording carries on into its open hour.
+        append_second(&mut r, 31);
+        let done = r.finish(None).unwrap();
+        assert_eq!(
+            crate::audio::load(&done.join("audio-002.wav"))
+                .unwrap()
+                .samples
+                .len(),
+            2 * 8000
+        );
+        // Finished, it is a saved take like any other.
+        assert_eq!(holding_wav(&done), std::slice::from_ref(&done));
+        assert_eq!(keep_saved_as_flac(&done).unwrap(), 2);
         fs::remove_dir_all(&base).unwrap();
     }
 }
