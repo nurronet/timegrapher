@@ -394,7 +394,7 @@ fn hour_area(ui: &mut egui::Ui, hours: &[power_reserve::Hour], so_far: bool) {
             + 3.0;
         let gap = ui.spacing().item_spacing.y;
         let room = viewport_h - 8.0 - 3.0 * gap;
-        let table_h = ((hours.len() as f32 + 1.0) * row_h + 4.0).min(room / 3.0);
+        let table_h = ((hours.len() as f32 + 2.0) * row_h + 4.0).min(room / 3.0);
         let with_table = (room - table_h - gap) / 2.0;
         let stacked = if with_table >= CHART_READ_H {
             with_table
@@ -484,7 +484,7 @@ pub fn finished_run(hours: u32) -> Test {
 /// run's line, two charts of a readable height, and the table.
 pub fn run_h(hours: usize) -> f32 {
     let row_h = 22.0;
-    60.0 + 2.0 * 160.0 + 8.0 + (hours as f32 + 1.0) * row_h
+    60.0 + 2.0 * 160.0 + 8.0 + (hours as f32 + 2.0) * row_h
 }
 
 /// A value written by core's figure rule `text`, or a dash; its unit is
@@ -587,16 +587,19 @@ pub fn beat_error_hint(lead: &str) -> String {
     format!("{lead} {}", dim_key!())
 }
 
-/// The table's titles, with units, and what each column holds.
-const HOUR_COLUMNS: [(&str, &str); 5] = [
-    ("Hours", "Hours since the first beat heard"),
+/// The table's titles: each name, its unit under it (none for Hours),
+/// and what the column holds (Hugh's ruling on #1086).
+pub(crate) const HOUR_COLUMNS: [(&str, &str, &str); 5] = [
+    ("Hours", "", "Hours since the first beat heard"),
     (
-        "Rate (s/d)",
-        "The hour's rate, s/d, as the command line reads a stretch",
+        "Rate",
+        "s/d",
+        "The hour's rate: seconds a day gained (+) or lost (−)",
     ),
-    ("Amplitude (°)", "The hour's median amplitude"),
+    ("Amplitude", "°", "The hour's median amplitude"),
     (
-        "Beat Error (ms)",
+        "Beat Error",
+        "ms",
         concat!(
             "The hour's beat error as a size, from the unlock, or from the drop in an hour \
              where the unlock isn't found. ",
@@ -604,14 +607,26 @@ const HOUR_COLUMNS: [(&str, &str); 5] = [
         ),
     ),
     (
-        "Read (%)",
+        "Read",
+        "%",
         "How much of the hour its whole 10 s readings cover",
     ),
 ];
 
+/// A title as drawn: its words, its hover, the cell, and where its name
+/// and its unit lie.
+struct Title {
+    name: &'static str,
+    unit: &'static str,
+    hint: &'static str,
+    cell: egui::Rect,
+    name_at: egui::Pos2,
+    unit_at: egui::Pos2,
+}
+
 /// Why an hour's Read (%) is a dash: its times can't belong to a real
 /// hour (core `Hour::read_share`).
-const NO_READ_SHARE: &str = "No share: the time read doesn't fit inside this hour";
+const NO_READ_SHARE: &str = "Not shown: this hour's reading time is longer than the hour";
 
 /// A table cell: its text, and the words of its hover with whether it is
 /// dimmed (a beat error's source; why a share is missing).
@@ -665,10 +680,10 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
     let widths: Vec<f32> = HOUR_COLUMNS
         .iter()
         .enumerate()
-        .map(|(c, (head, _))| {
+        .map(|(c, (head, unit, _))| {
             rows.iter()
                 .map(|r| wide(&r[c].0))
-                .fold(wide(head) + 1.0, f32::max)
+                .fold((wide(head) + 1.0).max(wide(unit)), f32::max)
         })
         .collect();
     let row_h = ui.spacing().interact_size.y;
@@ -692,14 +707,8 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
         .striped(true)
         .spacing([18.0, GRID_GAP])
         .show(ui, |ui| {
-            for (c, (head, hint)) in HOUR_COLUMNS.into_iter().enumerate() {
-                let r = put(
-                    ui,
-                    c,
-                    RichText::new(head).strong().color(pal.text_secondary),
-                )
-                .on_hover_text(hint);
-                titles.push((head, hint, r.rect));
+            for (c, (name, unit, hint)) in HOUR_COLUMNS.into_iter().enumerate() {
+                titles.push(title(ui, (name, unit, hint), widths[c], c > 0));
             }
             ui.end_row();
             for row in &rows {
@@ -720,40 +729,80 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             }
         });
     let key = hours.iter().any(|h| beat_error_dimmed(h.beat_error_source));
-    pin_titles(ui, &titles, key, grid.response.rect, rows.len() + 1, row_h);
+    pin_titles(ui, &titles, key, grid.response.rect, rows.len());
+}
+
+/// One title's cell, `w` wide: its name, and its unit on its own line
+/// under it in plain secondary text, at the right over figures (`right`)
+/// and at the left over the hours.
+fn title(
+    ui: &mut egui::Ui,
+    (name, unit, hint): (&'static str, &'static str, &'static str),
+    w: f32,
+    right: bool,
+) -> Title {
+    let pal = theme::pal(ui);
+    let align = if right {
+        egui::Align::Max
+    } else {
+        egui::Align::Min
+    };
+    let r = ui.allocate_ui_with_layout(
+        egui::vec2(w, ui.spacing().interact_size.y),
+        egui::Layout::top_down(align),
+        |ui| {
+            ui.set_min_width(w);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let n = ui.label(RichText::new(name).strong().color(pal.text_secondary));
+            // An empty line where there is no unit, so every name sits at
+            // the cell's top.
+            let u = ui.label(RichText::new(unit).color(pal.text_secondary));
+            (n.rect.left_top(), u.rect.left_top())
+        },
+    );
+    let (name_at, unit_at) = r.inner;
+    let cell = r.response.on_hover_text(hint).rect;
+    Title {
+        name,
+        unit,
+        hint,
+        cell,
+        name_at,
+        unit_at,
+    }
 }
 
 /// The table's titles kept in view: once they scroll above the pane's
 /// top while rows still show, drawn again there over the rows, so each
 /// figure keeps its unit in sight (Walter's walk of #1055). The band under
 /// them reaches down to the first row that shows whole, so no row shows
-/// cut. The pinned titles keep their hovers, and with `key` (a beat error
-/// dimmed) the dimming's key is pinned above them, as it sits above the
-/// table (Walter's walk of #1084). `titles` are the titles as drawn with
-/// their hovers, `table` the whole table of `rows` rows, titles included,
-/// each `row_h` tall.
-fn pin_titles(
-    ui: &mut egui::Ui,
-    titles: &[(&str, &str, egui::Rect)],
-    key: bool,
-    table: egui::Rect,
-    rows: usize,
-    row_h: f32,
-) {
+/// cut, and they sit at its foot, tight over that row as in their own
+/// place. The pinned titles keep their hovers, and with `key` (a beat
+/// error dimmed) the dimming's key is pinned above them, as it sits above
+/// the table (Walter's walks of #1084 and #1097). `table` is the whole
+/// table, titles and `rows` rows of hours.
+fn pin_titles(ui: &mut egui::Ui, titles: &[Title], key: bool, table: egui::Rect, rows: usize) {
     let top = ui.clip_rect().top();
-    let Some(first) = titles.first() else {
+    let Some(head) = titles.iter().map(|t| t.cell).reduce(|a, b| a.union(b)) else {
         return;
     };
+    let row_h = ui.spacing().interact_size.y;
     // The key's line above the titles, when there is one.
     let above = if key { row_h + GRID_GAP } else { 0.0 };
-    // From one row's top to the next's, the gap between included.
-    let pitch = (table.height() + GRID_GAP) / rows.max(1) as f32;
-    let next = ((top + above + row_h + GRID_GAP - table.top()) / pitch).ceil();
-    let band_bottom = table.top() + next * pitch;
-    if first.2.top() >= top + above || table.bottom() <= band_bottom {
+    // The first hour's row, and from one hour's top to the next's, the
+    // gap between included.
+    let first_row = head.bottom() + GRID_GAP;
+    let pitch = (table.bottom() - first_row + GRID_GAP) / rows.max(1) as f32;
+    let next = ((top + above + head.height() + GRID_GAP - first_row) / pitch)
+        .ceil()
+        .max(0.0);
+    let band_bottom = first_row + next * pitch;
+    if head.top() >= top + above || table.bottom() <= band_bottom {
         return;
     }
-    let dy = top + above - first.2.top();
+    // The titles at the band's foot, the key over them.
+    let titles_top = band_bottom - GRID_GAP - head.height();
+    let dy = titles_top - head.top();
     let pal = theme::pal(ui);
     let painter = ui.painter();
     painter.rect_filled(
@@ -770,30 +819,33 @@ fn pin_titles(
     let font = egui::TextStyle::Body.resolve(ui.style());
     if key {
         painter.text(
-            egui::pos2(table.left(), top),
+            egui::pos2(table.left(), titles_top - above),
             egui::Align2::LEFT_TOP,
             dim_key!(),
             font.clone(),
             pal.text_secondary,
         );
     }
-    for (head, _, r) in titles {
-        painter.text(
-            r.left_top() + egui::vec2(0.0, dy),
-            egui::Align2::LEFT_TOP,
-            *head,
-            font.clone(),
-            pal.text_secondary,
-        );
+    let down = egui::vec2(0.0, dy);
+    for t in titles {
+        for (words, at) in [(t.name, t.name_at), (t.unit, t.unit_at)] {
+            painter.text(
+                at + down,
+                egui::Align2::LEFT_TOP,
+                words,
+                font.clone(),
+                pal.text_secondary,
+            );
+        }
     }
     // Over the rows they cover, so their hovers win.
-    for (head, hint, r) in titles {
+    for t in titles {
         ui.interact(
-            r.translate(egui::vec2(0.0, dy)),
-            ui.id().with(("pinned title", *head)),
+            t.cell.translate(down),
+            ui.id().with(("pinned title", t.name)),
             egui::Sense::hover(),
         )
-        .on_hover_text(*hint);
+        .on_hover_text(t.hint);
     }
 }
 
@@ -1493,7 +1545,10 @@ mod tests {
             .unwrap_or_else(|| panic!("{texts:?}"));
         assert!(row.1.bottom() <= 520.0, "{row:?}");
         // Its unit in the column's title (Hugh's table rules).
-        assert!(shown(&texts, "Amplitude (°)"), "{texts:?}");
+        assert!(
+            shown(&texts, "Amplitude") && shown(&texts, "°"),
+            "{texts:?}"
+        );
         assert!(shown(&texts, "280") || shown(&texts, "281"), "{texts:?}");
     }
 

@@ -346,7 +346,7 @@ impl Caveat {
             Caveat::BeatErrorSourceReadings { source, used, readings } =>
                 format!("The beat error uses the {source} in {used} of {readings} readings; readings from the other event were left out."),
             Caveat::BeatErrorUnknownSource { readings } =>
-                format!("The beat-error aggregate leaves out {readings} readings whose source was not recorded."),
+                format!("The beat-error aggregate leaves out {readings} reading{} whose source was not recorded.", if *readings == 1 { "" } else { "s" }),
             Caveat::BeatErrorFromDrop => {
                 "The unlock was not found; the beat error is measured from the drop.".to_string()
             }
