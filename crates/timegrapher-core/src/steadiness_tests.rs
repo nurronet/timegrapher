@@ -722,7 +722,7 @@ fn a_summary_names_each_lead_in_a_few_words() {
         (
             &step,
             Lead::ShiftingMean,
-            "shifts level once, +4.9 s/d to +9.1 s/d",
+            "shifts level 1 time: +4.9 s/d, then +9.1 s/d",
         ),
         (&slide, Lead::Drifting, "slides from 280° to 260°"),
         (
@@ -750,6 +750,45 @@ fn a_summary_names_each_lead_in_a_few_words() {
         assert_eq!(s.lead, lead, "{}", s.headline);
         assert_eq!(s.summary, summary, "{}", s.headline);
     }
+}
+
+/// A plot's title and its text say the same shifts: every level, the
+/// middle one too, in the same words: three levels, the middle one
+/// highest, that the change finder splits (Walter's walk of #1096, #734).
+#[test]
+fn a_summary_names_every_level_the_headline_names() {
+    let mut z = Noise(734);
+    let s = check_series(
+        SeriesKind::Rate,
+        grid(
+            (0..3000)
+                .map(|i| match i {
+                    0..=999 => 5.0,
+                    1000..=1999 => 9.0,
+                    _ => 7.0,
+                } + 2.0 * z.next())
+                .collect(),
+            2.0,
+        ),
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
+    assert!(
+        s.summary.starts_with("shifts level 2 times: "),
+        "{}",
+        s.summary
+    );
+    assert_eq!(s.summary.matches(", then ").count(), 2, "{}", s.summary);
+    assert!(
+        s.headline.starts_with(&format!("Rate {}.", s.summary)),
+        "{} | {}",
+        s.headline,
+        s.summary
+    );
 }
 
 #[test]
