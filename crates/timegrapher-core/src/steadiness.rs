@@ -1876,6 +1876,38 @@ fn every_text(sec: f64) -> String {
 
 /// The lead of [`lead_text`] in a few words: what a plot's title line
 /// says after the series' name.
+/// The level shifts in the words both the headline and the one-line
+/// summary use, so a plot's title says what its text says: every level
+/// for a few, past that the range and the ends, each level left to the
+/// table (#734, Walter's walk of #1096).
+fn shifts_text(s: &SeriesCheck) -> String {
+    let k = s.series;
+    let ch = s.changes.as_ref().unwrap();
+    let n = ch.segments.len() - 1;
+    let times = if n == 1 { "" } else { "s" };
+    if ch.segments.len() <= 4 {
+        let means: Vec<String> = ch.segments.iter().map(|g| k.fmt(g.mean)).collect();
+        return format!("shifts level {n} time{times}: {}", means.join(", then "));
+    }
+    let lo = ch
+        .segments
+        .iter()
+        .map(|g| g.mean)
+        .fold(f64::INFINITY, f64::min);
+    let hi = ch
+        .segments
+        .iter()
+        .map(|g| g.mean)
+        .fold(f64::NEG_INFINITY, f64::max);
+    format!(
+        "shifts level {n} time{times}, between {} and {}: {} at the start, {} at the end",
+        k.fmt(lo),
+        k.fmt(hi),
+        k.fmt(ch.segments[0].mean),
+        k.fmt(ch.segments[n].mean)
+    )
+}
+
 fn lead_summary(s: &SeriesCheck) -> String {
     let k = s.series;
     let every = every_text;
@@ -1932,16 +1964,7 @@ fn lead_summary(s: &SeriesCheck) -> String {
                 base
             }
         }
-        Lead::ShiftingMean => {
-            let ch = s.changes.as_ref().unwrap();
-            let n = ch.segments.len() - 1;
-            let (first, last) = (k.fmt(ch.segments[0].mean), k.fmt(ch.segments[n].mean));
-            if n == 1 {
-                format!("shifts level once, {first} to {last}")
-            } else {
-                format!("shifts level {n} times, {first} at the start, {last} at the end")
-            }
-        }
+        Lead::ShiftingMean => shifts_text(s),
         Lead::Drifting => {
             let t = s.trend.as_ref().unwrap();
             if let Some((_, v)) = t.turn.filter(|_| t.curve_explained > t.explained + 0.05) {
@@ -2042,27 +2065,7 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
                 format!("{base}.")
             }
         }
-        Lead::ShiftingMean => {
-            let ch = s.changes.as_ref().unwrap();
-            let n = ch.segments.len() - 1;
-            let times = if n == 1 { "" } else { "s" };
-            // A long take can shift dozens of times: past a few, name the
-            // range and the ends, and leave each level to the table.
-            if ch.segments.len() <= 4 {
-                let means: Vec<String> = ch.segments.iter().map(|g| k.fmt(g.mean)).collect();
-                format!("{cap} shifts level {n} time{times}: {}.", means.join(", then "))
-            } else {
-                let lo = ch.segments.iter().map(|g| g.mean).fold(f64::INFINITY, f64::min);
-                let hi = ch.segments.iter().map(|g| g.mean).fold(f64::NEG_INFINITY, f64::max);
-                format!(
-                    "{cap} shifts level {n} time{times}, between {} and {}: {} at the start, {} at the end.",
-                    k.fmt(lo),
-                    k.fmt(hi),
-                    k.fmt(ch.segments[0].mean),
-                    k.fmt(ch.segments[n].mean)
-                )
-            }
-        }
+        Lead::ShiftingMean => format!("{cap} {}.", shifts_text(s)),
                 Lead::Drifting => {
             let t = s.trend.as_ref().unwrap();
             if let Some((at, v)) = t.turn.filter(|_| t.curve_explained > t.explained + 0.05) {
