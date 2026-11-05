@@ -121,11 +121,18 @@ fn takes_build_up_a_session() {
     assert_eq!(j["check"]["from_s"], 17.5);
     let du = j["check"].clone();
 
-    // The take is a folder as the app saves it, with the app's session file.
+    // The take is a folder as the app saves it, with the app's session file,
+    // its sound kept as FLAC (#503).
     let take = PathBuf::from(j["take"].as_str().unwrap());
-    for f in ["audio-001.wav", "clock.csv", "session.json", "session.toml"] {
+    for f in [
+        "audio-001.flac",
+        "clock.csv",
+        "session.json",
+        "session.toml",
+    ] {
         assert!(take.join(f).is_file(), "{f} missing from the take");
     }
+    assert!(!take.join("audio-001.wav").exists());
     let inner = fs::read_to_string(take.join("session.toml")).unwrap();
     assert!(inner.contains("file = \".\"") && inner.contains("position = \"DU\""));
 
