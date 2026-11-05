@@ -10,11 +10,19 @@ impl TimegrapherApp {
     pub(super) fn charts_pane(&mut self, ui: &mut egui::Ui) {
         let shown = self.chart_series;
         self.note_need(ui, Pane::Charts, STACKED_MIN_H);
-        let mut moved = false;
+        let (mut moved, mut over) = (false, None);
         self.charts_drawn = stacked(ui, shown, STACKED_MIN_H, |ui, k| {
-            moved |= self.chart(ui, k);
+            let (m, hover) = self.chart(ui, k);
+            moved |= m;
+            over = over.or(hover);
         });
         self.charts_fit = !moved;
+        // Every chart's lane reads the pointer's time, those above the
+        // one under it a frame late.
+        if over != self.charts_over {
+            self.charts_over = over;
+            ui.ctx().request_repaint();
+        }
     }
 
     /// The pane's one way back to the whole session, in its toolbar as
@@ -38,9 +46,9 @@ impl TimegrapherApp {
         }
     }
 
-    /// One reading's chart, and whether it was moved off the whole
-    /// session.
-    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) -> bool {
+    /// One reading's chart: whether it was moved off the whole session,
+    /// and the time under the pointer on it.
+    fn chart(&mut self, ui: &mut egui::Ui, reading: SeriesKind) -> (bool, Option<f64>) {
         let pal = theme::pal(ui);
         // A lane over the plot for the chart's name and its lines' key,
         // so neither sits on the lines (Walter's walk of #1057, #1063).
@@ -81,18 +89,33 @@ impl TimegrapherApp {
         let painter = ui.painter_at(frame);
         let t = resp.transform;
         paint_y_labels(ui, &t, unit);
-        // Which reading this chart is, in its colour, over its top left,
-        // and its lines' key over its top right, in the lane above it.
-        let above = egui::Rect::from_min_max(egui::pos2(frame.left(), lane.top()), frame.max);
-        ui.painter().text(
-            above.left_top() + Vec2::new(0.0, 3.0),
-            egui::Align2::LEFT_TOP,
-            steady::title(reading),
-            font,
-            colour,
+        // The lane above the plot: which reading this is, each line's
+        // value at the pointer's time over any chart, and its key.
+        let lane = egui::Rect::from_min_max(
+            egui::pos2(frame.left(), lane.top()),
+            egui::pos2(frame.right(), lane.bottom()),
         );
+        let signed = reading == SeriesKind::Rate;
+        let values: Vec<LaneValue> = hover
+            .or(self.charts_over)
+            .map(|x| {
+                lookup
+                    .iter()
+                    .filter_map(|l| {
+                        let v = line_value(&l.pts, l.se, (x, &self.trend), decimals, signed)?;
+                        Some((format!("{v}{unit}"), l.color, l.under, pal.axis_ink(l.key)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let only = steady::SERIES.map(|k| k == reading);
-        paint_key(ui.painter(), above, &chart_key(only, pal), ui, pal);
+        paint_lane(
+            ui,
+            lane,
+            (steady::title(reading), colour, font),
+            (hover.map(length_text), &values),
+            &chart_key(only, pal),
+        );
         let at = |x| egui::pos2(t.position_from_point_x(x), frame.top());
         let test = self.in_test();
         if test {
@@ -120,28 +143,16 @@ impl TimegrapherApp {
             self.cursor_next = hover;
         }
         let cursor = hover.or(self.cursor_t);
-        for x in [marker, cursor].into_iter().flatten() {
-            let px = resp.transform.position_from_point_x(x);
+        // The moment shown as a call-out, the pointer's time at axis
+        // strength on every chart (Hugh, #1063).
+        let lines = [(marker, Strength::CallOut), (cursor, Strength::Axis)];
+        for (x, strength) in lines {
+            let Some(px) = x.map(|x| resp.transform.position_from_point_x(x)) else {
+                continue;
+            };
             if px >= frame.left() && px <= frame.right() {
-                painter.vline(
-                    px,
-                    frame.y_range(),
-                    strength::stroke(Strength::CallOut, pal),
-                );
+                painter.vline(px, frame.y_range(), strength::stroke(strength, pal));
             }
-        }
-        let running = self.running();
-        if let Some(x) = hover {
-            let trend = &self.trend;
-            chart_hover(
-                ui,
-                frame,
-                (x, trend),
-                &lookup,
-                (unit, decimals),
-                reading,
-                running,
-            );
         }
         if let Some(at) = click {
             if at.x > 0.0 {
@@ -149,7 +160,7 @@ impl TimegrapherApp {
                 self.strip_end = Some(at.x);
             }
         }
-        moved
+        (moved, hover)
     }
 }
 
@@ -433,58 +444,169 @@ pub(super) fn line_value(
     Some(true_minus(&figure(v, se, base, signed)))
 }
 
-/// The values box for the pointer's time: its time and every line's
-/// value there, each figure to the decimals the cards write it to
-/// (`figure_text`, #1063): to its ±'s decimals, or with none its base
-/// decimals. It hangs from the chart's top beside the pointer, so it
-/// never covers the time labels along the bottom.
-fn chart_hover(
+/// A line's value in a chart's lane: its text, the line's colour and the
+/// colour under its dashes for its swatch, and the colour to write it in.
+type LaneValue = (String, Color32, Option<Color32>, Color32);
+
+/// A chart's lane, above its plot (Hugh, #1063): the reading's name at
+/// the left in its colour; then, while the pointer is over a chart, the
+/// time (on the chart under it only) and each line's value there beside
+/// its swatch; then the key at the right, left out before any value is
+/// where the lane is too narrow for both. Each value has a slot as wide
+/// as its digits as zeros, so the values beside it don't jitter.
+fn paint_lane(
     ui: &egui::Ui,
-    frame: egui::Rect,
-    (x, trend): (f64, &[TrendPoint]),
-    lookup: &[ChartLine],
-    (unit, base): (&str, usize),
-    reading: SeriesKind,
-    running: bool,
+    lane: egui::Rect,
+    (title, colour, font): (&str, Color32, egui::FontId),
+    (time, values): (Option<String>, &[LaneValue]),
+    key: &[(&str, Color32, Option<Color32>)],
 ) {
-    let Some(pointer) = ui.ctx().pointer_hover_pos() else {
-        return;
+    let pal = theme::pal(ui);
+    let p = ui.painter();
+    let (top, y) = (lane.top() + 3.0, lane.top() + 3.0 + font.size / 2.0);
+    let mut x = lane.left();
+    let write = |x: &mut f32, text: String, ink: Color32, slot: bool| {
+        let g = p.layout_no_wrap(text.clone(), font.clone(), ink);
+        let w = if slot {
+            let zeros: String = text
+                .chars()
+                .map(|c| if c.is_ascii_digit() { '0' } else { c })
+                .collect();
+            g.size()
+                .x
+                .max(p.layout_no_wrap(zeros, font.clone(), ink).size().x)
+        } else {
+            g.size().x
+        };
+        p.galley(egui::pos2(*x, top), g, ink);
+        *x += w;
     };
-    let signed = reading == SeriesKind::Rate;
-    egui::Tooltip::always_open(
-        ui.ctx().clone(),
-        ui.layer_id(),
-        egui::Id::new(("chart values", steady::title(reading))),
-        egui::PopupAnchor::Position(egui::pos2(pointer.x + 12.0, frame.top())),
-    )
-    .show(|ui| {
-        ui.set_max_width(300.0);
-        ui.label(RichText::new(length_text(x)).strong());
-        for ChartLine {
-            name, pts, key, se, ..
-        } in lookup
-        {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("■").color(*key));
-                let value = line_value(pts, *se, (x, trend), base, signed);
-                ui.label(format!(
-                    "{name}: {}",
-                    value.map_or("none".into(), |v| v + unit)
-                ));
-            });
+    write(&mut x, title.into(), colour, false);
+    x += 16.0;
+    if let Some(t) = time {
+        write(&mut x, t, pal.text, true);
+        x += 12.0;
+    }
+    for (text, color, under, ink) in values {
+        x += paint_swatch(p, egui::pos2(x, y), *color, *under) + 4.0;
+        write(&mut x, text.clone(), *ink, true);
+        x += 12.0;
+    }
+    paint_key(p, lane, key, (ui, x), pal);
+}
+
+/// The names in a chart's key and their colours, when it has more than one
+/// line.
+/// A second colour is drawn as a dash of the two, as the line is.
+pub(super) fn chart_key(
+    shown: [bool; 3],
+    pal: &theme::Palette,
+) -> Vec<(&'static str, Color32, Option<Color32>)> {
+    let mut key = Vec::new();
+    if shown[1] {
+        key.extend([
+            ("Average Amplitude", pal.trace_amplitude, None),
+            ("From Tick", pal.trace_amplitude, Some(pal.tick)),
+            ("From Tock", pal.trace_amplitude, Some(pal.tock)),
+        ]);
+    }
+    if shown[2] {
+        key.extend([
+            ("From the Unlock", pal.trace_beat_error, None),
+            (
+                "From the Drop",
+                pal.trace_beat_error.gamma_multiply(0.6),
+                None,
+            ),
+        ]);
+    }
+    key
+}
+
+/// A chart's key, right to left from its top right corner: each name
+/// after its line's [`paint_swatch`]. Left out where it would reach left
+/// of `clear_of`, so what is painted there stays whole (#1063); whether
+/// it was painted.
+pub fn paint_key(
+    painter: &egui::Painter,
+    frame: egui::Rect,
+    key: &[(&str, Color32, Option<Color32>)],
+    (ui, clear_of): (&egui::Ui, f32),
+    pal: &theme::Palette,
+) -> bool {
+    if key.is_empty() {
+        return true;
+    }
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let galleys: Vec<_> = key
+        .iter()
+        .map(|&(name, _, _)| painter.layout_no_wrap(name.into(), font.clone(), pal.text_secondary))
+        .collect();
+    let (gap, space) = (5.0, 12.0);
+    let width: f32 = key
+        .iter()
+        .zip(&galleys)
+        .map(|(&(_, _, under), g)| swatch_width(under) + gap + g.size().x)
+        .sum::<f32>()
+        + space * (key.len() as f32 - 1.0);
+    let h = galleys.iter().map(|g| g.size().y).fold(0.0, f32::max);
+    let right = frame.right() - 6.0;
+    let left = right - width - 4.0;
+    if left < clear_of {
+        return false;
+    }
+    let top = frame.top() + 3.0;
+    let y = top + h / 2.0;
+    // On a backing of the card's colour, so the lines under it don't
+    // muddle it.
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(left, top - 1.0),
+            egui::pos2(right + 2.0, top + h + 1.0),
+        ),
+        3.0,
+        pal.card,
+    );
+    let mut x = right - width;
+    for (&(_, color, under), g) in key.iter().zip(galleys) {
+        x += paint_swatch(painter, egui::pos2(x, y), color, under) + gap;
+        let w = g.size().x;
+        painter.galley(egui::pos2(x, top), g, pal.text_secondary);
+        x += w + space;
+    }
+    true
+}
+
+/// How wide a line's [`paint_swatch`] is.
+fn swatch_width(under: Option<Color32>) -> f32 {
+    if under.is_some() {
+        14.0
+    } else {
+        6.0
+    }
+}
+
+/// A line's mark from its left middle `at`, as its key and its values
+/// show it: a dot, or a short dash for a line drawn dashed in `color`
+/// over `under`. Its width.
+fn paint_swatch(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    color: Color32,
+    under: Option<Color32>,
+) -> f32 {
+    let (x, y) = (at.x, at.y);
+    match under {
+        Some(u) => {
+            painter.hline(x..=x + 14.0, y, egui::Stroke::new(2.0_f32, u));
+            for i in 0..3 {
+                let a = x + i as f32 * 5.0;
+                painter.hline(a..=a + 3.0, y, egui::Stroke::new(2.0_f32, color));
+            }
         }
-        ui.label(
-            RichText::new(if running {
-                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
-                 click shows that moment on the strip, \
-                 double-click follows live again."
-            } else {
-                "Scroll or drag pans time, Cmd or Ctrl and scroll zooms it, \
-                 click shows that moment on the strip, \
-                 double-click shows the whole session."
-            })
-            .small()
-            .weak(),
-        );
-    });
+        None => {
+            painter.circle_filled(egui::pos2(x + 3.0, y), 3.0, color);
+        }
+    }
+    swatch_width(under)
 }

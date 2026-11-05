@@ -416,3 +416,65 @@ fn the_values_box_writes_figures_as_the_cards_do() {
     let r = line_value(&rate, se, (0.0, &trend), base_digits::RATE, true);
     assert_eq!(r.as_deref(), Some("\u{2212}1.23"));
 }
+
+/// The pointer over a chart reads every chart's lines in their lanes
+/// (Hugh, #1063): no box over the plot or its time labels, the time once
+/// in the lane of the chart under the pointer, and nothing once it
+/// leaves.
+#[test]
+fn the_lanes_read_the_pointers_time_on_every_chart() {
+    let mut app = synthetic(60.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    app.chart_series = [true, true, false];
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    let mut out = pass(&mut app, Vec::new());
+    for _ in 0..3 {
+        out = pass(&mut app, Vec::new());
+    }
+    // The Rate chart's name, the lowest "Rate" (the card's is above).
+    let title = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Rate" => Some(t.pos),
+            _ => None,
+        })
+        .max_by(|a, b| a.y.total_cmp(&b.y))
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    let at = title + Vec2::new(400.0, 60.0);
+    for _ in 0..3 {
+        out = pass(&mut app, vec![egui::Event::PointerMoved(at)]);
+    }
+    let text = painted_text(&out);
+    let value = |unit: &str| {
+        text.lines().any(|l| {
+            l.ends_with(unit)
+                && (l.starts_with('+') || l.starts_with('\u{2212}') || l.starts_with('2'))
+        })
+    };
+    assert!(value(" s/d") && value("°"), "{text}");
+    assert!(!text.contains("Scroll or drag"), "{text}");
+    assert!(app.charts_over.is_some(), "{text}");
+    for _ in 0..3 {
+        out = pass(&mut app, vec![egui::Event::PointerGone]);
+    }
+    assert_eq!(app.charts_over, None);
+    // The card's own figures stay; the lane's three amplitudes go.
+    let degrees = |t: &str| t.lines().filter(|l| l.ends_with('°')).count();
+    let gone = painted_text(&out);
+    assert_eq!(degrees(&gone) + 3, degrees(&text), "{gone}");
+}

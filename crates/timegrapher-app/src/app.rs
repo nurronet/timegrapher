@@ -45,6 +45,8 @@ use timegrapher_core::profile::TickProfile;
 use timegrapher_core::steadiness::SeriesKind;
 
 mod charts;
+use charts::chart_key;
+pub use charts::paint_key;
 mod dialogs;
 mod distributions;
 mod dock;
@@ -2180,6 +2182,9 @@ pub struct TimegrapherApp {
     /// Whether the charts show the whole session, as the pane's Fit
     /// switch shows (#1063).
     charts_fit: bool,
+    /// The time under the pointer over any chart last frame, which every
+    /// chart's lane reads its values at (#1063).
+    charts_over: Option<f64>,
     /// The averaging time each chart last drew with: a new one rescales
     /// its values, which spread wider or narrower with it.
     chart_average_drawn: std::collections::HashMap<&'static str, f64>,
@@ -2659,6 +2664,7 @@ impl TimegrapherApp {
             charts_to_live: false,
             charts_to_live_now: false,
             charts_fit: true,
+            charts_over: None,
             chart_average_drawn: Default::default(),
             capture: None,
             live: None,
@@ -3510,95 +3516,6 @@ fn chart_time_label(t: f64, step: f64, r: &std::ops::RangeInclusive<f64>) -> Str
     };
     let frac = if label.len() > 5 { 0.03 } else { 0.0 };
     theme::clear_of_right_edge(label, t, r, frac)
-}
-
-/// The names in a chart's key and their colours, when it has more than one
-/// line.
-/// A second colour is drawn as a dash of the two, as the line is.
-fn chart_key(
-    shown: [bool; 3],
-    pal: &theme::Palette,
-) -> Vec<(&'static str, Color32, Option<Color32>)> {
-    let mut key = Vec::new();
-    if shown[1] {
-        key.extend([
-            ("Average Amplitude", pal.trace_amplitude, None),
-            ("From Tick", pal.trace_amplitude, Some(pal.tick)),
-            ("From Tock", pal.trace_amplitude, Some(pal.tock)),
-        ]);
-    }
-    if shown[2] {
-        key.extend([
-            ("From the Unlock", pal.trace_beat_error, None),
-            (
-                "From the Drop",
-                pal.trace_beat_error.gamma_multiply(0.6),
-                None,
-            ),
-        ]);
-    }
-    key
-}
-
-/// A chart's key, right to left from its top right corner: each name
-/// after a dot, or a short dash for a line drawn dashed over another
-/// colour.
-pub fn paint_key(
-    painter: &egui::Painter,
-    frame: egui::Rect,
-    key: &[(&str, Color32, Option<Color32>)],
-    ui: &egui::Ui,
-    pal: &theme::Palette,
-) {
-    if key.is_empty() {
-        return;
-    }
-    let font = egui::TextStyle::Small.resolve(ui.style());
-    let galleys: Vec<_> = key
-        .iter()
-        .map(|&(name, _, _)| painter.layout_no_wrap(name.into(), font.clone(), pal.text_secondary))
-        .collect();
-    let mark = |under: Option<Color32>| if under.is_some() { 14.0 } else { 6.0 };
-    let (gap, space) = (5.0, 12.0);
-    let width: f32 = key
-        .iter()
-        .zip(&galleys)
-        .map(|(&(_, _, under), g)| mark(under) + gap + g.size().x)
-        .sum::<f32>()
-        + space * (key.len() as f32 - 1.0);
-    let h = galleys.iter().map(|g| g.size().y).fold(0.0, f32::max);
-    let right = frame.right() - 6.0;
-    let top = frame.top() + 3.0;
-    let y = top + h / 2.0;
-    // On a backing of the card's colour, so the lines under it don't
-    // muddle it.
-    painter.rect_filled(
-        egui::Rect::from_min_max(
-            egui::pos2(right - width - 4.0, top - 1.0),
-            egui::pos2(right + 2.0, top + h + 1.0),
-        ),
-        3.0,
-        pal.card,
-    );
-    let mut x = right - width;
-    for (&(_, color, under), g) in key.iter().zip(galleys) {
-        match under {
-            Some(u) => {
-                painter.hline(x..=x + 14.0, y, egui::Stroke::new(2.0_f32, u));
-                for i in 0..3 {
-                    let a = x + i as f32 * 5.0;
-                    painter.hline(a..=a + 3.0, y, egui::Stroke::new(2.0_f32, color));
-                }
-            }
-            None => {
-                painter.circle_filled(egui::pos2(x + 3.0, y), 3.0, color);
-            }
-        }
-        x += mark(under) + gap;
-        let w = g.size().x;
-        painter.galley(egui::pos2(x, top), g, pal.text_secondary);
-        x += w + space;
-    }
 }
 
 /// One plot for each reading `shown`, one above the other, sharing the
