@@ -581,7 +581,8 @@ impl TimegrapherApp {
                     if into_watch {
                         // A Quick Listen heard is kept in one and goes on.
                         let keeps = !listening || self.quick_listen;
-                        save_menu_watches(ui, &watches, keeps, can, &mut picked, &mut new);
+                        let heard = (listening && self.quick_listen).then_some(KEEP_HEARD_HINT);
+                        save_menu_watches(ui, &watches, keeps, heard, can, &mut picked, &mut new);
                     }
                     if can
                         && ui
@@ -1608,11 +1609,13 @@ fn listen_length(ui_b: &mut egui::Ui, top: egui::Rect, length: &str, state: &str
 /// The Save menu's Keep in a Watch: each of `watches`, then New Watch…,
 /// greyed unless the take `keeps` (it has ended, or is a Quick Listen,
 /// which goes on as the watch's take), and a line under them
-/// when Save in a Folder… follows (`can`). Sets `picked` or `new`.
+/// when Save in a Folder… follows (`can`). `heard` is the watches' hover
+/// while a Quick Listen still heard is kept in one. Sets `picked` or `new`.
 fn save_menu_watches(
     ui: &mut egui::Ui,
     watches: &[(String, String)],
     keeps: bool,
+    heard: Option<&str>,
     can: bool,
     picked: &mut Option<String>,
     new: &mut bool,
@@ -1626,11 +1629,12 @@ fn save_menu_watches(
     // A recording played goes into a watch once it ends: greyed, saying
     // so, while it is heard.
     for (id, name) in watches {
-        if ui
-            .add_enabled(keeps, egui::Button::new(name))
-            .on_disabled_hover_text(KEEP_AFTER_STOP)
-            .clicked()
-        {
+        let b = ui.add_enabled(keeps, egui::Button::new(name));
+        let b = match heard {
+            Some(h) => b.on_hover_text(h),
+            None => b,
+        };
+        if b.on_disabled_hover_text(KEEP_AFTER_STOP).clicked() {
             *picked = Some(id.clone());
         }
     }
