@@ -118,17 +118,39 @@ pub struct Withheld {
     pub reason: &'static str,
 }
 
+/// A sound card's error, ppm slow, with its standard error `sd` where it
+/// has one, as every surface writes it: signed, to the decimals its ±
+/// calls for from the clock's base ([`crate::figure_text::figure_with_pm`],
+/// #510 K3), so a ± too small to show at the cap reads `<0.001`, never
+/// `0`; with none, at the clock's base.
+pub fn ppm_pm_text(ppm: f64, sd: Option<f64>) -> String {
+    use crate::figure_text::{base_digits, figure_with_pm};
+    figure_with_pm(ppm, sd, base_digits::CLOCK, true)
+}
+
 impl Withheld {
     /// One line for a reader: what was measured and why it isn't applied.
     pub fn note(&self) -> String {
         let why = match self.reason {
-            "few_entries" => format!("too few entries to trust (under {MIN_POINTS})"),
+            FEW_ENTRIES => format!("too few entries to trust (under {MIN_POINTS})"),
             "usb_lines" => "the recording's USB lines measure it instead".into(),
             _ => format!("its uncertainty is over {MAX_SD_PPM:.0} ppm"),
         };
         format!(
-            "the clock log's {} entries over {:.0} s measure the sound card at {:+.0} ± {:.0} ppm; not applied, as {why}",
-            self.points, self.span_s, self.ppm, self.ppm_sd
+            "the clock log's {} entries over {:.0} s measure the sound card at {} ppm; not applied, as {why}",
+            self.points,
+            self.span_s,
+            self.ppm_text()
+        )
+    }
+
+    /// What was measured, ppm slow, as [`ppm_pm_text`] writes it: with no
+    /// ± when there were too few entries for their scatter to say how sure
+    /// the line is.
+    pub fn ppm_text(&self) -> String {
+        ppm_pm_text(
+            self.ppm,
+            (self.reason != FEW_ENTRIES).then_some(self.ppm_sd),
         )
     }
 }
@@ -176,8 +198,9 @@ impl SourcesDisagree {
     pub fn note(&self) -> String {
         match self.against {
             Against::ClockLog => format!(
-                "the USB lines measure the sound card at {:+.1} ppm and the clock log at {:+.0} ± {:.0} ppm; the rates are corrected by the USB lines",
-                self.usb_ppm, self.log_ppm, self.log_ppm_sd
+                "the USB lines measure the sound card at {:+.1} ppm and the clock log at {} ppm; the rates are corrected by the USB lines",
+                self.usb_ppm,
+                ppm_pm_text(self.log_ppm, Some(self.log_ppm_sd))
             ),
             Against::Correction => format!(
                 "the USB lines measure the sound card at {:+.1} ppm and the correction known for its input is {:+.1} ppm; the rates are corrected by the USB lines",
@@ -212,6 +235,9 @@ pub const MEASURE_S: f64 = 1200.0;
 
 /// Fewest log entries a clock correction is applied from.
 pub const MIN_POINTS: usize = 10;
+/// The reason a fit of under [`MIN_POINTS`] entries is withheld
+/// ([`Withheld::reason`]).
+pub const FEW_ENTRIES: &str = "few_entries";
 /// Largest standard error, ppm (1.7 s/d), a clock correction is applied
 /// with: about the error a crystal typically has (10–50 ppm), which is
 /// what leaving the correction out leaves in. A log every minute for
@@ -493,7 +519,7 @@ impl ClockFit {
             return None;
         }
         let reason = if self.points < MIN_POINTS {
-            "few_entries"
+            FEW_ENTRIES
         } else if self.ppm_sd.is_nan() || self.ppm_sd > MAX_SD_PPM {
             "unsure"
         } else {
@@ -1213,6 +1239,16 @@ mod tests {
             "{}",
             w.note()
         );
+        // Too few entries for their scatter to say how sure the line is:
+        // the figure at the clock's base, with no ± (#510 K3).
+        assert!(
+            w.note().contains(&format!(
+                "at {} ppm;",
+                crate::figure_text::signed_text(w.ppm, crate::figure_text::base_digits::CLOCK)
+            )) && !w.note().contains('±'),
+            "{}",
+            w.note()
+        );
         let json = serde_json::to_value(&fit).unwrap();
         assert_eq!(json["withheld"]["reason"], "few_entries");
         assert_eq!(json["ppm"], 0.0);
@@ -1223,6 +1259,13 @@ mod tests {
         let w = fit.withheld.unwrap();
         assert_eq!(w.reason, "unsure");
         assert!(w.ppm_sd > MAX_SD_PPM, "{w:?}");
+        // Its figure is written to its ±'s decimals (#510 K3).
+        assert!(
+            w.note()
+                .contains(&format!("at {} ppm;", ppm_pm_text(w.ppm, Some(w.ppm_sd)))),
+            "{}",
+            w.note()
+        );
     }
 
     #[test]
@@ -1418,7 +1461,7 @@ unix_s,frames
         assert!(d.log_ppm_sd < 1e-3, "{}", d.log_ppm_sd);
         assert_eq!(
             d.note(),
-            "the USB lines measure the sound card at +120.0 ppm and the clock log at +20 ± 0 ppm; the rates are corrected by the USB lines"
+            "the USB lines measure the sound card at +120.0 ppm and the clock log at +20.000 ± <0.001 ppm; the rates are corrected by the USB lines"
         );
         // The correction is the USB lines' all the same.
         assert_eq!(fit.ppm, 120.0);
