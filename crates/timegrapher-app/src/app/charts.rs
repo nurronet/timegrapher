@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::strength::{self, Grid, Strength};
+use timegrapher_core::chart_scale::{self, steady_ends};
 use timegrapher_core::figure_text::{base_digits, figure, true_minus};
 
 impl TimegrapherApp {
@@ -324,7 +325,8 @@ fn draw_chart(
     if let (Some((lo, hi)), true) = (y_range, rescale) {
         p.set_plot_bounds_y(lo..=hi);
     }
-    let panned = pan_and_zoom(p, &series);
+    let pan = pan_and_zoom(p, &series);
+    let panned = pan != Pan::Still;
     // Panned to the newest reading, a chart follows new ones at the
     // length it shows, as the strip does; Fit is the whole session (Hugh,
     // #1070).
@@ -332,13 +334,21 @@ fn draw_chart(
     let b = p.plot_bounds();
     let (lo, hi) = (b.min()[0], b.max()[0]);
     let mut at_newest = false;
+    // The time in view this frame: the bounds read are the last frame's.
+    let mut view = match pan {
+        Pan::To(a, z) => Some((a, z)),
+        Pan::Whole => None,
+        Pan::Still => (!(to_live || p.auto_bounds().x)).then_some((lo, hi)),
+    };
     if let (Some((_, newest)), false) = (take, to_live || p.auto_bounds().x) {
         if follow && !panned && hi < newest {
             p.set_plot_bounds_x(newest - (hi - lo)..=newest);
+            view = Some((newest - (hi - lo), newest));
         }
         // Judged from the bounds a pan has settled into, the frame after.
         at_newest = !panned && (follow || hi >= newest);
     }
+    fit_y_in_view(p, &series, view);
     for l in series {
         let w = if l.main { 1.8_f32 } else { 1.2_f32 };
         // Broken where there is no reading (a masked stretch, a
@@ -370,17 +380,63 @@ fn draw_chart(
     (click, hover.map(|h| h.x), moved, moved && at_newest)
 }
 
+/// Moved off the whole session, a chart's scale fits the readings in view
+/// rather than the whole take's, so a stretch reading 10 to 80 s/d isn't
+/// squeezed under a 0 to 300 scale. Its ends are round and hold still
+/// while a pan moves the readings inside them, as the strip's overlay
+/// scales do ([`steady_ends`]): out at once when a reading leaves it, in
+/// only when the readings fill less than half of it (Hugh, #1164). A
+/// masked reading has no point, so it never counts.
+fn fit_y_in_view(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine], view: Option<(f64, f64)>) {
+    let id = p.response().id.with("y in view");
+    let Some((lo, hi)) = view else {
+        // The whole session again: the scale fits the whole take, as
+        // new readings come.
+        if p.ctx()
+            .data_mut(|d| d.remove_temp::<(f64, f64, f64)>(id))
+            .is_some()
+        {
+            p.set_auto_bounds([true, true]);
+        }
+        return;
+    };
+    let ys: Vec<f64> = series
+        .iter()
+        .flat_map(|l| l.pts.iter())
+        .filter(|pt| pt[0] >= lo && pt[0] <= hi)
+        .map(|pt| pt[1])
+        .collect();
+    let (Some(wanted), Some(values)) = (chart_scale::data_range(&ys), chart_scale::extent(&ys))
+    else {
+        return;
+    };
+    let held = p.ctx().data(|d| d.get_temp::<(f64, f64, f64)>(id));
+    let s = steady_ends(held, values, wanted);
+    p.ctx().data_mut(|d| d.insert_temp(id, s));
+    p.set_plot_bounds_y(s.0..=s.1);
+}
+
+/// What a gesture did to a chart's time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Pan {
+    Still,
+    /// Moved to show this stretch.
+    To(f64, f64),
+    /// Zoomed out past the take: the whole session again.
+    Whole,
+}
+
 /// Pan and zoom a chart's time by hand, kept to the take. The wheel, a
 /// swipe either way or a drag pans; Cmd (Mac) or Ctrl with the wheel, or
 /// a pinch, zooms about the pointer. Alt and the wheel zooms the strip's
 /// width; the charts' scale fits their lines, so here it does nothing.
 /// Zoomed out to the whole take, the chart shows the whole session again.
-/// Whether it moved the chart.
-fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
+/// Where it moved the chart.
+fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> Pan {
     let r = p.response();
     let dragged = r.dragged_by(egui::PointerButton::Primary);
     if !r.hovered() && !dragged {
-        return false;
+        return Pan::Still;
     }
     let drag = if dragged { r.drag_delta().x } else { 0.0 };
     let px = r.rect.width().max(1.0);
@@ -392,7 +448,7 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
         .input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers.alt));
     let shift = drag + if alt { 0.0 } else { s.x + s.y };
     if shift == 0.0 && zoom == 1.0 {
-        return false;
+        return Pan::Still;
     }
     let b = p.plot_bounds();
     let (mut lo, mut hi) = (b.min()[0], b.max()[0]);
@@ -403,19 +459,19 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
     }
     let dt = -f64::from(shift / px) * (hi - lo);
     let Some(take) = take_span(series) else {
-        return false;
+        return Pan::Still;
     };
     match keep_in(lo + dt, hi + dt, take) {
         // Held at an end, a turn further moves nothing.
-        Some(to) if to == (b.min()[0], b.max()[0]) => false,
+        Some(to) if to == (b.min()[0], b.max()[0]) => Pan::Still,
         Some((lo, hi)) => {
             p.set_plot_bounds_x(lo..=hi);
-            true
+            Pan::To(lo, hi)
         }
         None => {
             let y = p.auto_bounds().y;
             p.set_auto_bounds([true, y]);
-            true
+            Pan::Whole
         }
     }
 }

@@ -5,15 +5,20 @@
 /// drawn is inside the chart: the app's charts over time. `None` with no
 /// finite value.
 pub fn data_range(values: &[f64]) -> Option<(f64, f64)> {
-    let (lo, hi) = values
+    let (lo, hi) = extent(values)?;
+    let pad = ((hi - lo) * 0.08).max(0.05);
+    Some((lo - pad, hi + pad))
+}
+
+/// The lowest and highest finite value, unpadded. `None` with none.
+pub fn extent(values: &[f64]) -> Option<(f64, f64)> {
+    values
         .iter()
         .copied()
         .filter(|y| y.is_finite())
         .fold(None, |r: Option<(f64, f64)>, y| {
             Some(r.map_or((y, y), |(lo, hi)| (lo.min(y), hi.max(y))))
-        })?;
-    let pad = ((hi - lo) * 0.08).max(0.05);
-    Some((lo - pad, hi + pad))
+        })
 }
 
 /// The 1st to 99th percentile of the values, padded a little, leaving out

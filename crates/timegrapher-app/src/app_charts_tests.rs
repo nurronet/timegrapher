@@ -187,9 +187,10 @@ fn a_distributions_axis_labels_stay_apart() {
     }
 }
 
-/// A chart's scale fits its lines on its own, so neither Ctrl and the
-/// wheel (a zoom) nor a drag up or down moves it: they would only be put
-/// back, and the chart jittered.
+/// A chart's scale fits its lines on its own: Ctrl and the wheel zooms
+/// time, and the scale settles at once on the readings then in view,
+/// with no frame of the old one; a drag up or down then moves it not at
+/// all. Either would only be put back, and the chart jittered.
 #[test]
 fn a_charts_scale_neither_zooms_nor_pans() {
     let mut app = synthetic(60.0, 20.0);
@@ -253,8 +254,9 @@ fn a_charts_scale_neither_zooms_nor_pans() {
         scale
     };
     let before = settle(&mut app, vec![egui::Event::PointerMoved(at)]);
+    // `settle` holds the scale still over the frames after the zoom.
     let zoomed = settle(&mut app, vec![egui::Event::Zoom(2.0)]);
-    assert_eq!(zoomed, before, "Ctrl and the wheel left the scale");
+    assert!(!before.is_empty());
     let press = |pressed, pos| egui::Event::PointerButton {
         pos,
         button: egui::PointerButton::Primary,
@@ -269,7 +271,7 @@ fn a_charts_scale_neither_zooms_nor_pans() {
     }
     pass(&mut app, vec![press(false, below)]);
     let dragged = settle(&mut app, Vec::new());
-    assert_eq!(dragged, before, "a drag up or down left the scale");
+    assert_eq!(dragged, zoomed, "a drag up or down left the scale");
 }
 
 /// On the Charts, the wheel or a swipe pans time, and Cmd or Ctrl with
@@ -552,4 +554,67 @@ fn the_charts_panned_to_the_newest_reading_follow_new_ones() {
     assert!(back[0] < later[0], "{later:?} {back:?}");
     more(&mut app, 30);
     assert_eq!(look(&mut app, Vec::new()), back);
+}
+
+/// Zoomed in, a chart's scale fits the readings in view, not the whole
+/// take's, so a stretch reading 10 to 80 s/d isn't squeezed under 300;
+/// its round ends hold still while a pan keeps the readings inside them,
+/// and the whole session again fits the whole take (Hugh, #1164).
+#[test]
+fn a_zoomed_charts_scale_fits_the_readings_in_view() {
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    // 300 s/d for the first 30 s, then 10 to 80 s/d.
+    for p in &mut app.trend {
+        p.rate_s_per_day = Some(if p.t < 30.0 {
+            300.0
+        } else {
+            45.0 + 35.0 * (p.t * 0.3).sin()
+        });
+    }
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        painted_text(&ctx.run(input, |ctx| app.panels(ctx)))
+    };
+    let at = egui::pos2(720.0, 700.0);
+    // The Rate scale's labels once a gesture has played out.
+    let look = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        pass(app, events);
+        let mut text = String::new();
+        for _ in 0..40 {
+            text = pass(app, vec![egui::Event::PointerMoved(at)]);
+        }
+        let top: Vec<f64> = text
+            .lines()
+            .filter(|l| l.ends_with(" s/d") && !l.contains(": "))
+            .filter_map(|l| l.trim_end_matches(" s/d").replace('−', "-").parse().ok())
+            .collect();
+        assert!(top.len() > 2, "{text}");
+        top.into_iter().fold(f64::MIN, f64::max)
+    };
+    let wheel = |dy: f32| egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0.0, dy),
+        modifiers: egui::Modifiers::NONE,
+    };
+    let whole = look(&mut app, vec![egui::Event::PointerMoved(at)]);
+    assert!(whole >= 300.0, "{whole}");
+    look(&mut app, vec![egui::Event::Zoom(3.0)]);
+    let end = look(&mut app, vec![wheel(-6000.0)]);
+    assert!((80.0..150.0).contains(&end), "{end}");
+    // A little back, the readings still inside: the scale holds.
+    assert_eq!(look(&mut app, vec![wheel(40.0)]), end);
+    // The whole session again: the whole take's scale.
+    assert!(look(&mut app, vec![egui::Event::Zoom(0.1)]) >= 300.0);
 }
