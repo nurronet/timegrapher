@@ -4,7 +4,8 @@
 //! of a synthetic watch through the live engine and checks that each of
 //! its stores grows no faster than its rule allows. It then works out
 //! what each store holds after [`RUN_S`] by that rule and checks that the
-//! total stays under [`BUDGET_BYTES`]. The stores are the beats (capped),
+//! total stays under [`BUDGET_BYTES`], at each of [`RATES`]. Memory is
+//! counted as each list's capacity, not its length. The stores are the beats (capped),
 //! the amplitude windows (one a window step), the tick and tock sound
 //! kept for the Tick Tock Profile (thinned by core's `thin_sound`), and
 //! the capture queue (bounded at `QUEUE_BLOCKS`).
@@ -21,24 +22,51 @@ use timegrapher_core::synth::{generate, SynthConfig};
 /// The run the budget is for: an 80 h Power Reserve test.
 const RUN_S: f64 = 80.0 * 3600.0;
 /// What the stores above may hold together after [`RUN_S`].
-const BUDGET_BYTES: f64 = 128e6;
+const BUDGET_BYTES: f64 = 160e6;
+/// The input rates the budget holds at (Peter, 2026-11-05).
+const RATES: [u32; 2] = [48_000, 96_000];
+/// The longest an amplitude window step may be measured at: the budget
+/// counts windows at this step, the most the rule allows.
+const WINDOW_STEP_S: f64 = 1.9;
 /// Ten minutes of sound, played in 10 ms blocks as inputs commonly send.
 const PLAYED_S: f64 = 600.0;
 const BLOCK_S: f64 = 0.01;
 
-/// The bytes one tick or tock profile holds: its fields and its curves.
-fn profile_bytes(p: &TickProfile) -> usize {
-    size_of::<TickProfile>() + 4 * (p.median.len() + p.p10.len() + p.p90.len())
+/// The bytes one tick or tock profile's curves hold on the heap: an entry
+/// the history drops frees them, so only kept entries count them.
+fn curve_bytes(p: &TickProfile) -> usize {
+    4 * (p.median.len() + p.p10.len() + p.p90.len())
 }
+
+/// One slot of the app's sound history: the time, the span and both
+/// sides' profiles (the app's `(f64, Kept)`), inline in the list.
+type SoundSlot = (f64, f64, [Option<TickProfile>; 2]);
 
 #[test]
 fn a_multi_day_run_stays_inside_its_memory_budget() {
+    for rate in RATES {
+        let (total, text) = run_at(rate);
+        assert!(
+            (total as f64) < BUDGET_BYTES,
+            "{:.1} MB after {} h at {rate} Hz, over {:.0} MB: {text}",
+            total as f64 / 1e6,
+            RUN_S / 3600.0,
+            BUDGET_BYTES / 1e6,
+        );
+        eprintln!("after {} h at {rate} Hz: {text}", RUN_S / 3600.0);
+    }
+}
+
+/// Play [`PLAYED_S`] at `rate` through the live engine, check each store
+/// grows only as its rule allows, and give the bytes the stores hold
+/// after [`RUN_S`] by those rules, with a line naming each.
+fn run_at(rate: u32) -> (usize, String) {
     let synth = SynthConfig {
         duration_s: PLAYED_S,
+        sample_rate: rate,
         ..Default::default()
     };
     let audio = generate(&synth, |_| 280.0, |_| 0.0);
-    let fs = audio.sample_rate as f64;
     let beats_per_s = synth.bph as f64 / 3600.0;
     // A cap the ten minutes reach, so the test sees it hold.
     let cap = (beats_per_s * PLAYED_S / 2.0) as usize;
@@ -46,9 +74,8 @@ fn a_multi_day_run_stays_inside_its_memory_budget() {
         max_beats: cap,
         ..Default::default()
     };
-    let max_beats = LiveConfig::default().max_beats;
-    let mut live = LiveAnalyzer::new(audio.sample_rate, cfg);
-    let block = (BLOCK_S * fs).round() as usize;
+    let mut live = LiveAnalyzer::new(rate, cfg);
+    let block = (BLOCK_S * rate as f64).round() as usize;
     for chunk in audio.samples.chunks(block) {
         live.push(chunk);
         // Beats never pass the cap, at any moment.
@@ -60,47 +87,49 @@ fn a_multi_day_run_stays_inside_its_memory_budget() {
     assert_eq!(live.beats().len(), cap);
     assert!(live.breaks().is_empty() && live.by_count().is_empty() && live.jumps().is_empty());
     assert!(live.candidates().len() < 4 * beats_per_s as usize);
-    let windows = live.amplitude_windows().len();
-    let window_every_s = PLAYED_S / windows as f64;
-    assert!(window_every_s >= 1.9, "a window every {window_every_s} s");
+    let window_every_s = PLAYED_S / live.amplitude_windows().len() as f64;
+    assert!(
+        window_every_s >= WINDOW_STEP_S,
+        "a window every {window_every_s} s"
+    );
 
     // The tick and tock sound kept every PROFILE_EVERY_S over the run,
     // thinned as it grows, as the app keeps it.
     let sides = live.tick_profiles();
-    let entry_bytes: usize = sides.iter().flatten().map(profile_bytes).sum();
     assert!(sides.iter().all(Option::is_some), "no profile to measure");
+    let curves: usize = sides.iter().flatten().map(curve_bytes).sum();
     let mut history: Vec<(f64, ())> = Vec::new();
+    let mut peak = 0;
     let mut t = 0.0;
     while t <= RUN_S {
         history.push((t, ()));
+        peak = peak.max(history.len());
         thin_sound(&mut history);
         t += PROFILE_EVERY_S;
     }
 
+    // Memory is a list's capacity, not its length: a list grown by push
+    // doubles, and trimming or thinning it keeps its slots, though not
+    // the curves of the entries it drops (#1115).
+    let held = |len: usize| len.next_power_of_two();
     let stores = [
-        ("beats", max_beats * size_of::<Beat>()),
+        (
+            "beats",
+            held(LiveConfig::default().max_beats + 1) * size_of::<Beat>(),
+        ),
         (
             "amplitude windows",
-            (RUN_S / window_every_s).ceil() as usize * size_of::<AmplitudeWindow>(),
+            held((RUN_S / WINDOW_STEP_S).ceil() as usize) * size_of::<AmplitudeWindow>(),
         ),
-        ("tick and tock sound", history.len() * entry_bytes),
         (
-            "capture queue",
-            QUEUE_BLOCKS * (BLOCK_S * 48_000.0) as usize * size_of::<f32>(),
+            "tick and tock sound",
+            held(peak) * size_of::<SoundSlot>() + peak * curves,
         ),
+        ("capture queue", QUEUE_BLOCKS * block * size_of::<f32>()),
     ];
-    let total: usize = stores.iter().map(|s| s.1).sum();
     let text: Vec<String> = stores
         .iter()
         .map(|(name, b)| format!("{name} {:.1} MB", *b as f64 / 1e6))
         .collect();
-    assert!(
-        (total as f64) < BUDGET_BYTES,
-        "{:.1} MB after {} h, over {:.0} MB: {}",
-        total as f64 / 1e6,
-        RUN_S / 3600.0,
-        BUDGET_BYTES / 1e6,
-        text.join(", ")
-    );
-    eprintln!("after {} h: {}", RUN_S / 3600.0, text.join(", "));
+    (stores.iter().map(|s| s.1).sum(), text.join(", "))
 }
