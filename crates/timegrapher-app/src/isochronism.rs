@@ -432,8 +432,13 @@ fn walk_bounds(w: &WalkView) -> (Span, Span) {
 /// never filled), at axis strength under the dots; then the dots.
 fn walk_items(p: &mut egui_plot::PlotUi, w: &WalkView, pal: &theme::Palette) {
     let s = strength::stroke(Strength::Axis, pal);
-    for run in runs(w) {
-        p.line(Line::new("walk", run).color(s.color).width(s.width));
+    // Each step in the colour of the dot it goes from (Peter).
+    for (from, to, when) in steps(w) {
+        p.line(
+            Line::new("walk", vec![from, to])
+                .color(crate::tfmap::viridis(when as f32))
+                .width(s.width),
+        );
     }
     for d in &w.dots {
         p.points(
@@ -444,18 +449,15 @@ fn walk_items(p: &mut egui_plot::PlotUi, w: &WalkView, pal: &theme::Palette) {
     }
 }
 
-/// The joined stretches of the walk, each of two dots or more.
-fn runs(w: &WalkView) -> Vec<Vec<[f64; 2]>> {
-    let mut out: Vec<Vec<[f64; 2]>> = Vec::new();
-    for d in &w.dots {
-        let pt = [d.amplitude_deg, d.rate_s_per_day];
-        match out.last_mut() {
-            Some(run) if d.joined => run.push(pt),
-            _ => out.push(vec![pt]),
-        }
-    }
-    out.retain(|r| r.len() > 1);
-    out
+/// The walk's steps from each dot to the next one core joins to it: the
+/// two points, and the time of the dot it goes from.
+fn steps(w: &WalkView) -> Vec<([f64; 2], [f64; 2], f64)> {
+    let at = |d: &timegrapher_core::steady_views::WalkDot| [d.amplitude_deg, d.rate_s_per_day];
+    w.dots
+        .windows(2)
+        .filter(|p| p[1].joined)
+        .map(|p| (at(&p[0]), at(&p[1]), p[0].when))
+        .collect()
 }
 
 /// The dot nearest the pointer, within [`HOVER_PX`].
@@ -666,9 +668,17 @@ mod tests {
     #[test]
     fn the_walk_line_breaks_where_core_says() {
         let w = walk();
-        let r = runs(&w);
-        assert_eq!(r.iter().map(Vec::len).collect::<Vec<_>>(), [6, 3]);
-        assert_eq!(r[1][0], [w.dots[6].amplitude_deg, w.dots[6].rate_s_per_day]);
+        let at = |i: usize| [w.dots[i].amplitude_deg, w.dots[i].rate_s_per_day];
+        let s = steps(&w);
+        // Five steps through the first six dots, none across to the
+        // seventh, two through the last three.
+        assert_eq!(s.len(), 7);
+        assert!(!s.iter().any(|st| st.0 == at(5) && st.1 == at(6)));
+        assert_eq!((s[5].0, s[5].1), (at(6), at(7)));
+        // Each in the colour of the dot it goes from (Peter).
+        for (st, from) in s.iter().zip([0, 1, 2, 3, 4, 6, 7]) {
+            assert_eq!(st.2, w.dots[from].when);
+        }
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
