@@ -468,12 +468,14 @@ fn read_take(
     let (mut log, mut breaks, mut masked) = (log, ctx.breaks, ctx.masked);
     if let Some(s) = &stretches {
         timegrapher_core::session::mask_log(&mut log, &s.holes);
-        breaks.extend(timegrapher_core::clean::mask_breaks(&s.holes));
-        breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
         masked.extend(&s.holes);
         let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
         masked = timegrapher_core::session::masked_spans(&pairs);
     }
+    // Every stretch left out, masked by hand or a hole, is cut at both
+    // ends, as `session` cuts a mask (#1185): no reading spans one.
+    breaks.extend(timegrapher_core::clean::mask_breaks(&masked));
+    breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
     let stretches = stretches.map(|s| s.read);
     let pauses_unseen = stretches
         .as_deref()
@@ -1547,6 +1549,16 @@ mod take_tests {
             !r.log.beats.iter().any(|b| (29.0..37.0).contains(&b.time)),
             "a beat in the mask"
         );
+        // And it is cut at both ends, as `session` cuts it (#1185).
+        for at in [29.0, 37.0] {
+            assert!(
+                r.breaks
+                    .iter()
+                    .any(|b| (b.audio_s - at).abs() < 0.01 && b.gap_s == 0.0),
+                "no cut at {at}: {:?}",
+                r.breaks
+            );
+        }
         let clock = r.clock.unwrap();
         assert_eq!(clock.ppm, Some(-20.0));
         assert!(clock.from.contains("card_ppm"), "{}", clock.from);

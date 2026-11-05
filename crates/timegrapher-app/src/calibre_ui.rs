@@ -486,7 +486,7 @@ impl Calibres {
             Some(e) => e.name().to_string(),
             None => unset.to_string(),
         };
-        let picked: Picked = Default::default();
+        let mut picked = None;
         let mut manage = false;
         let mut typed = std::mem::take(&mut self.menu_search);
         // egui makes a menu no taller than its default area; the list
@@ -500,11 +500,18 @@ impl Calibres {
             .height(menu_h)
             .truncate()
             .selected_text(shown)
+            // A click in its search field never closes it.
+            .close_behavior(theme::SEARCH_MENU_CLOSE)
             .show_ui(ui, |ui| {
+                // The search field first, where the caret is: what the
+                // menu adds above the list comes under it.
+                let list = Picked {
+                    keys: search_field(ui, &mut typed).into(),
+                    name: Default::default(),
+                };
                 if let Some(before) = before.as_mut() {
                     before(ui);
                 }
-                search_field(ui, &mut typed);
                 let q = typed.trim();
                 // The list scrolls between the search field and Manage
                 // Calibres…, so both stay in view however long the
@@ -519,9 +526,9 @@ impl Calibres {
                     .show(ui, |ui| {
                         let catalog = Catalog::new(&self.user);
                         if q.is_empty() {
-                            self.short_list_items(ui, &catalog, current, &picked);
+                            self.short_list_items(ui, &catalog, current, &list);
                         } else {
-                            search_hits(ui, &catalog, q, current, &picked);
+                            search_hits(ui, &catalog, q, current, &list);
                         }
                     });
                 ui.separator();
@@ -531,9 +538,12 @@ impl Calibres {
                     .clicked()
                 {
                     manage = true;
+                    ui.close();
                 }
+                let Picked { name, keys } = list;
+                keys.into_inner().finish(ui);
+                picked = name.into_inner();
             });
-        let picked = picked.into_inner();
         // A pick starts the next search afresh.
         self.menu_search = if picked.is_some() {
             String::new()
@@ -557,15 +567,14 @@ impl Calibres {
         picked: &Picked,
     ) {
         let pal = theme::pal(ui);
-        if theme::menu_item(ui, current.is_empty(), "Not Set")
-            .on_hover_text(
-                "Name cycles after the wheels most calibres at this beat rate \
-                 share, with the default lift angle",
-            )
-            .clicked()
-        {
-            *picked.borrow_mut() = Some(String::new());
-        }
+        picked.item(
+            ui,
+            current.is_empty(),
+            "Not Set".into(),
+            "Name cycles after the wheels most calibres at this beat rate share, with the \
+             default lift angle",
+            "",
+        );
         let recent: Vec<Entry<'_>> = self.recent.iter().filter_map(|r| catalog.find(r)).collect();
         if !recent.is_empty() {
             heading(ui, "Recent");
@@ -1284,7 +1293,7 @@ impl Calibres {
             self.funnel_offered.take();
         }
         egui::Popup::menu(&fr)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .close_behavior(theme::SEARCH_MENU_CLOSE)
             .width(230.0)
             .show(|ui| self.funnel_menu(ui, col, title));
     }
@@ -1295,9 +1304,9 @@ impl Calibres {
     fn funnel_menu(&mut self, ui: &mut egui::Ui, col: Col, title: &str) {
         self.funnel_sorts(ui, col, title);
         ui.separator();
-        self.funnel_ticks(ui, col, title);
+        let enter = self.funnel_ticks(ui, col, title);
         ui.add_space(4.0);
-        self.funnel_ok(ui, col, title);
+        self.funnel_ok(ui, col, title, enter);
     }
 
     /// The funnel menu's top: sort either way on `col`, clear its filter,
@@ -1353,14 +1362,17 @@ impl Calibres {
 
     /// The funnel menu's values, each with a tickbox, under a search over
     /// them and Select All.
-    fn funnel_ticks(&mut self, ui: &mut egui::Ui, col: Col, title: &str) {
+    /// Whether Enter was pressed, which is OK.
+    fn funnel_ticks(&mut self, ui: &mut egui::Ui, col: Col, title: &str) -> bool {
         let pal = theme::pal(ui);
-        ui.add(
-            egui::TextEdit::singleline(&mut self.funnel_search)
-                .hint_text(format!("Search {title} values"))
-                .desired_width(f32::INFINITY),
-        )
-        .on_hover_text("List only the values holding this");
+        let keys = theme::MenuSearch::field(
+            ui,
+            &mut self.funnel_search,
+            &format!("Search {title} values"),
+            "List only the values holding this",
+        );
+        let enter = keys.enter;
+        keys.finish(ui);
         let offered = self.funnel_offered(col);
         let listed = self.funnel_listed(col);
         let listed: Vec<&String> = listed.iter().collect();
@@ -1419,10 +1431,12 @@ impl Calibres {
                     self.draft_set(&offered, &v, on);
                 }
             });
+        enter
     }
 
-    /// Cancel, and OK to keep the values ticked as `col`'s filter.
-    fn funnel_ok(&mut self, ui: &mut egui::Ui, col: Col, title: &str) {
+    /// Cancel, and OK to keep the values ticked as `col`'s filter: Enter
+    /// is OK.
+    fn funnel_ok(&mut self, ui: &mut egui::Ui, col: Col, title: &str, enter: bool) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button("Cancel")
@@ -1431,17 +1445,39 @@ impl Calibres {
             {
                 ui.close();
             }
-            let none = self.funnel_draft.as_ref().is_some_and(|k| k.is_empty());
+            let kept = self.funnel_kept(col);
+            let none = kept.as_ref().is_some_and(|k| k.is_empty());
             if ui
                 .add_enabled(!none, egui::Button::new("OK"))
-                .on_hover_text(format!("Show only the {title} values ticked"))
+                .on_hover_text(format!(
+                    "Show only the {title} values ticked, of those the search lists"
+                ))
                 .on_disabled_hover_text("Tick at least one value")
                 .clicked()
+                || (enter && !none)
             {
-                self.funnels[col as usize] = self.funnel_draft.take();
+                self.funnels[col as usize] = kept;
+                self.funnel_draft = None;
                 ui.close();
             }
         });
+    }
+
+    /// What OK keeps as `col`'s filter: the values ticked, and with a
+    /// search typed only those of them it lists, as a spreadsheet's filter
+    /// keeps its search results. Every value kept is no filter.
+    fn funnel_kept(&self, col: Col) -> Option<std::collections::BTreeSet<String>> {
+        let draft = self.funnel_draft.as_ref();
+        if self.funnel_search.trim().is_empty() {
+            return draft.cloned();
+        }
+        let kept: std::collections::BTreeSet<String> = self
+            .funnel_listed(col)
+            .into_iter()
+            .filter(|v| draft.is_none_or(|k| k.contains(v)))
+            .collect();
+        let offered = self.funnel_offered(col);
+        (!offered.iter().all(|v| kept.contains(v))).then_some(kept)
     }
 
     /// Tick or untick `value` in the funnel menu open, the other values
@@ -2103,35 +2139,39 @@ fn sources_and_notes(ui: &mut egui::Ui, c: &Calibre) {
     }
 }
 
-/// The calibre the menu picked this frame, if any.
-type Picked = std::cell::RefCell<Option<String>>;
+/// The menu's list as it is drawn: the calibre picked this frame, if any
+/// ("" for Not Set), and the keys over the list (↑/↓, Enter).
+struct Picked {
+    name: std::cell::RefCell<Option<String>>,
+    keys: std::cell::RefCell<theme::MenuSearch>,
+}
+
+impl Picked {
+    /// One item, `on` ticked: picked by a click or Enter, as `name`.
+    fn item(&self, ui: &mut egui::Ui, on: bool, text: String, hover: &str, name: &str) {
+        let (r, picked) = self.keys.borrow_mut().item(ui, on, text);
+        r.on_hover_text(hover);
+        if picked {
+            *self.name.borrow_mut() = Some(name.to_string());
+        }
+    }
+}
 
 /// One calibre in the menu, ticked when it is `current`.
 fn menu_line(ui: &mut egui::Ui, e: Entry<'_>, text: String, current: &str, picked: &Picked) {
-    if theme::menu_item(ui, e.name() == current, text)
-        .on_hover_text(hint(e))
-        .clicked()
-    {
-        *picked.borrow_mut() = Some(e.name().to_string());
-    }
+    picked.item(ui, e.name() == current, text, &hint(e), e.name());
 }
 
 /// Every calibre the app knows, by any of its names or its maker, without
 /// opening Manage Calibres; ready to type as soon as the menu opens.
-fn search_field(ui: &mut egui::Ui, typed: &mut String) {
-    let search = ui
-        .add(
-            egui::TextEdit::singleline(typed)
-                .hint_text("Search every calibre")
-                .desired_width(f32::INFINITY),
-        )
-        .on_hover_text(
-            "Type part of a calibre's name, another name for it or its maker, \
-             to list every calibre that matches",
-        );
-    if typed.is_empty() && !search.has_focus() {
-        search.request_focus();
-    }
+fn search_field(ui: &mut egui::Ui, typed: &mut String) -> theme::MenuSearch {
+    theme::MenuSearch::field(
+        ui,
+        typed,
+        "Search every calibre",
+        "Type part of a calibre's name, another name for it or its maker, to list every \
+         calibre that matches",
+    )
 }
 
 /// The calibres matching `q`, the first few hundred of them.

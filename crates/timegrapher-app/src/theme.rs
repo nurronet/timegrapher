@@ -853,9 +853,17 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
 /// A pop-up menu's item: the one in use carries a ✓ before its words,
 /// and the highlight is the pointer's alone, as in a macOS pop-up.
 pub fn menu_item(ui: &mut Ui, on: bool, words: impl Into<String>) -> Response {
+    ui.add(egui::Button::new(ticked(on, words)).frame_when_inactive(false))
+}
+
+/// A menu item's words, with the ✓ that marks the current one.
+fn ticked(on: bool, words: impl Into<String>) -> String {
     let words = words.into();
-    let text = if on { format!("✓ {words}") } else { words };
-    ui.add(egui::Button::new(text).frame_when_inactive(false))
+    if on {
+        format!("✓ {words}")
+    } else {
+        words
+    }
 }
 
 pub fn segmented<T: PartialEq + Copy>(
@@ -2237,4 +2245,170 @@ pub fn icon_button(
     crate::icons::draw(ui.painter(), rect.shrink(size * 0.2), icon, ink);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, picked, ""));
     resp
+}
+
+/// A searchable menu: a search field at its top over a list it filters,
+/// kept as one behaviour for every such menu (docs/design/design-guide.md,
+/// "Search menus"):
+/// - each open starts with an empty search and the caret in the field;
+/// - a click in the field never closes the menu: its popup is built with
+///   [`SEARCH_MENU_CLOSE`];
+/// - ↑/↓ move a highlight over the list, from the first match, and Enter
+///   picks the item highlighted ([`MenuSearch::item`]);
+/// - a ⊗ at the field's right clears it once it has text;
+/// - Esc clears the text first, and on an empty field closes the menu;
+/// - Tab and Shift+Tab stay within the menu.
+pub struct MenuSearch {
+    id: egui::Id,
+    /// The item lit, if any: none while the search is empty and the
+    /// current item isn't listed, until ↑/↓ or Tab.
+    highlight: Option<usize>,
+    items: usize,
+    moved: bool,
+    /// The search was empty as the menu opened or was cleared: the
+    /// highlight goes to the current item, so Enter keeps it.
+    seek_current: bool,
+    /// Enter, this frame: the item highlighted is picked.
+    pub enter: bool,
+}
+
+/// How a searchable menu closes: a pick, Esc on an empty field, a click
+/// outside it, or its button again; never a click in its field. Plain
+/// menus, with no field, close on any click.
+pub const SEARCH_MENU_CLOSE: egui::PopupCloseBehavior =
+    egui::PopupCloseBehavior::CloseOnClickOutside;
+
+impl MenuSearch {
+    /// The search field at the top of a searchable menu, `typed` its
+    /// text, `hint` its placeholder and `hover` what it searches.
+    pub fn field(ui: &mut Ui, typed: &mut String, hint: &str, hover: &str) -> MenuSearch {
+        let id = ui.id().with("menu search");
+        let pass = ui.ctx().cumulative_pass_nr();
+        // Opened this frame: the menu wasn't drawn the frame before.
+        let opened = ui
+            .data(|d| d.get_temp::<u64>(id.with("drawn")))
+            .is_none_or(|last| last + 1 < pass);
+        ui.data_mut(|d| d.insert_temp(id.with("drawn"), pass));
+        // Tab and Shift+Tab stay within the menu: focus never leaves its
+        // layer for the window behind.
+        let layer = ui.layer_id();
+        ui.ctx().memory_mut(|m| m.set_modal_layer(layer));
+        if opened {
+            typed.clear();
+        }
+        let mut refocus = opened;
+        // Esc clears the text first; on an empty field it closes the menu,
+        // and only the menu: a dialog behind it never sees the Esc.
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if typed.is_empty() {
+                ui.close();
+            } else {
+                typed.clear();
+                refocus = true;
+            }
+        }
+        let (down, up, enter) = ui.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                // Enter is the menu's alone: a dialog behind it never
+                // takes it as its default button.
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+            )
+        });
+        let mut highlight = if opened {
+            None
+        } else {
+            ui.data(|d| d.get_temp::<Option<usize>>(id)).flatten()
+        };
+        if down {
+            highlight = Some(highlight.map_or(0, |h| h + 1));
+        }
+        if up {
+            highlight = Some(highlight.map_or(0, |h| h.saturating_sub(1)));
+        }
+        // The ⊗ at the right once there is text, the field filling the rest.
+        let width = ui.available_width();
+        let row = ui.allocate_ui_with_layout(
+            Vec2::new(width, ui.spacing().interact_size.y),
+            Layout::right_to_left(Align::Center),
+            |ui| {
+                let cleared = !typed.is_empty()
+                    && ui
+                        .add(egui::Button::new("⊗").frame_when_inactive(false))
+                        .on_hover_text("Clear the search")
+                        .clicked();
+                let field = ui
+                    .add(
+                        egui::TextEdit::singleline(typed)
+                            .id(id.with("field"))
+                            .hint_text(hint)
+                            .desired_width(ui.available_width()),
+                    )
+                    .on_hover_text(hover);
+                (field, cleared)
+            },
+        );
+        let (field, cleared) = row.inner;
+        if cleared {
+            typed.clear();
+            refocus = true;
+        }
+        // A new search starts its highlight at the first match.
+        if field.changed() || cleared {
+            highlight = Some(0);
+        }
+        if refocus {
+            field.request_focus();
+        }
+        // With the search empty, the current item is lit if it is listed,
+        // and otherwise nothing, so Enter never picks what wasn't chosen.
+        let seek_current = typed.is_empty() && (opened || cleared || refocus) && !down && !up;
+        if seek_current {
+            highlight = None;
+        }
+        MenuSearch {
+            id,
+            highlight,
+            items: 0,
+            moved: down || up,
+            seek_current,
+            enter,
+        }
+    }
+
+    /// One item of the list the field filters, `on` ticked: drawn
+    /// highlighted when ↑/↓ have brought the highlight to it. True when it
+    /// is picked, by a click or by Enter on it; the menu then closes.
+    pub fn item(&mut self, ui: &mut Ui, on: bool, words: impl Into<String>) -> (Response, bool) {
+        let text = ticked(on, words);
+        // With nothing typed, the highlight starts on the current item.
+        if self.seek_current && on {
+            self.highlight = Some(self.items);
+            self.seek_current = false;
+        }
+        let lit = self.highlight == Some(self.items);
+        let r = ui.add(egui::Button::selectable(lit, text).frame_when_inactive(lit));
+        // Tab moves the one highlight too, so focus is never unseen.
+        if r.gained_focus() && !lit {
+            self.highlight = Some(self.items);
+            ui.ctx().request_repaint();
+        }
+        self.items += 1;
+        if lit && self.moved {
+            r.scroll_to_me(None);
+        }
+        let picked = r.clicked() || (lit && self.enter);
+        if picked {
+            ui.close();
+        }
+        (r, picked)
+    }
+
+    /// The end of the list: the highlight is kept for the next frame,
+    /// never past the last item.
+    pub fn finish(self, ui: &Ui) {
+        let highlight = self.highlight.map(|h| h.min(self.items.saturating_sub(1)));
+        ui.data_mut(|d| d.insert_temp(self.id, highlight));
+    }
 }

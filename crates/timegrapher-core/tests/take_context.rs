@@ -276,7 +276,7 @@ fn a_takes_positions_are_listed_in_take_seconds() {
         want.extend(
             take::listed_positions(&m, std::slice::from_ref(e), length)
                 .into_iter()
-                .map(|(s, f, t, p)| (s + at, f + at, t.map(|t| t + at), p)),
+                .map(|(s, f, t, p, c)| (s + at, f + at, t.map(|t| t + at), p, c)),
         );
     }
     assert_eq!(ctx.listed_positions(&m), want);
