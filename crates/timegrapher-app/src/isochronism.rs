@@ -566,8 +566,14 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     ring(*start, 7.0, 0.0);
     p.circle(*end, 6.5, colour(1.0), Stroke::new(2.0_f32, bg));
     let font = egui::FontId::proportional(12.0);
+    // Each name on a halo of the plot's background, so a trail that
+    // crosses it where the walk knots leaves it readable (Walter's walk of
+    // #1148).
     let name = |at: Pos2, align: Align2, text: &str| {
-        p.text(at, align, text, font.clone(), pal.text);
+        let g = p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
+        let r = align.anchor_size(at, g.size());
+        p.rect_filled(r.expand(2.0), 3.0, bg.gamma_multiply(0.85));
+        p.galley(r.min, g, pal.text);
     };
     name(
         *start + egui::vec2(-10.0, -10.0),
@@ -1144,6 +1150,18 @@ mod tests {
         assert_eq!(dots.len(), w.dots.len());
         for b in &w.beads {
             assert!(ring(5.0, w.dots[b.dot].when).is_some(), "{}", b.text);
+        }
+        // Each name sits on a halo of the plot's background, painted
+        // just before it.
+        for want in ["Start", w.last_text.as_str(), "12 h", "24 h"] {
+            let i = shapes
+                .iter()
+                .position(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.text() == want))
+                .unwrap();
+            let halo = matches!(&shapes[i - 1].shape,
+                egui::Shape::Rect(r) if r.fill == bg.gamma_multiply(0.85)
+                    && r.rect.contains_rect(name(want)));
+            assert!(halo, "{want}");
         }
         for text in w.beads.iter().map(|b| &b.text).chain([&w.last_text]) {
             let r = name(text);
