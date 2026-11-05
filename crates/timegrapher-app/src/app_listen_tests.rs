@@ -300,3 +300,50 @@ fn a_kept_quick_listen_records_into_its_take() {
     assert_eq!(samples(&kept), 11 * 48000);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A watch's own take records into its folder as it goes, from its first
+/// [`STREAM_EVERY_S`] of sound, so a crash costs only seconds; a quit adds
+/// the last of it with no question.
+#[test]
+fn a_watchs_take_records_into_its_folder_as_it_goes() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-watch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let takes = root.join("Pepsi").join(library::TAKES);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    r.write(&timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * 6],
+        at: std::time::SystemTime::now(),
+    })
+    .unwrap();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    assert!(app.streams() && !app.quick_listen);
+    assert_eq!(app.kept_place(), "Pepsi");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("saved as it goes")
+        .to_path_buf();
+    assert!(take.starts_with(&takes), "{}", take.display());
+    let wav = take.join("audio-001.wav");
+    assert_eq!(
+        timegrapher_core::audio::load(&wav).unwrap().samples.len(),
+        6 * 48000
+    );
+    assert!(app.message.is_none(), "{:?}", app.message);
+    assert!(!app.needs_save_confirmation());
+    let _ = std::fs::remove_dir_all(&base);
+}

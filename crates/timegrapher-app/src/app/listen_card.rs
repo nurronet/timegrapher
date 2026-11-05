@@ -343,7 +343,7 @@ impl TimegrapherApp {
         let ui_b = &mut buttons;
         let length_hint = format!("\n\n{length} · {state}");
         self.listen_go(ui_b, compact.then_some(length_hint.as_str()));
-        // A watch's take saves itself at Stop, and a test's at its end.
+        // A watch's take saves itself as it goes, and a test's at its end.
         let testing = self.ready_test().is_some() || self.test_listening();
         if (!self.session.mic() || self.quick_listen) && !testing {
             self.save_menu(ui_b, LISTEN_BUTTON);
@@ -409,7 +409,7 @@ impl TimegrapherApp {
             let watch = self.open_watch().map(|e| e.watch.name.clone());
             let mut hint = match &watch {
                 Some(name) => format!(
-                    "Listen to {name}: a new take, saved into it at Stop. For a Quick \
+                    "Listen to {name}: a new take, saved into it as it goes. For a Quick \
                      Listen with no watch, pick No Watch (Quick Listen) on the Calibre \
                      card's title."
                 ),
@@ -1299,7 +1299,7 @@ impl TimegrapherApp {
     /// it: the watch is picked, and the take named after it.
     pub(super) fn keep_in_watch(&mut self, id: &str) {
         // A Quick Listen still heard goes on: it is the watch's take from
-        // now, saved into it at Stop.
+        // now, saved into it as it goes.
         let heard = self.running();
         if heard && !self.quick_listen {
             return;
