@@ -464,18 +464,24 @@ pub fn whole_entry(
 /// Each of `entries` of the take `m` that names a position: the
 /// stretch's start, the start of what is read once the watch has settled
 /// and the end of that ([`reading_window`], an entry that reads nothing
-/// settling to its end), and the position. `length_s` is the recording's
-/// length, infinite where it is not known.
+/// settling to its end), the position, and whether it carries on the
+/// entry before it ([`continues_position`]). `length_s` is the
+/// recording's length, infinite where it is not known.
 pub fn listed_positions(
     m: &Manifest,
     entries: &[RecordingEntry],
     length_s: f64,
-) -> Vec<(f64, f64, Option<f64>, session::Position)> {
+) -> Vec<ListedPosition<session::Position>> {
     entries
         .iter()
-        .filter_map(|e| listed_position(e, reading_window(e, m, None, length_s).ok(), 0.0))
+        .filter_map(|e| listed_position(e, m, reading_window(e, m, None, length_s).ok(), 0.0))
         .collect()
 }
+
+/// A listed position: the stretch's start, the start of what is read,
+/// the end of that, the position, and whether the entry carries on the
+/// one before it ([`continues_position`]), so that it is no change.
+pub type ListedPosition<P> = (f64, f64, Option<f64>, P, bool);
 
 /// Entry `e`'s listed position, as [`listed_positions`] gives it, in take
 /// seconds: `offset_s` is where its recording starts in the take and
@@ -484,9 +490,10 @@ pub fn listed_positions(
 /// `offset_s`. None when it names no position.
 pub fn listed_position(
     e: &RecordingEntry,
+    m: &Manifest,
     window: Option<Window>,
     offset_s: f64,
-) -> Option<(f64, f64, Option<f64>, session::Position)> {
+) -> Option<ListedPosition<session::Position>> {
     let p = session::Position::parse(e.position.as_deref()?)?;
     let start = e.start_s.unwrap_or(0.0) + offset_s;
     let (from, to) = match window {
@@ -496,40 +503,39 @@ pub fn listed_position(
             (end, end)
         }
     };
-    Some((start, from, to.is_finite().then_some(to), p))
+    Some((
+        start,
+        from,
+        to.is_finite().then_some(to),
+        p,
+        continues_position(e, m),
+    ))
 }
 
 /// A take's changes of position (where each began, and the position)
 /// and the settling after each (start, end).
 pub type Positions<P> = (Vec<(f64, P)>, Vec<(f64, f64)>);
 
-/// The positions listed (start, start of what is read, end, position),
-/// as changes oldest first and the settling before each: from the end of
-/// the one before (or the take's start, for the first) to where its
-/// reading starts. An entry that carries on the position before it, in
-/// the same position from where that one was read to and with no settling
-/// of its own (as [`continues_position`] reads the next file of one
-/// recording), is no change: the watch was not handled there, so the take
-/// is one stretch across it and nothing is cut (#1166).
-pub fn positions_of<P: Copy + PartialEq>(
-    listed: impl Iterator<Item = (f64, f64, Option<f64>, P)>,
-) -> Positions<P> {
-    let mut listed: Vec<(f64, f64, Option<f64>, P)> = listed.collect();
+/// The positions listed (start, start of what is read, end, position,
+/// carried on), as changes oldest first and the settling before each:
+/// from the end of the one before (or the take's start, for the first) to
+/// where its reading starts. An entry that carries on the one before it
+/// ([`continues_position`]: the next file of one recording, the watch not
+/// handled) is no change, so the take is one stretch across it and
+/// nothing is cut there (#1166).
+pub fn positions_of<P: Copy>(listed: impl Iterator<Item = ListedPosition<P>>) -> Positions<P> {
+    let mut listed: Vec<ListedPosition<P>> = listed.collect();
     listed.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut out = Vec::new();
     let mut settles = Vec::new();
-    for (i, &(start, from, _, p)) in listed.iter().enumerate() {
-        let before = i.checked_sub(1).map(|j| listed[j]);
-        // Where the one before was read to is where this one starts, to
-        // within rounding of the files' lengths.
-        let abuts = |to: Option<f64>| to.is_some_and(|t| (t - start).abs() < 1e-6);
-        if before.is_some_and(|b| b.3 == p && abuts(b.2) && from == start) {
+    for (i, &(start, from, _, p, carried)) in listed.iter().enumerate() {
+        if carried && i > 0 {
             continue;
         }
         // The position began where the one before it ended, the first at
         // the take's start: the app saves each entry from the end of its
         // settling, the first's too.
-        let began = match before.map(|b| b.2) {
+        let began = match i.checked_sub(1).map(|j| listed[j].2) {
             None => 0.0,
             Some(Some(end)) if end < start => end,
             Some(_) => start,
@@ -1670,9 +1676,9 @@ mod tests {
         assert_eq!(
             listed,
             vec![
-                (0.0, 30.0, Some(600.0), p("DU")),
-                (650.0, 660.0, Some(660.0), p("CD")),
-                (700.0, 730.0, None, p("CU")),
+                (0.0, 30.0, Some(600.0), p("DU"), false),
+                (650.0, 660.0, Some(660.0), p("CD"), false),
+                (700.0, 730.0, None, p("CU"), false),
             ]
         );
     }
@@ -1684,41 +1690,51 @@ mod tests {
     #[test]
     fn a_position_begins_where_the_one_before_ended() {
         let listed = [
-            (290.0, 320.0, None, 'C'),
-            (0.0, 0.0, Some(100.0), 'A'),
-            (120.0, 150.0, Some(300.0), 'B'),
+            (290.0, 320.0, None, 'C', false),
+            (0.0, 0.0, Some(100.0), 'A', false),
+            (120.0, 150.0, Some(300.0), 'B', false),
         ];
         let (changes, settles) = positions_of(listed.into_iter());
         assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (290.0, 'C')]);
         assert_eq!(settles, vec![(100.0, 150.0), (290.0, 320.0)]);
     }
 
-    /// An entry that carries on the position before it, from where that
-    /// one was read to and with no settling of its own, is no change: the
-    /// take is one stretch across it (#1166). One that settles, starts
-    /// elsewhere or names another position still is.
+    /// An entry that carries on the one before it ([`continues_position`])
+    /// is no change: the take is one stretch across it (#1166). Two entries
+    /// of one file split at 600 s with `settle_s = 0` do not carry on, so
+    /// they stay two, as `series` cuts them.
     #[test]
     fn a_carried_on_entry_is_no_change_of_position() {
+        let m: Manifest = toml::from_str(
+            "[[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nsettle_s = 20.0\n\
+             [[recording]]\nfile = \"b.flac\"\nposition = \"DD\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"DD\"\n",
+        )
+        .unwrap();
+        let carried: Vec<bool> = m
+            .recordings
+            .iter()
+            .map(|e| continues_position(e, &m))
+            .collect();
+        assert_eq!(carried, [false, true, true]);
         let listed = [
-            (0.0, 20.0, Some(600.0), 'D'),
-            (600.0, 600.0, Some(1200.0), 'D'),
-            (1200.0, 1200.0, None, 'D'),
+            (0.0, 20.0, Some(600.0), 'D', false),
+            (600.0, 600.0, Some(1200.0), 'D', true),
+            (1200.0, 1200.0, None, 'D', true),
         ];
         let (changes, settles) = positions_of(listed.into_iter());
         assert_eq!(changes, vec![(0.0, 'D')]);
         assert_eq!(settles, vec![(0.0, 20.0)]);
-        let listed = [
-            (0.0, 20.0, Some(600.0), 'D'),
-            (600.0, 620.0, Some(1200.0), 'D'),
-            (1300.0, 1300.0, Some(1400.0), 'D'),
-            (1400.0, 1400.0, None, 'U'),
-        ];
-        let (changes, settles) = positions_of(listed.into_iter());
-        assert_eq!(
-            changes,
-            vec![(0.0, 'D'), (600.0, 'D'), (1200.0, 'D'), (1400.0, 'U')]
-        );
-        assert_eq!(settles, vec![(0.0, 20.0), (600.0, 620.0), (1200.0, 1300.0)]);
+        let split: Manifest = toml::from_str(
+            "settle_s = 0.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nend_s = 600.0\n\
+             [[recording]]\nfile = \"a.flac\"\nposition = \"DD\"\nstart_s = 600.0\n",
+        )
+        .unwrap();
+        let listed = listed_positions(&split, &split.recordings, 1200.0);
+        assert!(listed.iter().all(|l| !l.4), "{listed:?}");
+        let (changes, _) = positions_of(listed.into_iter());
+        assert_eq!(changes.len(), 2);
     }
 
     /// A reading reaches across no break, no change of position after the
