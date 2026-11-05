@@ -444,8 +444,8 @@ fn figures_apart(ours: Option<&serde_json::Value>, theirs: Option<&serde_json::V
 /// pane draws, against `series`, and the run the Power Reserve pane reads
 /// from a long take, against `session`. Each as `(what, how)`; `what` is
 /// `id`, then the series and its values ("readings" or "2 s"), or
-/// "power reserve".
-fn pane_differences(id: &str, root: &Path, cli: &Path) -> Vec<(String, String)> {
+/// "power reserve". With them, whether either surface read a run.
+fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool) {
     use timegrapher_core::distribution as dist;
     let dir = root.join("takes").join(id);
     let mut app = opened(&dir);
@@ -489,19 +489,22 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> Vec<(String, String)> 
         .map(|r| serde_json::to_value(r).unwrap())
         .unwrap_or(serde_json::Value::Null);
     let theirs = session_json(cli, &dir)["power_reserve"].clone();
+    let run = !ours.is_null() || !theirs.is_null();
     if ours != theirs {
         out.push((
             format!("{id} power reserve"),
             format!("{ours} in the app, {theirs} from session"),
         ));
     }
-    out
+    (out, run)
 }
 
 /// Pane figures the app still reads differently from the command line,
 /// with the issue that tracks each. A name starting `* ` stands for every
 /// take; each entry must still differ on at least one take, so the list
-/// only shrinks as the app is fixed.
+/// only shrinks as the app is fixed. A take's "power reserve" entry is
+/// held to that only where a surface reads a run: a pull request's corpus
+/// cut is too short for one.
 const PANES_KNOWN: &[(&str, &str)] = &[
     (
         "* rate readings",
@@ -548,6 +551,10 @@ const PANES_KNOWN: &[(&str, &str)] = &[
     ("ym42_DD_30min beat_error 2 s", SETTLE),
     ("ym42_DU_2h amplitude 2 s", SETTLE),
     ("ym42_DU_2h beat_error 2 s", SETTLE),
+    (
+        "reverso21600_DU_level_overnight power reserve",
+        "#1150: session reads each 10-minute entry alone, too short for a run",
+    ),
 ];
 
 /// #1146, in [`PANES_KNOWN`].
@@ -573,11 +580,14 @@ fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
     };
     let ids = takes(&root);
     assert!(!ids.is_empty(), "no take to compare in {root:?}");
-    let found: Vec<(String, String)> =
-        timegrapher_core::cores::on_every_core(&ids, |id| pane_differences(id, &root, &cli))
-            .into_iter()
-            .flatten()
-            .collect();
+    let read = timegrapher_core::cores::on_every_core(&ids, |id| pane_differences(id, &root, &cli));
+    let with_run: Vec<&str> = ids
+        .iter()
+        .zip(&read)
+        .filter(|(_, (_, run))| *run)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _)| d).collect();
     let mut wrong = Vec::new();
     for (what, how) in &found {
         match PANES_KNOWN.iter().find(|(k, _)| is_known(k, what)) {
@@ -586,7 +596,10 @@ fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
         }
     }
     for (known, _) in PANES_KNOWN {
-        if !found.iter().any(|(what, _)| is_known(known, what)) {
+        let held = known
+            .strip_suffix(" power reserve")
+            .is_none_or(|id| with_run.contains(&id));
+        if held && !found.iter().any(|(what, _)| is_known(known, what)) {
             wrong.push(format!("{known}: now the same; take it off PANES_KNOWN"));
         }
     }
