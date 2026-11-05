@@ -57,22 +57,20 @@ impl TimegrapherApp {
         );
     }
 
-    /// The 2-second stretches of amplitude and beat error, leaving out any
-    /// that overlap a masked stretch or reach across a break, as the
+    /// The 2-second stretches of amplitude and beat error in the position
+    /// the watch is in now, settled: core's one rule for which windows a
+    /// stretch takes ([`core_session::stretch_windows`], #636), so none
+    /// overlaps a masked stretch or reaches across a break, as the
     /// readings do.
-    pub(super) fn unmasked_windows(&self) -> Vec<&timegrapher_core::amplitude::AmplitudeWindow> {
-        let breaks = self.live.as_ref().map_or(&[][..], |l| l.breaks());
-        self.live
-            .as_ref()
-            .map_or(&[][..], |l| l.amplitude_windows())
-            .iter()
-            .filter(|w| !breaks.iter().any(|&b| w.start_s < b && b < w.end_s))
-            .filter(|w| {
-                !self
-                    .masked
-                    .iter()
-                    .any(|&(a, b)| w.start_s < b && w.end_s > a)
-            })
+    pub(super) fn position_windows(&self) -> Vec<&timegrapher_core::amplitude::AmplitudeWindow> {
+        let Some(live) = self.live.as_ref() else {
+            return Vec::new();
+        };
+        let cuts = live.cuts();
+        self.session
+            .current_spans(self.position)
+            .into_iter()
+            .flat_map(|(a, b)| core_session::stretch_windows(&cuts, live.amplitude_windows(), a, b))
             .collect()
     }
 
@@ -183,7 +181,7 @@ impl TimegrapherApp {
         // Only the position the watch is in now: values from another
         // position are a different measurement.
         let inside = |t: f64| self.in_position(t);
-        let windows = self.unmasked_windows();
+        let windows = self.position_windows();
         // One reading per averaging time: a new reading comes every half
         // second, and the ones between share most of their beats, so counting
         // them all would stack up repeats and look surer than it is.
@@ -220,11 +218,7 @@ impl TimegrapherApp {
                 None,
             ),
             SeriesKind::Amplitude if short => (
-                windows
-                    .iter()
-                    .filter(|w| inside(w.end_s) && self.in_position(w.start_s + 1e-6))
-                    .filter_map(|w| w.mean())
-                    .collect(),
+                windows.iter().filter_map(|w| w.mean()).collect(),
                 AMPLITUDE,
                 pal.trace_amplitude,
                 "2 s",
@@ -252,14 +246,9 @@ impl TimegrapherApp {
     }
     fn hist_beat_errors(&self, short: bool) -> core_session::BeatErrorSelection {
         if short {
-            return core_session::select_beat_errors(
-                self.unmasked_windows()
-                    .iter()
-                    .filter(|w| self.in_position(w.end_s) && self.in_position(w.start_s + 1e-6))
-                    .map(|w| {
-                        core_session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)
-                    }),
-            );
+            return core_session::select_beat_errors(self.position_windows().iter().map(|w| {
+                core_session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)
+            }));
         }
         let readings = timegrapher_core::live::spaced_readings(
             self.trend
