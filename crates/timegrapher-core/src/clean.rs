@@ -392,6 +392,25 @@ impl<'a> Cuts<'a> {
         out
     }
 
+    /// A window's middle on true time: where it sits for every rule that
+    /// places a window by time (#636).
+    pub fn window_middle(&self, w: &AmplitudeWindow) -> f64 {
+        (self.true_time(w.start_s) + self.true_time(w.end_s)) / 2.0
+    }
+
+    /// Whether the window `w` belongs to the stretch from `from_s` to
+    /// `to_s` on true time: [`crate::session::window_in`]'s test, its
+    /// middle from `from_s` up to but not at `to_s`, read on true time
+    /// rather than the windows' own clock (#636).
+    pub fn window_in(&self, w: &AmplitudeWindow, from_s: f64, to_s: f64) -> bool {
+        crate::session::window_span_in(
+            self.true_time(w.start_s),
+            self.true_time(w.end_s),
+            from_s,
+            to_s,
+        )
+    }
+
     /// The amplitude windows a reading may use: those whose span on true
     /// time is [`clear`](Self::clear) of every hole.
     pub fn amplitude_windows<'w>(
@@ -483,6 +502,26 @@ mod tests {
 
     fn brk(audio_s: f64, gap_s: f64) -> Break {
         Break { audio_s, gap_s }
+    }
+
+    /// A window belongs to a stretch on true time by its middle, half-open,
+    /// as `session::window_in` reads it on the windows' own clock (#636):
+    /// after a 30 s pause at 100 s, the window from 100 to 102 s of audio
+    /// sits at 131 s on true time.
+    #[test]
+    fn a_window_belongs_where_its_middle_lies_on_true_time() {
+        let cuts = Cuts::new(None, &[brk(100.0, 30.0)], &[]);
+        let before = window(10.0, 12.0);
+        assert_eq!(cuts.window_middle(&before), 11.0);
+        assert!(cuts.window_in(&before, 11.0, 12.0));
+        assert!(!cuts.window_in(&before, 0.0, 11.0));
+        assert!(crate::session::window_in(&before, 11.0, 12.0));
+        let after = window(100.0, 102.0);
+        assert_eq!(cuts.window_middle(&after), 131.0);
+        assert!(cuts.window_in(&after, 130.0, 140.0));
+        assert!(!cuts.window_in(&after, 100.0, 130.0));
+        // On the windows' own clock it would sit in the pause's place.
+        assert!(crate::session::window_in(&after, 100.0, 102.0));
     }
 
     /// Beats every 0.2 s from 0 to `to` audio seconds.
