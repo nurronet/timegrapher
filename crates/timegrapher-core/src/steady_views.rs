@@ -792,10 +792,6 @@ mod tests {
         assert_eq!(super::thin_readings(&empty), vec![]);
     }
 
-    /// A 60 s cycle in a 65 h take's 10 s readings: picking every k-th
-    /// reading can land on one phase of it each time and draw a flat
-    /// line; the chunks' bands keep its swing in every point, while their
-    /// means stay on the level (#1034).
     /// Walter's Pepsi case (#1037): 7 h of 2 s beat error windows between
     /// 0.2 and 0.6 ms, with a stray at ±2 ms in one chunk in twenty. Read
     /// from the readings, the scale stays on the 0.2-0.6 ms trace (from
@@ -834,6 +830,10 @@ mod tests {
         assert_eq!(ends(&r.hi, 2.0) + ends(&r.lo, -2.0), strays);
     }
 
+    /// A 60 s cycle in a 65 h take's 10 s readings: picking every k-th
+    /// reading can land on one phase of it each time and draw a flat
+    /// line; the chunks' bands keep its swing in every point, while their
+    /// means stay on the level (#1034).
     #[test]
     fn a_long_takes_minute_cycle_shows_in_the_drawn_bands() {
         let n = 65 * 360;
