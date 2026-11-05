@@ -18,8 +18,8 @@ use crate::beats::Beat;
 use crate::breaks::Break;
 use crate::clean::Cuts;
 use crate::clock::ClockFit;
-use crate::dsp::median;
 use crate::dsp::percentile;
+use crate::dsp::{mean_of, median_of};
 use crate::longrun::LongReport;
 use crate::periodicity::Wheel;
 use crate::shape::{ShapeReport, SideReport};
@@ -487,16 +487,46 @@ pub fn window_figures(wins: &[&AmplitudeWindow], turned: bool) -> WindowFigures 
     }
 }
 
+/// A stretch's timing fit and window figures, as every reading of a
+/// stretch takes them: saved (`session`), whole (`analyze`) and live
+/// (#512, one engine reads a stretch).
+#[derive(Debug, Clone)]
+pub struct StretchFits {
+    /// Rate and beat error, fitted piece by piece between the cuts
+    /// ([`timing::fit_pieces`]); none with no beat rate.
+    pub fit: Option<timing::TimingFit>,
+    /// Whether the beat error's sign turns between pieces
+    /// ([`timing::sign_turns`]).
+    pub turned: bool,
+    /// The amplitude windows' figures, the unlock beat error as sizes
+    /// where it turns ([`window_figures`]).
+    pub figures: WindowFigures,
+}
+
+/// [`StretchFits`] of a stretch's `beats` (true time, in order) at `bph`,
+/// cut at `cuts`, and of its amplitude windows `wins`: the one way a
+/// reading of a stretch is fitted (#512).
+pub fn stretch_fits(
+    beats: &[Beat],
+    bph: Option<u32>,
+    cuts: &[f64],
+    wins: &[&AmplitudeWindow],
+) -> StretchFits {
+    let turned = bph.is_some_and(|bph| timing::sign_turns(beats, bph, cuts));
+    StretchFits {
+        fit: bph.and_then(|bph| timing::fit_pieces(beats, bph, cuts)),
+        turned,
+        figures: window_figures(wins, turned),
+    }
+}
+
 /// The length of the parts a stretch's windows must be whole in, seconds:
 /// its amplitude windows' length, else 2 s.
 pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
-/// Rate and timing-scatter fits use ten seconds to collect enough beats.
-const RATE_WINDOW_S: f64 = 10.0;
-/// Half-window spacing keeps the existing overlapping rate-reading grid.
-const RATE_WINDOW_STEP_S: f64 = 5.0;
+use crate::measure::{RATE_WINDOW_S, RATE_WINDOW_STEP_S};
 
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
@@ -567,11 +597,6 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
         }
     }
     None
-}
-
-fn median_of(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let mut w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| median(&mut w))
 }
 
 /// [`watch_lead_s`] for the stretch of `log` from `from_s` to `to_s`
@@ -719,14 +744,20 @@ pub fn measure_masked(
     let in_range: Vec<Beat> = log.beats[stretch_beats(&log.beats, from_s, to_s)].to_vec();
     let beats = holes.beats(&in_range);
     let cuts = holes.fit_cuts(&beats);
-    let fit = timing::fit_pieces(&beats, log.bph, &cuts);
-    let turned = timing::sign_turns(&beats, log.bph, &cuts);
     let (from_t, to_t) = (map(from_s), map(to_s));
     let part = window_part_s(&log.amplitude_windows);
     let windows = scatter_windows(&holes, &beats, log.bph, from_t, to_t, part);
     let rates: Vec<f64> = windows.iter().map(|w| w.fit.rate_s_per_day).collect();
     let rate_samples: Vec<twostate::Sample> = holes
-        .windows(&beats, log.bph, from_t, to_t, 10.0, 10.0, part)
+        .windows(
+            &beats,
+            log.bph,
+            from_t,
+            to_t,
+            RATE_WINDOW_S,
+            RATE_WINDOW_S,
+            part,
+        )
         .iter()
         .map(|w| twostate::Sample {
             start_s: w.start_s,
@@ -736,7 +767,11 @@ pub fn measure_masked(
         })
         .collect();
     let amp = stretch_windows(&holes, &log.amplitude_windows, from_s, to_s);
-    let figures = window_figures(&amp, turned);
+    let StretchFits {
+        fit,
+        turned,
+        figures,
+    } = stretch_fits(&beats, Some(log.bph), &cuts, &amp);
     let amps: Vec<f64> = amp.iter().filter_map(|w| w.mean()).collect();
     // On true time, as the rate samples are, so a pause is a hole in the
     // two-state blocks.
@@ -1235,11 +1270,6 @@ pub struct SessionReport {
     pub findings: Vec<Finding>,
 }
 
-fn mean(v: impl Iterator<Item = f64>) -> Option<f64> {
-    let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
-    (!w.is_empty()).then(|| w.iter().sum::<f64>() / w.len() as f64)
-}
-
 fn spread(v: impl Iterator<Item = f64>) -> Option<f64> {
     let w: Vec<f64> = v.filter(|x| x.is_finite()).collect();
     if w.len() < 2 {
@@ -1434,7 +1464,7 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             // The positions with a rate in both states, so each mean is
             // over the same positions.
             let common = |s: &StateIndices, o: &StateIndices| {
-                mean(
+                mean_of(
                     s.positions
                         .iter()
                         .filter(|v| {

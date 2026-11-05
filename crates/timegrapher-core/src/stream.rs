@@ -142,9 +142,16 @@ struct State {
     jumps: Vec<f64>,
     bph: u32,
     beats: Vec<Beat>,
+    /// The amplitude windows, put together after the last chunk from
+    /// the windows each chunk's [`AmpJob`] found.
     amp: Vec<AmplitudeWindow>,
     /// Next amplitude window start, seconds.
     next_amp_s: f64,
+    /// Chunks analysed so far.
+    chunks: usize,
+    /// Each side swap's time, with the number of chunks analysed before
+    /// it: it swaps the windows those chunks found from that time on.
+    swaps: Vec<(usize, f64)>,
     clipped_beats: Vec<f64>,
     clipped_samples: usize,
     snippets: Vec<(f64, Vec<f32>)>,
@@ -156,7 +163,11 @@ impl State {
     /// sound alone, were found beforehand ([`Prepared::prepare`]), so that
     /// many chunks can have them found at once; the rest carries on from
     /// the chunk before, in order.
-    fn chunk(&mut self, c: &Prepared) {
+    ///
+    /// Returns what is needed to find the amplitude windows starting in
+    /// the chunk, which are found off this thread ([`AmpJob::run`]).
+    fn chunk(&mut self, c: &Prepared) -> Option<AmpJob> {
+        self.chunks += 1;
         let (x, x0, core_a, core_b, env) = (&c.x[..], c.x0, c.core_a, c.core_b, &c.env[..]);
         let fs = self.fs;
         let (local, heard_first) = match &self.template {
@@ -165,21 +176,13 @@ impl State {
                 self.level = level;
                 (b, false)
             }
-            None => {
-                let Some(found) = self.first_beats(env) else {
-                    return;
-                };
-                found
-            }
+            None => self.first_beats(env)?,
         };
         let off = x0 as f64 / fs;
         let beat = 3600.0 / self.bph as f64;
 
         // Number the chunk's beats on from the last beat kept so far.
-        let Some(anchor) = beats::anchor_of(&local, off, core_a, core_b, self.beats.last(), beat)
-        else {
-            return;
-        };
+        let anchor = beats::anchor_of(&local, off, core_a, core_b, self.beats.last(), beat)?;
         let (mut numbered, _) = beats::number_on(
             &local,
             anchor,
@@ -230,13 +233,16 @@ impl State {
                 self.sides.beat(t, b.index, b.quality, w);
             }
             if let Some((j, beats::SideCall::Swapped)) = self.sides.settle() {
-                swap_sides_from(j, &mut self.beats, &mut self.amp);
+                swap_sides_from(j, &mut self.beats, &mut []);
+                // The windows of the chunks before this one, found
+                // elsewhere, are swapped when put together.
+                self.swaps.push((self.chunks - 1, j));
                 swap_sides_from(j - off, &mut numbered, &mut []);
             }
         }
         self.count_clipping(&c.clipped, off, core_a, core_b, kept_from);
 
-        self.amplitude_chunk(env, &numbered, off, off + x.len() as f64 / fs, core_b, beat);
+        self.amplitude_job(numbered, off, off + x.len() as f64 / fs, core_b, beat)
     }
 
     /// The beats of a chunk before a watch has been heard, and whether the
@@ -314,40 +320,95 @@ impl State {
     }
 
     /// Amplitude on a fixed grid of windows starting inside a chunk that
-    /// starts at `off` and ends at `x_end` seconds.
-    fn amplitude_chunk(
+    /// starts at `off` and ends at `x_end` seconds: which windows, found
+    /// by [`AmpJob::run`].
+    fn amplitude_job(
         &mut self,
-        env: &[f32],
-        numbered: &[Beat],
+        numbered: Vec<Beat>,
         off: f64,
         x_end: f64,
         core_b: f64,
         beat: f64,
-    ) {
-        let fs = self.fs;
+    ) -> Option<AmpJob> {
         let w = self.cfg.analysis.amplitude_window_s;
         let mut to = self.next_amp_s;
         while to < core_b && to + w <= x_end {
             to += w;
         }
-        if to > self.next_amp_s {
-            let wins = amplitude::windows_between(
-                env,
-                fs,
-                numbered,
-                2.0 * beat,
-                w,
-                self.next_amp_s - off,
-                to - off,
-                &self.cfg.analysis.amplitude,
-            );
-            self.amp.extend(wins.into_iter().map(|mut win| {
-                win.start_s += off;
-                win.end_s += off;
-                win
-            }));
-            self.next_amp_s = to;
+        (to > self.next_amp_s).then(|| AmpJob {
+            chunk: self.chunks - 1,
+            numbered,
+            off,
+            from_s: std::mem::replace(&mut self.next_amp_s, to),
+            to_s: to,
+            beat,
+        })
+    }
+
+    /// The amplitude windows of every chunk, `found` as `(chunk,
+    /// windows)` in any order: put in chunk order, each swapped by the
+    /// side swaps made after its chunk from its start on, as when they
+    /// were found in turn.
+    fn put_amplitude_together(&mut self, mut found: Vec<(usize, Vec<AmplitudeWindow>)>) {
+        found.sort_by_key(|f| f.0);
+        for (k, wins) in found {
+            for mut w in wins {
+                let n = self
+                    .swaps
+                    .iter()
+                    .filter(|&&(after, t)| after > k && w.start_s >= t)
+                    .count();
+                if n % 2 == 1 {
+                    w.swap_sides();
+                }
+                self.amp.push(w);
+            }
         }
+    }
+}
+
+/// The amplitude windows starting in one chunk, from `from_s` to `to_s`
+/// seconds, and what finding them needs besides the chunk's envelope:
+/// its numbered beats, which the in-order analysis gives
+/// ([`State::chunk`]).
+struct AmpJob {
+    /// The chunk's place in the recording, counted from 0.
+    chunk: usize,
+    numbered: Vec<Beat>,
+    /// The chunk's start, seconds.
+    off: f64,
+    from_s: f64,
+    to_s: f64,
+    beat: f64,
+}
+
+impl AmpJob {
+    /// The windows on `env`, the chunk's envelope, at the recording's
+    /// times.
+    fn run(&self, env: &[f32], fs: f64, cfg: &AnalysisConfig) -> Vec<AmplitudeWindow> {
+        // An amplitude thread's panic, for the test that it comes out of
+        // the reading: windows of 1.25 s.
+        #[cfg(test)]
+        assert!(
+            cfg.amplitude_window_s != 1.25,
+            "test: a chunk's amplitude failed"
+        );
+        let off = self.off;
+        let mut wins = amplitude::windows_between(
+            env,
+            fs,
+            &self.numbered,
+            2.0 * self.beat,
+            cfg.amplitude_window_s,
+            self.from_s - off,
+            self.to_s - off,
+            &cfg.amplitude,
+        );
+        for win in &mut wins {
+            win.start_s += off;
+            win.end_s += off;
+        }
+        wins
     }
 }
 
@@ -484,6 +545,11 @@ fn analyze_fed(
     // (the analysis panicked, or every one of them did), the cutter's
     // sends fail and it stops, so nothing waits on it.
     let cut_rx = std::sync::Arc::new(std::sync::Mutex::new(cut_rx));
+    // Chunks analysed in order, waiting for their amplitude windows to be
+    // found, and the windows found, in any order.
+    let (job_tx, job_rx) = sync_channel::<(AmpJob, Prepared)>(queued);
+    let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
+    let (wins_tx, wins_rx) = std::sync::mpsc::channel();
     let total = std::thread::scope(|sc| {
         let cutter = sc.spawn(move || {
             let mut c = Cutter::new(fs, cfg);
@@ -516,22 +582,42 @@ fn analyze_fed(
             });
         }
         drop(done_tx);
+        for rx in std::iter::repeat_n(job_rx, threads) {
+            let tx = wins_tx.clone();
+            sc.spawn(move || loop {
+                let next = rx.lock().expect("an amplitude thread panicked").recv();
+                let Ok((job, c)) = next else { break };
+                if tx
+                    .send((job.chunk, job.run(&c.env, fs, &cfg.analysis)))
+                    .is_err()
+                {
+                    break;
+                }
+            });
+        }
+        drop(wins_tx);
         // In the order cut, whatever order they are prepared in.
         let mut ready = std::collections::BTreeMap::new();
         let mut next = 0;
-        for (i, c) in done_rx {
+        'chunks: for (i, c) in done_rx {
             ready.insert(i, c);
             while let Some(c) = ready.remove(&next) {
-                st.chunk(&c);
+                let job = st.chunk(&c);
                 next += 1;
                 // The last chunk's end is reported once, below.
                 if c.core_b.is_finite() {
                     progress(c.core_b);
                 }
+                // Stops when the amplitude threads have (one panicked).
+                if job.is_some_and(|job| job_tx.send((job, c)).is_err()) {
+                    break 'chunks;
+                }
             }
         }
+        drop(job_tx);
         cutter.join().expect("the cutting thread panicked")
     })?;
+    st.put_amplitude_together(wins_rx.into_iter().collect());
     progress(total as f64 / fs);
     Ok(st.finish(sample_rate, total))
 }
@@ -646,6 +732,8 @@ impl State {
             beats: Vec::new(),
             amp: Vec::new(),
             next_amp_s: 0.0,
+            chunks: 0,
+            swaps: Vec::new(),
             clipped_beats: Vec::new(),
             clipped_samples: 0,
             snippets: Vec::new(),
@@ -808,6 +896,22 @@ mod tests {
                 Ok(())
             };
             let _ = analyze_fed(48_000, &StreamConfig::default(), 2, fed, |_| {});
+        }));
+    }
+
+    #[test]
+    fn a_panic_while_finding_the_amplitude_comes_out_of_the_reading() {
+        let x = fifteen_minutes();
+        // Every chunk's amplitude windows panic ([`AmpJob::run`] under
+        // test, on windows of 1.25 s).
+        let mut cfg = StreamConfig::default();
+        cfg.analysis.amplitude_window_s = 1.25;
+        assert!(returns_from(move || {
+            let fed = |push: &mut dyn FnMut(&[f32]) -> bool| {
+                x.chunks(1 << 16).all(push);
+                Ok(())
+            };
+            let _ = analyze_fed(48_000, &cfg, 2, fed, |_| {});
         }));
     }
 

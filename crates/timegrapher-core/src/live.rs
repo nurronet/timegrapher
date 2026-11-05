@@ -42,7 +42,6 @@ pub const RATE_RUN_S: f64 = 300.0;
 pub const SCATTER_LOOKBACK_S: f64 = 15.0;
 
 use crate::stream::BeatLog;
-use crate::timing;
 use serde::Serialize;
 
 #[derive(Debug, Clone)]
@@ -961,15 +960,17 @@ impl LiveAnalyzer {
         let (from, lo, hi, span_s) = (st.from, st.lo, st.hi, st.span_s);
         let holes = &st.holes;
         let bph = self.bph.or(self.logged_bph);
-        let fit = bph.and_then(|bph| timing::fit(&self.beats[lo..hi], bph));
         // No window reaches back across the latest cut: the amplitude
         // windows' grid starts again at each cut, and `stretch_windows`
         // keeps only windows clear of every hole, so a jump in a recording
         // read whole falls between two.
         let wins =
             crate::session::stretch_windows(holes, self.amp_within(from, end_s), from, end_s);
-        // One unbroken run of beats: its beat error's sign does not turn.
-        let figures = crate::session::window_figures(&wins, false);
+        // Fitted as every reading of a stretch is (#512). The latest run
+        // holds no cut (`stretch_at` starts it after the latest one), so
+        // it is fitted whole and its beat error's sign does not turn.
+        let crate::session::StretchFits { fit, figures, .. } =
+            crate::session::stretch_fits(&self.beats[lo..hi], bph, &[], &wins);
         let amplitude_error_deg =
             crate::confidence::amplitude_windows_se(wins.iter().copied(), |w| w.mean());
         let Verdict {
@@ -1415,6 +1416,7 @@ impl LiveAnalyzer {
 mod tests {
     use super::*;
     use crate::synth::{generate, SynthConfig};
+    use crate::timing;
 
     /// A hole in the sound that costs `lost_s` of the watch's beating (a
     /// USB dropout, a knock that loses a beat) after `silence_s` of
@@ -2294,6 +2296,69 @@ mod tests {
         let saved = crate::session::measure_masked(&log, None, &at, &[], 60.0, 90.0);
         assert!(saved.watch_heard, "{saved:?}");
         assert!(r.watch_heard, "{r:?}");
+    }
+
+    /// One engine reads a stretch (#512): with a break, or a mask's end,
+    /// inside the averaging time, live reads its latest run, and that
+    /// reading is the saved reading of the same stretch, fitted as it was
+    /// fitted before (whole, its beat error's sign not turned).
+    #[test]
+    fn live_reads_its_latest_run_as_a_saved_reading_of_it() {
+        let watch = generate(
+            &SynthConfig {
+                duration_s: 120.0,
+                beat_error_ms: 0.6,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |t| 4.0 + t / 60.0,
+        );
+        let log = crate::stream::analyze_samples(
+            &watch.samples,
+            watch.sample_rate,
+            &crate::stream::StreamConfig::default(),
+        );
+        let (from, end) = (60.0, 110.0);
+        let brk = [crate::breaks::Break {
+            audio_s: from,
+            gap_s: 0.0,
+        }];
+        let mask = [(50.0, from)];
+        for (breaks, masked) in [(&brk[..], &[][..]), (&[][..], &mask[..])] {
+            let mut live = LiveAnalyzer::from_log(log.clone(), LiveConfig::default());
+            live.set_breaks(breaks.iter().map(|b| b.audio_s).collect());
+            live.set_masked(masked);
+            let r = live.reading_at(end, 90.0);
+            let saved = crate::session::measure_masked(&log, None, breaks, masked, from, end);
+            let close = |a: Option<f64>, b: Option<f64>, what: &str| {
+                let (a, b) = (a.expect(what), b.expect(what));
+                assert!(
+                    (a - b).abs() <= 1e-9 * b.abs().max(1.0),
+                    "{what}: live {a}, saved {b}"
+                );
+            };
+            close(r.rate_s_per_day, saved.rate_s_per_day, "rate");
+            close(r.beat_error_ms, saved.beat_error_ms, "beat error");
+            close(
+                r.beat_error_unlock_ms,
+                saved.beat_error_unlock_ms,
+                "unlock beat error",
+            );
+            close(r.amplitude_deg, saved.amplitude_deg, "amplitude");
+            // As live fitted it before: the run whole, one sign.
+            let run: Vec<crate::beats::Beat> = log
+                .beats
+                .iter()
+                .filter(|b| b.time >= from && b.time <= end)
+                .copied()
+                .collect();
+            let whole = timing::fit(&run, log.bph).unwrap();
+            assert_eq!(r.rate_s_per_day, Some(whole.rate_s_per_day));
+            assert_eq!(
+                r.beat_error_ms.map(f64::abs),
+                Some(whole.beat_error_ms.abs())
+            );
+        }
     }
 
     /// Noise-scattered beats, a pause, then a few seconds of a tidy run:

@@ -925,6 +925,10 @@ fn views_leave_out_a_rate_reading_over_a_dropout() {
 }
 
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test checking the derived view against core's piecewise fit"
+)]
 fn derived_compute_uses_existing_piecewise_analysis() {
     let mut log = context_log();
     // Unequal rates ensure whole-history weighting cannot be replaced by
