@@ -159,7 +159,7 @@ hours, C-Media USB stand fixed to no clipping, clock log kept.
   dial.
 - The rate **wandered between about +1 and +52 s/d** over tens of
   seconds. The mean, after correcting the sound card (running about 19
-  ppm slow, which reads about 1.7 s/d fast), was **+16.6 s/d**.
+  ppm slow, −19 ppm, which reads about 1.7 s/d fast), was **+16.6 s/d**.
 
 **Reasoning.**
 

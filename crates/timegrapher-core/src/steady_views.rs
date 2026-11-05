@@ -490,6 +490,40 @@ pub struct WalkView {
     /// the take's start, 0 h.
     pub last_hours: f64,
     pub last_text: String,
+    /// The hour beads along the trail ([`walk_beads`]).
+    pub beads: Vec<WalkBead>,
+}
+
+/// A bead on the walk's trail marking a round hour: the dot nearest that
+/// hour and the hour as the card writes it ("12 h").
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WalkBead {
+    pub dot: usize,
+    pub text: String,
+}
+
+/// The hour beads: one every 12 h (every 24 h on a take over 96 h), on
+/// the dot nearest each, none within 3 h of the last point so a bead
+/// never crowds the end's label (Hugh's look C, Peter 11-05). An hour
+/// with no dot within an hour of it (in a break) gets none, so a bead
+/// never sits on a dot of another hour.
+pub fn walk_beads(dots: &[WalkDot], last_hours: f64) -> Vec<WalkBead> {
+    let every = if last_hours > 96.0 { 24.0 } else { 12.0 };
+    (1..)
+        .map(|k| k as f64 * every)
+        .take_while(|h| *h < last_hours - 3.0)
+        .filter_map(|h| {
+            let (dot, d) = dots
+                .iter()
+                .enumerate()
+                .map(|(i, d)| (i, (d.hours - h).abs()))
+                .min_by(|a, b| a.1.total_cmp(&b.1))?;
+            (d <= 1.0).then(|| WalkBead {
+                dot,
+                text: hours_text(h),
+            })
+        })
+        .collect()
 }
 
 /// Hours as the card writes them: one decimal under 10 h, whole above.
@@ -539,6 +573,7 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
         }
     }
     Some(WalkView {
+        beads: walk_beads(&dots, last_hours),
         last_text: hours_text(last_hours),
         last_hours,
         dots,
@@ -1379,6 +1414,54 @@ mod tests {
         assert_eq!(v.dots[2].when, 1.0);
         assert!((v.dots[1].when - 12_600.0 / 137_000.0).abs() < 1e-12);
         assert!((v.last_hours - 137_000.0 / 3600.0).abs() < 1e-12);
+    }
+
+    /// Dots every half hour from 0 to `last` h, but none in `gap`.
+    fn dots_to(last: f64, gap: std::ops::Range<f64>) -> Vec<WalkDot> {
+        (0..)
+            .map(|k| k as f64 * 0.5)
+            .take_while(|h| *h <= last)
+            .filter(|h| !gap.contains(h))
+            .map(|hours| WalkDot {
+                hours,
+                when: hours / last,
+                amplitude_deg: 250.0,
+                rate_s_per_day: 0.0,
+                hover: String::new(),
+                joined: true,
+            })
+            .collect()
+    }
+
+    /// A bead every 12 h on the dot at that hour, none within 3 h of the
+    /// end or in a break; every 24 h over 96 h (Hugh's look C).
+    #[test]
+    fn the_walk_has_a_bead_at_each_round_hour() {
+        let beads = |dots: &[WalkDot], last| {
+            walk_beads(dots, last)
+                .into_iter()
+                .map(|b| (dots[b.dot].hours, b.text))
+                .collect::<Vec<_>>()
+        };
+        let d = dots_to(58.0, 0.0..0.0);
+        assert_eq!(
+            beads(&d, 58.0),
+            [
+                (12.0, "12 h".to_string()),
+                (24.0, "24 h".into()),
+                (36.0, "36 h".into()),
+                (48.0, "48 h".into())
+            ]
+        );
+        // 48 h is within 3 h of a 50 h end: no bead there.
+        assert_eq!(beads(&dots_to(50.0, 0.0..0.0), 50.0).len(), 3);
+        // No dot within an hour of 24 h: no bead there.
+        let gap = dots_to(58.0, 22.5..25.5);
+        assert!(!beads(&gap, 58.0).iter().any(|b| b.1 == "24 h"));
+        assert_eq!(beads(&gap, 58.0).len(), 3);
+        let long = beads(&dots_to(120.0, 0.0..0.0), 120.0);
+        let texts: Vec<&str> = long.iter().map(|b| b.1.as_str()).collect();
+        assert_eq!(texts, ["24 h", "48 h", "72 h", "96 h"]);
     }
 
     #[test]

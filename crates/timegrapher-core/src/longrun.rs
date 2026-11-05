@@ -402,11 +402,11 @@ mod tests {
                 _ => None,
             })
         };
-        let (reading, long) = caveats(120.0);
+        let (reading, long) = caveats(-120.0);
         for c in [&reading, &long] {
             let (usb, log_ppm, sd) = disagree(c).unwrap_or_else(|| panic!("{c:?}"));
-            assert_eq!(usb, 120.0);
-            assert!((log_ppm - 20.0).abs() < 0.01, "{log_ppm}");
+            assert_eq!(usb, -120.0);
+            assert!((log_ppm + 20.0).abs() < 0.01, "{log_ppm}");
             assert!(sd < 0.01, "{sd}");
         }
         let json = serde_json::to_value(&reading).unwrap();
@@ -414,10 +414,10 @@ mod tests {
             json.as_array()
                 .unwrap()
                 .iter()
-                .any(|c| c["code"] == "clock_sources_disagree" && c["usb_ppm"] == 120.0),
+                .any(|c| c["code"] == "clock_sources_disagree" && c["usb_ppm"] == -120.0),
             "{json}"
         );
-        let (reading, long) = caveats(23.0);
+        let (reading, long) = caveats(-23.0);
         assert_eq!(disagree(&reading), None, "{reading:?}");
         assert_eq!(disagree(&long), None, "{long:?}");
     }

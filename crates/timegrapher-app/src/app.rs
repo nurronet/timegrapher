@@ -3741,7 +3741,7 @@ fn settle_hint(s: f64) -> String {
 /// audio seconds (`audio`) while they are the same beats.
 /// The clock readings are put on, for a log `duration_s` long: for a
 /// take opened (`opened`), its own clock as core read it, or none; for a
-/// session heard here, the clock kept for the input (`ppm` slow).
+/// session heard here, the clock kept for the input (`ppm` fast).
 fn reading_clock(
     take_clock: Option<&timegrapher_core::clock::ClockFit>,
     opened: bool,

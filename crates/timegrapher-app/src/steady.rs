@@ -1245,8 +1245,8 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let bins = f.profile.len();
     let x = |b: usize| (b as f64 + 0.5) / bins as f64 * f.period_s;
     // The dots go in bands by when their cycle came, first to
-    // last, so slow wander shows as a run of colour. The map's
-    // ends are left off so both themes' cards keep every dot seen.
+    // last, so slow wander shows as a run of colour, on the time
+    // map lifted into the theme so every dot stays seen (Hugh's M3).
     let rows = f.raster.len();
     let bands = rows.clamp(1, TIME_BANDS);
     let mut by_time: Vec<Vec<[f64; 2]>> = vec![Vec::new(); bands];
@@ -1286,6 +1286,8 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
     // The boxes are drawn from the readings, so they are data: the
     // shape's colour, lighter, so the shape stays on top.
     let box_c = colour.gamma_multiply(BOX_OPACITY);
+    let dark = ui.visuals().dark_mode;
+    let time_colour = |t: f32| crate::tfmap::time_colour(dark, t);
     plot.show(ui, |p| {
         grid.draw(p, pal);
         for (band, pts) in by_time.into_iter().enumerate() {
@@ -1299,7 +1301,7 @@ fn cycle_plot(ui: &mut egui::Ui, r: Row<'_>) {
             };
             p.points(
                 Points::new("cycles", pts)
-                    .color(crate::tfmap::viridis(0.15 + 0.75 * t))
+                    .color(time_colour(t))
                     .radius(1.4_f32),
             );
         }

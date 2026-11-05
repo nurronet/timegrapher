@@ -556,7 +556,7 @@ fn applicable_invalid_manifest_stops_actual_open_entrypoints_before_audio() {
         ("lift=nan", "lift"),
         ("lift_angle=0", "lift"),
         ("escape_teeth=0", "escape_teeth"),
-        ("card_ppm=-1000000", "card_ppm"),
+        ("card_ppm_fast=1000000", "card_ppm_fast"),
     ] {
         std::fs::write(
             root.join(MANIFEST),
@@ -613,7 +613,7 @@ fn valid_absent_and_unrelated_manifests_keep_actual_open_paths() {
         },
     )
     .unwrap();
-    let valid = "lift_angle=52\nlift_known=false\ncard_ppm=0\n[[recording]]\nfile=\"watch.wav\"\nposition=\"DU\"\n";
+    let valid = "lift_angle=52\nlift_known=false\ncard_ppm_fast=0\n[[recording]]\nfile=\"watch.wav\"\nposition=\"DU\"\n";
     let unrelated = "bph=0\nlift=nan\n[[recording]]\nfile=\"other.wav\"\nposition=\"DU\"\n";
     for text in [None, Some(valid), Some(unrelated)] {
         let manifest = root.join(MANIFEST);

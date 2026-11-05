@@ -668,7 +668,7 @@ fn readings_section(sn: &Session) -> String {
             esc(&l.text())
         ));
     }
-    body.push_str(&format!(r#"<p class="note">Each reading starts after the settling time and runs to the end of the recording (or the measuring time set in the session file). 10 s rates: the 5th to 95th percentile of rate over 10 s windows, a measure of how steady the rate is. Beat error is a size: which beat is longer is not shown, because it depends on the beat the analysis locked on first. The settling time is left out, as the quick check <code>record</code> prints leaves it out. That check uses the session file's <code>settle_s</code> (20 s when the file has none, as this report does) and none of <code>--settle</code>, <code>--bph</code>, <code>--lift</code>, <code>--calibre</code>, a reading's own <code>settle_s</code>, <code>measure_s</code>, <code>start_s</code>, <code>end_s</code>, a clock log, <code>card_ppm</code> or a restart in listening, so a reading that uses one of these can differ from it.{}</p>"#, if sn.readings.iter().any(|r| r.measurement.calibrated) { " The sound card's clock error is corrected where a clock log or <code>card_ppm</code> is given." } else { "" }));
+    body.push_str(&format!(r#"<p class="note">Each reading starts after the settling time and runs to the end of the recording (or the measuring time set in the session file). 10 s rates: the 5th to 95th percentile of rate over 10 s windows, a measure of how steady the rate is. Beat error is a size: which beat is longer is not shown, because it depends on the beat the analysis locked on first. The settling time is left out, as the quick check <code>record</code> prints leaves it out. That check uses the session file's <code>settle_s</code> (20 s when the file has none, as this report does) and none of <code>--settle</code>, <code>--bph</code>, <code>--lift</code>, <code>--calibre</code>, a reading's own <code>settle_s</code>, <code>measure_s</code>, <code>start_s</code>, <code>end_s</code>, a clock log, <code>card_ppm_fast</code> or a restart in listening, so a reading that uses one of these can differ from it.{}</p>"#, if sn.readings.iter().any(|r| r.measurement.calibrated) { " The sound card's clock error is corrected where a clock log or <code>card_ppm_fast</code> is given." } else { "" }));
     body
 }
 
@@ -972,7 +972,7 @@ mod tests {
 
     #[test]
     fn nonzero_clock_keeps_corrected_rate_but_withholds_unsupported_reference_difference() {
-        let r = reading(Some(100.0), Position::CH);
+        let r = reading(Some(-100.0), Position::CH);
         let measured = r.measurement.rate_s_per_day.unwrap();
         assert!(
             measured < -8.0 && measured > -9.0,
@@ -1035,7 +1035,7 @@ mod tests {
 
     #[test]
     fn a_mixed_chart_omits_all_rate_references_but_table_keeps_raw_comparison() {
-        let corrected = reading(Some(100.0), Position::CH);
+        let corrected = reading(Some(-100.0), Position::CH);
         let raw = reading(None, Position::CB);
         let expected_raw = signed(raw.measurement.rate_s_per_day, 1);
         let html = render(vec![corrected, raw]);
@@ -1052,7 +1052,7 @@ mod tests {
         raw.measurement.rate_s_per_day = None;
         let html = render(vec![raw]);
         assert_eq!(reference_cells(&html)[0][1], "-");
-        let mut corrected = reading(Some(100.0), Position::CH);
+        let mut corrected = reading(Some(-100.0), Position::CH);
         corrected.reference.as_mut().unwrap().rate_s_per_day = None;
         let html = render(vec![corrected]);
         assert_eq!(reference_cells(&html)[0][1], "—");
@@ -1060,7 +1060,7 @@ mod tests {
 
     #[test]
     fn a_reference_on_its_own_clock_sits_beside_a_clock_corrected_reading() {
-        let mut r = reading(Some(100.0), Position::CH);
+        let mut r = reading(Some(-100.0), Position::CH);
         let f = r.reference.as_mut().unwrap();
         f.rate_s_per_day = Some(2.0);
         f.clock = Some(ReferenceClock::Own);
@@ -1097,7 +1097,7 @@ mod tests {
         assert_eq!(cells[0][1], expected);
         assert!(cells[0][0].contains("reference, sound-card clock"));
         assert!(rate_chart(&html).contains("<path class=\"ref\""));
-        let mut r = reading(Some(100.0), Position::CH);
+        let mut r = reading(Some(-100.0), Position::CH);
         r.reference.as_mut().unwrap().clock = Some(ReferenceClock::SoundCard);
         let html = render(vec![r]);
         assert_eq!(reference_cells(&html)[0][1], "—");

@@ -73,7 +73,7 @@ fn a_take_with_a_pause_reads_as_one_watch() {
     std::fs::create_dir_all(&dir).unwrap();
     let (path, pairs, join_s) = take(&dir);
     let clock = ClockFit::new(&pairs).unwrap();
-    assert!((clock.ppm - 20.0).abs() < 0.5, "clock {} ppm", clock.ppm);
+    assert!((clock.ppm + 20.0).abs() < 0.5, "clock {} ppm", clock.ppm);
     assert_eq!(clock.breaks.len(), 1, "{:?}", clock.breaks);
 
     let mut log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();

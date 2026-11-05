@@ -90,7 +90,7 @@ fn a_take_is_cut_and_corrected_as_the_app_reads_it() {
     // settling 5 s, on a card 20 ppm slow.
     std::fs::write(
         take.join("session.toml"),
-        "bph = 28800\ncard_ppm = 20\n\n\
+        "bph = 28800\ncard_ppm_fast = -20\n\n\
          [[recording]]\nfile = \"w.wav\"\nposition = \"DU\"\nstart_s = 0\nend_s = 30\n\
          settle_s = 0\nmasked = [[40.0, 44.0]]\n\n\
          [[recording]]\nfile = \"w.wav\"\nposition = \"DD\"\nstart_s = 30\nsettle_s = 5\n",
@@ -131,7 +131,7 @@ fn a_take_is_cut_and_corrected_as_the_app_reads_it() {
             let (a, b) = (rate(a).unwrap(), rate(b).unwrap());
             assert!((a - correction - b).abs() < 0.005, "{t}: {a} {b}");
         }
-        assert_eq!(b[9], "20.000");
+        assert_eq!(b[9], "-20.000");
     }
     assert!(cut >= 20, "{cut}");
 }

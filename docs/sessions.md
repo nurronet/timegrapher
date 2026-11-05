@@ -30,7 +30,7 @@ bph = 28800
 lift = 55             # 32xx: probably 55° (maybe 58°), project value
 settle_s = 20          # skipped at the start of each recording
 # measure_s = 60       # measure only this long after settling
-card_ppm = 19.3        # sound card's known error, for takes without a clock log
+card_ppm_fast = -19.3  # sound card's known error, ppm fast (here 19.3 slow), for takes without a clock log
 
 [[recording]]
 file = "dandong_DU.flac"        # a file, or a folder of segments
@@ -48,8 +48,10 @@ clock = "ym42_DU_2h/clocklog.txt"   # see long-runs.md
 When a session manifest is consumed, `bph` must be a positive `u32`,
 `lift` (including its `lift_angle` alias) must be from 10 to 90 degrees,
 the one lift range the app, the command line and MCP use too,
-`escape_teeth` must be a positive `u32`, and `card_ppm` must be finite with
-`1 + card_ppm × 10⁻⁶ > 0`. Apart from the lift's range, these are
+`escape_teeth` must be a positive `u32`, and `card_ppm_fast` must be finite with
+`1 − card_ppm_fast × 10⁻⁶ > 0`. A session file written before #657 that
+still gives `card_ppm` (ppm slow) is refused, with a message to write
+`card_ppm_fast` with the old value's sign changed. Apart from the lift's range, these are
 representation/mathematical domains, not watch operating ranges. Zero clock correction remains valid. Missing
 fields, labels, lift context and valid-setting precedence are unchanged.
 
@@ -297,8 +299,9 @@ adds a **Sound** row saying none was kept and what measured it.
 | `windows.csv.gz` | Every 2-second amplitude window, gzipped CSV with the header line `start_s,end_s,even_deg,odd_deg,beat_error_ms,beat_error_unlock_ms,even_unlock_ms,odd_unlock_ms,even_drop_ms,odd_drop_ms` (the beat log's fields, each written so it reads back exactly; empty where there is none) |
 | `profiles.bin.gz` | The Tick Tock profiles of each 2 seconds, gzipped binary, below |
 
-`analysis.json` holds `format` (`"timegrapher.analysis/1"`; a later
-version is refused by name), `software` (name, version and commit of
+`analysis.json` holds `format` (`"timegrapher.analysis/2"`; a later
+version is refused by name, and `/1`, written before #657, is read with
+`usb_clock.ppm`'s sign changed, as it was then ppm slow), `software` (name, version and commit of
 what measured the sound), `audio` (false), `note` (the fact: "Saved
 without its sound: it can't be measured again, and the waveform (the
 Scope pane and Replay) can't come back."), `sample_rate`,
@@ -312,7 +315,7 @@ others are named by the beat count alone), `settings` (the analysis settings tha
 `chunk_s` and `margin_s`, and `profile_every_s`), the row counts `beats`,
 `windows` and `profiles`, `usb_clock` (`ppm`, `lines`, `spread_ppm`: the
 card's clock error from the USB lines in the sound's first ten minutes,
-or null), `signal_median` (the median signal figure, each beat's peak
+ppm fast, or null), `signal_median` (the median signal figure, each beat's peak
 over the envelope's median, or null) and `shape` (one entry per
 recording with a shape: `recording`, its place in `session.toml` from
 0, `from_s` and `to_s`, the stretch measured, and `summary`, as a
@@ -346,7 +349,7 @@ Each reading is:
 - rate from one fit over every beat (Tick and Tock fitted together),
   corrected for the sound card's clock: by the clock log the session file
   names, with the recording's USB lines setting its rate when it has them;
-  without a log, by the USB lines, else by `card_ppm` or a correction
+  without a log, by the USB lines, else by `card_ppm_fast` or a correction
   stored for the input, as `series` and `long` correct it; where the USB
   lines and a known correction are more than 5 ppm apart, the caveat
   `clock_sources_disagree` says so. A reading with a mask or a restart in
@@ -387,7 +390,7 @@ this report on a session file `record` creates (which gives no
 `settle_s` and names no clock log). It can differ where a reading
 uses what the check does not: `--settle`, `--bph`, `--lift` or
 `--calibre`, a reading's own `settle_s`, `measure_s`, `start_s` or
-`end_s`, a clock log or `card_ppm`, or a restart in listening within the take, where this report fits the reading
+`end_s`, a clock log or `card_ppm_fast`, or a restart in listening within the take, where this report fits the reading
 in pieces between the restarts (still one row) and the check fits it
 whole.
 
@@ -514,8 +517,8 @@ no regular beat was found, and its readings are then null;
 `clipped_fraction` the share of clipped beats and `jitter_us` the median
 timing scatter. `calibrated` says whether the rate is corrected for the
 sound card's clock; `clock_ppm` is the steady error that clock corrects,
-in ppm, positive when the sound card runs slow (as every clock ppm is
-today; #657 plans to flip it), and `clock_source` says in words where the clock came from (the
+in ppm, positive when the sound card runs fast (as every clock ppm is,
+#657), and `clock_source` says in words where the clock came from (the
 USB lines, a clock log, or a stored correction), as the app's clock line
 says it. Either is left out when the take has no clock, and `clock_ppm`
 is left out for a clock log, which has no single figure. `amplitude_states` and `rate_states` in each measurement

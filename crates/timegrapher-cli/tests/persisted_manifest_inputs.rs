@@ -51,8 +51,8 @@ fn consumed_invalid_manifest_inputs_fail_before_audio_or_append_even_with_flags(
         ("lift=inf", "lift"),
         ("lift_angle=0", "lift"),
         ("escape_teeth=0", "escape_teeth"),
-        ("card_ppm=-1000000", "card_ppm"),
-        ("card_ppm=nan", "card_ppm"),
+        ("card_ppm_fast=1000000", "card_ppm_fast"),
+        ("card_ppm_fast=nan", "card_ppm_fast"),
     ] {
         let original = f.write(fields);
         for command in ["session", "record"] {
@@ -87,8 +87,8 @@ fn valid_legacy_manifest_context_and_zero_correction_reach_audio_validation() {
     let f = Fixture::new();
     for fields in [
         "",
-        "calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm=0",
-        "bph=21600\nlift=44\nescape_teeth=20\ncard_ppm=-12.5",
+        "calibre=\"Unknown label\"\nlift_angle=52\nlift_known=false\ncard_ppm_fast=0",
+        "bph=21600\nlift=44\nescape_teeth=20\ncard_ppm_fast=12.5",
     ] {
         let original = f.write(fields);
         for command in ["session", "record"] {

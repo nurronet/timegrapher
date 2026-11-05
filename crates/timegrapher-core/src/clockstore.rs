@@ -19,16 +19,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA: &str = "timegrapher.clocks/1";
+pub const SCHEMA: &str = "timegrapher.clocks/2";
+/// The store before #657, when `ppm` was ppm slow: read with each `ppm`'s
+/// sign changed, and written back as [`SCHEMA`] on the next save.
+pub const SCHEMA_1: &str = "timegrapher.clocks/1";
 
 /// One input's measured clock error.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceClock {
     /// The input's name, as `timegrapher devices` lists it.
     pub device: String,
-    /// How much faster true time runs than the card, ppm. Positive means
-    /// the card is slow, so uncorrected rates read fast by
-    /// `ppm` × 0.0864 s/d.
+    /// How fast the card's clock runs, ppm. Positive means it gains on
+    /// true time, so uncorrected rates read slow by `ppm` × 0.0864 s/d.
     pub ppm: f64,
     /// Standard error of `ppm`.
     #[serde(default)]
@@ -66,9 +68,9 @@ impl DeviceClock {
     }
 }
 
-/// A rate read on a clock `ppm` slow, corrected onto true time, s/d.
+/// A rate read on a clock `ppm` fast, corrected onto true time, s/d.
 pub fn correct_rate(card_rate_s_per_day: f64, ppm: f64) -> f64 {
-    (1.0 + card_rate_s_per_day / 86400.0) / (1.0 + ppm * 1e-6) * 86400.0 - 86400.0
+    (1.0 + card_rate_s_per_day / 86400.0) / crate::clock::card_scale(ppm) * 86400.0 - 86400.0
 }
 
 /// The analyze document's correction beside its unchanged sound-card rate.
@@ -175,8 +177,14 @@ impl ClockStore {
     pub fn load_from(p: &Path) -> Result<ClockStore, String> {
         match fs::read_to_string(p) {
             Ok(text) => {
-                let store: Self =
+                let mut store: Self =
                     serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+                if store.schema == SCHEMA_1 {
+                    for d in &mut store.devices {
+                        d.ppm = -d.ppm;
+                    }
+                    store.schema = SCHEMA.to_string();
+                }
                 store
                     .validate()
                     .map_err(|e| format!("{}: {e}", p.display()))?;
@@ -290,7 +298,7 @@ mod tests {
         valid.save_to(&path).unwrap();
         let original = fs::read(&path).unwrap();
         for (field, value) in [
-            ("ppm", -1_000_000.0),
+            ("ppm", 1_000_000.0),
             ("ppm", f64::NAN),
             ("ppm", f64::INFINITY),
             ("ppm", f64::NEG_INFINITY),
@@ -329,7 +337,7 @@ mod tests {
         // Missing SD is the historical unavailable sentinel; manual span zero is valid.
         for sd in [None, Some(0.0), Some(0.2)] {
             valid.devices[0].ppm_sd = sd;
-            for ppm in [-999_999.0, -12.0, 0.0, f64::MAX] {
+            for ppm in [999_999.0, 12.0, 0.0, -f64::MAX] {
                 valid.devices[0].ppm = ppm;
                 valid.save_to(&path).unwrap();
                 assert_eq!(ClockStore::load_from(&path).unwrap().devices, valid.devices);
@@ -355,12 +363,33 @@ mod tests {
 
     #[test]
     fn corrects_a_rate_read_on_a_slow_card() {
-        // 20 ppm slow: the card's second is long, so a watch reads 1.728
-        // s/d fast on it.
-        let d = entry("USB", 20.0);
+        // 20 ppm slow (-20 ppm): the card's second is long, so a watch
+        // reads 1.728 s/d fast on it.
+        let d = entry("USB", -20.0);
         assert!((d.rate_error_s_per_day() - 1.728).abs() < 1e-9);
         assert!((d.correct_rate(10.0) - (10.0 - 1.728)).abs() < 0.001);
         assert!(correct_rate(0.0, 0.0).abs() < 1e-9);
+    }
+
+    /// A store written before #657 gave each card's error ppm slow: it is
+    /// read ppm fast, and saved back in the new layout.
+    #[test]
+    fn a_store_written_before_the_sign_flip_keeps_its_meaning() {
+        let dir = std::env::temp_dir().join(format!("tg-clocks-sign-{}", std::process::id()));
+        let p = dir.join("clocks.json");
+        fs::create_dir_all(&dir).unwrap();
+        let old = r#"{"schema":"timegrapher.clocks/1","devices":[{"device":"USB","ppm":20.0,"ppm_sd":0.1,"span_s":600.0,"measured_utc":"2026-10-30T12:00Z","source":"measure"}]}"#;
+        fs::write(&p, old).unwrap();
+        let s = ClockStore::load_from(&p).unwrap();
+        assert_eq!(s.schema, SCHEMA);
+        let d = s.get("USB").unwrap();
+        assert_eq!(d.ppm, -20.0);
+        assert!((d.rate_error_s_per_day() - 1.728).abs() < 1e-9);
+        s.save_to(&p).unwrap();
+        let text = fs::read_to_string(&p).unwrap();
+        assert!(text.contains(SCHEMA) && text.contains("-20.0"), "{text}");
+        assert_eq!(ClockStore::load_from(&p).unwrap().devices, s.devices);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

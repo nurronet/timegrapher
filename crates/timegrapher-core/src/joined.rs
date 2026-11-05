@@ -398,7 +398,7 @@ mod tests {
     /// [`joined_duration`] says on that clock.
     #[test]
     fn a_join_puts_the_beats_on_the_takes_clock() {
-        let clock = ClockFit::fixed(100.0, 200.0);
+        let clock = ClockFit::fixed(-100.0, 200.0);
         let spans = [(10.0, 60.0), (100.0, 190.0)];
         let (joined, cuts) = join(&log(), &spans, &[], Some(&clock));
         let first = &joined.beats[..250];
@@ -702,7 +702,7 @@ mod tests {
         assert!((joined_duration(&spans, 200.0, None) - (40.0 + JOIN_S + 100.0)).abs() < 1e-9);
         assert_eq!(joined_duration(&[(250.0, 300.0)], 200.0, None), 0.0);
         assert_eq!(joined_duration(&[], 200.0, None), 0.0);
-        let clock = ClockFit::fixed(1000.0, 200.0);
+        let clock = ClockFit::fixed(-1000.0, 200.0);
         let on = joined_duration(&[(0.0, 100.0)], 200.0, Some(&clock));
         assert!((on - 100.1).abs() < 1e-9, "{on}");
         let (joined, _) = join(&log(), &[(0.0, 40.0), (100.0, 200.0)], &[], None);

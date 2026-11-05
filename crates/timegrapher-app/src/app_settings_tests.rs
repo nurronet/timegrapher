@@ -590,7 +590,7 @@ fn settings_moves_the_library_and_keeps_its_place() {
 fn the_rate_hover_names_where_a_takes_clock_came_from() {
     use timegrapher_core::take::{clock_source_text, ClockFrom};
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
-    let clock = timegrapher_core::clock::ClockFit::fixed(18.9, 600.0);
+    let clock = timegrapher_core::clock::ClockFit::fixed(-18.9, 600.0);
     let usb = "from 12 USB lines in the recording, 0.1 ppm apart";
     let kept = "stored for 'USB Mic', 2026-10-20T10:00:00Z";
     let log = std::path::Path::new("take/clock.log");
@@ -606,7 +606,7 @@ fn the_rate_hover_names_where_a_takes_clock_came_from() {
     // The USB lines set the rate over a log kept for its breaks: core's
     // words for both, and what the log measured.
     let mut rated = clock.clone();
-    rated.rate_from_usb(18.9);
+    rated.rate_from_usb(-18.9);
     let source = clock_source_text(ClockFrom::LogRatedByUsb, Some(usb), None, Some(log));
     app.put_take_clock(Some(rated.clone()), Some(source.clone()));
     let words = app.true_clock_words(0.0).unwrap();
@@ -636,7 +636,7 @@ fn settings_forgets_a_kept_clock() {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let mut store = clockstore::ClockStore::default();
-        for (device, ppm) in [("USB Mic", 12.5), ("Built-in", -3.0)] {
+        for (device, ppm) in [("USB Mic", -12.5), ("Built-in", 3.0)] {
             store.set(clockstore::DeviceClock::from_fit(
                 device,
                 &timegrapher_core::clock::ClockFit::fixed(ppm, 1500.0),
@@ -790,7 +790,7 @@ fn invalid_clock_store_blocks_fresh_listening_and_keep_without_hardware() {
         let root =
             std::env::temp_dir().join(format!("tg-app-invalid-clock-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
-        let original = r#"{"schema":"timegrapher.clocks/1","devices":[{"device":"USB","ppm":-1000000,"ppm_sd":null,"span_s":0,"measured_utc":"legacy","source":"set"}]}"#;
+        let original = r#"{"schema":"timegrapher.clocks/2","devices":[{"device":"USB","ppm":1000000,"ppm_sd":null,"span_s":0,"measured_utc":"legacy","source":"set"}]}"#;
         std::fs::write(root.join("clocks.json"), original).unwrap();
         // Isolate the config environment in a child test process, not parallel app tests.
         let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -908,7 +908,7 @@ fn the_input_clock_is_offered_after_twenty_minutes() {
         t.push(4_800, start + Duration::from_secs_f64(audio * 1.000_02));
     }
     let f = t.fit.as_ref().expect("timed at 20 minutes");
-    assert!((f.ppm - 20.0).abs() < 0.5, "{} ppm", f.ppm);
+    assert!((f.ppm + 20.0).abs() < 0.5, "{} ppm", f.ppm);
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     app.clock_track = Some(t);
     assert!(app.clock_measured().is_some());
@@ -923,9 +923,9 @@ fn the_input_clock_is_offered_after_twenty_minutes() {
         measured_utc: "2026-10-12T20:00:00Z".into(),
         source: "measure".into(),
     };
-    app.clock = Some(kept(21.0));
+    app.clock = Some(kept(-21.0));
     assert!(app.clock_offer().is_none(), "the kept clock agrees");
-    app.clock = Some(kept(-14.0));
+    app.clock = Some(kept(14.0));
     assert!(app.clock_offer().is_some(), "the kept clock is 34 ppm off");
     assert_eq!(day_of("2026-10-12T20:00:00Z"), "2026-10-12");
 }

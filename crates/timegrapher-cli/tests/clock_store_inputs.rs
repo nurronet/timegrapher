@@ -16,7 +16,7 @@ impl Fixture {
         Self(root)
     }
     fn write(&self, field: &str, value: serde_json::Value) -> Vec<u8> {
-        let mut doc = json!({"schema":"timegrapher.clocks/1","devices":[{"device":"USB","ppm":0,"ppm_sd":null,"span_s":0,"measured_utc":"legacy","source":"set"}]});
+        let mut doc = json!({"schema":"timegrapher.clocks/2","devices":[{"device":"USB","ppm":0,"ppm_sd":null,"span_s":0,"measured_utc":"legacy","source":"set"}]});
         if field == "schema" {
             doc[field] = value;
         } else {
@@ -44,7 +44,7 @@ impl Drop for Fixture {
 fn invalid_store_blocks_readers_and_writers_before_audio_or_device_work() {
     let f = Fixture::new();
     for (field, value) in [
-        ("ppm", json!(-1000000)),
+        ("ppm", json!(1000000)),
         ("ppm_sd", json!(-1)),
         ("span_s", json!(-1)),
         ("schema", json!("future")),
@@ -92,7 +92,7 @@ fn invalid_store_blocks_readers_and_writers_before_audio_or_device_work() {
 #[test]
 fn explicit_zero_and_unsaved_log_fit_bypass_store_but_valid_store_preserves_defaults() {
     let f = Fixture::new();
-    f.write("ppm", json!(-1000000));
+    f.write("ppm", json!(1000000));
     for args in [
         vec!["analyze", "__missing-clock-input.wav", "--card-ppm", "0"],
         vec![
