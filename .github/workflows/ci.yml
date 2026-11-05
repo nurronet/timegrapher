@@ -56,8 +56,13 @@ jobs:
     # builds). Measured locally, a warm build of the tests was about 9%
     # faster and the target folder under half the size.
     # rust-cache keys on CARGO_* variables, so this gets a cache of its own.
+    # The Linux job also checks integer overflow, which release builds
+    # otherwise skip, so an overflow a test reaches panics here as it would
+    # in a debug build (usbclock.rs at a low sample rate went unseen). It
+    # costs no extra job; the other platforms keep plain release builds.
     env:
       CARGO_PROFILE_RELEASE_DEBUG: "0"
+      CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS: ${{ matrix.os == 'ubuntu-24.04' && 'true' || 'false' }}
     steps:
       # Two commits: on a pull request, GitHub's merge commit and its base.
       - uses: actions/checkout@v7
