@@ -508,12 +508,14 @@ impl Calibres {
                 let q = typed.trim();
                 // The list scrolls between the search field and Manage
                 // Calibres…, so both stay in view however long the
-                // Short List grows.
+                // Short List grows. It keeps one height, searching or not:
+                // egui sizes a menu from its last frame, so a list shrunk
+                // to a short search's hits would leave the menu that small.
                 egui::ScrollArea::vertical()
                     .id_salt("calibre list")
                     .max_height(list_h)
                     .min_scrolled_height(list_h)
-                    .auto_shrink([false, true])
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         let catalog = Catalog::new(&self.user);
                         if q.is_empty() {

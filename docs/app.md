@@ -1591,8 +1591,8 @@ folder can't be moved while another copy has it open. The Watches view adds watc
     type into, lists every calibre matching a name, another name or the
     maker (the first 200, with how many more). Empty, the menu offers Not
     Set, then **Recent**, the **Short List** by maker and **Custom** (your
-    own calibres). The list scrolls between the search field and
-    **Manage Calibres…**, which stays at the menu's foot and opens
+    own calibres). The list keeps one height while you search, and
+    scrolls between the search field and **Manage Calibres…**, which stays at the menu's foot and opens
     Settings at Calibres, and as a button under it. Recent is the 6
     calibres the app was last set to, by a pick in the menu, a watch or
     take opened, or a take saved: the latest first, none twice, never
