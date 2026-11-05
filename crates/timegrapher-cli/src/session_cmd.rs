@@ -482,7 +482,8 @@ pub(crate) fn listing_of(file: &Path) -> Result<Option<(Manifest, PathBuf)>, Str
 }
 
 /// The session file `session_file` with only its entries naming `file`,
-/// and the folder they are read from; none when no entry names it.
+/// and the folder they are read from; none when no entry names it. Each
+/// kept entry settles as it does in the whole session file.
 fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, PathBuf)>, String> {
     let (mut m, base, _) = load_manifest_file(session_file)?;
     // An entry names the file when its sound is that file alone: as a
@@ -496,6 +497,18 @@ fn listing_in(file: &Path, session_file: &Path) -> Result<Option<(Manifest, Path
             _ => false,
         }
     };
+    // An entry carrying on the position of the one before it, in another
+    // file, settles as session reads it, though that one is not kept here
+    // (`take::continues_position`).
+    let carried: Vec<bool> = m
+        .recordings
+        .iter()
+        .map(|e| take::continues_position(e, &m))
+        .collect();
+    // An entry's own settling still comes first.
+    for (e, _) in m.recordings.iter_mut().zip(carried).filter(|(_, c)| *c) {
+        e.settle_s = e.settle_s.or(Some(0.0));
+    }
     m.recordings.retain(same);
     Ok((!m.recordings.is_empty()).then_some((m, base)))
 }
@@ -1281,6 +1294,41 @@ fn print_findings(r: &SessionReport) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `analyze FILE` reads a file's entry over the stretch `session`
+    /// reads it over: one carrying on the position of the file before it
+    /// settles no more, and one with its own settling keeps it (#1145).
+    #[test]
+    fn a_files_entry_alone_settles_as_in_the_whole_session_file() {
+        let dir = std::env::temp_dir().join(format!("tg-listing-settle-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let audio = timegrapher_core::audio::Audio {
+            sample_rate: 100,
+            samples: vec![0.0; 6000],
+        };
+        for f in ["a.wav", "b.wav", "g.wav"] {
+            timegrapher_core::audio::write_wav(&dir.join(f), &audio).unwrap();
+        }
+        let text = "[[recording]]\nfile = 'a.wav'\nposition = 'DU'\n\n\
+                    [[recording]]\nfile = 'b.wav'\nposition = 'DU'\n\n\
+                    [[recording]]\nfile = 'g.wav'\nposition = 'DU'\nsettle_s = 40.0\n";
+        let session_file = dir.join(take::MANIFEST);
+        fs::write(&session_file, text).unwrap();
+        let whole: Manifest = toml::from_str(text).unwrap();
+        let from = |e: &RecordingEntry, m: &Manifest| {
+            take::reading_window(e, m, None, 60.0).unwrap().from_s
+        };
+        let mut read = Vec::new();
+        for (i, f) in ["a.wav", "b.wav", "g.wav"].iter().enumerate() {
+            let (alone, _) = listing_in(&dir.join(f), &session_file).unwrap().unwrap();
+            let e = &alone.recordings[0];
+            assert_eq!(from(e, &alone), from(&whole.recordings[i], &whole), "{f}");
+            read.push(from(e, &alone));
+        }
+        assert_eq!(read, [take::SETTLE_S, 0.0, 40.0]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn options(bph: Option<u32>, lift: Option<f64>, calibre: Option<&str>) -> Options {
         Options {

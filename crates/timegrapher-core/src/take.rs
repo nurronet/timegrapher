@@ -356,9 +356,45 @@ impl From<EntryError> for String {
     }
 }
 
+/// Whether a session entry's `file` names the take's whole folder
+/// (".", "./" or nothing) rather than one of its sound files: the one
+/// spelling check for every reader.
+pub fn names_whole_folder(file: &str) -> bool {
+    matches!(file, "." | "./" | "")
+}
+
+/// Whether session entry `e` of the take `m` carries on the entry listed
+/// just before it: the next file of one recording in the same position,
+/// read from its start after the one before was read to its end. The
+/// watch was not handled between them, so no settling begins there: one
+/// rule for `session`, `series` and the app (#1145).
+pub fn continues_position(e: &RecordingEntry, m: &Manifest) -> bool {
+    let Some(i) = m
+        .recordings
+        .iter()
+        .position(|r| r.file == e.file && r.start_s == e.start_s && r.end_s == e.end_s)
+    else {
+        return false;
+    };
+    let Some(before) = i.checked_sub(1).map(|j| &m.recordings[j]) else {
+        return false;
+    };
+    let position = |r: &RecordingEntry| r.position.as_deref().and_then(session::Position::parse);
+    // An entry for the take's whole folder is not a file the next one
+    // carries on from: the first file of the folder still settles.
+    before.file != e.file
+        && !names_whole_folder(&e.file)
+        && !names_whole_folder(&before.file)
+        && position(e).is_some()
+        && position(before) == position(e)
+        && e.start_s.is_none()
+        && before.end_s.is_none()
+}
+
 /// The stretch entry `e` of the take `m` reads in a recording of
 /// `duration_s`, with `given_settle_s` the settling time the reader gives
-/// (after the entry's own, before the session file's), or why it reads
+/// (after the entry's own and the carrying on of a position
+/// ([`continues_position`]), before the session file's), or why it reads
 /// nothing. Every surface reads an entry from this window.
 pub fn reading_window(
     e: &RecordingEntry,
@@ -371,7 +407,11 @@ pub fn reading_window(
     }
     let (start_s, stop_s) = span_of(e, duration_s).map_err(NoReading::Outside)?;
     let (settle, measure) = entry_times(e, m);
-    let settle = e.settle_s.or(given_settle_s).or(settle);
+    // A file that carries on the one before in the same position was
+    // never handled at its start, so it does not settle again (#1145),
+    // whatever settling the reader gives; only its own entry's stands.
+    let carried_on = continues_position(e, m).then_some(0.0);
+    let settle = e.settle_s.or(carried_on).or(given_settle_s).or(settle);
     let (from_s, to_s) = measured(start_s, stop_s, settle, measure);
     if from_s >= stop_s {
         return Err(NoReading::Unsettled {
@@ -1743,6 +1783,72 @@ mod tests {
         );
         assert_eq!(w(3, None, 600.0), Err(NoReading::Nothing));
         assert!(matches!(w(4, None, 600.0), Err(NoReading::Outside(_))));
+    }
+
+    /// The next file of a recording in the same position carries on the
+    /// one before and does not settle again; a new position, a file read
+    /// from partway in, one after a file stopped early, or the first, does
+    /// (#1145).
+    #[test]
+    fn a_file_carrying_on_its_position_does_not_settle_again() {
+        let m: Manifest = toml::from_str(
+            "[[recording]]\nfile = \"a.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"b.flac\"\nposition = \"dial up\"\n\
+             [[recording]]\nfile = \"c.flac\"\nposition = \"CU\"\n\
+             [[recording]]\nfile = \"d.flac\"\nposition = \"CU\"\nstart_s = 30\n\
+             [[recording]]\nfile = \"e.flac\"\nposition = \"CU\"\nend_s = 500\n\
+             [[recording]]\nfile = \"f.flac\"\nposition = \"CU\"\n\
+             [[recording]]\nfile = \"g.flac\"\nposition = \"CU\"\nsettle_s = 40\n",
+        )
+        .unwrap();
+        let carries: Vec<bool> = m
+            .recordings
+            .iter()
+            .map(|e| continues_position(e, &m))
+            .collect();
+        assert_eq!(carries, [false, true, false, false, true, false, true]);
+        let from = |i: usize| {
+            reading_window(&m.recordings[i], &m, None, 600.0)
+                .unwrap()
+                .from_s
+        };
+        assert_eq!(from(0), SETTLE_S);
+        assert_eq!(from(1), 0.0);
+        assert_eq!(from(2), SETTLE_S);
+        // Its own settling still stands.
+        assert_eq!(from(6), 40.0);
+        // A settling the reader gives (`session --settle`) settles each
+        // new position, not a file that carries one on.
+        let given = |i: usize| {
+            reading_window(&m.recordings[i], &m, Some(30.0), 600.0)
+                .unwrap()
+                .from_s
+        };
+        assert_eq!(
+            (given(0), given(1), given(2), given(5)),
+            (30.0, 0.0, 30.0, 30.0)
+        );
+        assert_eq!(given(6), 40.0);
+        // A take whose session file lists its whole folder first, then its
+        // first file (as dd3235_DU_30min does): that file still settles.
+        let m: Manifest = toml::from_str(
+            "[[recording]]\nfile = \".\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"001.flac\"\nposition = \"DU\"\n\
+             [[recording]]\nfile = \"002.flac\"\nposition = \"DU\"\n",
+        )
+        .unwrap();
+        let carries: Vec<bool> = m
+            .recordings
+            .iter()
+            .map(|e| continues_position(e, &m))
+            .collect();
+        assert_eq!(carries, [false, false, true]);
+        let from = |i: usize| {
+            reading_window(&m.recordings[i], &m, None, 600.0)
+                .unwrap()
+                .from_s
+        };
+        assert_eq!((from(1), from(2)), (SETTLE_S, 0.0));
     }
 
     /// A stretch that starts partway into its recording settles halfway
