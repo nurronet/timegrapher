@@ -1371,7 +1371,9 @@ function steadyPlot(s, view, doc) {
       if (!r || !r.t_s || r.t_s.length < 2) return steadyNote("No readings to draw.");
       const pts = r.t_s.map((t, i) => [t, r.values[i]]).filter(([, y]) => Number.isFinite(y));
       const [lo, hi] = r.y_range || [0, 1];
-      const segs = s.changes && s.changes.segments && s.changes.segments.length > 1 ? s.changes.segments : [];
+      // Level lines only where the words name the levels (#1112): the
+      // detail row says why stretches of one level are not named.
+      const segs = s.changes && s.changes.named && s.changes.segments && s.changes.segments.length > 1 ? s.changes.segments : [];
       const ts = s.two_state && s.two_state.two_levels ? s.two_state : null;
       return xyChart({
         title: "Readings", x: [Math.min(...r.t_s), Math.max(...r.t_s)], y: [lo, hi],
