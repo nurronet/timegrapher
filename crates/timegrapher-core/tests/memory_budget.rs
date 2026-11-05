@@ -23,10 +23,10 @@ use timegrapher_core::synth::{generate, SynthConfig};
 const RUN_S: f64 = 80.0 * 3600.0;
 /// What the stores above may hold together after [`RUN_S`].
 const BUDGET_BYTES: f64 = 160e6;
-/// The input rates the budget holds at (Peter, 2026-11-05).
+/// The input rates the budget holds at (decided on #1115).
 const RATES: [u32; 2] = [48_000, 96_000];
-/// The longest an amplitude window step may be measured at: the budget
-/// counts windows at this step, the most the rule allows.
+/// The shortest amplitude window step the test allows: the budget counts
+/// windows at this step, the most windows the rule allows.
 const WINDOW_STEP_S: f64 = 1.9;
 /// Ten minutes of sound, played in 10 ms blocks as inputs commonly send.
 const PLAYED_S: f64 = 600.0;
