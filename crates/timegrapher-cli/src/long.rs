@@ -476,7 +476,6 @@ fn read_take(
     // ends, as `session` cuts a mask (#1185): no reading spans one.
     breaks.extend(timegrapher_core::clean::mask_breaks(&masked));
     breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
-    breaks.dedup_by(|later, first| later.audio_s == first.audio_s);
     let stretches = stretches.map(|s| s.read);
     let pauses_unseen = stretches
         .as_deref()
