@@ -197,8 +197,12 @@ impl TimegrapherApp {
         theme::tool_field(
             ui,
             "Length",
-            "Time shown along the strip, such as 30 s, 5 min or 2 h: type it, or pick one \
-             with ⏷. Cmd (Mac) or Ctrl and the mouse wheel on the strip change it too.",
+            &format!(
+                "Time shown along the strip, such as 30 s, 5 min or 2 h, and no less than \
+                 {}: type it, or pick one with ⏷. Cmd (Mac) or Ctrl and the mouse wheel on \
+                 the strip change it too, out to the whole take.",
+                fields::duration(StripView::MIN_SPAN_S)
+            ),
             |ui| {
                 let mut s = self.strip.span_s;
                 let (_, changed) = fields::combo(
