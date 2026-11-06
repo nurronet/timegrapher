@@ -1,0 +1,5 @@
+app: head running
+took 1.9 s
+$ copy /Y channel\walk\fx\save1253\lock3.ps1 D:\w\lock3.ps1
+        1 file(s) copied.
+
