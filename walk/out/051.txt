@@ -1,0 +1,8 @@
+app: head running
+took 0.4 s
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")" & findstr masked D:\w\take\session.toml
+locked D:\w\take\session.toml at 17:33:44.883
+released at 17:33:45.626
+17:31:30.474
+masked = [[3.8965090906305235, 6.144494830391068], [7.088022636010848, 9.537800611212955], [10.35439148819274, 12.559192022158818], [15.552731807826504, 18.050493246054636], [20.54825557499322, 23.878604604652622], [26.376366710913597, 28.874128705835762]]
+
