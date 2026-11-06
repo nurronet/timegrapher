@@ -752,8 +752,14 @@ fn two_watches_picked_during_a_save_file_the_take_under_the_last() {
                 .count()
                 == 0
     );
-    h.take = filed;
+    h.take = filed.clone();
     assert_eq!(h.take_s(), 11.0);
+    // Filed under a watch already, it stays there: only a take in
+    // Unsorted Takes is filed.
+    h.app.keep_in_watch(&alpha);
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert_eq!(h.app.session.saved_to(), Some(filed.as_path()));
 }
 
 /// Quitting with a Stop waiting on a save into the take still saves the
