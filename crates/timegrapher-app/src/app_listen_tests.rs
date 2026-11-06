@@ -443,6 +443,89 @@ fn a_kept_quick_listen_records_into_its_take() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A Stop while a take's save into its folder is still being written (the
+/// first can copy a whole hour) waits its turn, rather than the window
+/// waiting on the copy (Vernon's point on #1201); once that save is
+/// written, the Stop's save adds the rest.
+#[test]
+fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-turn-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s as usize],
+        at: start + std::time::Duration::from_secs(at),
+    };
+    r.write(&block(3, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    app.save_again();
+    app.wait_for_save();
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&block(6, 3))
+        .unwrap();
+    app.stream_tick();
+    // Hold the save into the take part way, as a long copy would.
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    let mut s = app.saving.take().expect("a save into the take");
+    assert_eq!(s.streamed, Streamed::Yes);
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = held.recv_timeout(std::time::Duration::from_secs(2));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&block(2, 9))
+        .unwrap();
+    app.stop_listening();
+    assert!(
+        app.saving
+            .as_ref()
+            .is_some_and(|s| s.streamed == Streamed::Yes),
+        "the Stop didn't wait on the copy"
+    );
+    assert_eq!(app.after_save.len(), 1);
+    assert!(app.saving_busy(), "nothing jumps the Stop waiting its turn");
+    go.send(()).unwrap();
+    while app
+        .saving
+        .as_ref()
+        .is_some_and(|s| s.streamed == Streamed::Yes)
+    {
+        app.poll_saving();
+    }
+    assert!(app.after_save.is_empty());
+    assert!(
+        app.saving.is_some(),
+        "the Stop's save, once the other is written"
+    );
+    app.wait_for_save();
+    assert!(!app.needs_save_confirmation());
+    let wav = take.join("audio-001.wav");
+    let flac = take.join("audio-001.flac");
+    let kept = if flac.exists() { flac } else { wav };
+    let samples = timegrapher_core::audio::load(&kept).unwrap().samples.len();
+    assert_eq!(samples, 11 * 48000);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// What the delete dialog for the first kept sound says.
 fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, egui::Pos2)> {
     app.kept_delete_ask = Some(app.kept[0].dir.clone());

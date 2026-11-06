@@ -2307,6 +2307,8 @@ pub struct TimegrapherApp {
     /// Quitting once the save that ends a take recording into its folder
     /// is written.
     close_after_save: bool,
+    /// What was asked while a take's save into its folder was written.
+    after_save: Vec<take_io::AfterSave>,
     /// Kept as its analysis alone: the 2 s profiles in its sound's place.
     no_sound: Option<Vec<analysis_take::StretchProfiles>>,
     /// Where this session's analysis was last kept without its sound, and
@@ -2755,6 +2757,7 @@ impl TimegrapherApp {
             saving: None,
             stream_wait: None,
             close_after_save: false,
+            after_save: Vec::new(),
             no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
@@ -4192,7 +4195,7 @@ impl TimegrapherApp {
             self.stop_listening();
             self.close_after_save = true;
         }
-        if self.close_after_save && self.saving.is_none() {
+        if self.close_after_save && self.saving.is_none() && self.after_save.is_empty() {
             self.close_after_save = false;
             self.may_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -4325,7 +4328,9 @@ impl eframe::App for TimegrapherApp {
         // A save being written finishes first: quitting part way would
         // leave half a take, and the sound it copies is let go below.
         self.wait_for_save();
-        if streamed && self.kept_take() {
+        // Asks waiting on it are let go, but a Stop's save is made below.
+        let asked = !std::mem::take(&mut self.after_save).is_empty();
+        if (streamed || asked) && self.kept_take() {
             self.save_again();
             self.wait_for_save();
         }

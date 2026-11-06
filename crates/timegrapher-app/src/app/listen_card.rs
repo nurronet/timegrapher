@@ -812,7 +812,8 @@ impl TimegrapherApp {
             }
             return;
         }
-        if self.saving_busy() {
+        let again = id.clone();
+        if self.behind_stream(move |a| a.line_pick(again, asked)) || self.saving_busy() {
             return;
         }
         if self.live.is_some() || self.session.recorder.is_some() {
@@ -1103,7 +1104,10 @@ impl TimegrapherApp {
         // A test is set up over a Quick Listen still listening, which
         // stops once its sound is asked about; never over a test.
         let over = kind == NewTake::Listen || self.test_listening() || !self.quick_listen;
-        if self.saving_busy() || (self.running() && over) {
+        if self.behind_stream(move |a| a.new_take(kind, asked))
+            || self.saving_busy()
+            || (self.running() && over)
+        {
             return;
         }
         if !asked && self.new_take_asks() {
