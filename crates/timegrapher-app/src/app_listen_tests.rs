@@ -468,7 +468,8 @@ fn hold_save(app: &mut TimegrapherApp) -> std::sync::mpsc::Sender<()> {
     go
 }
 
-fn held_save(name: &str) -> HeldSave {
+/// A Quick Listen heard for 3 s, its sound not yet kept.
+fn listening(name: &str) -> (TimegrapherApp, PathBuf, std::sync::mpsc::Sender<Event>) {
     let base = std::env::temp_dir().join(format!("tg-app-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
@@ -480,24 +481,51 @@ fn held_save(name: &str) -> HeldSave {
     app.session.listen();
     let info = app.info("", 48000, 16);
     let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
-    let start = std::time::SystemTime::now();
-    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
-        samples: vec![0.0; 48000 * s as usize],
-        at: start + std::time::Duration::from_secs(at),
-    };
-    r.write(&block(3, 0)).unwrap();
+    r.write(&silence(3, 0)).unwrap();
     app.session.recorder = Some(r);
     let capture = queued_capture(&mut app, &base);
+    (app, base, capture)
+}
+
+/// `s` seconds of silence heard `at` seconds in.
+fn silence(s: u64, at: u64) -> timegrapher_core::capture::Block {
+    timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s as usize],
+        at: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_760_000_000 + at),
+    }
+}
+
+/// A watch named `name` added to the Watches folder, by id.
+fn add_watch(app: &mut TimegrapherApp, name: &str) -> String {
+    match &mut app.library {
+        Ok(Some(l)) => {
+            l.add(&library::Watch::new(name)).unwrap();
+            l.find(name).unwrap().watch.id.clone()
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// The folder a watch's takes are kept in.
+fn takes_of(app: &TimegrapherApp, name: &str) -> PathBuf {
+    match &app.library {
+        Ok(Some(l)) => l.find(name).unwrap().dir.join(library::TAKES),
+        _ => unreachable!(),
+    }
+}
+
+fn held_save(name: &str) -> HeldSave {
+    let (mut app, base, capture) = listening(name);
     app.save_again();
     app.wait_for_save();
     let take = app.session.saved_to().expect("kept").to_path_buf();
     let rec = app.session.recorder.as_mut().unwrap();
-    rec.write(&block(6, 3)).unwrap();
+    rec.write(&silence(6, 3)).unwrap();
     app.stream_tick();
     assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::Yes));
     let go = hold_save(&mut app);
     let rec = app.session.recorder.as_mut().unwrap();
-    rec.write(&block(2, 9)).unwrap();
+    rec.write(&silence(2, 9)).unwrap();
     HeldSave {
         app,
         base,
@@ -644,13 +672,7 @@ fn a_stop_during_a_takes_first_save_saves_the_rest_after_it() {
 #[test]
 fn a_kept_quick_listen_picked_into_a_watch_is_filed_under_it() {
     let mut h = held_save("file-kept");
-    let alpha = match &mut h.app.library {
-        Ok(Some(l)) => {
-            l.add(&library::Watch::new("Alpha")).unwrap();
-            l.find("Alpha").unwrap().watch.id.clone()
-        }
-        _ => unreachable!(),
-    };
+    let alpha = add_watch(&mut h.app, "Alpha");
     let unsorted = h.take.parent().unwrap().to_path_buf();
     // Picked while its save into Unsorted Takes is still written.
     h.app.line_pick(Some(alpha.clone()), false);
@@ -659,10 +681,7 @@ fn a_kept_quick_listen_picked_into_a_watch_is_filed_under_it() {
     h.release();
     h.app.run_after_save();
     let filed = h.app.session.saved_to().expect("kept").to_path_buf();
-    let watch_takes = match &h.app.library {
-        Ok(Some(l)) => l.find("Alpha").unwrap().dir.join(library::TAKES),
-        _ => unreachable!(),
-    };
+    let watch_takes = takes_of(&h.app, "Alpha");
     assert_eq!(filed.parent(), Some(watch_takes.as_path()), "{filed:?}");
     assert!(!h.take.exists());
     assert_eq!(std::fs::read_dir(&unsorted).unwrap().count(), 0);
@@ -672,6 +691,68 @@ fn a_kept_quick_listen_picked_into_a_watch_is_filed_under_it() {
     h.app.wait_for_save();
     assert_eq!(h.app.session.saved_to(), Some(filed.as_path()));
     assert_eq!(std::fs::read_dir(&watch_takes).unwrap().count(), 1);
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// A watch picked while a Quick Listen's first save is still copying,
+/// before the take has a folder, files it once the copy is written
+/// (Walter's HOLD on #1229).
+#[test]
+fn a_quick_listen_picked_into_a_watch_during_its_first_save_is_filed_under_it() {
+    let (mut app, base, _capture) = listening("file-first");
+    let alpha = add_watch(&mut app, "Alpha");
+    app.save_again();
+    let go = hold_save(&mut app);
+    assert_eq!(app.session.saved_to(), None, "the first copy still written");
+    app.line_pick(Some(alpha), false);
+    assert_eq!(app.after_save.len(), 1, "filed once the copy is written");
+    go.send(()).unwrap();
+    app.wait_for_save();
+    app.run_after_save();
+    let filed = app.session.saved_to().expect("kept").to_path_buf();
+    assert_eq!(filed.parent(), Some(takes_of(&app, "Alpha").as_path()));
+    let unsorted = match &app.library {
+        Ok(Some(l)) => l.unsorted_dir().unwrap(),
+        _ => unreachable!(),
+    };
+    assert_eq!(std::fs::read_dir(&unsorted).unwrap().count(), 0);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take kept in one watch then another while a save into it is written
+/// is filed under the last, with no error (Vernon's HOLD on #1229).
+#[test]
+fn two_watches_picked_during_a_save_file_the_take_under_the_last() {
+    let mut h = held_save("file-twice");
+    let alpha = add_watch(&mut h.app, "Alpha");
+    let beta = add_watch(&mut h.app, "Beta");
+    // Paused, so each Keep in a Watch picks again (one still heard keeps
+    // the first watch picked).
+    h.app.pause();
+    h.app.keep_in_watch(&alpha);
+    h.app.keep_in_watch(&beta);
+    assert!(h.app.after_save.len() >= 2, "both wait on the save");
+    h.release();
+    while h.app.saving.is_some() || !h.app.after_save.is_empty() {
+        h.app.wait_for_save();
+        h.app.run_after_save();
+    }
+    assert!(
+        !h.app.message.as_ref().is_some_and(|m| m.1),
+        "{:?}",
+        h.app.message
+    );
+    let filed = h.app.session.saved_to().expect("kept").to_path_buf();
+    assert_eq!(filed.parent(), Some(takes_of(&h.app, "Beta").as_path()));
+    assert_eq!(h.app.watch, "Beta");
+    assert!(
+        !takes_of(&h.app, "Alpha").exists()
+            || std::fs::read_dir(takes_of(&h.app, "Alpha"))
+                .unwrap()
+                .count()
+                == 0
+    );
+    h.take = filed;
     assert_eq!(h.take_s(), 11.0);
 }
 

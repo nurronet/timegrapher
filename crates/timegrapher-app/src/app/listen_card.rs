@@ -1324,31 +1324,32 @@ impl TimegrapherApp {
         }
         self.note_settings();
         // Kept in Unsorted Takes already: filed under the watch (#1217).
-        let unsorted = |t: &&Path| match &self.library {
-            Ok(Some(l)) => l.is_unsorted(t),
-            _ => false,
-        };
-        if let Some(take) = self.session.saved_to().filter(unsorted) {
-            self.file_kept_take(take.to_path_buf(), id.to_string());
-        }
+        self.file_kept_take();
         if !heard {
             self.save_again();
         }
     }
 
-    /// File the take being heard or just heard, kept in Unsorted Takes,
-    /// under the watch of id `id`, once any save into it is written; its
-    /// next save goes into it there.
-    fn file_kept_take(&mut self, take: PathBuf, id: String) {
-        let (t, i) = (take.clone(), id.clone());
-        if self.behind_save(move |a| a.file_kept_take(t, i)) {
+    /// File the take being heard or just heard, if it is kept in Unsorted
+    /// Takes, under the watch picked, once any save into it is written; its
+    /// next save goes into it there. Both are read when it runs, so a
+    /// later pick, or a move already made, wins (#1229).
+    fn file_kept_take(&mut self) {
+        if self.behind_save(|a| a.file_kept_take()) {
             return;
         }
-        let moved = match &mut self.library {
-            Ok(Some(l)) => l.move_take(&take, &id),
-            _ => Err("There is no Watches folder".into()),
+        let (Ok(Some(l)), Some(take), Some(id)) = (
+            &mut self.library,
+            self.session.saved_to(),
+            self.watch_open.as_deref(),
+        ) else {
+            return;
         };
-        match moved {
+        if !l.is_unsorted(take) {
+            return;
+        }
+        let take = take.to_path_buf();
+        match l.move_take(&take, id) {
             Ok(to) => self.take_moved(&take, &to),
             Err(e) => self.error(format!("The take couldn't be filed under its watch: {e}")),
         }
