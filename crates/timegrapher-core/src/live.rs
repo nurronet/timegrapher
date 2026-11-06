@@ -339,6 +339,14 @@ impl LiveAnalyzer {
         &self.amp
     }
 
+    /// The clean beats' sound still kept (the profile span back from the
+    /// latest beat), oldest first, as a log keeps it
+    /// ([`BeatLog::snippets`]), so a reading of the log can judge a
+    /// stretch's beat sound as this card does.
+    pub fn snippets(&self) -> Vec<(f64, Vec<f32>)> {
+        self.snippets.iter().map(|s| (s.0, s.2.clone())).collect()
+    }
+
     /// Where Tick's and Tock's unlock sat, ms from the beat time, in the
     /// latest amplitude window to end by `t` seconds that read it (or the
     /// first after, before any has): the guide for a profile of the sound

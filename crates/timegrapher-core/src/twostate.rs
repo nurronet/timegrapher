@@ -824,6 +824,25 @@ mod tests {
             .collect()
     }
 
+    /// A sample that starts in one 10 s block and has its middle in the
+    /// next is in the next, as every surface places a window by its
+    /// middle on the take's one tiling (#636).
+    #[test]
+    fn a_sample_is_in_the_block_its_middle_lies_in() {
+        // 2 s samples from 9 s, middles 10, 12, ... 28 s, valued 0 to 9.
+        let s: Vec<Sample> = (0..10)
+            .map(|i| Sample {
+                start_s: 9.0 + 2.0 * i as f64,
+                end_s: 11.0 + 2.0 * i as f64,
+                value: i as f64,
+                ..Default::default()
+            })
+            .collect();
+        let (b, _) = blocks(&s, &Params::default());
+        let got: Vec<(i64, f64)> = b.iter().map(|b| (b.k, b.value)).collect();
+        assert_eq!(got, [(1, 2.0), (2, 7.0)]);
+    }
+
     #[test]
     fn steady_with_a_slow_fall_is_one_level() {
         // 30 minutes falling 15 degrees as the mainspring runs down.

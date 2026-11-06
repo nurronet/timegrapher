@@ -249,7 +249,9 @@ pub fn log_of(live: &LiveAnalyzer) -> Option<BeatLog> {
         // readings carry core's caveat; `sided` only feeds that list.
         sided: Vec::new(),
         by_count: live.by_count().to_vec(),
-        snippets: Vec::new(),
+        // The sound live still keeps, so the whole take judges a stretch
+        // in timing's doubt zone by its beat sound as session does.
+        snippets: live.snippets(),
     };
     // Stretches masked by hand are left out, cut at both ends: no reading
     // reaches across one, and none takes in a ragged edge of beats beside

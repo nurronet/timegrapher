@@ -2388,6 +2388,36 @@ mod reading_coverage_tests {
             .any(|c| matches!(c, crate::measure::Caveat::ReadingWindows { .. })));
     }
 
+    /// The cells a stretch takes in are counted on true time (#636): on a
+    /// sound card well off true time, its ends read on the audio's own
+    /// clock would take in another number of cells.
+    #[test]
+    fn coverage_counts_cells_on_true_time() {
+        let log = log();
+        let k = 1.0 + 0.005;
+        let pairs: Vec<(f64, f64)> = (0..=6)
+            .map(|i| {
+                let t = i as f64 * 10.0;
+                (t, 1.79e9 + t * k)
+            })
+            .collect();
+        let clock = ClockFit::new(&pairs).unwrap();
+        let map = crate::longrun::true_time(Some(&clock), &[]);
+        let (from, to) = (map(10.0), map(40.9));
+        let cells = |a: f64, b: f64| {
+            (0..40)
+                .filter(|c| (a..b).contains(&(2.0 * *c as f64 + 1.0)))
+                .count()
+        };
+        assert_ne!(
+            cells(from, to),
+            cells(10.0, 40.0),
+            "the test needs ends that differ"
+        );
+        let m = measure(&log, Some(&clock), 10.0, 40.9);
+        assert_eq!(m.coverage.amplitude.windows_in_span, cells(from, to));
+    }
+
     #[test]
     fn mask_coverage_counts_only_the_kept_stretches() {
         let log = log();

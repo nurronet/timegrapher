@@ -2844,6 +2844,49 @@ mod window_grid_tests {
         assert_eq!(amp.y.iter().filter(|v| v.is_finite()).count(), 299);
     }
 
+    /// Two windows in one 2 s cell, as a slow sound card makes once its
+    /// slip passes a second: the one whose true middle is nearer the
+    /// cell's middle is kept, the earlier on a tie, never the two
+    /// averaged (#636).
+    #[test]
+    fn a_shared_cell_keeps_the_window_nearest_its_middle() {
+        let mut log = log_of(0);
+        // Middles 10.2 and 11.5 in cell [10, 12), 12.5 and 13.9 in
+        // [12, 14), 14.5 and 15.5 in [14, 16).
+        for (k, mid) in [10.2, 11.5, 12.5, 13.9, 14.5, 15.5].into_iter().enumerate() {
+            let mut w = log_of(1).amplitude_windows[0].clone();
+            (w.start_s, w.end_s) = (mid - 1.0, mid + 1.0);
+            (w.even_deg, w.odd_deg) = (Some(k as f64), Some(k as f64));
+            log.amplitude_windows.push(w);
+        }
+        let [amp, _] = window_grids(&log, None, &[]);
+        assert_eq!((amp.t0, amp.step), (10.0, 2.0));
+        // The later and nearer, the earlier and nearer, then a tie.
+        assert_eq!(amp.y, [1.0, 2.0, 4.0]);
+    }
+
+    /// With no rate reading, the amplitude's readings still start on a
+    /// whole reading of the take's tiling, not at its first window (#636).
+    #[test]
+    fn readings_without_a_rate_start_on_a_whole_reading() {
+        let amp = Grid {
+            t0: 14.0,
+            step: 2.0,
+            y: (0..8).map(f64::from).collect(),
+        };
+        let none = Grid {
+            t0: 0.0,
+            step: 10.0,
+            y: Vec::new(),
+        };
+        let [a, _] = into_readings(&none, &amp, &amp, 10.0);
+        assert_eq!((a.t0, a.y.len()), (10.0, 2));
+        // [10, 20) holds only the windows from 14 s, so it is left out;
+        // [20, 30) holds all five.
+        assert!(a.y[0].is_nan(), "{:?}", a.y);
+        assert_eq!(a.y[1], 5.0);
+    }
+
     #[test]
     fn windows_keep_step_with_a_stretched_clock() {
         // 16 h of 2 s windows on a sound card 50 ppm fast and no breaks.
