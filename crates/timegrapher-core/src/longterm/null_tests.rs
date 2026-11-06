@@ -111,6 +111,8 @@ struct Raw {
     slope: f64,
     loc0: f64,
     mean: Vec<Option<f64>>,
+    #[serde(default)]
+    shape: Vec<Option<f64>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -118,6 +120,13 @@ struct Measured {
     cell: Raw,
     fitted_mix: f64,
     smax: Vec<f64>,
+    /// Each maximum's take's fitted mix (timing, as the search looks it
+    /// up); NaN where the table missed it. Empty before the rebinning.
+    #[serde(default)]
+    fitted: Vec<f64>,
+    /// The drawn mix the rebinned tail was fitted to (its shape group).
+    #[serde(default, skip_serializing)]
+    tail_from: Option<f64>,
     /// The fitted Gumbel's location and scale, score units.
     mu: f64,
     sigma: f64,
@@ -159,15 +168,17 @@ fn x_index(x: f64) -> Option<usize> {
 
 /// The whitened null's mean at each `x_at(k)` over the band from half
 /// the span to the Nyquist frequency, so that a take between two lengths
-/// finds both cells measured over all it searches; and the median mix the
-/// take's own fit reads.
+/// finds both cells measured over all it searches; the levelled power's
+/// gamma shape there, levelled as a take is, by the table's mean at the
+/// mix its own fit reads (so the shape carries that fit's scatter too;
+/// none until the table has means); and the median mix the fit reads.
 fn null_mean(
     model: NullModel,
     span: f64,
     step: f64,
     mix: f64,
     draws: usize,
-) -> (Vec<Option<f64>>, f64) {
+) -> (Vec<Option<f64>>, Vec<Option<f64>>, f64) {
     let mi = (mix.min(1e15) * 1000.0).round() as u64;
     let id = [model as u64, span as u64, (step * 100.0) as u64, mi];
     let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
@@ -175,6 +186,11 @@ fn null_mean(
     let scale = x_scale(&g0, w);
     let mut sum = vec![0.0; X_POINTS];
     let mut cnt = vec![0usize; X_POINTS];
+    // Levelled power's count, sum and sum of squares.
+    let mut lev_n = vec![0usize; X_POINTS];
+    let mut lev_s = vec![0.0; X_POINTS];
+    let mut lev_ss = vec![0.0; X_POINTS];
+    let own = levelling(model, span, step, mix);
     let mut fitted = Vec::new();
     for d in 0..draws {
         let g = null_grid(
@@ -194,22 +210,90 @@ fn null_mean(
                 cnt[k] += 1;
             }
         }
-        fitted.push(match model {
+        let f = match model {
             NullModel::Readings => sp.rho,
             NullModel::Timing => {
                 let from_x = if w.is_some() { 2.0 } else { 6.0 };
                 let from = (from_x / (sp.df * scale)).ceil() as usize;
                 timing_mix(&sp.power, sp.df, step, from, scale)
             }
-        });
+        };
+        fitted.push(f);
+        if let Some(l) = levelling(model, span, step, f).or_else(|| own.clone()) {
+            for j in jmin..sp.white.len() {
+                let x = j as f64 * sp.df * scale;
+                if let (Some(k), Some(m)) = (x_index(x), l.at(x)) {
+                    let v = sp.white[j] / m.max(1e-9);
+                    lev_n[k] += 1;
+                    lev_s[k] += v;
+                    lev_ss[k] += v * v;
+                }
+            }
+        }
     }
+    let shape = (0..X_POINTS)
+        .map(|k| {
+            let n = lev_n[k] as f64;
+            let m = lev_s[k] / n.max(1.0);
+            let var = lev_ss[k] / n.max(1.0) - m * m;
+            (lev_n[k] >= 20 && var > 0.0).then(|| (m * m / var * 1e4).round() / 1e4)
+        })
+        .collect();
     let mean = sum
         .iter()
         .zip(&cnt)
         .map(|(&s, &c)| (c >= 20).then(|| (s / c as f64 * 1e4).round() / 1e4))
         .collect();
     fitted.sort_by(f64::total_cmp);
-    (mean, fitted[fitted.len() / 2])
+    (mean, shape, fitted[fitted.len() / 2])
+}
+
+/// The maxima of the same draws as [`measure`]'s, each levelled as a take
+/// is: by the table's levelling at its own fitted mix, so the fit
+/// includes the scatter of that mix (Norm on #1218: timing near white
+/// read p 0.001 2.3 times too often when the maxima were levelled at the
+/// true mix). A draw the table can't place is levelled at the true mix
+/// and counted.
+fn maxima_as_takes(
+    model: NullModel,
+    span: f64,
+    step: f64,
+    mix: f64,
+    draws: usize,
+) -> (Vec<(f64, f64)>, usize) {
+    let mi = (mix.min(1e15) * 1000.0).round() as u64;
+    let id = [model as u64, span as u64, (step * 100.0) as u64, mi];
+    let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
+    let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
+    let scale = x_scale(&g0, w);
+    let own = levelling(model, span, step, mix).expect("a table cell");
+    let mut missed = 0;
+    let smax = (0..draws)
+        .map(|d| {
+            let seed = seed_of(&[id[0], id[1], id[2], id[3], 2, d as u64]);
+            let det = detrend(&null_grid(model, span, step, mix, scale, seed), DETREND_S);
+            let band = |given| Band {
+                min_p: 3f64.max(8.0 * step),
+                max_p: span / 3.0,
+                false_alarm: 0.01,
+                detrend_w: w,
+                model,
+                given,
+            };
+            let mut s = search(&det, &band(None), &[]);
+            let fitted = if s.null.calibrated {
+                s.null.mix
+            } else {
+                f64::NAN
+            };
+            if !s.null.calibrated {
+                missed += 1;
+                s = search(&det, &band(Some(&own)), &[]);
+            }
+            (fitted, s.score.iter().copied().fold(0.0, f64::max))
+        })
+        .collect();
+    (smax, missed)
 }
 
 fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Measured {
@@ -219,10 +303,11 @@ fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Me
     let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
     let scale = x_scale(&g0, w);
     let min_p = 3f64.max(8.0 * step);
-    let (mean, fitted_mix) = null_mean(model, span, step, mix, draws);
+    let (mean, shape, fitted_mix) = null_mean(model, span, step, mix, draws);
     // The plain trials count's tail; the maxima don't depend on it.
     let lev = Levelling {
         mean: mean.clone(),
+        shape: shape.clone(),
         mu: 0.0,
         sigma: 1.0 / std::f64::consts::LN_10,
         xi: 0.0,
@@ -268,11 +353,78 @@ fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Me
             slope: (slope * 1e4).round() / 1e4,
             loc0: ((mu - log_trials / slope) * 1e4).round() / 1e4,
             mean,
+            shape,
         },
         fitted_mix,
         smax,
+        fitted: Vec::new(),
+        tail_from: None,
         mu,
         sigma,
+    }
+}
+
+/// How the generator gets each cell: measured, or read back from the
+/// cache and partly redone.
+struct Run {
+    draws: usize,
+    cache: Option<String>,
+    remean: bool,
+    refit: Option<String>,
+}
+
+impl Run {
+    fn cell(&self, model: NullModel, span: f64, step: f64, mix: f64) -> Measured {
+        let Run {
+            draws,
+            cache,
+            remean,
+            refit,
+        } = self;
+        let (draws, remean) = (*draws, *remean);
+        // A cell already measured (the run was cut short) is
+        // read back rather than run again.
+        let kept = cache
+            .as_ref()
+            .map(|d| format!("{d}/{model:?}_{span}_{step}_{mix}_{draws}.json"));
+        let old = kept.as_ref().and_then(|f| std::fs::read_to_string(f).ok());
+        match old.and_then(|t| serde_json::from_str::<Measured>(&t).ok()) {
+            // The mean measured again over its band, the
+            // maxima kept (they use the band's mean only,
+            // the same draws).
+            Some(mut m) if remean => {
+                (m.cell.mean, m.cell.shape, _) = null_mean(model, span, step, mix, draws);
+                if let Some(f) = &kept {
+                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
+                }
+                m
+            }
+            // The maxima drawn again, levelled at each
+            // draw's own mix (the means, which the
+            // lookup reads, already in the table).
+            Some(mut m)
+                if refit
+                    .as_ref()
+                    .is_some_and(|r| r == "all" || format!("{model:?}") == *r) =>
+            {
+                let (taken, missed) = maxima_as_takes(model, span, step, mix, draws);
+                (m.fitted, m.smax) = taken.into_iter().unzip();
+                (m.mu, m.sigma) = gumbel_fit(&m.smax);
+                eprintln!("{model:?} span {span} step {step} mix {mix}: refit, {missed} placed at the true mix");
+                if let Some(f) = &kept {
+                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
+                }
+                m
+            }
+            Some(m) => m,
+            None => {
+                let m = measure(model, span, step, mix, draws);
+                if let Some(f) = &kept {
+                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
+                }
+                m
+            }
+        }
     }
 }
 
@@ -283,8 +435,13 @@ fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Me
 fn write_period_null_table() {
     let draws: usize = std::env::var("NULL_DRAWS").map_or(400, |s| s.parse().unwrap());
     let only: Option<String> = std::env::var("NULL_ONLY").ok();
-    let cache: Option<String> = std::env::var("NULL_CACHE").ok();
-    let remean = std::env::var("NULL_REMEAN").is_ok();
+    let run = Run {
+        draws,
+        cache: std::env::var("NULL_CACHE").ok(),
+        remean: std::env::var("NULL_REMEAN").is_ok(),
+        // `NULL_REFIT=Timing`: that model's maxima levelled as takes are.
+        refit: std::env::var("NULL_REFIT").ok(),
+    };
     let mut jobs = Vec::new();
     for model in [NullModel::Timing, NullModel::Readings] {
         for (span, step) in rows(model) {
@@ -314,30 +471,7 @@ fn write_period_null_table() {
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&(model, span, step, mix)) = jobs.get(i) else { break };
-                        // A cell already measured (the run was cut short) is
-                        // read back rather than run again.
-                        let kept = cache.as_ref().map(|d| format!("{d}/{model:?}_{span}_{step}_{mix}_{draws}.json"));
-                        let old = kept.as_ref().and_then(|f| std::fs::read_to_string(f).ok());
-                        let m = match old.and_then(|t| serde_json::from_str::<Measured>(&t).ok()) {
-                            // The mean measured again over its band, the
-                            // maxima kept (they use the band's mean only,
-                            // the same draws).
-                            Some(mut m) if remean => {
-                                m.cell.mean = null_mean(model, span, step, mix, draws).0;
-                                if let Some(f) = &kept {
-                                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
-                                }
-                                m
-                            }
-                            Some(m) => m,
-                            None => {
-                                let m = measure(model, span, step, mix, draws);
-                                if let Some(f) = &kept {
-                                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
-                                }
-                                m
-                            }
-                        };
+                        let m = run.cell(model, span, step, mix);
                         eprintln!(
                             "{model:?} span {span} step {step} mix {mix}: fitted {:.3} slope {:.3} loc0 {:.3}",
                             m.fitted_mix, m.cell.slope, m.cell.loc0
@@ -355,21 +489,31 @@ fn write_period_null_table() {
             .partial_cmp(&(b.cell.model as u8, b.cell.step_s, b.cell.span_s, b.cell.mix))
             .unwrap()
     });
+    if std::env::var("NULL_REBIN").is_ok() {
+        rebin_by_fitted_mix(&mut done);
+    }
     let cells = fit_shapes(&done);
     // The tail check: with each cell's fit, how often a null maximum reads
     // under 1% and 0.1% (pooled over every cell).
     let (mut n, mut p1, mut p01) = (0usize, 0usize, 0usize);
     for (m, c) in done.iter().zip(&cells) {
+        let (mut cn, mut c1, mut c01) = (0, 0, 0);
         for &s in &m.smax {
             let p = gev_p(s, c.mu, c.sigma, c.xi);
-            n += 1;
-            p1 += usize::from(p < 0.01);
-            p01 += usize::from(p < 0.001);
+            cn += 1;
+            c1 += usize::from(p < 0.01);
+            c01 += usize::from(p < 0.001);
         }
+        eprintln!(
+            "tail {:?} {} {} {}: {cn} {c1} {c01}",
+            c.model, c.span_s, c.step_s, c.mix
+        );
+        (n, p1, p01) = (n + cn, p1 + c1, p01 + c01);
     }
     let note = format!(
-        "Generated by write_period_null_table (longterm/null_tests.rs), fixed seeds. {draws} draws a cell for the mean and as many for the maximum. The maximum's generalised extreme value by maximum likelihood: location and scale for each cell (the scale's relative error about {:.0}%), the shape for each take length and step, profiled over its cells on 0 to 0.2 in steps of 0.02. Pooled tail check: {p1} of {n} null maxima under p 0.01 (expected {:.0}), {p01} under 0.001 (expected {:.0}).",
+        "Generated by write_period_null_table (longterm/null_tests.rs), fixed seeds. {draws} draws a cell for the mean and as many for the maximum. The maximum's generalised extreme value by maximum likelihood: location and scale for each cell (the scale's relative error about {:.0}%); the shape profiled over 0 to {:.1} in steps of 0.02, shared by each take length and step (readings) or each mix (timing). Timing's location and scale are fitted to the maxima grouped by the mix each take's search fitted, which is the coordinate the lookup reads, pooled from every drawn mix of that length and step. The drawn mixes are white, 1 to 10^4 up to 0.35 of the sampling rate, and walk. The drawn mixes reach both ends of the lookup's axis, white and walk, so no fitted mix lies past them. A cell that fewer than {MIN_BIN} draws read takes the {MIN_BIN} read nearest it. Each cell's tail is then the least favourable over the drawn mixes read as it or either neighbour (the lookup blends neighbours): fitted to the drawn mix, of those giving at least {MIN_SOURCE} draws, whose maxima most often pass the fit's p 0.001 and 0.0003 levels, refitted until that mix is the one fitted, and sharing that mix's shape group. So the false-alarm chance holds for every drawn mix, not on average over them. Each bin's whitened power is scored by its own null spread (a gamma shape per x). Pooled tail check: {p1} of {n} null maxima under p 0.01 (expected {:.0}), {p01} under 0.001 (expected {:.0}).",
         78.0 / (draws as f64).sqrt(),
+        0.02 * XI_STEPS as f64,
         n as f64 * 0.01,
         n as f64 * 0.001
     );
@@ -448,39 +592,180 @@ fn gev_fit(x: &[f64], xi: f64, mu0: f64, sigma0: f64) -> (f64, f64, f64) {
 /// The table's cells: for each take length and step, the shape that
 /// fits all its cells' maxima best, and each cell's location and scale at
 /// it.
-fn fit_shapes(done: &[Measured]) -> Vec<Cell> {
-    let round = |v: f64| (v * 1e4).round() / 1e4;
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < done.len() {
-        let r = &done[i].cell;
-        let row: Vec<&Measured> = done[i..]
-            .iter()
-            .take_while(|m| {
-                m.cell.model == r.model && m.cell.span_s == r.span_s && m.cell.step_s == r.step_s
+/// Timing's maxima regrouped by the mix the search looks up, not the
+/// mix drawn: each take length and step's draws, from every drawn mix,
+/// go to the cell nearest their fitted mix on the lookup's axis, and that
+/// cell's location and scale are fitted to them. The tail is then the one
+/// the deployed lookup meets, calibrated over the table's spread of drawn
+/// mixes (#1195, Norm's (e)). Draws the table missed are left out, as
+/// the search leaves them uncalibrated.
+/// The fewest draws a rebinned cell's tail is fitted to.
+const MIN_BIN: usize = 200;
+/// The fewest draws of one drawn mix that can set a cell's tail.
+const MIN_SOURCE: usize = 50;
+
+/// The least favourable drawn mix among `read` (fitted mix, maximum,
+/// drawn mix's index): starting from the pooled fit, the drawn mix (of
+/// those with [`MIN_SOURCE`] draws) whose maxima most often pass that
+/// fit's p 0.001 and 0.0003 levels (p 0.01 breaking ties), refitted to
+/// that mix's maxima, until the worst mix is the one fitted. Returns its
+/// maxima, or all of them when no mix has enough.
+fn least_favourable(read: &[(f64, f64, usize)], sources: usize) -> (Vec<f64>, Option<usize>) {
+    let of = |src: usize| -> Vec<f64> { read.iter().filter(|d| d.2 == src).map(|d| d.1).collect() };
+    let pool: Vec<f64> = read.iter().map(|d| d.1).collect();
+    let mut fit = gumbel_fit(&pool);
+    let mut chosen: Option<usize> = None;
+    for _ in 0..8 {
+        let excess = |x: &[f64]| {
+            let n = x.len() as f64;
+            let past = |p: f64| {
+                x.iter()
+                    .filter(|&&s| gev_p(s, fit.0, fit.1, 0.0) < p)
+                    .count() as f64
+                    / (n * p)
+            };
+            (past(0.001) + past(0.0003), past(0.01))
+        };
+        let worst = (0..sources)
+            .map(|src| (src, of(src)))
+            .filter(|(_, x)| x.len() >= MIN_SOURCE)
+            .map(|(src, x)| (src, excess(&x)))
+            .max_by(|a, b| a.1 .0.total_cmp(&b.1 .0).then(a.1 .1.total_cmp(&b.1 .1)))
+            .map(|(src, _)| src);
+        if worst.is_none() || worst == chosen {
+            break;
+        }
+        chosen = worst;
+        fit = gumbel_fit(&of(worst.unwrap()));
+    }
+    match chosen {
+        Some(src) => (of(src), Some(src)),
+        None => (pool, None),
+    }
+}
+
+fn rebin_by_fitted_mix(done: &mut [Measured]) {
+    let mut rows: Vec<(f64, f64)> = done
+        .iter()
+        .filter(|m| m.cell.model == NullModel::Timing)
+        .map(|m| (m.cell.span_s, m.cell.step_s))
+        .collect();
+    rows.dedup();
+    for (span, step) in rows {
+        let idx: Vec<usize> = (0..done.len())
+            .filter(|&i| {
+                let c = &done[i].cell;
+                c.model == NullModel::Timing && c.span_s == span && c.step_s == step
             })
             .collect();
-        i += row.len();
-        let best = (0..=10)
-            .map(|k| {
-                let xi = 0.02 * k as f64;
-                let fits: Vec<(f64, f64, f64)> = row
+        let keys: Vec<f64> = idx
+            .iter()
+            .map(|&i| axis(NullModel::Timing, done[i].cell.mix))
+            .collect();
+        let mut all: Vec<(f64, f64, usize)> = Vec::new();
+        for (src, &i) in idx.iter().enumerate() {
+            let m = &done[i];
+            assert_eq!(
+                m.fitted.len(),
+                m.smax.len(),
+                "{span} {step} {}: refit first",
+                m.cell.mix
+            );
+            all.extend(
+                m.fitted
                     .iter()
-                    .map(|m| gev_fit(&m.smax, xi, m.mu, m.sigma))
+                    .zip(&m.smax)
+                    .filter(|(f, _)| f.is_finite())
+                    .map(|(&f, &x)| (axis(NullModel::Timing, f), x, src)),
+            );
+        }
+        let nearest = |u: f64| {
+            (0..keys.len())
+                .min_by(|&a, &b| (keys[a] - u).abs().total_cmp(&(keys[b] - u).abs()))
+                .unwrap()
+        };
+        for (k, &i) in idx.iter().enumerate() {
+            // The draws read as this cell or either neighbour: the lookup
+            // blends a cell with its neighbours, so their drawn mixes reach
+            // its tail too.
+            let near_k = |d: &&(f64, f64, usize)| nearest(d.0).abs_diff(k) <= 1;
+            let mut read: Vec<(f64, f64, usize)> = all.iter().filter(near_k).copied().collect();
+            // A mix the fit seldom reads at this length (short takes read
+            // most walks near white) takes the draws read nearest it.
+            let own = read.len();
+            if own < MIN_BIN {
+                read = all.clone();
+                read.sort_by(|a, b| (a.0 - keys[k]).abs().total_cmp(&(b.0 - keys[k]).abs()));
+                read.truncate(MIN_BIN);
+            }
+            let (b, worst) = least_favourable(&read, idx.len());
+            let worst = worst.map_or(f64::NAN, |src| done[idx[src]].cell.mix);
+            let m = &mut done[i];
+            eprintln!(
+                "rebin Timing {span} {step} {}: {own} maxima read there; least favourable drawn mix {worst}, {} maxima",
+                m.cell.mix,
+                b.len()
+            );
+            (m.mu, m.sigma) = gumbel_fit(&b);
+            m.smax = b;
+            m.tail_from = worst.is_finite().then_some(worst);
+        }
+    }
+}
+
+/// A shape group: model, span, step (hundredths of a second), mix.
+type GroupKey = (u8, u64, u64, u64);
+
+fn fit_shapes(done: &[Measured]) -> Vec<Cell> {
+    let round = |v: f64| (v * 1e4).round() / 1e4;
+    // The shape is shared by the cells of a group: for readings each take
+    // length and step; for timing each mix (its tail's weight follows the
+    // mix, which the fit draws near white and scatters, more than the
+    // length). `NULL_SHAPE_BY=row` gives timing the readings' grouping.
+    let by_row = std::env::var("NULL_SHAPE_BY").is_ok_and(|v| v == "row");
+    let key = |m: &Measured| -> GroupKey {
+        let c = &m.cell;
+        match c.model {
+            // A rebinned cell shares the shape of the drawn mix its tail
+            // came from: the least favourable mix's tail, shape and all.
+            NullModel::Timing if !by_row => {
+                (1, 0, 0, m.tail_from.unwrap_or(c.mix).min(1e15) as u64)
+            }
+            _ => (c.model as u8, c.span_s as u64, (c.step_s * 100.0) as u64, 0),
+        }
+    };
+    let mut groups: Vec<(GroupKey, Vec<usize>)> = Vec::new();
+    for (i, m) in done.iter().enumerate() {
+        match groups.iter_mut().find(|g| g.0 == key(m)) {
+            Some(g) => g.1.push(i),
+            None => groups.push((key(m), vec![i])),
+        }
+    }
+    let mut fitted: Vec<Option<(f64, f64, f64)>> = vec![None; done.len()];
+    for (k, idx) in &groups {
+        let best = (0..=XI_STEPS)
+            .map(|j| {
+                let xi = 0.02 * j as f64;
+                let fits: Vec<(f64, f64, f64)> = idx
+                    .iter()
+                    .map(|&i| gev_fit(&done[i].smax, xi, done[i].mu, done[i].sigma))
                     .collect();
                 (fits.iter().map(|f| f.2).sum::<f64>(), xi, fits)
             })
             .max_by(|a, b| a.0.total_cmp(&b.0))
             .unwrap();
         let (_, xi, fits) = best;
-        eprintln!(
-            "{:?} span {} step {}: shape {xi}",
-            r.model, r.span_s, r.step_s
-        );
-        for (m, (mu, sigma, _)) in row.iter().zip(fits) {
+        eprintln!("group {k:?}: shape {xi}");
+        for (&i, (mu, sigma, _)) in idx.iter().zip(fits) {
+            fitted[i] = Some((mu, sigma, xi));
+        }
+    }
+    done.iter()
+        .zip(fitted)
+        .map(|(m, f)| {
+            let (mu, sigma, xi) = f.expect("every cell in a group");
             let c = &m.cell;
-            let slope = c.slope;
-            out.push(Cell {
+            Cell {
                 model: c.model,
                 span_s: c.span_s,
                 step_s: c.step_s,
@@ -489,13 +774,16 @@ fn fit_shapes(done: &[Measured]) -> Vec<Cell> {
                 sigma: round(sigma),
                 xi: round(xi),
                 // The Gumbel's location less log10(trials)/slope gave it.
-                log_trials: round((m.mu - c.loc0) * slope),
+                log_trials: round((m.mu - c.loc0) * c.slope),
                 mean: c.mean.clone(),
-            });
-        }
-    }
-    out
+                shape: c.shape.clone(),
+            }
+        })
+        .collect()
 }
+
+/// The shape's profile runs 0 to 0.02·`XI_STEPS`.
+const XI_STEPS: usize = 15;
 
 /// Outside the table there is no levelling, never a clamped cell: a
 /// take shorter than its shortest, longer than its longest, a ρ past its
@@ -591,15 +879,22 @@ fn fresh_seeds_hold_the_tail() {
     use std::sync::Mutex;
     let draws: usize = std::env::var("FRESH_DRAWS").map_or(100, |s| s.parse().unwrap());
     let only: Option<String> = std::env::var("FRESH_MODEL").ok();
+    // `FRESH_GIVEN`: each take levelled at its true mix, not its fitted one.
+    let at_true = std::env::var("FRESH_GIVEN").is_ok();
+    // `FRESH_MIX` keeps one drawn mix; `FRESH_TAG` draws an independent
+    // batch of seeds.
+    let only_mix: Option<f64> = std::env::var("FRESH_MIX").ok().map(|s| s.parse().unwrap());
+    let tag: u64 = std::env::var("FRESH_TAG").map_or(7, |s| s.parse().unwrap());
     let mut cells: Vec<&Cell> = table()
         .cells
         .iter()
         .filter(|c| only.as_ref().is_none_or(|m| format!("{:?}", c.model) == *m))
+        .filter(|c| only_mix.is_none_or(|x| c.mix == x))
         .collect();
     cells.sort_by(|a, b| (b.span_s / b.step_s).total_cmp(&(a.span_s / a.step_s)));
     let next = AtomicUsize::new(0);
     // Per model: maxima, uncalibrated, past 0.01, past 0.001.
-    let totals = Mutex::new([[0usize; 4]; 2]);
+    let totals = Mutex::new([[0usize; 5]; 2]);
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
     std::thread::scope(|sc| {
         for _ in 0..workers {
@@ -616,9 +911,10 @@ fn fresh_seeds_hold_the_tail() {
                     (c.step_s * 100.0) as u64,
                     mi,
                 ];
-                let mut n = [0usize; 4];
+                let mut n = [0usize; 5];
+                let own = levelling(c.model, c.span_s, c.step_s, c.mix);
                 for d in 0..draws {
-                    let seed = seed_of(&[id[0], id[1], id[2], id[3], 7, d as u64]);
+                    let seed = seed_of(&[id[0], id[1], id[2], id[3], tag, d as u64]);
                     let g = null_grid(c.model, c.span_s, c.step_s, c.mix, scale, seed);
                     let det = detrend(&g, DETREND_S);
                     let band = Band {
@@ -627,7 +923,7 @@ fn fresh_seeds_hold_the_tail() {
                         false_alarm: 0.01,
                         detrend_w: w,
                         model: c.model,
-                        given: None,
+                        given: if at_true { own.as_ref() } else { None },
                     };
                     let s = search(&det, &band, &[]);
                     n[0] += 1;
@@ -640,10 +936,11 @@ fn fresh_seeds_hold_the_tail() {
                         .significance(s.score.iter().copied().fold(0.0, f64::max));
                     n[2] += usize::from(sig > 2.0);
                     n[3] += usize::from(sig > 3.0);
+                    n[4] += usize::from(sig > -(0.0003f64).log10());
                 }
                 eprintln!(
-                    "cell {:?} {} {} {}: {} {} {} {}",
-                    c.model, c.span_s, c.step_s, c.mix, n[0], n[1], n[2], n[3]
+                    "cell {:?} {} {} {}: {} {} {} {} {}",
+                    c.model, c.span_s, c.step_s, c.mix, n[0], n[1], n[2], n[3], n[4]
                 );
                 let mut t = totals.lock().unwrap();
                 for (tk, nk) in t[c.model as usize].iter_mut().zip(n) {
@@ -663,6 +960,37 @@ fn fresh_seeds_hold_the_tail() {
             held * 0.01,
             t[m][3],
             held * 0.001
+        );
+    }
+}
+
+/// A bin's levelled power read as the exponential with its null tail:
+/// as it is at shape 1 (and where the cell has no shapes), and at shapes
+/// 0.5 and 2 the chi-square tails of 1 and 4 degrees of freedom, scaled.
+#[test]
+fn a_bins_power_reads_as_its_own_tail() {
+    use crate::steadiness::chi2_tail;
+    let lev = |k: Option<f64>| Levelling {
+        mean: vec![Some(1.0); X_POINTS],
+        shape: k.map_or_else(Vec::new, |k| vec![Some(k); X_POINTS]),
+        mu: 0.0,
+        sigma: 1.0,
+        xi: 0.0,
+        log_trials: 0.0,
+    };
+    let x = x_at(10);
+    for v in [0.1, 1.0, 5.0, 20.0] {
+        assert_eq!(lev(None).as_exponential(x, v), v);
+        assert_eq!(lev(Some(1.0)).as_exponential(x, v), v);
+        let half = lev(Some(0.5)).as_exponential(x, v);
+        assert!(
+            (half + chi2_tail(v, 1).ln()).abs() < 1e-6 * half.max(1.0),
+            "k 0.5 at {v}: {half}"
+        );
+        let two = lev(Some(2.0)).as_exponential(x, v);
+        assert!(
+            (two + chi2_tail(4.0 * v, 4).ln()).abs() < 1e-6 * two.max(1.0),
+            "k 2 at {v}: {two}"
         );
     }
 }
@@ -706,6 +1034,7 @@ fn a_levellings_tail_at_its_own_trials_is_its_own() {
     for xi in [0.0, 0.12] {
         let l = Levelling {
             mean: vec![Some(1.0); X_POINTS],
+            shape: Vec::new(),
             mu: 3.4,
             sigma: 0.47,
             xi,
@@ -786,7 +1115,11 @@ fn the_null_table_has_the_generators_shape() {
     }
     for c in &t.cells {
         let at = format!("{:?} {} {} {}", c.model, c.span_s, c.step_s, c.mix);
-        assert!((0.0..=0.2).contains(&c.xi), "{at}: ξ {}", c.xi);
+        assert!(
+            (0.0..=0.02 * XI_STEPS as f64).contains(&c.xi),
+            "{at}: ξ {}",
+            c.xi
+        );
         assert!(
             c.sigma > 0.0 && c.mu.is_finite() && c.log_trials > 0.0,
             "{at}"
@@ -794,5 +1127,7 @@ fn the_null_table_has_the_generators_shape() {
         assert_eq!(c.mean.len(), X_POINTS, "{at}");
         assert!(c.mean.iter().flatten().all(|&m| m > 0.0), "{at}");
         assert!(c.mean.iter().flatten().count() >= 10, "{at}");
+        assert_eq!(c.shape.len(), X_POINTS, "{at}");
+        assert!(c.shape.iter().flatten().all(|&k| k > 0.0), "{at}");
     }
 }

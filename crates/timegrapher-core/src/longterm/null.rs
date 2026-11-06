@@ -80,6 +80,12 @@ pub struct Cell {
     /// The whitened null's mean at each `x_at(k)`; null where the cell
     /// has no searched bins.
     pub mean: Vec<Option<f64>>,
+    /// The levelled power's gamma shape at each `x_at(k)`, mean² over
+    /// variance across the null's draws: 1 where a bin is a chi-square
+    /// with two degrees of freedom, under 1 where it varies more (the
+    /// lowest bins of a walk). Empty in a table made before #1218.
+    #[serde(default)]
+    pub shape: Vec<Option<f64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +109,8 @@ pub fn table() -> &'static Table {
 #[derive(Debug, Clone)]
 pub struct Levelling {
     pub mean: Vec<Option<f64>>,
+    /// As [`Cell::shape`].
+    pub shape: Vec<Option<f64>>,
     pub mu: f64,
     pub sigma: f64,
     pub xi: f64,
@@ -186,6 +194,33 @@ impl Levelling {
         let (a, b) = (self.mean[k0]?, self.mean[k1]?);
         Some(a + (b - a) * (k - k0 as f64))
     }
+
+    /// The levelled power's gamma shape at `x`, as [`Self::at`]; 1 (a
+    /// chi-square, as every bin was read before #1218) where the cell has
+    /// none.
+    pub fn shape_at(&self, x: f64) -> f64 {
+        let k = (x / 0.01).log2() * 4.0;
+        if self.shape.is_empty() || !(0.0..=(X_POINTS - 1) as f64).contains(&k) {
+            return 1.0;
+        }
+        let k0 = k.floor() as usize;
+        let k1 = (k0 + 1).min(X_POINTS - 1);
+        match (self.shape[k0], self.shape[k1]) {
+            (Some(a), Some(b)) => a + (b - a) * (k - k0 as f64),
+            _ => 1.0,
+        }
+    }
+
+    /// A levelled power `v` at `x` as the exponential (chi-square, two
+    /// degrees of freedom) value with the same null tail: −ln P(Gamma(k,
+    /// 1/k) > v). At k = 1 it is `v`.
+    pub fn as_exponential(&self, x: f64, v: f64) -> f64 {
+        let k = self.shape_at(x);
+        if (k - 1.0).abs() < 1e-9 {
+            return v;
+        }
+        -crate::steadiness::ln_gamma_q(k, k * v)
+    }
 }
 
 /// Timing's mix for a walk with no white floor in the searched band:
@@ -204,13 +239,15 @@ fn axis(model: NullModel, mix: f64) -> f64 {
 }
 
 fn blend(a: &Levelling, b: &Levelling, t: f64) -> Levelling {
-    Levelling {
-        mean: a
-            .mean
-            .iter()
-            .zip(&b.mean)
+    let mix = |p: &[Option<f64>], q: &[Option<f64>]| -> Vec<Option<f64>> {
+        p.iter()
+            .zip(q)
             .map(|(&x, &y)| Some(x? + (y? - x?) * t))
-            .collect(),
+            .collect()
+    };
+    Levelling {
+        mean: mix(&a.mean, &b.mean),
+        shape: mix(&a.shape, &b.shape),
         mu: a.mu + (b.mu - a.mu) * t,
         sigma: a.sigma + (b.sigma - a.sigma) * t,
         xi: a.xi + (b.xi - a.xi) * t,
@@ -236,6 +273,7 @@ fn at_span(cells: &[&Cell], model: NullModel, mix: f64) -> Option<Levelling> {
     let (i, j, t) = bracket(&keys, axis(model, mix))?;
     let l = |c: &Cell| Levelling {
         mean: c.mean.clone(),
+        shape: c.shape.clone(),
         mu: c.mu,
         sigma: c.sigma,
         xi: c.xi,

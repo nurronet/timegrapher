@@ -155,9 +155,14 @@ threshold = the score noise's maximum reaches with chance false_alarm
 significance = −log10(the tail of that maximum at the score)
 ```
 
-Over the table's 170,400 simulated maxima, 1,617 fall under p 0.01 (1,704
-expected) and 193 under 0.001 (170). On 300 seeded 30 min takes of white
-noise, each series' strongest line passes p 0.01 in 2, 4 and 6 of them (rate,
+Each frequency's whitened power is scored by its own null spread before the
+maximum is taken. The timing null's mix (walk against white) is read from the
+take itself and often misread on short takes, so its tail is the least
+favourable over the simulated mixes that read as that mix. On fresh simulated
+takes (200 a cell), readings' maxima fall under p 0.01 in 402 of 43,200 (432
+expected) and under 0.001 in 40 (43); timing's in 320 and 27 of 42,000 (420
+and 42), every mix at or under its bound. On 300 seeded 30 min takes of white
+noise, a series names a cycle at p 0.01 in 1, 4 and 2 of them (rate,
 amplitude, beat error), against 17, 10 and 7 before. Outside the simulated models (a slow
 wander under white readings, flicker in the timing) the rate is not
 guaranteed.

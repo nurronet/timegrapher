@@ -496,8 +496,10 @@ fn search(g: &Grid, band: &Band, exclude: &[f64]) -> Search {
     if let Some(l) = &lev {
         let scale = x_scale(g, band.detrend_w);
         for j in jmin..=jmax {
-            if let Some(m) = l.at(j as f64 * sp.df * scale) {
-                sp.white[j] /= m.max(1e-9);
+            let x = j as f64 * sp.df * scale;
+            if let Some(m) = l.at(x) {
+                // Levelled, then read against the bin's own spread.
+                sp.white[j] = l.as_exponential(x, sp.white[j] / m.max(1e-9));
             }
         }
     }
@@ -1059,17 +1061,17 @@ impl Search {
 }
 
 /// One series' search crossed its threshold about 1 time in this many on
-/// seeded white and AR(1) noise, the noise its model fits: 4 of 400 at
-/// 30 min for ρ 0, 0.5 and 0.9 alike, and 3, 7 and 5 of 400 at 2 h (27
+/// seeded white and AR(1) noise, the noise its model fits: 4, 4 and 5 of
+/// 400 at 30 min for ρ 0, 0.5 and 0.9, and 3, 5 and 6 of 400 at 2 h (27
 /// of 2400 in all, 24 expected), its design rate since the search is
 /// held to its simulated null (#1195; 3 to 3.5% before, #916). Re-measured
 /// by `crossing_counts_on_400_seeds`. Said in [`period_may_be_noise`]'s words and the Periods
 /// threshold's hover.
 pub const MEASURED_CROSSING_IN: u32 = 100;
 /// …and up to 1 time in this many on 30 min takes with a slow wander under
-/// white noise, lag one 0.8, the case [`period_may_be_noise`] names: 17 of
-/// 400 at φ 0.98 a window, 11 at 0.95 (#1195; 9 to 10% before, #916).
-pub const SHORT_CORRELATED_CROSSING_IN: u32 = 24;
+/// white noise, lag one 0.8, the case [`period_may_be_noise`] names: 15 of
+/// 400 at φ 0.98 a window, 10 at 0.95 (#1195; 9 to 10% before, #916).
+pub const SHORT_CORRELATED_CROSSING_IN: u32 = 27;
 
 /// Stretches shorter than this get [`period_may_be_noise`].
 pub const NOISE_CAVEAT_SPAN_S: f64 = 7200.0;
@@ -1745,19 +1747,19 @@ mod tests {
         let cases: Vec<(&str, Gen, std::ops::RangeInclusive<usize>)> = vec![
             ("ρ 0, 30 min", Box::new(|s| ar1(0.0, 900, s)), 4..=4),
             ("ρ 0.5, 30 min", Box::new(|s| ar1(0.5, 900, s)), 4..=4),
-            ("ρ 0.9, 30 min", Box::new(|s| ar1(0.9, 900, s)), 4..=4),
+            ("ρ 0.9, 30 min", Box::new(|s| ar1(0.9, 900, s)), 5..=5),
             ("ρ 0, 2 h", Box::new(|s| ar1(0.0, 3600, s)), 3..=3),
-            ("ρ 0.5, 2 h", Box::new(|s| ar1(0.5, 3600, s)), 7..=7),
-            ("ρ 0.9, 2 h", Box::new(|s| ar1(0.9, 3600, s)), 5..=5),
+            ("ρ 0.5, 2 h", Box::new(|s| ar1(0.5, 3600, s)), 5..=5),
+            ("ρ 0.9, 2 h", Box::new(|s| ar1(0.9, 3600, s)), 6..=6),
             (
                 "wander φ 0.98, 30 min",
                 Box::new(|s| wander_under_white(900, s)),
-                17..=17,
+                15..=15,
             ),
             (
                 "wander φ 0.95, 30 min",
                 Box::new(|s| wander95(900, s)),
-                11..=11,
+                10..=10,
             ),
         ];
         let counts: Vec<usize> = std::thread::scope(|sc| {
@@ -1781,8 +1783,10 @@ mod tests {
                 .collect();
             jobs.into_iter().map(|j| j.join().unwrap()).collect()
         });
-        for ((name, _, want), got) in cases.iter().zip(&counts) {
+        for ((name, _, _), got) in cases.iter().zip(&counts) {
             eprintln!("{name}: {got} of 400");
+        }
+        for ((name, _, want), got) in cases.iter().zip(&counts) {
             assert!(
                 want.contains(got),
                 "{name}: {got} of 400, the docs say {want:?}"

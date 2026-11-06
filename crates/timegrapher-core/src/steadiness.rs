@@ -597,10 +597,16 @@ pub(crate) fn ln_gamma(x: f64) -> f64 {
 
 /// Regularised upper incomplete gamma Q(a, x) = P(Gamma(a) > x).
 fn gamma_q(a: f64, x: f64) -> f64 {
+    ln_gamma_q(a, x).exp()
+}
+
+/// ln Q(a, x), kept in logs so a far tail does not underflow.
+pub(crate) fn ln_gamma_q(a: f64, x: f64) -> f64 {
     if x <= 0.0 {
-        return 1.0;
+        return 0.0;
     }
-    let lead = (-x + a * x.ln() - ln_gamma(a)).exp();
+    let ln_lead = -x + a * x.ln() - ln_gamma(a);
+    let lead = ln_lead.exp();
     if x < a + 1.0 {
         // Series for P.
         let (mut sum, mut term, mut ap) = (1.0 / a, 1.0 / a, a);
@@ -612,7 +618,7 @@ fn gamma_q(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        (1.0 - sum * lead).clamp(0.0, 1.0)
+        (1.0 - sum * lead).clamp(0.0, 1.0).ln()
     } else {
         // Continued fraction for Q (modified Lentz).
         let tiny = 1e-300;
@@ -638,7 +644,7 @@ fn gamma_q(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        (lead * h).clamp(0.0, 1.0)
+        (ln_lead + h.ln()).min(0.0)
     }
 }
 
