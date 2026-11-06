@@ -1,0 +1,9 @@
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+notes = "Walter #1253: 30 s of the corpus YM42 DD take, for Save Again."
+
+[[recording]]
+file = "take.flac"
+position = "DD"
