@@ -1164,6 +1164,45 @@ fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A take with no session.toml, filed under a watch: it moves without an
+/// error, and no session.toml is made for it (#1283).
+#[test]
+fn a_take_with_no_session_toml_is_filed_without_one() {
+    let base = std::env::temp_dir().join(format!("tg-app-file-bare-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let take = lib.unsorted_dir().unwrap().join("2026-10-20 10.00 Dial Up");
+    drop(lib);
+    std::fs::create_dir_all(&take).unwrap();
+    std::fs::write(
+        take.join("session.json"),
+        r#"{"started_utc":"2026-10-20T17:00:00Z","duration_s":40.0}"#,
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.take_readings.wait();
+    app.move_take(&take, &pepsi);
+    let filed = root
+        .join("Pepsi")
+        .join(library::TAKES)
+        .join(file_name(&take));
+    assert!(filed.join("session.json").is_file() && !take.exists());
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|(m, error)| !error && m.contains("Filed")),
+        "{:?}",
+        app.message
+    );
+    assert!(!filed.join(MANIFEST).exists());
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[test]
 fn a_quit_that_cannot_ask_keeps_unsaved_sound_to_offer_back() {
     let base = std::env::temp_dir().join(format!("tg-app-kept-{}", std::process::id()));
