@@ -917,7 +917,9 @@ pub fn new_take_buttons(
 }
 
 /// A take's start in its row: `22 Oct 2026 09:10`, in this computer's
-/// time zone; its folder's name when `session.json` doesn't say.
+/// time zone; "Unknown" when no `session.json` says, as for a take copied
+/// in by hand (#1272): never its folder's name, which would put a second
+/// form in the column and its position beside the Position column's.
 pub fn started_words(t: &Take) -> String {
     t.started_utc
         .as_deref()
@@ -927,7 +929,7 @@ pub fn started_words(t: &Take) -> String {
                 .format("%-d %b %Y %H:%M")
                 .to_string()
         })
-        .unwrap_or_else(|| t.name.clone())
+        .unwrap_or_else(|| "Unknown".into())
 }
 
 /// A Positions Test take's positions measured and its Mean row: rate,
@@ -2303,18 +2305,11 @@ mod tests {
             watch_heard: true,
         };
         let r = Some(&reading);
+        // No session.json says when it started: Unknown, never the
+        // folder's name (#1272).
         assert_eq!(
             take_cells(&t, None, r),
-            [
-                "2026-10-22 09.10",
-                "DU",
-                "30:00",
-                "+9.8",
-                "287",
-                "0.21",
-                "112.6"
-            ]
-            .map(String::from)
+            ["Unknown", "DU", "30:00", "+9.8", "287", "0.21", "112.6"].map(String::from)
         );
         // Until its reading is worked out the figures are blank, never
         // the ones the app showed when it saved the take.
@@ -2382,12 +2377,13 @@ mod tests {
         reason = "over the limit before it was set; split it (architecture guide, section 12)"
     )]
     fn a_narrow_takes_table_keeps_its_size_column() {
+        // Written in this computer's time zone: 26, 27 or 28 Oct.
         let take = |name: &str, audio: bool| Take {
             name: name.into(),
             bytes: 1_400_000,
             audio,
             incomplete: false,
-            started_utc: None,
+            started_utc: Some("2026-10-27T12:30:00Z".into()),
             duration_s: Some(60.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2464,7 +2460,7 @@ mod tests {
         assert!(wide.iter().any(|t| t.0 == "Analysis Only"), "{wide:?}");
         assert!(
             wide.iter()
-                .filter(|t| t.0.starts_with("2026-10-27"))
+                .filter(|t| t.0.split(' ').nth(1) == Some("Oct"))
                 .count()
                 == 2,
             "{wide:?}"
@@ -2490,15 +2486,18 @@ mod tests {
         }
         assert!(!texts.iter().any(|t| t.0.contains('(')), "{texts:?}");
         assert!(find("1.4").right() <= w, "{texts:?}");
-        let dates: Vec<_> = texts.iter().filter(|t| t.0.starts_with("202")).collect();
-        assert_eq!(dates.len(), 2, "{texts:?}");
-        assert!(dates.iter().all(|d| d.0.ends_with('…')), "{dates:?}");
         // The date and its tags end before the Position column starts.
         let position = texts
             .iter()
             .filter(|t| t.0 == "DU")
             .map(|t| t.1.left())
             .fold(f32::INFINITY, f32::min);
+        let dates: Vec<_> = texts
+            .iter()
+            .filter(|t| t.1.left() < position && t.0.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        assert_eq!(dates.len(), 2, "{texts:?}");
+        assert!(dates.iter().all(|d| d.0.ends_with('…')), "{dates:?}");
         assert!(
             texts
                 .iter()
