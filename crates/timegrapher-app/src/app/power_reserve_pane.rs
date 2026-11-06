@@ -445,6 +445,12 @@ impl TimegrapherApp {
             r.name_first_copy(name.to_owned());
         }
         self.save_into(&takes);
+        applog::info(&format!(
+            "DEBUG save_reserve: saving {:?}, streamed {:?}, after {}",
+            self.saving.is_some(),
+            self.saving.as_ref().map(|s| s.streamed),
+            self.after_save.len()
+        ));
         if let Some(t) = self.reserve.as_mut() {
             t.saving = self.saving.is_some();
         }
@@ -460,6 +466,12 @@ impl TimegrapherApp {
         let Some(t) = self.reserve.as_mut().filter(|t| t.saving) else {
             return;
         };
+        applog::info(&format!(
+            "DEBUG reserve_saved: keep_sound {}, saved_to {:?}, take_keep {}",
+            t.keep_sound,
+            self.session.saved_to(),
+            self.take_keep.is_some()
+        ));
         t.saving = false;
         let keep_sound = t.keep_sound;
         let Some(saved) = self.session.saved_to().map(Path::to_path_buf) else {
