@@ -1,0 +1,5 @@
+app: head exited, code 0
+took 16.5 s
+$ set | findstr /i "WALK_TOKEN GITHUB_TOKEN" & echo end
+end
+
