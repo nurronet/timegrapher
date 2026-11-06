@@ -634,3 +634,61 @@ fn the_strip_and_the_charts_share_a_fitted_gutter() {
         theme::time_gutter(&ctx)
     );
 }
+
+/// A take opened after one whose labels widened the gutter fits it
+/// afresh: File > Open as well as Listen (Walter's HOLD on #1239).
+#[test]
+fn a_take_opened_after_a_wide_one_fits_the_gutter_afresh() {
+    let base = std::env::temp_dir().join(format!("tg-app-gutter-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let audio = timegrapher_core::synth::generate(
+        &timegrapher_core::synth::SynthConfig {
+            duration_s: 60.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    let wav = base.join("narrow.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    let ctx = themed();
+    let frame = |app: &mut TimegrapherApp| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| app.panels(ctx));
+    };
+    // The wide take on show, its labels drawn.
+    frame(&mut app);
+    let wide = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(200.0, 10.0));
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        theme::note_gutter_label(ctx, wide)
+    });
+    frame(&mut app);
+    assert!(theme::time_gutter(&ctx) > 200.0);
+    // Opened as File > Open does.
+    app.open_recording(&wav, false);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        // What is drawn while it opens: wide labels, as the take before's.
+        frame(&mut app);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            theme::note_gutter_label(ctx, wide)
+        });
+        app.poll();
+    }
+    assert!(app.batch.is_none(), "{:?}", app.message);
+    for _ in 0..3 {
+        frame(&mut app);
+    }
+    let gutter = theme::time_gutter(&ctx);
+    assert!(gutter < 76.0, "{gutter}");
+    let _ = std::fs::remove_dir_all(&base);
+}
