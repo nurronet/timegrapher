@@ -190,6 +190,41 @@ fn a_take_refused_while_read_is_no_longer_opening() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A cancelled opening leaves nothing opening: the window no longer says
+/// Opening (#1220, Walter's find).
+#[test]
+fn a_cancelled_open_is_no_longer_opening() {
+    let base = std::env::temp_dir().join(format!("tg-app-cancel-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 600.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    let wav = base.join("long.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.start_batch(&wav);
+    assert!(app.batch.is_some(), "{:?}", app.message);
+    assert_eq!(app.state_words(), "Opening");
+    app.cancel_open();
+    for _ in 0..10 {
+        app.poll();
+    }
+    assert!(app.batch.is_none());
+    assert_ne!(app.state_words(), "Opening");
+    assert!(
+        !app.message.as_ref().is_some_and(|m| m.1),
+        "{:?}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// A take is opened whole as the command line opens it (core's
 /// `take::whole_entry`), so one whose entries name two clock logs is
 /// refused with core's reason, not read on the first entry's (#731).
