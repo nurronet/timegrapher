@@ -343,7 +343,7 @@ impl TimegrapherApp {
         let ui_b = &mut buttons;
         let length_hint = format!("\n\n{length} · {state}");
         self.listen_go(ui_b, compact.then_some(length_hint.as_str()));
-        // A watch's take saves itself at Stop, and a test's at its end.
+        // A watch's take saves itself as it goes, and a test's at its end.
         let testing = self.ready_test().is_some() || self.test_listening();
         if (!self.session.mic() || self.quick_listen) && !testing {
             self.save_menu(ui_b, LISTEN_BUTTON);
@@ -409,7 +409,7 @@ impl TimegrapherApp {
             let watch = self.open_watch().map(|e| e.watch.name.clone());
             let mut hint = match &watch {
                 Some(name) => format!(
-                    "Listen to {name}: a new take, saved into it at Stop. For a Quick \
+                    "Listen to {name}: a new take, saved into it as it goes. For a Quick \
                      Listen with no watch, pick No Watch (Quick Listen) on the Calibre \
                      card's title."
                 ),
@@ -533,7 +533,10 @@ impl TimegrapherApp {
 
     pub(super) fn save_menu(&mut self, ui: &mut egui::Ui, size: f32) {
         let pal = theme::pal(ui);
-        let can = self.session.allows(Action::Save) && self.saving.is_none();
+        let can = self.session.allows(Action::Save) && !self.saving_asked();
+        // A take recording into its folder: the icon says where, and there
+        // is no Save Again.
+        let recording_in = self.streams().then(|| self.kept_place());
         // The watch with the newest take first.
         let watches: Vec<(String, String)> = match &self.library {
             Ok(Some(l)) if l.read_only.is_none() => self.recent_watches(),
@@ -547,7 +550,15 @@ impl TimegrapherApp {
         let mut picked = None;
         let (mut new, mut folder, mut unsorted, mut marks) = (false, false, false, false);
         ui.add_enabled_ui(can || changes || self.addable_take().is_some(), |ui| {
-            let button = theme::icon_button(ui, Icon::Save, size, 8, pal.accent, false, false);
+            let button = theme::icon_button(
+                ui,
+                Icon::Save,
+                size,
+                8,
+                pal.accent,
+                false,
+                recording_in.is_some(),
+            );
             let saved = self.session.saved_to().is_some();
             egui::Popup::menu(&button)
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
@@ -584,7 +595,11 @@ impl TimegrapherApp {
                         let heard = (listening && self.quick_listen).then_some(KEEP_HEARD_HINT);
                         save_menu_watches(ui, &watches, keeps, heard, can, &mut picked, &mut new);
                     }
+                    if let Some(place) = &recording_in {
+                        saving_to(ui, place);
+                    }
                     if can
+                        && recording_in.is_none()
                         && ui
                             .button(if saved {
                                 "Save Again"
@@ -597,11 +612,7 @@ impl TimegrapherApp {
                         folder = true;
                     }
                 });
-            button
-                .on_hover_text(
-                    "Save: keep this in one of your watches, as a take of it, or as a take \
-                     in a folder you choose",
-                )
+            save_icon_hover(button, recording_in.as_deref())
                 .on_disabled_hover_text("Nothing to save yet, or a save is under way");
         });
         if marks {
@@ -801,7 +812,8 @@ impl TimegrapherApp {
             }
             return;
         }
-        if self.saving_busy() {
+        let again = id.clone();
+        if self.behind_stream(move |a| a.line_pick(again, asked)) || self.saving_busy() {
             return;
         }
         if self.live.is_some() || self.session.recorder.is_some() {
@@ -1092,7 +1104,10 @@ impl TimegrapherApp {
         // A test is set up over a Quick Listen still listening, which
         // stops once its sound is asked about; never over a test.
         let over = kind == NewTake::Listen || self.test_listening() || !self.quick_listen;
-        if self.saving_busy() || (self.running() && over) {
+        if self.behind_stream(move |a| a.new_take(kind, asked))
+            || self.saving_busy()
+            || (self.running() && over)
+        {
             return;
         }
         if !asked && self.new_take_asks() {
@@ -1288,7 +1303,7 @@ impl TimegrapherApp {
     /// it: the watch is picked, and the take named after it.
     pub(super) fn keep_in_watch(&mut self, id: &str) {
         // A Quick Listen still heard goes on: it is the watch's take from
-        // now, saved into it at Stop.
+        // now, saved into it as it goes.
         let heard = self.running();
         if heard && !self.quick_listen {
             return;
@@ -1604,6 +1619,29 @@ fn listen_length(ui_b: &mut egui::Ui, top: egui::Rect, length: &str, state: &str
             "The take's length: the sound heard so far while listening, or the whole \
              take opened",
         );
+}
+
+/// The Save menu's "Saving to" line: one line, the menu as wide as it
+/// needs, never wrapped and spread across the menu's width.
+fn saving_to(ui: &mut egui::Ui, place: &str) {
+    let pal = theme::pal(ui);
+    ui.add(
+        egui::Label::new(RichText::new(format!("Saving to {place}")).color(pal.text_secondary))
+            .wrap_mode(egui::TextWrapMode::Extend),
+    )
+    .on_hover_text(RECORDING_IN_HINT);
+}
+
+/// The Save icon's hover: where a take recording into its folder is
+/// saving, else what Save does.
+fn save_icon_hover(button: egui::Response, recording_in: Option<&str>) -> egui::Response {
+    match recording_in {
+        Some(place) => button.on_hover_text(format!("Saving to {place}: {RECORDING_IN_HINT}")),
+        None => button.on_hover_text(
+            "Save: keep this in one of your watches, as a take of it, or as a take in a folder \
+             you choose",
+        ),
+    }
 }
 
 /// The Save menu's Keep in a Watch: each of `watches`, then New Watch…,

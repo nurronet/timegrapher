@@ -12,7 +12,7 @@ use timegrapher_core::session::Manifest;
 use timegrapher_core::stream::StreamConfig;
 use timegrapher_core::take::{self, EntrySettings};
 use timegrapher_core::take_context::{
-    entry_layout, in_files, EntryWindow, FilePart, Masks, TakeContext,
+    entry_layout, in_files, masks_in_take, EntryWindow, FilePart, Masks, TakeContext,
 };
 
 fn settings(settle_s: Option<f64>) -> EntrySettings {
@@ -502,5 +502,20 @@ fn stretches_of_runs_on_holes_and_joins() {
     assert_eq!(
         stretches_of([(0.0, 300.0, false, 'R'), (200.0, 400.0, false, 'U')]),
         None
+    );
+}
+
+/// Each entry's masks are moved by its own recording's offset into take
+/// seconds, as the take and the app's strip place them (#294 step 5).
+#[test]
+fn masks_land_at_their_recordings_offset() {
+    let m: Manifest = toml::from_str(
+        "[[recording]]\nfile = \"a.wav\"\nmasked = [[1.0, 2.0]]\n\
+         [[recording]]\nfile = \"b.wav\"\nmasked = [[0.5, 1.5], [3.0, 4.0]]\n",
+    )
+    .unwrap();
+    assert_eq!(
+        masks_in_take(&m.recordings, [0.0, 600.0]),
+        [[1.0, 2.0], [600.5, 601.5], [603.0, 604.0]]
     );
 }

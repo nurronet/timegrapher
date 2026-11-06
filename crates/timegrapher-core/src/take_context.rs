@@ -242,6 +242,21 @@ fn entry_windows(m: &Manifest, given_settle_s: Option<f64>, places: &[Place]) ->
         .collect()
 }
 
+/// The stretches `entries` mask by hand, in take seconds: each entry's
+/// masks moved by its recording's offset (`offsets`, one per entry, in
+/// order), not yet merged. What [`TakeContext::open`] puts on the take and
+/// the app on its strip when it opens one (#294 step 5).
+pub fn masks_in_take(
+    entries: &[RecordingEntry],
+    offsets: impl IntoIterator<Item = f64>,
+) -> Vec<[f64; 2]> {
+    entries
+        .iter()
+        .zip(offsets)
+        .flat_map(|(e, at)| e.masked.iter().map(move |[a, b]| [a + at, b + at]))
+        .collect()
+}
+
 impl TakeContext {
     /// Open the take described by `m` in the folder `base` once, as one
     /// recording over all its sound ([`take::open_entry`]), with each
@@ -269,15 +284,7 @@ impl TakeContext {
         };
         // The places come from the files' headers, so the masks are put
         // in take seconds before the beats are read.
-        let masked: Vec<[f64; 2]> = m
-            .recordings
-            .iter()
-            .zip(&places)
-            .flat_map(|(e, p)| {
-                let at = p.offset_s;
-                e.masked.iter().map(move |[a, b]| [a + at, b + at])
-            })
-            .collect();
+        let masked = masks_in_take(&m.recordings, places.iter().map(|p| p.offset_s));
         let entry = RecordingEntry {
             masked: match masks {
                 Masks::Cut => masked.clone(),
