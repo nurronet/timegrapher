@@ -1426,8 +1426,10 @@ pub fn positions_table(
 /// reading, as [`measure_masked`] reads a take: from the first's start to
 /// the last's end, with the time between them and the `masked` stretches
 /// left out (cleaned with [`masked_spans`], so masked time is counted
-/// once). None for no stretches. What a Positions Test table reads each
-/// position by, and the app its whole take.
+/// once). Its `masked_s` is all that is left out; its masked caveat says
+/// only the time masked by hand inside the stretches (#1228). None for no
+/// stretches. What a Positions Test table reads each position by, and the
+/// app its whole take.
 pub fn measure_together(
     log: &BeatLog,
     clock: Option<&ClockFit>,
@@ -1436,10 +1438,19 @@ pub fn measure_together(
     spans: &[(f64, f64)],
 ) -> Option<Measurement> {
     let (&(from, _), &(_, to)) = (spans.first()?, spans.last()?);
+    let pairs = |v: &[(f64, f64)]| v.iter().map(|&(a, b)| [a, b]).collect::<Vec<_>>();
     let mut cut = masked.to_vec();
     cut.extend(spans.windows(2).map(|w| (w[0].1, w[1].0)));
-    let cut = masked_spans(&cut.iter().map(|&(a, b)| [a, b]).collect::<Vec<_>>());
-    Some(measure_masked(log, clock, breaks, &cut, from, to))
+    let mut m = measure_masked(log, clock, breaks, &masked_spans(&pairs(&cut)), from, to);
+    let hand = masked_spans(&pairs(masked));
+    let by_hand: f64 = spans.iter().map(|&(a, b)| masked_within(&hand, a, b)).sum();
+    m.caveats
+        .retain(|c| !matches!(c, crate::measure::Caveat::Masked { .. }));
+    if by_hand > 0.0 {
+        let c = crate::measure::Caveat::Masked { seconds: by_hand };
+        crate::measure::add(&mut m.caveats, c);
+    }
+    Some(m)
 }
 
 /// Witschi's characteristic values for the readings, and the conditions
