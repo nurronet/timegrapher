@@ -637,6 +637,44 @@ fn a_stop_during_a_takes_first_save_saves_the_rest_after_it() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A Quick Listen kept in Unsorted Takes and then picked into a watch on
+/// the Watch line is filed under it, after the save being written, and
+/// records into its folder there; Unsorted Takes keeps nothing (#1217,
+/// found by Walter).
+#[test]
+fn a_kept_quick_listen_picked_into_a_watch_is_filed_under_it() {
+    let mut h = held_save("file-kept");
+    let alpha = match &mut h.app.library {
+        Ok(Some(l)) => {
+            l.add(&library::Watch::new("Alpha")).unwrap();
+            l.find("Alpha").unwrap().watch.id.clone()
+        }
+        _ => unreachable!(),
+    };
+    let unsorted = h.take.parent().unwrap().to_path_buf();
+    // Picked while its save into Unsorted Takes is still written.
+    h.app.line_pick(Some(alpha.clone()), false);
+    assert!(h.app.open_watch().is_some_and(|w| w.watch.id == alpha));
+    assert_eq!(h.app.after_save.len(), 1, "filed once the save is written");
+    h.release();
+    h.app.run_after_save();
+    let filed = h.app.session.saved_to().expect("kept").to_path_buf();
+    let watch_takes = match &h.app.library {
+        Ok(Some(l)) => l.find("Alpha").unwrap().dir.join(library::TAKES),
+        _ => unreachable!(),
+    };
+    assert_eq!(filed.parent(), Some(watch_takes.as_path()), "{filed:?}");
+    assert!(!h.take.exists());
+    assert_eq!(std::fs::read_dir(&unsorted).unwrap().count(), 0);
+    // Its next saves go into it there, not into a new folder.
+    h.take = filed.clone();
+    h.app.save_again();
+    h.app.wait_for_save();
+    assert_eq!(h.app.session.saved_to(), Some(filed.as_path()));
+    assert_eq!(std::fs::read_dir(&watch_takes).unwrap().count(), 1);
+    assert_eq!(h.take_s(), 11.0);
+}
+
 /// Quitting with a Stop waiting on a save into the take still saves the
 /// take's last seconds (Trevor's HOLD on #1214).
 #[test]

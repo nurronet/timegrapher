@@ -1323,8 +1323,34 @@ impl TimegrapherApp {
             self.take_watch_details(&w);
         }
         self.note_settings();
+        // Kept in Unsorted Takes already: filed under the watch (#1217).
+        let unsorted = |t: &&Path| match &self.library {
+            Ok(Some(l)) => l.is_unsorted(t),
+            _ => false,
+        };
+        if let Some(take) = self.session.saved_to().filter(unsorted) {
+            self.file_kept_take(take.to_path_buf(), id.to_string());
+        }
         if !heard {
             self.save_again();
+        }
+    }
+
+    /// File the take being heard or just heard, kept in Unsorted Takes,
+    /// under the watch of id `id`, once any save into it is written; its
+    /// next save goes into it there.
+    fn file_kept_take(&mut self, take: PathBuf, id: String) {
+        let (t, i) = (take.clone(), id.clone());
+        if self.behind_save(move |a| a.file_kept_take(t, i)) {
+            return;
+        }
+        let moved = match &mut self.library {
+            Ok(Some(l)) => l.move_take(&take, &id),
+            _ => Err("There is no Watches folder".into()),
+        };
+        match moved {
+            Ok(to) => self.take_moved(&take, &to),
+            Err(e) => self.error(format!("The take couldn't be filed under its watch: {e}")),
         }
     }
 

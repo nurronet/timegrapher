@@ -596,7 +596,13 @@ impl TimegrapherApp {
 
     /// A take moved: the recording opened from it follows, and so does
     /// Save Again.
-    fn take_moved(&mut self, from: &Path, to: &Path) {
+    pub(super) fn take_moved(&mut self, from: &Path, to: &Path) {
+        // The take being heard: its next save goes into it where it is.
+        if self.session.saved_to() == Some(from) {
+            if let Some(r) = self.session.recorder.as_mut() {
+                r.copy_moved(from, to);
+            }
+        }
         self.session.saved_moved(from, to);
         if let Ok(rest) = Path::new(&self.opened_path).strip_prefix(from) {
             let now = to.join(rest);
