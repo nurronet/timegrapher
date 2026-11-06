@@ -1084,8 +1084,17 @@ impl TimegrapherApp {
 
     /// A save that failed says so. A take recording into its folder tries
     /// again a minute later, its sound kept here meanwhile; a quit waiting
-    /// on the save stays open.
+    /// on the save stays open. Once the take is stopped, its Stop's save
+    /// waiting its turn holds all its sound, so it alone answers for the
+    /// take and the quit: the pause can take the hour from under a copy
+    /// still under way (#1230).
     fn save_failed(&mut self, streamed: Streamed, dest: &Path, e: String) {
+        if streamed == Streamed::Yes && !self.running() && !self.after_save.is_empty() {
+            return applog::info(&format!(
+                "a save into {} failed after the Stop, whose save follows: {e}",
+                dest.display()
+            ));
+        }
         self.close_after_save = false;
         if streamed == Streamed::Yes {
             self.stream_wait = Some(Instant::now());
@@ -1501,6 +1510,10 @@ impl TimegrapherApp {
     /// entry) placing each on the strip: an entry for one of them gives its
     /// positions, settling and masks in seconds into its own file, so each
     /// is moved to where that file starts (#1154).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the strip shows the session file's positions as the take starts to open, before its TakeContext arrives, laid by core's folder layout; and the positions recorded under painting are the app's own record"
+    )]
     pub(super) fn apply_manifest_placed(
         &mut self,
         m: &Manifest,
