@@ -12,6 +12,10 @@ name: Windows walkthrough
 # write token reaches only the step loop, which passes the app an
 # environment without it. Run it only on branches of this repository.
 on:
+  # TEMPORARY for the proving run; removed before review.
+  push:
+    branches: [claude/project-thread-00w04j]
+    paths: ['.github/walkthrough/*.p*', '.github/workflows/windows-walkthrough.yml']
   workflow_dispatch:
     inputs:
       ref:
@@ -33,7 +37,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-walkthrough-${{ inputs.channel }}
+  group: windows-walkthrough-${{ inputs.channel || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -52,7 +56,7 @@ jobs:
       - name: Head source
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
           path: head
           persist-credentials: false
       - name: Base source
@@ -79,7 +83,7 @@ jobs:
       - name: Channel branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.channel }}
+          ref: ${{ inputs.channel || github.ref_name }}
           path: channel
           persist-credentials: false
       - name: Display 1920 x 1080
@@ -90,12 +94,13 @@ jobs:
       - name: Serve steps
         shell: bash
         env:
-          WALK_CHANNEL: ${{ inputs.channel }}
-          WALK_MINUTES: ${{ inputs.minutes }}
+          WALK_CHANNEL: ${{ inputs.channel || github.ref_name }}
+          WALK_MINUTES: ${{ inputs.minutes || '30' }}
           WALK_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ inputs.base_ref }}
         run: |
           base=""
-          [ -n "${{ inputs.base_ref }}" ] && base=base/target/release/timegrapher-app.exe
+          [ -n "$BASE_REF" ] && base=base/target/release/timegrapher-app.exe
           python tool/.github/walkthrough/driver.py channel head/target/release/timegrapher-app.exe $base
       - name: App logs
         if: always()
