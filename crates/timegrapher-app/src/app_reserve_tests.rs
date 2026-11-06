@@ -534,6 +534,134 @@ fn a_power_reserve_test_holds_its_position_and_keeps_its_take_with_its_run() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A test in Crown Left with 100 beats heard.
+fn crown_left_test() -> reserve::Test {
+    let mut t = reserve::Test::new(
+        Position::CrownLeft,
+        false,
+        "2026-10-22T16:15:00Z".into(),
+        0.0,
+    );
+    let beats: Vec<timegrapher_core::beats::Beat> = (0..100)
+        .map(|i| timegrapher_core::beats::Beat {
+            index: i,
+            time: 1.0 + i as f64 * 0.125,
+            quality: 1.0,
+        })
+        .collect();
+    t.update(&beats, 0.125, 20.0);
+    t
+}
+
+/// The save under way takes 300 ms longer to finish.
+fn slow_save(app: &mut TimegrapherApp) {
+    let mut s = app.saving.take().expect("a save into its folder");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+}
+
+/// A Power Reserve Test kept as its analysis only, recording into its
+/// folder as it goes and stopped by hand, has its sound removed once its
+/// take is written, with no input: the window draws again while the keep
+/// runs, so it is collected (#1221, Walter's find).
+#[test]
+fn a_power_reserve_test_kept_as_analysis_only_lets_its_sound_go() {
+    let base = std::env::temp_dir().join(format!("tg-app-reserve-ao-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    // A watch ticking, so its analysis has beats to keep.
+    let cfg = SynthConfig {
+        duration_s: 28.0,
+        ..Default::default()
+    };
+    let ticks = generate(&cfg, |_| 280.0, |_| 0.0).samples;
+    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
+        samples: ticks[48000 * at as usize..48000 * (at + s) as usize].to_vec(),
+        at: start + std::time::Duration::from_secs(at),
+    };
+    r.write(&block(20, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = super::tests::queued_capture(&mut app, &base);
+    app.position = Position::CrownLeft;
+    app.reserve = Some(crown_left_test());
+    assert!(app.streams(), "a test of a watch picked records as it goes");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("recording into its folder")
+        .to_path_buf();
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&block(6, 20))
+        .unwrap();
+    // The next save into its folder still being written at the Stop.
+    app.stream_tick();
+    slow_save(&mut app);
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(2, 26)).unwrap();
+    app.stop_listening();
+    // As the frames run: the end save written, then the sound let go.
+    for _ in 0..500 {
+        app.poll_saving();
+        app.reserve_saved();
+        if app.take_keep.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        app.take_keep.is_some(),
+        "keeping its analysis only, {:?}",
+        app.message
+    );
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!app.running());
+    assert!(
+        app.repaint_every().is_some(),
+        "an idle window draws again to collect the keep"
+    );
+    for _ in 0..1000 {
+        app.poll_take_keep();
+        if app.take_keep.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let left: Vec<_> = std::fs::read_dir(&take)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(
+        !left
+            .iter()
+            .any(|n| n.to_string_lossy().starts_with("audio-")),
+        "{left:?} {:?}",
+        app.message
+    );
+    app.session.discard_recording();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// A Power Reserve Test started with a take open runs in the position
 /// the card and the pane named, not the one listening had before the
 /// take was opened; and the status bar names the watch the Calibre
@@ -846,4 +974,97 @@ fn a_long_take_lands_with_its_run_and_charts_read_in_the_background() {
         reserve::results_text(r, "", ',')
     };
     assert_eq!(text(&app), text(&here));
+}
+
+/// An idle window draws only when asked; one listening or reading a
+/// batch draws every 40 ms; work on a thread of its own, each kind on its
+/// own, every 100 ms, so what it gives shows with no input (Trevor's HOLD
+/// on #1232); and once more on the frame it ended (Walter's).
+#[test]
+fn the_window_draws_again_only_while_work_is_under_way() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    let idle = || TimegrapherApp::with_devices(Vec::new(), None);
+    assert_eq!(idle().repaint_every(), None, "idle");
+    // Once more at once on the frame work ended, then no more.
+    assert_eq!(idle().draw_next(true), Some(Duration::ZERO));
+    assert_eq!(idle().draw_next(false), None);
+    let analysis = || AnalysisSave {
+        rx: channel().1,
+        progress: Default::default(),
+        cancel: Default::default(),
+        total_s: 1.0,
+    };
+    type Set = Box<dyn Fn(&mut TimegrapherApp)>;
+    let slow: [(&str, Set); 6] = [
+        (
+            "sound",
+            Box::new(|a| a.sound_job = Some((0.0, 0, channel().1))),
+        ),
+        ("scope", Box::new(|a| a.scope_job = Some(channel().1))),
+        (
+            "steady",
+            Box::new(|a| a.steady_job = Some((Revision::default(), channel().1))),
+        ),
+        (
+            "save",
+            Box::new(|a| {
+                a.saving = Some(Saving {
+                    thread: std::thread::spawn(|| Err(std::io::Error::other("held"))),
+                    dest: PathBuf::new(),
+                    parent: PathBuf::new(),
+                    secs: 0.0,
+                    metadata: a.session.metadata_snapshot(a.save_metadata()),
+                    rescan: false,
+                    streamed: Streamed::No,
+                })
+            }),
+        ),
+        (
+            "keep",
+            Box::new(move |a| a.take_keep = Some((PathBuf::new(), analysis()))),
+        ),
+        (
+            "analysis",
+            Box::new(move |a| a.analysis_save = Some(analysis())),
+        ),
+    ];
+    for (name, set) in slow {
+        let mut a = idle();
+        set(&mut a);
+        assert_eq!(
+            a.repaint_every(),
+            Some(Duration::from_millis(100)),
+            "{name}"
+        );
+        assert_eq!(a.draw_next(true), Some(Duration::from_millis(100)));
+    }
+    let mut a = idle();
+    a.batch = Some(Batch {
+        rx: channel().1,
+        progress: Default::default(),
+        cancel: Default::default(),
+        duration_s: None,
+        label: String::new(),
+        started: Instant::now(),
+        files: 1,
+        first: String::new(),
+        last: String::new(),
+        stretches: Vec::new(),
+        settles: Vec::new(),
+        order_note: None,
+    });
+    assert_eq!(a.repaint_every(), Some(Duration::from_millis(40)), "batch");
+    let base = std::env::temp_dir().join(format!("tg-app-repaint-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let mut a = idle();
+    let _tx = super::tests::queued_capture(&mut a, &base);
+    assert!(a.running());
+    assert_eq!(
+        a.repaint_every(),
+        Some(Duration::from_millis(40)),
+        "listening"
+    );
+    drop(a);
+    let _ = std::fs::remove_dir_all(&base);
 }

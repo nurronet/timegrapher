@@ -1783,7 +1783,7 @@ fn write_trend(file: &Path, cfg: &AnalysisConfig, t: &TrendOut) -> Result<(), St
         |first| take::correction_for(&m, first, t.card_ppm, t.device.as_deref()),
         |_, _| {},
     )?;
-    let (stretches, settles) = take::positions_of(ctx.listed_positions(&m).into_iter());
+    let (stretches, settles) = ctx.positions(&m);
     let changes: Vec<f64> = stretches.iter().map(|s| s.0).collect();
     // Every beat of the file, however long, not only the day a live
     // listen keeps.
