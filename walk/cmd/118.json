@@ -1,0 +1,1 @@
+[["move", 1135, 676], ["wait", 0.6], ["click", 1135, 676], ["wait", 2], ["move", 1300, 600], ["wait", 1], ["shell", "dir /b \"%USERPROFILE%\\Timegrapher Data\" & type \"%USERPROFILE%\\Timegrapher Data\\library.toml\""]]
