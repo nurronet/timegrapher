@@ -31,6 +31,12 @@ use std::io::{self, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Bits a sample of every take's sound is kept at, whatever the
+/// microphone gives. Four 24-bit takes held nothing in their low 8 bits
+/// and read the same kept at 16 (#1176); the stand's noise is a few
+/// 16-bit steps, rounding adds a third of one.
+pub const STORED_BITS: u16 = 16;
+
 /// What is known about a recording when it starts.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
@@ -42,6 +48,7 @@ pub struct SessionInfo {
     pub bph: Option<u32>,
     pub device: String,
     pub sample_rate: u32,
+    /// The microphone's own depth; its sound is kept at [`STORED_BITS`].
     pub bits: u16,
     /// Program and version that made the recording.
     pub software: String,
@@ -361,7 +368,7 @@ impl Recorder {
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: self.info.sample_rate,
-            bits_per_sample: self.info.bits,
+            bits_per_sample: STORED_BITS,
             sample_format: hound::SampleFormat::Int,
         };
         self.writer = Some(hound::WavWriter::create(self.dir.join(&name), spec).map_err(io_err)?);
@@ -386,7 +393,7 @@ impl Recorder {
                 .unwrap_or_else(|| self.info.device.clone());
             self.start_break(b, before, device)?;
         }
-        let full = ((1u64 << (self.info.bits - 1)) - 1) as f32;
+        let full = ((1u64 << (STORED_BITS - 1)) - 1) as f32;
         for &s in &b.samples {
             if self.writer.is_none() || self.seg_frames >= SEGMENT_S * fs {
                 self.close_segment()?;
@@ -1349,6 +1356,43 @@ mod tests {
         assert_eq!(utc(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         let leap = UNIX_EPOCH + Duration::from_secs(951_782_400);
         assert_eq!(&utc(leap)[..10], "2000-02-29");
+    }
+
+    /// A 24-bit microphone's take is kept at 16 bits, each sample the
+    /// sound rounded to the nearest 16-bit step (#1176).
+    #[test]
+    fn a_24_bit_microphone_is_kept_at_16_bits() {
+        let parent = std::env::temp_dir().join(format!("tg-rec-16-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&parent);
+        let info = SessionInfo {
+            watch: "Depth".into(),
+            position: "DU".into(),
+            lift_deg: 52.0,
+            bph: None,
+            device: "24-bit".into(),
+            sample_rate: 8000,
+            bits: 24,
+            software: "test".into(),
+        };
+        let mut r = Recorder::start(&parent, info).unwrap();
+        let samples = vec![0.0, 0.5, -0.5, 1.0, -1.0, 1.4e-5, -2.0e-5, 0.123_456];
+        r.write(&Block {
+            samples: samples.clone(),
+            at: SystemTime::now(),
+        })
+        .unwrap();
+        let wav = r.dir().join("audio-001.wav");
+        r.flush().unwrap();
+        let mut read = hound::WavReader::open(&wav).unwrap();
+        assert_eq!(read.spec().bits_per_sample, 16);
+        let kept: Vec<i32> = read.samples::<i32>().map(Result::unwrap).collect();
+        let want: Vec<i32> = samples
+            .iter()
+            .map(|s| (s * 32_767.0).round() as i32)
+            .collect();
+        assert_eq!(kept, want);
+        drop(r);
+        let _ = fs::remove_dir_all(&parent);
     }
 
     /// A folder being recorded into reads as in use, to this process and
