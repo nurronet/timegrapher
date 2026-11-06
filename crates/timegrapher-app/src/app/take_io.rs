@@ -985,12 +985,17 @@ impl TimegrapherApp {
         true
     }
 
+    /// Whether the window closes now, once a Stop's save into the take
+    /// and the asks waiting on it are all done.
+    pub(super) fn closes_after_save(&self) -> bool {
+        self.close_after_save && self.saving.is_none() && self.after_save.is_empty()
+    }
+
     /// The save being written, once it is done.
     pub(super) fn poll_saving(&mut self) {
         if self.saving.as_ref().is_some_and(|s| s.thread.is_finished()) {
             self.wait_for_save();
         }
-        self.run_after_save();
     }
 
     /// Wait for the save being written, if there is one, and say how it
@@ -1031,12 +1036,14 @@ impl TimegrapherApp {
     }
 
     /// What was asked while a take's save into its folder was written,
-    /// in the order asked, once no save is.
+    /// in the order asked, once no save is. One that starts a save of its
+    /// own (a Stop's) holds the rest until that is written too.
     pub(super) fn run_after_save(&mut self) {
-        if self.saving.is_none() {
-            for then in std::mem::take(&mut self.after_save) {
-                then(self);
-            }
+        while self.saving.is_none() && !self.after_save.is_empty() {
+            let mut rest = std::mem::take(&mut self.after_save);
+            rest.remove(0)(self);
+            rest.append(&mut self.after_save);
+            self.after_save = rest;
         }
     }
 
@@ -2072,6 +2079,9 @@ impl TimegrapherApp {
     pub(super) fn poll(&mut self) {
         self.poll_for(FRAME_BUDGET);
         self.poll_wav_keep();
+        // Asks waiting on a save go ahead on the window's frame, never on
+        // the listening thread, which polls too.
+        self.run_after_save();
     }
 
     /// One block of a capture, or a break core's gap rule found before the

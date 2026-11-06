@@ -443,13 +443,19 @@ fn a_kept_quick_listen_records_into_its_take() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
-/// A Stop while a take's save into its folder is still being written (the
-/// first can copy a whole hour) waits its turn, rather than the window
-/// waiting on the copy (Vernon's point on #1201); once that save is
-/// written, the Stop's save adds the rest.
-#[test]
-fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
-    let base = std::env::temp_dir().join(format!("tg-app-stream-turn-{}", std::process::id()));
+/// A Quick Listen kept in Unsorted Takes with 9 s heard, its save into
+/// the take of the last 6 s held part way, as a long copy would be, until
+/// the sender returned sends (or 10 s pass); 2 s more heard since.
+struct HeldSave {
+    app: TimegrapherApp,
+    base: PathBuf,
+    take: PathBuf,
+    go: std::sync::mpsc::Sender<()>,
+    _capture: std::sync::mpsc::Sender<Event>,
+}
+
+fn held_save(name: &str) -> HeldSave {
+    let base = std::env::temp_dir().join(format!("tg-app-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("Timegrapher Data");
@@ -467,63 +473,151 @@ fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
     };
     r.write(&block(3, 0)).unwrap();
     app.session.recorder = Some(r);
-    let _tx = queued_capture(&mut app, &base);
+    let capture = queued_capture(&mut app, &base);
     app.save_again();
     app.wait_for_save();
     let take = app.session.saved_to().expect("kept").to_path_buf();
-    app.session
-        .recorder
-        .as_mut()
-        .unwrap()
-        .write(&block(6, 3))
-        .unwrap();
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(6, 3)).unwrap();
     app.stream_tick();
-    // Hold the save into the take part way, as a long copy would.
     let (go, held) = std::sync::mpsc::channel::<()>();
     let mut s = app.saving.take().expect("a save into the take");
     assert_eq!(s.streamed, Streamed::Yes);
     let copy = s.thread;
     s.thread = std::thread::spawn(move || {
-        let _ = held.recv_timeout(std::time::Duration::from_secs(2));
+        let _ = held.recv_timeout(std::time::Duration::from_secs(10));
         copy.join().unwrap()
     });
     app.saving = Some(s);
-    app.session
-        .recorder
-        .as_mut()
-        .unwrap()
-        .write(&block(2, 9))
-        .unwrap();
-    app.stop_listening();
-    assert!(
-        app.saving
-            .as_ref()
-            .is_some_and(|s| s.streamed == Streamed::Yes),
-        "the Stop didn't wait on the copy"
-    );
-    assert_eq!(app.after_save.len(), 1);
-    assert!(app.saving_busy(), "nothing jumps the Stop waiting its turn");
-    go.send(()).unwrap();
-    while app
-        .saving
-        .as_ref()
-        .is_some_and(|s| s.streamed == Streamed::Yes)
-    {
-        app.poll_saving();
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(2, 9)).unwrap();
+    HeldSave {
+        app,
+        base,
+        take,
+        go,
+        _capture: capture,
     }
-    assert!(app.after_save.is_empty());
+}
+
+impl HeldSave {
+    /// The seconds of sound in the take.
+    fn take_s(&self) -> f64 {
+        let flac = self.take.join("audio-001.flac");
+        let wav = self.take.join("audio-001.wav");
+        let kept = if flac.exists() { flac } else { wav };
+        timegrapher_core::audio::load(&kept).unwrap().samples.len() as f64 / 48000.0
+    }
+
+    fn held(&self) -> bool {
+        self.app
+            .saving
+            .as_ref()
+            .is_some_and(|s| s.streamed == Streamed::Yes)
+    }
+
+    /// Let the held save go, and wait until it is written.
+    fn release(&mut self) {
+        self.go.send(()).unwrap();
+        while self.held() {
+            self.app.poll_saving();
+        }
+    }
+}
+
+impl Drop for HeldSave {
+    fn drop(&mut self) {
+        let _ = self.go.send(());
+        self.app.wait_for_save();
+        let _ = std::fs::remove_dir_all(&self.base);
+    }
+}
+
+/// A Stop while a take's save into its folder is still being written (the
+/// first can copy a whole hour) waits its turn, rather than the window
+/// waiting on the copy (Vernon's point on #1201); once that save is
+/// written, the Stop's save adds the rest, and an ask after it waits for
+/// that too (Felix).
+#[test]
+fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
+    let mut h = held_save("stream-turn");
+    h.app.stop_listening();
+    assert!(h.held(), "the Stop didn't wait on the copy");
+    assert_eq!(h.app.after_save.len(), 1);
     assert!(
-        app.saving.is_some(),
+        h.app.saving_busy(),
+        "nothing jumps the Stop waiting its turn"
+    );
+    // Closing the window waits for it too.
+    h.app.close_after_save = true;
+    assert!(!h.app.closes_after_save());
+    let opened = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let then = opened.clone();
+    let open = move |_: &mut TimegrapherApp| then.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(h.app.behind_stream(open));
+    h.release();
+    // Asks run on the window's frame, not the listening thread's.
+    assert_eq!(h.app.after_save.len(), 2);
+    h.app.run_after_save();
+    assert!(
+        h.app.saving.is_some(),
         "the Stop's save, once the other is written"
     );
-    app.wait_for_save();
-    assert!(!app.needs_save_confirmation());
-    let wav = take.join("audio-001.wav");
-    let flac = take.join("audio-001.flac");
-    let kept = if flac.exists() { flac } else { wav };
-    let samples = timegrapher_core::audio::load(&kept).unwrap().samples.len();
-    assert_eq!(samples, 11 * 48000);
-    let _ = std::fs::remove_dir_all(&base);
+    assert_eq!(h.app.after_save.len(), 1, "the next ask waits for it");
+    assert!(!h.app.closes_after_save());
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert!(h.app.after_save.is_empty());
+    assert!(opened.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(h.app.closes_after_save());
+    assert!(!h.app.needs_save_confirmation());
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// Quitting with a Stop waiting on a save into the take still saves the
+/// take's last seconds (Trevor's HOLD on #1214).
+#[test]
+fn a_quit_with_a_stop_waiting_saves_the_last_seconds() {
+    let mut h = held_save("stream-quit");
+    h.app.stop_listening();
+    assert_eq!(h.app.after_save.len(), 1);
+    let _ = h.go.send(());
+    eframe::App::on_exit(&mut h.app, None);
+    assert!(h.app.after_save.is_empty());
+    assert!(h.app.saving.is_none());
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// Each ask that would wait on a save into the take waits its turn
+/// instead (Trevor's HOLD on #1214).
+#[test]
+fn each_ask_waits_its_turn_behind_a_save_into_its_take() {
+    let mut h = held_save("stream-asks");
+    h.app.pause();
+    let elsewhere = h.base.join("elsewhere.wav");
+    type Ask = Box<dyn Fn(&mut TimegrapherApp)>;
+    let asks: [(&str, Ask); 7] = [
+        ("Save", Box::new(|a| a.save_again())),
+        ("Save As", Box::new(|a| a.save_recording())),
+        (
+            "Open",
+            Box::new(move |a| a.open_recording(&elsewhere, false)),
+        ),
+        ("Watch line", Box::new(|a| a.line_pick(None, true))),
+        ("New Take", Box::new(|a| a.new_take(NewTake::Listen, true))),
+        ("Watches list", Box::new(|a| a.list_pick("w".into()))),
+        ("Quick Listen", Box::new(|a| a.quick_listen(true))),
+    ];
+    for (name, ask) in asks {
+        h.app.after_save.clear();
+        let at = std::time::Instant::now();
+        ask(&mut h.app);
+        assert!(h.held(), "{name} waited on the copy");
+        assert!(at.elapsed() < std::time::Duration::from_secs(5), "{name}");
+        assert_eq!(h.app.after_save.len(), 1, "{name} waits its turn");
+    }
+    h.app.after_save.clear();
+    h.release();
 }
 
 /// What the delete dialog for the first kept sound says.

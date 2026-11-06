@@ -4195,7 +4195,7 @@ impl TimegrapherApp {
             self.stop_listening();
             self.close_after_save = true;
         }
-        if self.close_after_save && self.saving.is_none() && self.after_save.is_empty() {
+        if self.closes_after_save() {
             self.close_after_save = false;
             self.may_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
