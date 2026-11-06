@@ -1,0 +1,5 @@
+app: head running
+took 6.3 s
+$ powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")"
+17:31:30.474
+
