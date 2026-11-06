@@ -610,6 +610,19 @@ impl TimegrapherApp {
             if Path::new(self.file_path.trim()).starts_with(from) {
                 self.file_path = self.opened_path.clone();
             }
+            // The take on show is the watch's it went to now: the Bench's
+            // card and the status line name that one (#1280).
+            let went = match &self.library {
+                Ok(Some(l)) => l
+                    .watch_of(to)
+                    .map(|e| (e.watch.id.clone(), e.watch.name.clone())),
+                _ => None,
+            };
+            if let Some((id, name)) = went {
+                self.watch_open = Some(id);
+                self.unsorted_open = false;
+                self.watch = name;
+            }
         }
     }
 

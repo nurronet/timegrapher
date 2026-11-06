@@ -1062,6 +1062,15 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let d = root.join("Daytona").join(library::TAKES).join(&name);
     assert!(d.is_dir() && !take.exists());
     assert_eq!(Path::new(&app.opened_path), d);
+    // On show, it is Daytona's now: the Bench's card and the status line
+    // name it (#1280).
+    assert_eq!(app.watch_open.as_deref(), Some(daytona_id.as_str()));
+    assert_eq!(app.watch, "Daytona");
+    assert!(
+        app.status_words().contains("· Daytona ·"),
+        "{}",
+        app.status_words()
+    );
     app.answer_take_ask(watches::Ask::Delete {
         take: d.clone(),
         bytes: 0,
