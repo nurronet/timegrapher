@@ -102,7 +102,7 @@ heard fills half), so a free-form test shows which positions still need
 time; the hover gives the seconds. While you listen, or before anything
 is on show, a button sets the position; keys 1 to 6 do the same, on the Bench,
 alone (never with Ctrl, Cmd, Alt or Shift held) and not while typing in
-a field. With a take on show, and during a Positions Test
+a field or while a dialog is open. With a take on show, and during a Positions Test
 or a Power Reserve Test, the buttons only show the position, the take's
 latest or the one the test set: a take's positions can't be changed
 afterwards. **Listen** has a **Listen** icon, which starts Quick Listen
