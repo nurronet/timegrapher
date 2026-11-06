@@ -1,0 +1,20 @@
+name: Wesley display size probe (not for merge)
+on:
+  push:
+    branches: [claude/project-thread-00w04j]
+    paths: ['.github/wesley/res/**']
+jobs:
+  res:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Try larger desktop
+        shell: pwsh
+        run: ./.github/wesley/res/res.ps1
+      - name: Set-DisplayResolution if present
+        shell: pwsh
+        run: |
+          Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_VideoController | Select Name,CurrentHorizontalResolution,CurrentVerticalResolution | Format-List
+          exit 0
