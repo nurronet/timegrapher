@@ -830,17 +830,15 @@ impl Session {
     /// or a take's entries in one position) one run, with the settling
     /// between them a hole in it, kept at its width as a mask is.
     pub fn current_runs(&self, now: Position) -> Stretches<Position> {
-        let settles = self.settles();
+        // From the session's start: the first stretch runs from before it,
+        // and one that ends there (a take's entries all starting at 0)
+        // holds no sound and leaves no hole.
         let windows = self
-            .position_spans(now)
+            .settled_position_spans(now)
             .into_iter()
-            .filter_map(|(a, b, p)| {
-                let a = settles
-                    .iter()
-                    .filter(|s| s.0 >= a && s.0 < b)
-                    .fold(a, |a, s| a.max(s.1));
-                (a < b).then_some((a, b, false, p))
-            });
+            .map(|(a, b, p)| (a.max(0.0), b, p))
+            .filter(|(a, b, _)| a < b)
+            .map(|(a, b, p)| (a, b, false, p));
         // The app's stretches follow one another, so none overlap.
         let all = stretches_of(windows).unwrap_or_default();
         let read: Vec<(f64, f64)> = all
@@ -865,16 +863,26 @@ impl Session {
     /// The stretches in position `of`, each without the settling it began
     /// with, the watch being in position `now`.
     pub fn settled_spans(&self, now: Position, of: Position) -> Vec<(f64, f64)> {
+        self.settled_position_spans(now)
+            .into_iter()
+            .filter(|s| s.2 == of)
+            .map(|(a, b, _)| (a, b))
+            .collect()
+    }
+
+    /// Each stretch ([`Self::position_spans`]) without the settling it
+    /// began with, and its position; one with nothing left once settled
+    /// is left out.
+    fn settled_position_spans(&self, now: Position) -> Vec<(f64, f64, Position)> {
         let settles = self.settles();
         self.position_spans(now)
             .into_iter()
-            .filter(|s| s.2 == of)
-            .filter_map(|(a, b, _)| {
+            .filter_map(|(a, b, p)| {
                 let a = settles
                     .iter()
                     .filter(|s| s.0 >= a && s.0 < b)
                     .fold(a, |a, s| a.max(s.1));
-                (a < b).then_some((a, b))
+                (a < b).then_some((a, b, p))
             })
             .collect()
     }
@@ -1455,6 +1463,16 @@ mod tests {
                 (1000.0, 1030.0),
             ],
         );
+        // A stretch that ends at the start, as a take whose entries all
+        // start at 0 gives, is no run and leaves no hole (dd3235_DU_30min).
+        let mut both = ten();
+        both.replay();
+        both.load(
+            &[(0.0, Position::DialUp), (0.0, Position::DialUp)],
+            &[(0.0, 20.0), (0.0, 20.0)],
+        );
+        let up = both.current_runs(Position::DialUp);
+        assert_eq!((up.read, up.holes), (vec![(20.0, f64::INFINITY)], vec![]));
         let runs = s.current_runs(Position::CrownRight);
         assert_eq!(runs.read, [(20.0, 900.0), (1030.0, f64::INFINITY)]);
         assert_eq!(runs.holes, [(337.0, 377.0)]);

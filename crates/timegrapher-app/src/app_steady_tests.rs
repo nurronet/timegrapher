@@ -60,6 +60,65 @@ fn steadiness_stops_at_a_takes_breaks_with_their_gaps() {
     assert_eq!(breaks(&app), [cut(200.0, 30.0), cut(400.0, 0.0)]);
 }
 
+/// A take with two stretches in crown right, the second settling from
+/// 337 s to 377 s (ym42_CR_long's third file): the app reads them as one
+/// run with the settling a hole in it (#1156).
+fn two_entries_in_one_position() -> TimegrapherApp {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.show_log(
+        super::masks_tests::long_log(0.25),
+        "two entries".into(),
+        vec![(0.0, Position::CrownRight), (337.0, Position::CrownRight)],
+        vec![(0.0, 20.0), (337.0, 377.0)],
+    );
+    app
+}
+
+/// The steadiness tests and the distributions' readings leave a hole in
+/// a run out and stop at both its ends, as `series` does, rather than
+/// joining the run on either side of it (#1156).
+#[test]
+fn steadiness_leaves_a_hole_out_and_stops_at_its_ends() {
+    use timegrapher_core::breaks::Break;
+    let app = two_entries_in_one_position();
+    let runs = app.current_runs();
+    assert_eq!(runs.holes, [(337.0, 377.0)]);
+    let log = steady::log_of(app.live.as_ref().unwrap()).unwrap();
+    let (joined, breaks) = app.steady_log(log, &runs, None);
+    // Joined from 20 s, the run's start: the hole is 317 s to 357 s.
+    assert!(
+        !joined
+            .beats
+            .iter()
+            .any(|b| b.time > 317.0 && b.time < 357.0),
+        "a beat in the hole is read"
+    );
+    for at in [317.0, 357.0] {
+        assert!(
+            breaks.contains(&Break {
+                audio_s: at,
+                gap_s: 0.0
+            }),
+            "no cut at {at}: {breaks:?}"
+        );
+    }
+}
+
+/// The distributions' 2 s values take no window in a hole in a run
+/// (#1156).
+#[test]
+fn the_distributions_take_no_window_in_a_hole() {
+    let app = two_entries_in_one_position();
+    let windows = app.position_windows();
+    assert!(!windows.is_empty());
+    assert!(
+        windows
+            .iter()
+            .all(|w| w.end_s <= 337.0 || w.start_s >= 377.0),
+        "a window in the hole is counted"
+    );
+}
+
 /// Each Steadiness pane's series come back next time, Rate alone for a
 /// pane not set and for every series off, and the one choice an older
 /// app kept for its single Steadiness pane given to every view, unless

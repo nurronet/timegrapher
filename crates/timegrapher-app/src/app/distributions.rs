@@ -86,18 +86,12 @@ impl TimegrapherApp {
         let cuts = live.cuts();
         let runs = self.current_runs();
         // None reaching into a hole in a run, as a mask leaves none (#1156).
-        let clear = |w: &&timegrapher_core::amplitude::AmplitudeWindow| {
-            !runs
-                .holes
-                .iter()
-                .any(|&(a, b)| w.start_s < b && w.end_s > a)
-        };
         runs.read
             .iter()
             .flat_map(|&(a, b)| {
                 core_session::stretch_windows(&cuts, live.amplitude_windows(), a, b)
             })
-            .filter(clear)
+            .filter(|w| !core_session::window_in_mask(&runs.holes, w))
             .collect()
     }
 

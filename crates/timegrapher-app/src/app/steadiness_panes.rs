@@ -168,11 +168,11 @@ impl TimegrapherApp {
             let breaks = steady::reading_breaks(opened, &log);
             (log, breaks)
         } else {
-            // A hole in a run is left out and cut at both ends, as a mask
-            // is and as `series` reads a take's holes (#1156).
-            timegrapher_core::session::mask_log(&mut log, &runs.holes);
-            opened.extend(timegrapher_core::clean::mask_breaks(&runs.holes));
-            opened.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+            // A hole in a run is left out and cut at both ends, as `series`
+            // reads a take's holes (#1156). The masks by hand are already
+            // out of `log`, cut among its jumps (`steady::log_of`).
+            let mut no_masks = Vec::new();
+            timegrapher_core::session::leave_out(&mut log, &mut opened, &mut no_masks, &runs.holes);
             steady::join(&log, &runs.read, &opened, clock)
         }
     }
