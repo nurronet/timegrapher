@@ -1099,6 +1099,60 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// The take on show, filed from Unsorted Takes under a watch: the Bench
+/// leaves Unsorted Takes for that watch and the status line names it
+/// (#1280).
+#[test]
+fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
+    let base = std::env::temp_dir().join(format!("tg-app-file-shown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let take = lib.unsorted_dir().unwrap().join("2026-10-20 10.00 Dial Up");
+    drop(lib);
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_unsorted();
+    app.take_action(Some(watches::TakeAction::Open(take.clone())));
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    assert!(app.unsorted_open && app.watch_open.is_none());
+
+    app.take_readings.wait();
+    app.move_take(&take, &pepsi);
+    assert!(!app.unsorted_open);
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi.as_str()));
+    assert_eq!(app.watch, "Pepsi");
+    assert!(
+        app.status_words().contains("· Pepsi ·"),
+        "{}",
+        app.status_words()
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[test]
 fn a_quit_that_cannot_ask_keeps_unsaved_sound_to_offer_back() {
     let base = std::env::temp_dir().join(format!("tg-app-kept-{}", std::process::id()));
