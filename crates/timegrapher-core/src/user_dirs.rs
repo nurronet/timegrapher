@@ -48,7 +48,8 @@ enum Os {
 
 /// [`base`] on `os`, reading the environment through `var`. A variable set
 /// but empty is not set. An XDG variable that is not an absolute path is
-/// ignored, as the XDG Base Directory spec says.
+/// ignored, as the XDG Base Directory spec says (`has_root`, so the rule
+/// reads the same whichever system runs it).
 fn base_from(kind: Kind, os: Os, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let env = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let home = || env("HOME");
@@ -68,7 +69,7 @@ fn base_from(kind: Kind, os: Os, var: impl Fn(&str) -> Option<OsString>) -> Opti
                 Kind::Cache => ("XDG_CACHE_HOME", &[".cache"]),
             };
             env(xdg)
-                .filter(|p| p.is_absolute())
+                .filter(|p| p.has_root())
                 .or_else(|| home().map(|h| fallback.iter().fold(h, |p, s| p.join(s))))
         }
     }
