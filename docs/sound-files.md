@@ -19,6 +19,13 @@ is known to go wrong. Everything here is in core `flac.rs`, `recorder.rs`,
   checked sample for sample against the WAV, and renamed. Only then is the
   WAV deleted. At start-up the app does the same for any hour still left as
   a WAV.
+- **A WAV copied into a take is kept as 16-bit FLAC too** (#1176, Peter
+  2026-11-06). 16 bits or fewer keep as they are. A 24- or 32-bit integer
+  WAV is rounded to the nearest 16-bit step (`recorder::stored_int`), and
+  a floating-point one as the recorder rounds a microphone
+  (`recorder::stored_sample`). The check rounds every WAV sample again by
+  the same function and needs the FLAC to match it exactly, so the
+  original is deleted only when the FLAC holds exactly that rounding.
 
 ## Every FLAC goes through one function
 
@@ -78,14 +85,14 @@ added hiss) were all within 0.08% of plain. A fuzz target
   at 96 kHz and its stream info and every frame header are given the true
   rate as they are written (#1175); the FLAC is then checked sample for
   sample against the WAV, as every FLAC is.
-- **32-bit integer and floating-point WAVs stay WAV** (#1176). The recorder
-  never writes them, so they come only from files copied into a take.
 
 ## Tests that guard this
 
 - `flac::tests::loud_24_bit_sound_is_never_kept_bigger_than_plain`
 - `flac::tests::a_bloated_flac_is_written_again_with_the_same_samples`
 - `flac::tests::a_wav_faster_than_96_khz_becomes_a_flac_at_its_own_rate`
+- `flac::tests::wide_and_floating_point_wavs_are_kept_as_16_bit_flac`
+- `flac::tests::a_kept_wide_wav_checks_only_sample_for_sample`
 - `recorder::tests::a_saved_hour_kept_as_a_bloated_flac_is_written_again_in_its_place`
 - `tests/flac_real_sound.rs`: one second of a public corpus take (CC0) at
   every level up to clipping, 16- and 24-bit, mono and stereo.
