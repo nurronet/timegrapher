@@ -612,7 +612,7 @@ impl TimegrapherApp {
             return Err("There is no Watches folder.".into());
         };
         let id = if a.new_watch {
-            let w = watch_of_take(a, &fill);
+            let w = watch_of_take(a, &fill, &self.cal);
             lib.add(&w)?;
             w.id
         } else {
@@ -1232,16 +1232,20 @@ fn open_ask_fields(ui: &mut egui::Ui, a: &mut OpenAsk, asks: OpenNeed, started_o
 }
 
 /// A new watch made for `a`'s recording: named as asked, with the
-/// calibre, beat rate and lift its files say, or that were filled in for
-/// it, so the watch and the take it holds agree (#1266). A lift left at
-/// the default is not the watch's.
-fn watch_of_take(a: &OpenAsk, fill: &Fill) -> library::Watch {
+/// calibre its files say, and the beat rate and lift its files say or that
+/// were filled in for it (#1266). A lift left at the default is not the
+/// watch's. Where the calibre table gives a beat rate or lift, that is the
+/// watch's, as Edit… keeps it (`lift_row`, `bph_row`), and the take's own
+/// is not copied.
+fn watch_of_take(a: &OpenAsk, fill: &Fill, cal: &crate::calibre_ui::Calibres) -> library::Watch {
     let mut w = library::Watch::new(&a.new_name);
     w.calibre = a.has.calibre.clone();
-    w.bph = a.has.bph.or(fill.bph);
+    let named = w.calibre.as_deref().unwrap_or_default();
+    w.bph = a.has.bph.or(fill.bph).filter(|_| cal.bph(named).is_none());
     w.lift = a
         .has
         .lift
-        .or(fill.lift.filter(|&(_, set)| set).map(|(l, _)| l));
+        .or(fill.lift.filter(|&(_, set)| set).map(|(l, _)| l))
+        .filter(|_| cal.lift(named).is_none());
     w
 }
