@@ -1328,7 +1328,11 @@ levels dashed; scaled to the readings with lone wild ones left out; a key
 in the plot's top right corner, as Charts' key, says after a dot in the
 series' colour what a dot is and how many are drawn: "10 s readings
 (179)" for the rate, "2 s windows (880)" for the amplitude and beat
-error, measured every 2 s),
+error, measured every 2 s; on the take's own clock it shares the strip's
+gutter and time axis, from 0:00 to the take's end, so its times line up
+with the strip's; with a position marked, its time is time in that
+position, its stretches joined end to end, and its axis says so, "Time in
+DD"),
 **Periods** (the period search's score at each period on a logarithmic
 axis, with the 1% false-alarm line dashed, the calibre's wheels' periods
 marked, and the strongest component labelled; **dB
