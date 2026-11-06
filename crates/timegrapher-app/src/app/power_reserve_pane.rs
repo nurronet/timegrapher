@@ -373,11 +373,12 @@ impl TimegrapherApp {
             codes
         };
         // Its settlings left out as a mask is, as session reads the run
-        // (#1233); the run still starts at its first beat.
-        let masked = self.engine_masked();
+        // (#1233); the run still starts at its first beat, so the log
+        // leaves out only the masks by hand.
+        let (by_hand, masked) = (self.masked.clone(), self.engine_masked());
         let (position, sound) = (self.position, self.no_sound.is_none());
         Some(move || {
-            let log = steady::log_of(&live)?;
+            let log = steady::log_masked(&live, &by_hand)?;
             let fit = reading_clock(take_clock.as_ref(), opened, ppm, log.duration_s);
             let breaks = steady::reading_breaks(take_breaks.unwrap_or_default(), &log);
             let r = power_reserve::from_long_take(
