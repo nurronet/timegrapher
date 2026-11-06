@@ -1,0 +1,20 @@
+app: head running
+took 5.0 s
+$ mkdir D:\w & xcopy /E /I /Y channel\walk\fx\save1253 D:\w\take & dir D:\w\take
+channel\walk\fx\save1253\lock.ps1
+channel\walk\fx\save1253\session.toml
+channel\walk\fx\save1253\take.flac
+3 File(s) copied
+ Volume in drive D is Temporary Storage
+ Volume Serial Number is 60D5-D62E
+
+ Directory of D:\w\take
+
+11/06/2026  05:17 PM    <DIR>          .
+11/06/2026  05:17 PM    <DIR>          ..
+11/06/2026  05:14 PM               502 lock.ps1
+11/06/2026  05:14 PM               228 session.toml
+11/06/2026  05:14 PM         1,726,528 take.flac
+               3 File(s)      1,727,258 bytes
+               2 Dir(s)  157,222,686,720 bytes free
+
