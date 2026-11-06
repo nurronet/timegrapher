@@ -71,6 +71,11 @@ impl TimegrapherApp {
         if let Some((t0, t1)) = take {
             plot = plot.include_x(t0).include_x(t1);
         }
+        // Ending where the strip above does, left of its scales, so their
+        // times line up.
+        if let Some(w) = theme::time_width(ui.ctx(), ui.cursor().left()) {
+            plot = plot.width(w.clamp(64.0, ui.available_width()));
+        }
         // Scale to hold every point of the lines: the whole take.
         let all: Vec<[f64; 2]> = series.iter().flat_map(|s| s.pts.iter().copied()).collect();
         let y_range = data_range(&all);
@@ -293,6 +298,9 @@ fn chart_plot(reading: SeriesKind, gutter: f32) -> (Plot<'static>, Grid) {
         .on(Plot::new(steady::title(reading))
             // As short as its share of the pane, rather than spilling out.
             .min_size(Vec2::new(64.0, 24.0))
+            // No room either side of the take's time: its start sits where
+            // the strip's does, at the gutter's edge (Hugh, #1252).
+            .set_margin_fraction(Vec2::new(0.0, 0.05))
             .link_axis("trend", [true, false])
             .link_cursor("trend", [true, false])
             .allow_scroll(false)

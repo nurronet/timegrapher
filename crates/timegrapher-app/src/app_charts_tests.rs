@@ -700,8 +700,12 @@ fn a_take_opened_after_a_wide_one_fits_the_gutter_afresh() {
 #[test]
 fn stacked_charts_put_the_takes_start_at_one_place() {
     let mut app = synthetic(60.0, 20.0);
+    // The strip across, showing the whole session as the charts do.
+    app.strip.horizontal = true;
+    app.strip_fit = true;
     set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
-    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+    set_pane_visible(&mut app.panes.tiles, Pane::Strip, true);
+    for p in [Pane::Sound, Pane::Scope, Pane::Distributions] {
         set_pane_visible(&mut app.panes.tiles, p, false);
     }
     // The rate read from 20 s on, the amplitude from the start.
@@ -725,15 +729,89 @@ fn stacked_charts_put_the_takes_start_at_one_place() {
         };
         out = Some(ctx.run(input, |ctx| app.panels(ctx)));
     }
-    let starts: Vec<f32> = out
-        .unwrap()
-        .shapes
-        .iter()
-        .filter_map(|c| match &c.shape {
-            egui::Shape::Text(t) if t.galley.text() == "0:00" => Some(t.pos.x),
-            _ => None,
-        })
-        .collect();
+    let out = out.unwrap();
+    // Each time label's middle: the strip's and each chart's.
+    let at = |label: &str| -> Vec<f32> {
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == label => {
+                    Some(c.shape.visual_bounding_rect().center().x)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let starts = at("0:00");
     assert_eq!(starts.len(), 2, "one 0:00 on each chart: {starts:?}");
     assert!((starts[0] - starts[1]).abs() < 0.5, "{starts:?}");
+    // The strip's time axis starts where theirs does (Hugh, #1252): its
+    // 0:00, a label step before its 0:10, over the charts'. (Its plot
+    // ends at the newest beat, theirs at the newest reading, so the two
+    // scales may differ by a fraction of a second at the far end.)
+    let (tens, twenties) = (at("0:10"), at("0:20"));
+    assert_eq!(tens.len(), 3, "the strip and each chart: {tens:?}");
+    let strip_start = tens[0] - (twenties[0] - tens[0]);
+    assert!(
+        (strip_start - starts[0]).abs() < 1.5,
+        "{strip_start} {starts:?}"
+    );
+}
+
+/// Readings Over Time lies in the time panes' one gutter and over the
+/// take's whole time, from its start, whatever the width of each chart's
+/// value labels (Hugh, #1252).
+#[test]
+fn readings_over_time_charts_share_one_gutter() {
+    // Steadiness reads a take of five minutes or more.
+    let mut app = synthetic(310.0, 20.0);
+    app.strip.horizontal = true;
+    app.strip_fit = true;
+    app.steady_series
+        .insert(steady::View::Readings, [true, true, true]);
+    for p in [Pane::Strip, Pane::SteadyReadings] {
+        set_pane_visible(&mut app.panes.tiles, p, true);
+    }
+    for p in [Pane::Charts, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let pass = |app: &mut TimegrapherApp| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1400.0),
+            )),
+            ..Default::default()
+        };
+        ctx.run(input, |ctx| app.panels(ctx))
+    };
+    // Read here rather than on its own thread.
+    let log = steady::log_of(app.live.as_ref().unwrap()).unwrap();
+    app.steady = Some((app.rev, steady::compute(&log, None)));
+    let mut out = pass(&mut app);
+    for _ in 0..3 {
+        out = pass(&mut app);
+    }
+    let at = |label: &str| -> Vec<f32> {
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == label => {
+                    Some(c.shape.visual_bounding_rect().center().x)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    // A minute in, on the strip and on each of Readings Over Time's
+    // charts, at one x: one gutter, one time span (the strip ends at the
+    // newest beat, a fraction of a second before the newest reading).
+    // Its three charts side by side, each in a column of one width: each
+    // 0:00 as far into its column as the next, whatever the width of its
+    // value labels (19.94 s/d against 279.1°), and at the plot's start.
+    let starts = at("0:00");
+    assert_eq!(starts.len(), 3, "the three charts: {starts:?}");
+    let (a, b) = (starts[1] - starts[0], starts[2] - starts[1]);
+    assert!((a - b).abs() < 1.0, "{starts:?}");
 }

@@ -284,7 +284,7 @@ fn write_checked(
                 "the FLAC does not decode to the samples it was given",
             ));
         }
-        std::fs::rename(&part, flac).map_err(AudioError::Io)?;
+        crate::recorder::rename_settled(&part, flac).map_err(AudioError::Io)?;
         sync_folder(flac)?;
         Ok(frames)
     })();

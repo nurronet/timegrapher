@@ -147,7 +147,7 @@ pub fn write(
     let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let part = dir.join(format!("{key}.{}-{n}.part", std::process::id()));
     fs::write(&part, &bytes)?;
-    fs::rename(&part, dir.join(&key)).inspect_err(|_| {
+    crate::recorder::rename_settled(&part, &dir.join(&key)).inspect_err(|_| {
         let _ = fs::remove_file(&part);
     })?;
     hold_to(dir, KEEP_BYTES);

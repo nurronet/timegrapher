@@ -1026,10 +1026,43 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let banded = steady_views::banded(&drawn);
     let range = steady_views::readings_range(g);
     let grid = value_grid(k);
+    // A time pane: the shared gutter and the take's whole time, from its
+    // start to its end, so the strip's and the charts' times line up over
+    // it (Hugh, #1252). Each value label is noted in the gutter, which is
+    // as wide as the widest the time panes draw.
+    let gutter = theme::time_gutter(ui.ctx());
+    let ctx = ui.ctx().clone();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let end = s
+        .grids
+        .iter()
+        .map(|g| g.t0 + g.y.len() as f64 * g.step)
+        .fold(0.0, f64::max);
+    let plot_w = plot_w + 64.0 - f64::from(gutter);
     let mut plot = grid
         .on(base)
+        .y_axis_min_width(gutter)
+        .include_x(0.0)
+        .include_x(end)
+        .set_margin_fraction(egui::Vec2::new(0.0, 0.05))
         .x_axis_formatter(clear_of_edge(plot_w, length_text))
-        .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size));
+        .y_axis_formatter(move |m, _| {
+            let text = value_text(k, m.value, m.step_size);
+            let w = ctx.fonts_mut(|f| {
+                f.layout_no_wrap(text.clone(), font.clone(), Color32::WHITE)
+                    .size()
+                    .x
+            });
+            // egui_plot's 4 pt either side of a value label.
+            theme::note_gutter_label(
+                &ctx,
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w + 8.0, 1.0)),
+            );
+            text
+        });
+    if let Some(w) = theme::time_width(ui.ctx(), ui.cursor().left()) {
+        plot = plot.width(w.clamp(64.0, ui.available_width()));
+    }
     if let Some((lo, hi)) = range {
         plot = plot.default_y_bounds(lo, hi);
     }

@@ -322,7 +322,7 @@ impl TimegrapherApp {
     /// the strip shades, so no reading falls where the watch was just
     /// handled (#1233).
     pub(super) fn engine_masked(&self) -> Vec<(f64, f64)> {
-        engine_masks(&self.masked, &self.session)
+        engine_masks(&self.masked, &self.session, &self.guided_unused)
     }
 
     /// Give the engine its masks ([`Self::engine_masked`]).
@@ -347,11 +347,28 @@ impl TimegrapherApp {
     }
 }
 
-/// The masks by hand, `masked`, with the settlings `session` has left out
-/// as a mask is ([`TimegrapherApp::engine_masked`]).
+/// The masks by hand, `masked`, with the settlings ([`settlings`]) left
+/// out as a mask is ([`TimegrapherApp::engine_masked`]).
 pub(super) fn engine_masks(
     masked: &[(f64, f64)],
     session: &crate::session::Session,
+    unused: &[(f64, f64, &'static str)],
 ) -> Vec<(f64, f64)> {
-    timegrapher_core::session::with_holes(masked, &session.settles())
+    timegrapher_core::session::with_holes(masked, &settlings(session, unused))
+}
+
+/// Every settling, merged: each move's in `session` and a Positions
+/// Test's own in its `unused` time. What the engine culls and the strip
+/// shades as settling, one list (Hugh, Norm, #1233); the time before the
+/// test began, or that it didn't use, is read as any listening is.
+pub(super) fn settlings(
+    session: &crate::session::Session,
+    unused: &[(f64, f64, &'static str)],
+) -> Vec<(f64, f64)> {
+    let test = unused
+        .iter()
+        .filter(|s| s.2 == crate::guided::SETTLING)
+        .map(|&(a, b, _)| (a, b));
+    let all: Vec<(f64, f64)> = session.settles().into_iter().chain(test).collect();
+    timegrapher_core::session::with_holes(&[], &all)
 }

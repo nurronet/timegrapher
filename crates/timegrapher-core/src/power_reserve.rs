@@ -501,7 +501,7 @@ impl Results {
 pub fn write(dir: &std::path::Path, r: &Results) -> std::io::Result<()> {
     let tmp = dir.join(format!(".{FILE}.part"));
     std::fs::write(&tmp, r.to_json())?;
-    std::fs::rename(&tmp, dir.join(FILE))
+    crate::recorder::rename_settled(&tmp, &dir.join(FILE))
 }
 
 /// The whole seconds a run time counts, so every place that gives it
