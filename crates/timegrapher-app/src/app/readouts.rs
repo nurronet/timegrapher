@@ -885,13 +885,7 @@ impl TimegrapherApp {
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
                 length_text(f.span_s),
-                // Decimals follow the ± (#510 R8).
-                timegrapher_core::figure_text::figure_with_pm(
-                    f.ppm.abs(),
-                    Some(f.ppm_sd),
-                    timegrapher_core::figure_text::base_digits::CLOCK,
-                    false,
-                ),
+                timed_clock_text(f.ppm, f.ppm_sd),
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {
@@ -1770,4 +1764,13 @@ fn status_item(
         resp
     })
     .inner
+}
+
+/// A clock timed while listening as the hint gives it, `ppm` as its size
+/// and its standard error `sd`, both to the decimals the ± calls for
+/// (core's [`timegrapher_core::figure_text::figure_with_pm`], #510 R8):
+/// "0.84 ± 0.06", "20.2 ± 0.3". The hint says "fast" or "slow" after it.
+pub(super) fn timed_clock_text(ppm: f64, sd: f64) -> String {
+    use timegrapher_core::figure_text::{base_digits, figure_with_pm};
+    figure_with_pm(ppm.abs(), Some(sd), base_digits::CLOCK, false)
 }
