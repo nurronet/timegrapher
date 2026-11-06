@@ -1501,6 +1501,10 @@ impl TimegrapherApp {
     /// entry) placing each on the strip: an entry for one of them gives its
     /// positions, settling and masks in seconds into its own file, so each
     /// is moved to where that file starts (#1154).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the strip shows the session file's positions as the take starts to open, before its TakeContext arrives, laid by core's folder layout; and the positions recorded under painting are the app's own record"
+    )]
     pub(super) fn apply_manifest_placed(
         &mut self,
         m: &Manifest,

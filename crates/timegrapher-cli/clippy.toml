@@ -1,5 +1,6 @@
-# One source (issue #514): a take's clock, breaks and measured stretch are
-# opened by core `take`, a stretch's fits are read by core
+# One source (issues #514 and #294): a take is opened once as core's
+# `TakeContext` (its clock, breaks, positions and windows), its clock,
+# breaks and measured stretch by core `take`, a stretch's fits are read by core
 # `session::stretch_fits` and distributions are built in core, never
 # assembled here from their building blocks.
 # A call with a reason of its own (a test checking core against itself,
@@ -23,7 +24,11 @@ disallowed-methods = [
     { path = "timegrapher_core::session::window_figures", reason = "read a stretch with timegrapher_core::session::stretch_fits" },
     { path = "timegrapher_core::histogram::histogram", reason = "core builds the distributions; show what it gives" },
     { path = "timegrapher_core::histogram::histogram_with", reason = "core builds the distributions; show what it gives" },
-    { path = "timegrapher_core::stream::analyze_files_peak", reason = "open a take with timegrapher_core::take::open_entry" },
-    { path = "timegrapher_core::stream::analyze_files", reason = "open a recording with timegrapher_core::take::open_files or a take with timegrapher_core::take::open_entry" },
+    { path = "timegrapher_core::stream::analyze_files_peak", reason = "open a take with timegrapher_core::take_context::TakeContext::open" },
+    { path = "timegrapher_core::stream::analyze_files", reason = "open a recording with timegrapher_core::take::open_files or a take with timegrapher_core::take_context::TakeContext::open" },
     { path = "timegrapher_core::analysis::Clipping::of", reason = "read an opened take's clipping with timegrapher_core::take::OpenedEntry::clipping" },
+    { path = "timegrapher_core::take::open_entry", reason = "open a take with timegrapher_core::take_context::TakeContext::open" },
+    { path = "timegrapher_core::take::listed_positions", reason = "a take's positions come from timegrapher_core::take_context::TakeContext::positions" },
+    { path = "timegrapher_core::take::positions_of", reason = "a take's positions come from timegrapher_core::take_context::TakeContext::positions" },
+    { path = "timegrapher_core::take::reading_window", reason = "a take's windows come from timegrapher_core::take_context::TakeContext (its entries)" },
 ]
