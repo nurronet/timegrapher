@@ -159,6 +159,7 @@ fn a_tests_facts_leave_out_its_last_window() {
         audio: true,
         incomplete: false,
         started_utc: None,
+        named_start: None,
         duration_s: Some(120.0),
         positions: vec!["DU".into()],
         at_end: Some(AtEnd {
@@ -287,6 +288,34 @@ fn only_an_empty_watch_is_taken_back() {
     fs::remove_dir_all(base).unwrap();
 }
 
+/// A take folder's name gives its start when it begins as the app and
+/// `timegrapher record` name a take, on a real minute (#1272).
+#[test]
+fn a_takes_folder_name_gives_its_start() {
+    assert_eq!(
+        named_start("2026-11-06 18.30 Dial Up").as_deref(),
+        Some("2026-11-06T18:30")
+    );
+    assert_eq!(
+        named_start("2028-02-29 00.00").as_deref(),
+        Some("2028-02-29T00:00")
+    );
+    for name in [
+        "ym42 copied",
+        "2026-11-0",
+        "2026-13-06 18.30",
+        "2026-02-29 18.30",
+        "2026-04-31 18.30",
+        "2026-11-06 24.00",
+        "2026-11-06 18.60",
+        "2026-11-06 18:30",
+        "2026/11/06 18.30",
+        "2026-11-06 1a.30",
+    ] {
+        assert_eq!(named_start(name), None, "{name}");
+    }
+}
+
 /// A take copied in by hand, with no `session.json`, still has a
 /// length: its sound's, from the files' headers, over every file the
 /// manifest lists (#1272). When it started stays unknown, never
@@ -310,6 +339,8 @@ fn a_take_copied_in_without_its_record_is_as_long_as_its_sound() {
     .unwrap();
     let t = read_take(&dir, 0).unwrap();
     assert_eq!(t.started_utc, None);
+    // Its folder isn't named as a take: no start from it either.
+    assert_eq!(t.named_start, None);
     assert_eq!(t.duration_s, Some(135.25));
     assert_eq!(t.facts(false), ["Dial Up, Dial Down", "2:15"]);
     // One file split into two entries, each a stretch of it, is one
@@ -329,6 +360,27 @@ fn a_take_copied_in_without_its_record_is_as_long_as_its_sound() {
     fs::remove_file(dir.join("take.wav")).unwrap();
     let t = read_take(&dir, 0).unwrap();
     assert!(t.incomplete && t.duration_s.is_none(), "{t:?}");
+    // A folder named as the app names a take gives its start, until a
+    // session.json records one.
+    let named = dir.join("2026-11-06 18.30 Dial Up");
+    fs::create_dir_all(&named).unwrap();
+    crate::audio::write_wav(&named.join("take.wav"), &audio(60.0)).unwrap();
+    fs::write(
+        named.join("session.toml"),
+        "bph = 28800\n\n[[recording]]\nfile = 'take.wav'\nposition = 'DU'\n",
+    )
+    .unwrap();
+    let t = read_take(&named, 0).unwrap();
+    assert_eq!(t.named_start.as_deref(), Some("2026-11-06T18:30"));
+    assert_eq!(t.duration_s, Some(60.0));
+    fs::write(
+        named.join("session.json"),
+        r#"{"started_utc":"2026-11-07T01:30:00Z"}"#,
+    )
+    .unwrap();
+    let t = read_take(&named, 0).unwrap();
+    assert_eq!(t.started_utc.as_deref(), Some("2026-11-07T01:30:00Z"));
+    assert_eq!(t.named_start, None);
     let _ = fs::remove_dir_all(&dir);
 }
 

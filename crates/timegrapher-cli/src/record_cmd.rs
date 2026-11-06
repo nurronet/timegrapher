@@ -212,7 +212,9 @@ fn place(o: &mut Options) -> Result<Placed, String> {
     }
     o.bph = o.bph.or(w.bph);
     o.lift = o.lift.or(w.lift);
-    let mut started = chrono::Local::now().format("%Y-%m-%d %H.%M").to_string();
+    let mut started = chrono::Local::now()
+        .format(library::TAKE_NAME_TIME)
+        .to_string();
     if o.power_reserve {
         started.push_str(" Power Reserve");
     }

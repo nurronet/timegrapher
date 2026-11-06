@@ -351,6 +351,11 @@ pub struct Take {
     pub incomplete: bool,
     /// From `session.json`: none for a take copied in without one.
     pub started_utc: Option<String>,
+    /// For a take with no `started_utc`, when its folder's name says it
+    /// started ([`named_start`], #1272): `2026-10-22T09:10`, in its
+    /// recording computer's time, no zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub named_start: Option<String>,
     /// From `session.json`, else the length of the sound its files'
     /// headers give ([`sound_length`], #1272).
     pub duration_s: Option<f64>,
@@ -1807,6 +1812,45 @@ fn usb_ppm(files: &[PathBuf]) -> Option<f64> {
     ppm
 }
 
+/// How a take folder's name starts, as `strftime` writes it: the minute it
+/// started in its recording computer's time, `2026-10-22 09.10`. The app
+/// and `timegrapher record` name takes by it, and [`named_start`] reads it.
+pub const TAKE_NAME_TIME: &str = "%Y-%m-%d %H.%M";
+
+/// When a take folder named by [`TAKE_NAME_TIME`] says it started, as
+/// `2026-10-22T09:10` (its recording computer's time, no zone): None for a
+/// name that doesn't start so, or names no real minute.
+pub fn named_start(name: &str) -> Option<String> {
+    let b = name.as_bytes().get(..16)?;
+    let num = |r: std::ops::Range<usize>| -> Option<u32> {
+        let d = b.get(r)?;
+        d.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| d.iter().fold(0, |n, c| n * 10 + u32::from(c - b'0')))
+    };
+    let seps = [(4, b'-'), (7, b'-'), (10, b' '), (13, b'.')];
+    if !seps.iter().all(|&(i, c)| b[i] == c) {
+        return None;
+    }
+    let (y, mo, d, h, mi) = (
+        num(0..4)?,
+        num(5..7)?,
+        num(8..10)?,
+        num(11..13)?,
+        num(14..16)?,
+    );
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let days = match mo {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        1..=12 => 31,
+        _ => return None,
+    };
+    (d >= 1 && d <= days && h < 24 && mi < 60)
+        .then(|| format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}"))
+}
+
 /// How long a take's sound is, seconds, from its files' headers, for a
 /// take copied in without the `session.json` that says (#1272): a corpus
 /// take, or one from another computer. None when a header doesn't give
@@ -1909,16 +1953,19 @@ fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
                     .and_then(|v| Some(crate::clockstore::correct_rate(v, ppm()?))),
             }
         });
+    let started_utc = about
+        .as_ref()
+        .and_then(|a| a.get("started_utc"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let name = file_name(dir);
     Ok(Take {
-        name: file_name(dir),
+        named_start: started_utc.is_none().then(|| named_start(&name)).flatten(),
+        name,
         bytes,
         audio,
         incomplete,
-        started_utc: about
-            .as_ref()
-            .and_then(|a| a.get("started_utc"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        started_utc,
         duration_s: about
             .as_ref()
             .and_then(|a| at(a, "duration_s"))

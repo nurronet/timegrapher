@@ -77,7 +77,7 @@ pub fn local_minute(utc: &str) -> Option<String> {
     let t = chrono::DateTime::parse_from_rfc3339(utc).ok()?;
     Some(
         t.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H.%M")
+            .format(timegrapher_core::library::TAKE_NAME_TIME)
             .to_string(),
     )
 }
@@ -917,11 +917,11 @@ pub fn new_take_buttons(
 }
 
 /// A take's start in its row: `22 Oct 2026 09:10`, in this computer's
-/// time zone. A take copied in without its `session.json` (#1272) reads it
-/// from its folder's name when that starts as the app names a take
-/// (`2026-10-22 09.10`, its recording computer's time), and is a dash
-/// when neither says: never the name itself, which would put a second form
-/// in the column and its position beside the Position column's.
+/// time zone. A take copied in without its `session.json` (#1272) shows
+/// the start its folder's name gives (core's `named_start`, its recording
+/// computer's time), and a dash when neither says: never the name itself,
+/// which would put a second form in the column and its position beside
+/// the Position column's.
 pub fn started_words(t: &Take) -> String {
     const SHOWN: &str = "%-d %b %Y %H:%M";
     if let Some(d) = t
@@ -931,14 +931,10 @@ pub fn started_words(t: &Take) -> String {
     {
         return d.with_timezone(&chrono::Local).format(SHOWN).to_string();
     }
-    named_start(&t.name).map_or_else(|| "—".into(), |d| d.format(SHOWN).to_string())
-}
-
-/// When a take folder named as the app names a take (`2026-10-22 09.10`,
-/// then anything) says it started.
-fn named_start(name: &str) -> Option<chrono::NaiveDateTime> {
-    let head = name.get(..16)?;
-    chrono::NaiveDateTime::parse_from_str(head, "%Y-%m-%d %H.%M").ok()
+    t.named_start
+        .as_deref()
+        .and_then(|n| chrono::NaiveDateTime::parse_from_str(n, "%Y-%m-%dT%H:%M").ok())
+        .map_or_else(|| "—".into(), |d| d.format(SHOWN).to_string())
 }
 
 /// A Positions Test take's positions measured and its Mean row: rate,
@@ -1536,7 +1532,7 @@ fn take_hover(
     }
     // Where a start not recorded in the take comes from, or that it is
     // unknown (#1272).
-    let start = match (&t.started_utc, named_start(&t.name)) {
+    let start = match (&t.started_utc, &t.named_start) {
         (Some(_), _) => "",
         (None, Some(_)) => "\n\nStart time from the take folder's name.",
         (None, None) => "\n\nStart time not recorded.",
@@ -2126,6 +2122,7 @@ mod tests {
             audio: true,
             incomplete: false,
             started_utc: None,
+            named_start: None,
             duration_s: None,
             positions: Vec::new(),
             at_end: None,
@@ -2300,6 +2297,7 @@ mod tests {
             audio: false,
             incomplete: false,
             started_utc: None,
+            named_start: timegrapher_core::library::named_start("2026-10-22 09.10"),
             duration_s: Some(1800.0),
             positions: vec!["DU".into()],
             at_end: Some(timegrapher_core::library::AtEnd {
@@ -2339,13 +2337,12 @@ mod tests {
         let named = |name: &str| {
             started_words(&Take {
                 name: name.into(),
+                named_start: timegrapher_core::library::named_start(name),
                 ..t.clone()
             })
         };
         assert_eq!(named("2026-11-06 18.30 Dial Up"), "6 Nov 2026 18:30");
         assert_eq!(named("ym42 copied"), "—");
-        assert_eq!(named("2026-13-06 18.30"), "—");
-        assert_eq!(named("2026-11-0"), "—");
         // Until its reading is worked out the figures are blank, never
         // the ones the app showed when it saved the take.
         assert_eq!(
@@ -2390,6 +2387,7 @@ mod tests {
             audio: true,
             incomplete: false,
             started_utc: None,
+            named_start: None,
             duration_s: Some(116.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2419,6 +2417,7 @@ mod tests {
             audio,
             incomplete: false,
             started_utc: Some("2026-10-27T12:30:00Z".into()),
+            named_start: None,
             duration_s: Some(60.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2641,6 +2640,7 @@ mod tests {
             audio: true,
             incomplete: false,
             started_utc: Some("2026-10-26T19:00:00Z".into()),
+            named_start: None,
             duration_s: Some(153.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2709,6 +2709,7 @@ mod tests {
             audio: false,
             incomplete: true,
             started_utc: Some("2026-10-20T21:32:00Z".into()),
+            named_start: None,
             duration_s: Some(120.0),
             positions: vec!["DU".into(), "CL".into()],
             at_end: None,
@@ -2802,6 +2803,7 @@ mod tests {
                 audio: false,
                 incomplete: false,
                 started_utc: None,
+                named_start: None,
                 duration_s: None,
                 positions: vec!["DU".into(), "DD".into(), "CU".into()],
                 at_end: None,
