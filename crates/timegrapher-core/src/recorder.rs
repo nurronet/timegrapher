@@ -31,6 +31,9 @@ use std::io::{self, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod settle;
+use settle::{held_open, settled};
+
 /// Bits a sample of every take's sound is kept at, whatever the
 /// microphone gives. Four 24-bit takes held nothing in their low 8 bits
 /// and read the same kept at 16 (#1176); the stand's noise is a few
@@ -1291,14 +1294,14 @@ impl SaveUpdate {
             for file in files {
                 let to = self.dest.join(&file);
                 let backup = self.backup.join(&file);
-                let had_old = match fs::rename(&to, &backup) {
+                let had_old = match settled(|| fs::rename(&to, &backup), held_open) {
                     Ok(()) => true,
                     Err(e) if e.kind() == io::ErrorKind::NotFound => false,
                     Err(e) => return Err(e),
                 };
                 changed.push((file.clone(), had_old));
                 before(SaveStep::Install, &to)?;
-                fs::rename(self.staged.join(&file), to)?;
+                settled(|| fs::rename(self.staged.join(&file), &to), held_open)?;
             }
             Ok(())
         })();
@@ -1308,13 +1311,13 @@ impl SaveUpdate {
                 let to = self.dest.join(&file);
                 let restored = (|| {
                     before(SaveStep::Restore, &to)?;
-                    match fs::remove_file(&to) {
+                    match settled(|| fs::remove_file(&to), held_open) {
                         Ok(()) => {}
                         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                         Err(e) => return Err(e),
                     }
                     if had_old {
-                        fs::rename(self.backup.join(&file), &to)?;
+                        settled(|| fs::rename(self.backup.join(&file), &to), held_open)?;
                     }
                     Ok(())
                 })();
