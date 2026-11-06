@@ -1115,6 +1115,53 @@ pub fn takes_buttons(
     act
 }
 
+/// Why Keep Analysis Only can't remove a take's sound, from its session
+/// file `m` alone: one source for the menu, which offers it only when it
+/// can (#1279), and for the removal itself.
+pub fn sound_kept_by_name(m: &timegrapher_core::session::Manifest) -> Option<String> {
+    use timegrapher_core::take::MANIFEST;
+    (m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".")).then(|| {
+        format!(
+            "its {MANIFEST} lists each sound file by name, and only takes whose {MANIFEST} \
+             names the whole folder, as the app writes it, can have their sound removed"
+        )
+    })
+}
+
+/// Why the take `t` in `dir` isn't offered Keep Analysis Only, or none
+/// when it is: `changes` when the watches can be changed and this take's
+/// sound isn't being removed, `keeping` while another's is, and `why` the
+/// reason they can't be. Its session file is read only while its menu is
+/// open: one that lists each sound file by name is refused here, not after
+/// the person confirms (#1279).
+fn keep_refused(
+    t: &Take,
+    dir: &Path,
+    (changes, keeping): (bool, bool),
+    why: &str,
+) -> Option<String> {
+    if !t.audio {
+        Some("This take's sound has already been removed".into())
+    } else if t.incomplete {
+        Some("Files this take lists are missing".into())
+    } else if keeping {
+        Some("Another take's sound is being removed. Wait for it to finish.".into())
+    } else if let Some(b) = take_kept_by_name(dir) {
+        Some(b)
+    } else {
+        (!changes).then(|| why.to_string())
+    }
+}
+
+/// [`sound_kept_by_name`] for the take in `dir`, as a sentence for the
+/// menu: none when its session file can't be read (the removal then says
+/// why).
+fn take_kept_by_name(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join(timegrapher_core::take::MANIFEST)).ok()?;
+    let m = toml::from_str(&text).ok()?;
+    sound_kept_by_name(&m).map(|why| format!("The sound can't be removed: {why}."))
+}
+
 /// A take's menu, for its right click and the Takes row's "…".
 fn take_menu(
     ui: &mut egui::Ui,
@@ -1148,24 +1195,14 @@ fn take_menu(
         act = Some(TakeAction::Show(dir.clone()));
     }
     ui.separator();
+    let refused = keep_refused(t, &dir, (changes, cx.keeping.is_some()), why);
     if ui
-        .add_enabled(
-            changes && t.audio && !t.incomplete && cx.keeping.is_none(),
-            egui::Button::new("Keep Analysis Only…"),
-        )
+        .add_enabled(refused.is_none(), egui::Button::new("Keep Analysis Only…"))
         .on_hover_text(
             "Delete the take's sound to save space and keep its analysis. You are asked \
              first, and told what is lost.",
         )
-        .on_disabled_hover_text(if !t.audio {
-            "This take's sound has already been removed"
-        } else if t.incomplete {
-            "Files this take lists are missing"
-        } else if cx.keeping.is_some() {
-            "Another take's sound is being removed. Wait for it to finish."
-        } else {
-            why
-        })
+        .on_disabled_hover_text(refused.unwrap_or_default())
         .clicked()
     {
         act = Some(TakeAction::KeepAnalysis(dir.clone()));
@@ -2052,6 +2089,52 @@ fn add_field(ui: &mut egui::Ui, w: &mut Watch) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Keep Analysis Only is offered only for a take whose session file
+    /// names the whole folder, as the app writes it; one that lists each
+    /// sound file by name is told why up front, not after it confirms
+    /// (#1279).
+    #[test]
+    fn keep_analysis_only_is_offered_only_where_it_can_remove_the_sound() {
+        let dir = std::env::temp_dir().join(format!("tg-keep-offer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(timegrapher_core::take::MANIFEST);
+        std::fs::write(&file, "[[recording]]\nfile = '.'\nposition = 'DU'\n").unwrap();
+        assert_eq!(take_kept_by_name(&dir), None);
+        let whole = Take {
+            name: "t".into(),
+            bytes: 0,
+            audio: true,
+            incomplete: false,
+            started_utc: None,
+            duration_s: None,
+            positions: Vec::new(),
+            at_end: None,
+            power_reserve: None,
+        };
+        assert_eq!(keep_refused(&whole, &dir, (true, false), "read only"), None);
+        assert_eq!(
+            keep_refused(&whole, &dir, (false, false), "read only").as_deref(),
+            Some("read only")
+        );
+        std::fs::write(
+            &file,
+            "[[recording]]\nfile = 'a.flac'\n\n[[recording]]\nfile = 'b.flac'\n",
+        )
+        .unwrap();
+        let why = take_kept_by_name(&dir).expect("refused up front");
+        assert!(why.starts_with("The sound can't be removed: its session.toml lists each"));
+        // The menu's item is refused with that reason.
+        assert_eq!(
+            keep_refused(&whole, &dir, (true, false), "read only"),
+            Some(why)
+        );
+        // No session file: the menu doesn't guess; the removal says why.
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(take_kept_by_name(&dir), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// New Take's captions are whole under their buttons in an 800 point
     /// window, where the watch's side is narrowest.
