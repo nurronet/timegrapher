@@ -1,0 +1,6 @@
+app: head running
+took 7.3 s
+$ dir /s /b "%USERPROFILE%\Timegrapher Data\*.flac"
+C:\Users\runneradmin\Timegrapher Data\Sub LNab - 2024- -x- -----\takes\roam\take.flac
+C:\Users\runneradmin\Timegrapher Data\Sub LNab - 2024- -x- -----\takes\roam2\take.flac
+
