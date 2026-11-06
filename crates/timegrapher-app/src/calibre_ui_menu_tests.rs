@@ -596,6 +596,14 @@ fn a_dialogs_calibre_menu_opens_above_it_every_time() {
             Some(egui::Id::new("watch form")),
             "round {round}: the dialog covers its Calibre menu"
         );
+        // Walter's walk of #1200: the caret is in the search, so typing
+        // searches at once.
+        run(vec![egui::Event::Text("2824".into())]);
+        let out = run(vec![]);
+        assert!(
+            drawn_at(&out, "2824").is_some(),
+            "round {round}: typing didn't reach the search"
+        );
         let title = drawn_at(&out, "New Watch").expect("the dialog's title");
         run(click(title.center()));
         run(vec![]);
