@@ -1801,8 +1801,15 @@ impl TimegrapherApp {
     }
 
     /// Analyse `path` whole. Without a session file it starts from
-    /// `carried`, else from the defaults.
+    /// `carried`, else from the defaults. The settings it puts in place
+    /// for it read nothing again, since it is about to be read with them.
     pub(super) fn analyse_whole(&mut self, path: &Path, carried: Option<WatchSetup>) {
+        let outer = std::mem::replace(&mut self.opening, true);
+        self.open_whole(path, carried);
+        self.opening = outer;
+    }
+
+    fn open_whole(&mut self, path: &Path, carried: Option<WatchSetup>) {
         // Refused before anything on show is stopped.
         if let Some(why) = no_analysis_to_read(path).or_else(|| {
             take_folder(path)

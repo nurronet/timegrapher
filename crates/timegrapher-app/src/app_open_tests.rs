@@ -830,3 +830,55 @@ fn a_folder_takes_later_files_land_where_they_start() {
     drop((app, again));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Opening a recording puts its watch's settings in place before reading
+/// it. A calibre among them that changes the beat rate doesn't read the
+/// take on show again: that was the take before, whose own calibre read
+/// the next one again, and so on until the stack ran out (#1241).
+#[test]
+fn a_recording_opened_after_a_take_with_a_calibre_opens() {
+    let base = std::env::temp_dir().join(format!("tg-app-after-calibre-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let take = base.join("take");
+    std::fs::create_dir_all(&take).unwrap();
+    let synth = |s: f64| {
+        generate(
+            &SynthConfig {
+                duration_s: s,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        )
+    };
+    timegrapher_core::audio::write_wav(&take.join("take.wav"), &synth(60.0)).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "calibre = '3235'\nbph = 28800\nlift = 55.0\nsettle_s = 5.0\n\n\
+         [[recording]]\nfile = 'take.wav'\nposition = 'CU'\nend_s = 20.0\n\n\
+         [[recording]]\nfile = 'take.wav'\nposition = 'CD'\nstart_s = 20.0\nend_s = 30.0\n\n\
+         [[recording]]\nfile = 'take.wav'\nposition = 'CU'\nstart_s = 30.0\n\
+         masked = [[15.0, 40.0]]\n",
+    )
+    .unwrap();
+    let wav = base.join("plain.wav");
+    timegrapher_core::audio::write_wav(&wav, &synth(30.0)).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let opened = |app: &mut TimegrapherApp, path: &std::path::Path| {
+        app.open_recording(path, true);
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+            app.poll();
+        }
+        assert!(app.batch.is_none(), "{:?}", app.message);
+    };
+    opened(&mut app, &take);
+    assert_eq!(app.calibre, "3235");
+    assert_eq!(app.bph, Some(28800));
+    opened(&mut app, &wav);
+    assert_eq!(app.source_label, "plain.wav", "{:?}", app.message);
+    // The plain file starts from Quick Listen's settings, not the take's.
+    assert_eq!(app.calibre, "");
+    assert_eq!(app.bph, None);
+    let _ = std::fs::remove_dir_all(&base);
+}
