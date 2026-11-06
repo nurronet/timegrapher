@@ -94,7 +94,17 @@ impl TimegrapherApp {
     /// Positions Test the time it didn't use, in place of the moves'
     /// settling it covers.
     pub(super) fn strip_settles(&self) -> Vec<(f64, f64, &'static str)> {
-        strip_settles_of(&self.session, &self.guided_unused)
+        let test = &self.guided_unused;
+        let mut out: Vec<(f64, f64, &'static str)> = self
+            .session
+            .settles()
+            .into_iter()
+            .filter(|s| !test.iter().any(|t| s.0 < t.1 && t.0 < s.1))
+            .map(|(a, b)| (a, b, guided::SETTLING))
+            .chain(test.iter().copied())
+            .collect();
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out
     }
 
     /// The strip settings' Draw Over the Strip switches: Rate, Amplitude,
@@ -725,23 +735,6 @@ fn numbered_candidates(
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// [`TimegrapherApp::strip_settles`], from the `session`'s settlings and a
-/// Positions Test's `unused` time.
-pub(super) fn strip_settles_of(
-    session: &crate::session::Session,
-    unused: &[(f64, f64, &'static str)],
-) -> Vec<(f64, f64, &'static str)> {
-    let mut out: Vec<(f64, f64, &'static str)> = session
-        .settles()
-        .into_iter()
-        .filter(|s| !unused.iter().any(|t| s.0 < t.1 && t.0 < s.1))
-        .map(|(a, b)| (a, b, guided::SETTLING))
-        .chain(unused.iter().copied())
-        .collect();
-    out.sort_by(|a, b| a.0.total_cmp(&b.0));
-    out
 }
 
 #[cfg(test)]
