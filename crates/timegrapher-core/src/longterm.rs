@@ -1039,7 +1039,6 @@ fn misfit_without(
     components: &[Component],
     cfg: &LongConfig,
 ) -> (f64, Option<f64>) {
-    let mut rest = detrended.clone();
     let mut removed = Vec::new();
     let span = detrended.span();
     let kept = |c: &Component| (c.harmonics as usize).min(((span / c.period_s) as usize).max(1));
@@ -1048,16 +1047,42 @@ fn misfit_without(
             removed.push(h as f64 / c.period_s);
         }
     }
-    for &f in &removed {
-        remove_sinusoid(&mut rest, f);
-    }
     let w = detrend_window(detrended, cfg.detrend_s).map(|w| w as f64 * detrended.step);
-    let sp = spectrum(&rest, w);
-    let more = standing_harmonics(&sp, components, kept, detrended.step);
-    for &f in &more {
-        remove_sinusoid(&mut rest, f);
-    }
+    let removed = distinct_lines(removed, span);
+    let rest = without_lines(detrended, &removed);
+    let more = standing_harmonics(&spectrum(&rest, w), components, kept, detrended.step);
+    let more: Vec<f64> = distinct_lines(more, span)
+        .into_iter()
+        .filter(|&f| removed.iter().all(|&r| (f - r).abs() * span >= 0.5))
+        .collect();
+    let rest = if more.is_empty() {
+        rest
+    } else {
+        without_lines(detrended, &[removed.as_slice(), &more].concat())
+    };
     timing_fit_of(&rest, &spectrum(&rest, w), w, &removed, &more)
+}
+
+/// `lines`, Hz, sorted, keeping one of any two within half a resolution
+/// (1/`span`) of each other, which a joint fit can't tell apart: a 15 s
+/// cycle's 4th harmonic and a 60 s cycle's 16th, say.
+fn distinct_lines(mut lines: Vec<f64>, span: f64) -> Vec<f64> {
+    lines.sort_by(f64::total_cmp);
+    lines.dedup_by(|a, b| (*a - *b).abs() * span < 0.5);
+    lines
+}
+
+/// `g` less the least-squares fit of sines at `lines`, Hz, fitted jointly
+/// with a mean ([`sines_fit`]); `g` itself where they can't be fitted.
+fn without_lines(g: &Grid, lines: &[f64]) -> Grid {
+    let periods: Vec<f64> = lines.iter().map(|f| 1.0 / f).collect();
+    let mut out = g.clone();
+    if let Some(b) = sines_fit(g, &periods) {
+        for i in 0..out.y.len() {
+            out.y[i] -= sines_at(&periods, &b, g.time(i) - g.t0) - b[0];
+        }
+    }
+    out
 }
 
 /// The family-wise chance that noise alone lifts one of a cycle's
@@ -1101,30 +1126,74 @@ fn standing_harmonics(
         .collect()
 }
 
-/// Takes the least-squares sinusoid at `freq` Hz out of `g`.
-fn remove_sinusoid(g: &mut Grid, freq: f64) {
-    let w = std::f64::consts::TAU * freq;
-    let (mut cc, mut ss, mut cs, mut yc, mut ys) = (0.0, 0.0, 0.0, 0.0, 0.0);
-    for (i, &y) in g.y.iter().enumerate() {
-        if y.is_finite() {
-            let (s, c) = (w * (g.time(i) - g.t0)).sin_cos();
-            cc += c * c;
-            ss += s * s;
-            cs += c * s;
-            yc += y * c;
-            ys += y * s;
+/// The terms a mean and a sine at each of `periods` take at time `t`:
+/// 1, then the cosine and sine of each.
+fn sines_row(periods: &[f64], t: f64) -> Vec<f64> {
+    let mut r = vec![1.0; 1 + 2 * periods.len()];
+    for (j, &q) in periods.iter().enumerate() {
+        let (sin, cos) = (std::f64::consts::TAU * t / q).sin_cos();
+        r[1 + 2 * j] = cos;
+        r[2 + 2 * j] = sin;
+    }
+    r
+}
+
+/// The fit [`sines_fit`] gave, at time `t` from the grid's start.
+pub fn sines_at(periods: &[f64], b: &[f64], t: f64) -> f64 {
+    sines_row(periods, t)
+        .iter()
+        .zip(b)
+        .map(|(r, b)| r * b)
+        .sum()
+}
+
+/// Least squares fit of a mean and a sine at each of `periods`, jointly,
+/// to the finite readings of `g` (time from its start): the mean, then the
+/// cosine and sine coefficients of each. None with fewer than two
+/// readings a term, or where the terms can't be told apart. The one sine
+/// fit, for the steady pane's sizes and the misfit's lines alike.
+pub fn sines_fit(g: &Grid, periods: &[f64]) -> Option<Vec<f64>> {
+    let m = 1 + 2 * periods.len();
+    let pts: Vec<(f64, f64)> =
+        g.y.iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_finite())
+            .map(|(i, &v)| (g.time(i) - g.t0, v))
+            .collect();
+    let n = pts.len();
+    if n < 2 * m {
+        return None;
+    }
+    // Normal equations, solved by elimination with partial pivoting.
+    let mut a = vec![vec![0.0; m + 1]; m];
+    for &(t, v) in &pts {
+        let r = sines_row(periods, t);
+        for i in 0..m {
+            for j in 0..m {
+                a[i][j] += r[i] * r[j];
+            }
+            a[i][m] += r[i] * v;
         }
     }
-    let det = cc * ss - cs * cs;
-    if det.abs() < 1e-300 {
-        return;
+    for col in 0..m {
+        let piv = (col..m)
+            .max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))
+            .unwrap_or(col);
+        a.swap(col, piv);
+        if a[col][col].abs() <= 1e-9 * n as f64 {
+            return None;
+        }
+        let pivot = a[col].clone();
+        for (i, r) in a.iter_mut().enumerate() {
+            if i != col {
+                let k = r[col] / pivot[col];
+                for (x, p) in r.iter_mut().zip(&pivot).skip(col) {
+                    *x -= k * p;
+                }
+            }
+        }
     }
-    let a = (yc * ss - ys * cs) / det;
-    let b = (ys * cc - yc * cs) / det;
-    for i in 0..g.y.len() {
-        let (s, c) = (w * (g.time(i) - g.t0)).sin_cos();
-        g.y[i] -= a * c + b * s;
-    }
+    Some((0..m).map(|i| a[i][m] / a[i][i]).collect())
 }
 
 /// A sinusoid at 60 s also lights up the harmonics of 120 s and

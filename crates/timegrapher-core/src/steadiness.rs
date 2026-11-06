@@ -1471,17 +1471,11 @@ fn sized(d: &Grid, period: f64) -> (f64, f64) {
 /// of the readings' variance it explains, less what noise alone would give
 /// (two per sine over the readings), and its peak to peak over one `turn`.
 fn sine_fit(d: &Grid, periods: &[f64], turn: f64) -> (f64, f64) {
-    let tau = 2.0 * std::f64::consts::PI;
     let m = 1 + 2 * periods.len();
-    let row = |t: f64| {
-        let mut r = vec![1.0; m];
-        for (j, &q) in periods.iter().enumerate() {
-            let x = tau * t / q;
-            r[1 + 2 * j] = x.cos();
-            r[2 + 2 * j] = x.sin();
-        }
-        r
+    let Some(b) = longterm::sines_fit(d, periods) else {
+        return (0.0, 0.0);
     };
+    let fit = |t: f64| longterm::sines_at(periods, &b, t);
     let pts: Vec<(f64, f64)> =
         d.y.iter()
             .enumerate()
@@ -1489,40 +1483,6 @@ fn sine_fit(d: &Grid, periods: &[f64], turn: f64) -> (f64, f64) {
             .map(|(i, &v)| (d.time(i) - d.t0, v))
             .collect();
     let n = pts.len();
-    if n < 2 * m {
-        return (0.0, 0.0);
-    }
-    // Normal equations, solved by elimination with partial pivoting.
-    let mut a = vec![vec![0.0; m + 1]; m];
-    for &(t, v) in &pts {
-        let r = row(t);
-        for i in 0..m {
-            for j in 0..m {
-                a[i][j] += r[i] * r[j];
-            }
-            a[i][m] += r[i] * v;
-        }
-    }
-    for col in 0..m {
-        let piv = (col..m)
-            .max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))
-            .unwrap_or(col);
-        a.swap(col, piv);
-        if a[col][col].abs() <= 1e-9 * n as f64 {
-            return (0.0, 0.0);
-        }
-        let pivot = a[col].clone();
-        for (i, r) in a.iter_mut().enumerate() {
-            if i != col {
-                let k = r[col] / pivot[col];
-                for (x, p) in r.iter_mut().zip(&pivot).skip(col) {
-                    *x -= k * p;
-                }
-            }
-        }
-    }
-    let b: Vec<f64> = (0..m).map(|i| a[i][m] / a[i][i]).collect();
-    let fit = |t: f64| row(t).iter().zip(&b).map(|(r, b)| r * b).sum::<f64>();
     let mean = pts.iter().map(|p| p.1).sum::<f64>() / n as f64;
     let total: f64 = pts.iter().map(|p| (p.1 - mean).powi(2)).sum();
     let between: f64 = pts.iter().map(|p| (fit(p.0) - mean).powi(2)).sum();
