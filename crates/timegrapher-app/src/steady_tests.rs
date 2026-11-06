@@ -152,6 +152,7 @@ fn the_info_panel_holds_the_findings_and_the_plots_say_what_a_dot_is(s: &Steadin
                 egui::CentralPanel::default().show(ctx, |ui| {
                     let opts = Opts {
                         info,
+                        take_span: None,
                         ..Default::default()
                     };
                     draw(
@@ -249,6 +250,7 @@ fn too_few_readings_is_said_once() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let opts = Opts {
                     info: true,
+                    take_span: None,
                     ..Default::default()
                 };
                 draw(
@@ -287,6 +289,7 @@ fn a_short_panes_info_scrolls_and_the_cycle_note_stays_in_its_column(s: &Steadin
             egui::CentralPanel::default().show(ctx, |ui| {
                 let opts = Opts {
                     info: true,
+                    take_span: None,
                     ..Default::default()
                 };
                 draw(
@@ -364,6 +367,7 @@ fn the_info_panel_opens_at_its_top(s: &Steadiness) {
                 if let Some(view) = view {
                     let opts = Opts {
                         info: true,
+                        take_span: None,
                         ..Default::default()
                     };
                     draw(ui, Some(s), "", view, &[true, true, true], opts);

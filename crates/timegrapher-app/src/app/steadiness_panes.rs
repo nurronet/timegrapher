@@ -274,6 +274,9 @@ impl TimegrapherApp {
                 maps_db: self.maps_db.on(view),
                 wheels: self.show_wheels.on(view),
                 info: self.steady_info.on(view),
+                take_span: self
+                    .take_span()
+                    .filter(|_| self.session.stretches().is_empty()),
             },
         );
     }

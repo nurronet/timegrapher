@@ -1033,11 +1033,17 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let gutter = theme::time_gutter(ui.ctx());
     let ctx = ui.ctx().clone();
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let end = s
-        .grids
-        .iter()
-        .map(|g| g.t0 + g.y.len() as f64 * g.step)
-        .fold(0.0, f64::max);
+    // The take's end, the strip's and the charts' (Walter on #1256); else
+    // what the tests read, and never short of the last window.
+    let end = r.opts.take_span.map_or_else(
+        || {
+            s.grids
+                .iter()
+                .map(|g| g.t0 + g.y.len() as f64 * g.step)
+                .fold(s.upto_s, f64::max)
+        },
+        |(_, t1)| t1,
+    );
     let plot_w = plot_w + 64.0 - f64::from(gutter);
     let mut plot = grid
         .on(base)
@@ -1752,6 +1758,10 @@ pub struct Opts {
     pub wheels: bool,
     /// The Info panel, beside the plots: each pane opens its own.
     pub info: bool,
+    /// The take's span when the readings are on its own clock, as the
+    /// strip's and the charts' are, not one position's stretches joined
+    /// end to end: Readings Over Time then fits it, as they do (#1252).
+    pub take_span: Option<(f64, f64)>,
 }
 
 /// What Wheel Periods does, for its hint.

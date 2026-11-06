@@ -67,7 +67,7 @@ impl TimegrapherApp {
         // One time axis for every chart in the pane: the take's, from its
         // start to its end or now, not each chart's own first and last
         // reading, so their times line up (Hugh, #1252).
-        let take = take_span(&self.trend);
+        let take = self.take_span();
         if let Some((t0, t1)) = take {
             plot = plot.include_x(t0).include_x(t1);
         }
@@ -432,13 +432,6 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, take: Option<(f64, f64)>) -> bool
             true
         }
     }
-}
-
-/// The take's span on the charts' time axis: from its start to its
-/// latest reading, there or not.
-fn take_span(trend: &[TrendPoint]) -> Option<(f64, f64)> {
-    let end = trend.last()?.t;
-    (end > 0.0).then_some((0.0, end))
 }
 
 /// The time range `lo..hi` moved, not stretched, to lie within the take

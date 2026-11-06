@@ -2841,7 +2841,7 @@ impl TimegrapherApp {
     fn follow_fit(&mut self) {
         if self.strip_fit {
             self.strip_end = None;
-            self.strip.set_span(self.latest_s());
+            self.strip.set_span(self.strip_end_s());
         }
     }
 
@@ -3832,7 +3832,8 @@ fn started_in(dir: &Path) -> Option<String> {
 fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
     let mut v = match existing.filter(|p| p.is_file()) {
         Some(p) => {
-            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let text = timegrapher_core::recorder::read_settled(p)
+                .map_err(|e| format!("{}: {e}", p.display()))?;
             serde_json::from_str(&text).map_err(|e| format!("Can't read {}: {e}", p.display()))?
         }
         None => serde_json::json!({}),
@@ -3855,7 +3856,8 @@ fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
 /// session.toml as it was, comments too.
 fn fill_take(take: &Path, watch: &library::Watch, fill: &Fill) -> Result<(), String> {
     let file = take.join(MANIFEST);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let text = timegrapher_core::recorder::read_settled(&file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
     let mut doc: toml_edit::DocumentMut = text
         .parse()
         .map_err(|e| format!("Can't read {}: {e}", file.display()))?;

@@ -815,3 +815,69 @@ fn readings_over_time_charts_share_one_gutter() {
     let (a, b) = (starts[1] - starts[0], starts[2] - starts[1]);
     assert!((a - b).abs() < 1.0, "{starts:?}");
 }
+
+/// The strip and a time pane under it put a late time at one x, not
+/// only 0:00: both end their axes at the take's one end. Charts and
+/// Readings Over Time each, under the strip (Walter and Trevor on #1256).
+#[test]
+fn time_panes_under_the_strip_put_a_late_time_at_one_place() {
+    for pane in [Pane::Charts, Pane::SteadyReadings] {
+        let mut app = synthetic(370.0, 20.0);
+        app.strip.horizontal = true;
+        app.strip_fit = true;
+        app.chart_series = [true, false, false];
+        app.steady_series
+            .insert(steady::View::Readings, [true, false, false]);
+        for p in [Pane::Strip, pane] {
+            set_pane_visible(&mut app.panes.tiles, p, true);
+        }
+        for p in [
+            Pane::Charts,
+            Pane::SteadyReadings,
+            Pane::Sound,
+            Pane::Scope,
+            Pane::Distributions,
+        ] {
+            if p != pane {
+                set_pane_visible(&mut app.panes.tiles, p, false);
+            }
+        }
+        let ctx = themed();
+        let pass = |app: &mut TimegrapherApp| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 1400.0),
+                )),
+                ..Default::default()
+            };
+            ctx.run(input, |ctx| app.panels(ctx))
+        };
+        // The tests last read the take a minute short of its end, as while
+        // listening they read again only every so often: Readings Over
+        // Time still ends where the strip does, at the take's end.
+        let short = synthetic(310.0, 20.0);
+        let log = steady::log_of(short.live.as_ref().unwrap()).unwrap();
+        app.steady = Some((app.rev, steady::compute(&log, None)));
+        let mut out = pass(&mut app);
+        for _ in 0..3 {
+            out = pass(&mut app);
+        }
+        let at = |label: &str| -> Vec<f32> {
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.text() == label => {
+                        Some(c.shape.visual_bounding_rect().center().x)
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for label in ["1:00", "4:00", "6:00"] {
+            let xs = at(label);
+            assert_eq!(xs.len(), 2, "{pane:?} {label}, on it and the strip: {xs:?}");
+            assert!((xs[0] - xs[1]).abs() < 1.0, "{pane:?} {label}: {xs:?}");
+        }
+    }
+}

@@ -11,6 +11,13 @@ pub fn rename_settled(from: &Path, to: &Path) -> io::Result<()> {
     settled(|| std::fs::rename(from, to), held_open)
 }
 
+/// Read `path` as text, waiting the same way: a save reads the file it
+/// rewrites first, and that read is refused too while another program
+/// has the file open with no sharing (Walter on #1259).
+pub fn read_settled(path: &Path) -> io::Result<String> {
+    settled(|| std::fs::read_to_string(path), held_open)
+}
+
 /// `op`, tried again for up to about a second while `held` says another
 /// program has the file open. On Windows a virus scanner or the search
 /// indexer opens a file just written, and a rename or removal of it is
@@ -98,6 +105,20 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&to).unwrap(), "new");
         let started = std::time::Instant::now();
         let missing = rename_settled(&from, &to).unwrap_err();
+        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_settled_read_gives_the_text_and_a_missing_file_fails_at_once() {
+        let dir = std::env::temp_dir().join(format!("tg-settle-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("session.toml");
+        std::fs::write(&file, "name = \"a\"\n").unwrap();
+        assert_eq!(read_settled(&file).unwrap(), "name = \"a\"\n");
+        let started = std::time::Instant::now();
+        let missing = read_settled(&dir.join("gone")).unwrap_err();
         assert_eq!(missing.kind(), io::ErrorKind::NotFound);
         assert!(started.elapsed() < std::time::Duration::from_millis(500));
         std::fs::remove_dir_all(dir).unwrap();
