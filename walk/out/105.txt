@@ -1,0 +1,6 @@
+app: head running
+took 6.4 s
+$ mkdir D:\r & xcopy /E /I /Y channel\walk\fx\roam D:\r\roam >nul & xcopy /E /I /Y channel\walk\fx\roam D:\r\roam2 >nul & dir /b D:\r
+roam
+roam2
+
