@@ -3732,27 +3732,38 @@ fn reading_clock(
     }
 }
 
-/// What core opens to read the take at `path` whole, as `analyze --trend`
-/// reads it (core's `take::whole_entry`): with its session file `manifest`
-/// and that file's entries for the recording, one entry on the clock log
-/// the entries name, or core's error where they name two. The entry leaves
-/// its masks to the window, which keeps them open to change.
+/// What core opens to read the take at `path` (core's `TakeContext::open`,
+/// as `series` and `long` open a take): its folder and its session file
+/// `manifest` with only that file's entries for the recording, each
+/// spelling the recording as the one opened. With no session file, one
+/// entry naming the recording. Core's error where it can't read the take
+/// whole, as where the entries name two clock logs.
 fn take_entry(
     path: &Path,
     manifest: Option<&(Manifest, Vec<RecordingEntry>)>,
-) -> Result<(PathBuf, Manifest, RecordingEntry), String> {
+) -> Result<(PathBuf, Manifest), String> {
     // Its entries may spell the recording differently ("./a.wav"); core reads the one opened.
-    let opened = timegrapher_core::take::whole_entry(path, None)?.2.file;
-    let mut listed = manifest.map(|(m, e)| Manifest {
-        recordings: e.clone(),
-        ..m.clone()
-    });
-    for e in listed.iter_mut().flat_map(|m| m.recordings.iter_mut()) {
-        e.file.clone_from(&opened);
-    }
-    let (base, m, mut entry) = timegrapher_core::take::whole_entry(path, listed.as_ref())?;
-    entry.masked.clear();
-    Ok((base, m, entry))
+    let (base, _, opened) = timegrapher_core::take::whole_entry(path, None)?;
+    let m = match manifest {
+        Some((m, e)) => Manifest {
+            recordings: e
+                .iter()
+                .map(|e| RecordingEntry {
+                    file: opened.file.clone(),
+                    ..e.clone()
+                })
+                .collect(),
+            ..m.clone()
+        },
+        None => Manifest {
+            recordings: vec![opened],
+            ..Manifest::default()
+        },
+    };
+    // A take core can't read whole (entries on two clock logs) is
+    // refused here, before the window starts reading it.
+    timegrapher_core::take::whole_take(&m)?;
+    Ok((base, m))
 }
 
 /// Where a bug report starts: the repository's bug form.

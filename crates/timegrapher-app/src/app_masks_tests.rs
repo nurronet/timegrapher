@@ -901,3 +901,34 @@ fn a_mask_on_a_take_on_show_is_read_in_the_background() {
     assert_eq!(now.span, w2.span);
     assert_eq!(app.free_table(&ctx), Some(t2));
 }
+
+/// A take opened with masks in its session file keeps the beats under
+/// them: the window cuts a mask, so clearing it brings them back without
+/// reading the take again (core's `TakeContext::open` with the masks kept
+/// as data, #294 step 5).
+#[test]
+fn a_masked_stretch_keeps_its_beats_when_opened() {
+    let base = std::env::temp_dir().join(format!("tg-app-mask-kept-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(
+        base.join(MANIFEST),
+        "lift = 52.0\n\n[[recording]]\nfile = \"take.wav\"\nposition = \"CU\"\n\
+         masked = [[5.0, 10.0]]\n",
+    )
+    .unwrap();
+    let mut app = opened_recording(&base, "take.wav", 20.0);
+    assert_eq!(app.masked, [(5.0, 10.0)]);
+    let under = |app: &TimegrapherApp| {
+        let live = app.live.as_ref().unwrap();
+        live.beats()
+            .iter()
+            .filter(|b| (5.0..10.0).contains(&b.time))
+            .count()
+    };
+    // 28,800 beats an hour: 40 in the 5 s masked.
+    assert!(under(&app) > 30, "{}", under(&app));
+    app.set_masked(Vec::new());
+    assert!(under(&app) > 30, "{}", under(&app));
+    let _ = std::fs::remove_dir_all(&base);
+}

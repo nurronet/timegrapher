@@ -247,8 +247,11 @@ fn one_recording_of_a_folder_is_read_alone_however_its_entries_spell_it() {
     let path = base.join("audio-001.wav");
     let manifest = read_manifest(&path).unwrap();
     assert_eq!(manifest.as_ref().map(|(_, e)| e.len()), Some(2));
-    let (_, _, entry) = take_entry(&path, manifest.as_ref()).unwrap();
-    assert_eq!(entry.file, "audio-001.wav");
+    let (_, m) = take_entry(&path, manifest.as_ref()).unwrap();
+    let files: Vec<&str> = m.recordings.iter().map(|e| e.file.as_str()).collect();
+    assert_eq!(files, ["audio-001.wav", "audio-001.wav"]);
+    let whole = timegrapher_core::take::whole_take(&m).unwrap();
+    assert_eq!(whole.file, "audio-001.wav");
     let _ = std::fs::remove_dir_all(&base);
 }
 
