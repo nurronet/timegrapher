@@ -1393,15 +1393,9 @@ pub fn positions_table(
                 .map(|&(a, b)| b - a - masked_within(masked, a, b))
                 .sum::<f64>()
                 .max(0.0);
-            let measurement = match (spans.first(), spans.last()) {
-                (Some(&(from, _)), Some(&(_, to))) if duration_s >= min_s => {
-                    let mut cut = masked.to_vec();
-                    cut.extend(spans.windows(2).map(|w| (w[0].1, w[1].0)));
-                    let cut = masked_spans(&cut.iter().map(|&(a, b)| [a, b]).collect::<Vec<_>>());
-                    Some(measure_masked(log, clock, breaks, &cut, from, to))
-                }
-                _ => None,
-            };
+            let measurement = (duration_s >= min_s)
+                .then(|| measure_together(log, clock, breaks, masked, &spans))
+                .flatten();
             PositionRow {
                 position: p,
                 duration_s,
@@ -1426,6 +1420,26 @@ pub fn positions_table(
         indices: sourced_indices(0.0, &figures),
         rows,
     }
+}
+
+/// Stretches `spans` of a take (in time order) read together as one
+/// reading, as [`measure_masked`] reads a take: from the first's start to
+/// the last's end, with the time between them and the `masked` stretches
+/// left out (cleaned with [`masked_spans`], so masked time is counted
+/// once). None for no stretches. What a Positions Test table reads each
+/// position by, and the app its whole take.
+pub fn measure_together(
+    log: &BeatLog,
+    clock: Option<&ClockFit>,
+    breaks: &[Break],
+    masked: &[(f64, f64)],
+    spans: &[(f64, f64)],
+) -> Option<Measurement> {
+    let (&(from, _), &(_, to)) = (spans.first()?, spans.last()?);
+    let mut cut = masked.to_vec();
+    cut.extend(spans.windows(2).map(|w| (w[0].1, w[1].0)));
+    let cut = masked_spans(&cut.iter().map(|&(a, b)| [a, b]).collect::<Vec<_>>());
+    Some(measure_masked(log, clock, breaks, &cut, from, to))
 }
 
 /// Witschi's characteristic values for the readings, and the conditions
