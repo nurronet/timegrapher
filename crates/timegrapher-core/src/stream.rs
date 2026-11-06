@@ -551,75 +551,122 @@ fn analyze_fed(
     let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
     let (wins_tx, wins_rx) = std::sync::mpsc::channel();
     let total = std::thread::scope(|sc| {
-        let cutter = sc.spawn(move || {
-            let mut c = Cutter::new(fs, cfg);
-            let mut n = 0;
-            // False once nothing more is wanted.
-            let wanted = std::cell::Cell::new(true);
-            let mut send = |p: Prepared| {
-                if wanted.get() && cut_tx.send((n, p)).is_err() {
-                    wanted.set(false);
-                }
-                n += 1;
-            };
-            feed(&mut |block| {
-                if wanted.get() {
-                    c.push(block, &mut send);
-                }
-                wanted.get()
-            })?;
-            Ok::<usize, AudioError>(c.finish(&mut send))
-        });
+        let cutter = sc.spawn(move || cut(fs, cfg, feed, cut_tx));
         for rx in std::iter::repeat_n(cut_rx, threads) {
             let tx = done_tx.clone();
-            sc.spawn(move || loop {
-                let next = rx.lock().expect("a preparing thread panicked").recv();
-                let Ok((i, mut c)) = next else { break };
-                c.prepare(fs, env_cfg);
-                if tx.send((i, c)).is_err() {
-                    break;
-                }
-            });
+            sc.spawn(move || prepare_all(&rx, &tx, fs, env_cfg));
         }
         drop(done_tx);
         for rx in std::iter::repeat_n(job_rx, threads) {
             let tx = wins_tx.clone();
-            sc.spawn(move || loop {
-                let next = rx.lock().expect("an amplitude thread panicked").recv();
-                let Ok((job, c)) = next else { break };
-                if tx
-                    .send((job.chunk, job.run(&c.env, fs, &cfg.analysis)))
-                    .is_err()
-                {
-                    break;
-                }
-            });
+            sc.spawn(move || amplitude_all(&rx, &tx, fs, cfg));
         }
         drop(wins_tx);
-        // In the order cut, whatever order they are prepared in.
-        let mut ready = std::collections::BTreeMap::new();
-        let mut next = 0;
-        'chunks: for (i, c) in done_rx {
-            ready.insert(i, c);
-            while let Some(c) = ready.remove(&next) {
-                let job = st.chunk(&c);
-                next += 1;
-                // The last chunk's end is reported once, below.
-                if c.core_b.is_finite() {
-                    progress(c.core_b);
-                }
-                // Stops when the amplitude threads have (one panicked).
-                if job.is_some_and(|job| job_tx.send((job, c)).is_err()) {
-                    break 'chunks;
-                }
-            }
-        }
+        in_order(&mut st, done_rx, &job_tx, &mut progress);
         drop(job_tx);
         cutter.join().expect("the cutting thread panicked")
     })?;
     st.put_amplitude_together(wins_rx.into_iter().collect());
     progress(total as f64 / fs);
     Ok(st.finish(sample_rate, total))
+}
+
+/// A queue several threads take from, each item once.
+type Shared<T> = std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<T>>>;
+
+/// [`analyze_fed`]'s first stage: the sound `feed` passes, cut into
+/// chunks and sent, numbered, to `tx` until nothing more is wanted; with
+/// the samples read.
+fn cut(
+    fs: f64,
+    cfg: &StreamConfig,
+    feed: impl FnOnce(&mut dyn FnMut(&[f32]) -> bool) -> Result<(), AudioError>,
+    tx: std::sync::mpsc::SyncSender<(usize, Prepared)>,
+) -> Result<usize, AudioError> {
+    let mut c = Cutter::new(fs, cfg);
+    let mut n = 0;
+    // False once nothing more is wanted.
+    let wanted = std::cell::Cell::new(true);
+    let mut send = |p: Prepared| {
+        if wanted.get() && tx.send((n, p)).is_err() {
+            wanted.set(false);
+        }
+        n += 1;
+    };
+    feed(&mut |block| {
+        if wanted.get() {
+            c.push(block, &mut send);
+        }
+        wanted.get()
+    })?;
+    Ok(c.finish(&mut send))
+}
+
+/// [`analyze_fed`]'s second stage, on one of its threads: prepare chunks
+/// from `rx` and send them to `tx` until either is closed.
+fn prepare_all(
+    rx: &Shared<(usize, Prepared)>,
+    tx: &std::sync::mpsc::SyncSender<(usize, Prepared)>,
+    fs: f64,
+    cfg: &crate::dsp::EnvelopeConfig,
+) {
+    loop {
+        let next = rx.lock().expect("a preparing thread panicked").recv();
+        let Ok((i, mut c)) = next else { break };
+        c.prepare(fs, cfg);
+        if tx.send((i, c)).is_err() {
+            break;
+        }
+    }
+}
+
+/// The amplitude windows of each chunk from `rx`, sent to `tx` with the
+/// chunk's number, on one of [`analyze_fed`]'s threads, until either is
+/// closed.
+fn amplitude_all(
+    rx: &Shared<(AmpJob, Prepared)>,
+    tx: &std::sync::mpsc::Sender<(usize, Vec<AmplitudeWindow>)>,
+    fs: f64,
+    cfg: &StreamConfig,
+) {
+    loop {
+        let next = rx.lock().expect("an amplitude thread panicked").recv();
+        let Ok((job, c)) = next else { break };
+        if tx
+            .send((job.chunk, job.run(&c.env, fs, &cfg.analysis)))
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+/// [`analyze_fed`]'s third stage: the prepared chunks from `rx`, analysed
+/// in the order cut whatever order they come in, each chunk's amplitude
+/// job sent to `jobs`, and `progress` told each chunk's end but the last.
+fn in_order(
+    st: &mut State,
+    rx: std::sync::mpsc::Receiver<(usize, Prepared)>,
+    jobs: &std::sync::mpsc::SyncSender<(AmpJob, Prepared)>,
+    progress: &mut impl FnMut(f64),
+) {
+    let mut ready = std::collections::BTreeMap::new();
+    let mut next = 0;
+    for (i, c) in rx {
+        ready.insert(i, c);
+        while let Some(c) = ready.remove(&next) {
+            let job = st.chunk(&c);
+            next += 1;
+            // The last chunk's end is reported once, by the caller.
+            if c.core_b.is_finite() {
+                progress(c.core_b);
+            }
+            // Stops when the amplitude threads have (one panicked).
+            if job.is_some_and(|job| jobs.send((job, c)).is_err()) {
+                return;
+            }
+        }
+    }
 }
 
 /// One chunk of the recording with what its sound alone gives: its
