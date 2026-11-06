@@ -1190,13 +1190,24 @@ impl TimegrapherApp {
     /// The recording's state in the status bar, its colour and its hover:
     /// stopped by a fault, saved (and what since isn't), its analysis
     /// kept without the sound, or not saved.
-    fn recording_state(&self, r: &Recorder, pal: &theme::Palette) -> (String, Color32, String) {
+    pub(super) fn recording_state(
+        &self,
+        r: &Recorder,
+        pal: &theme::Palette,
+    ) -> (String, Color32, String) {
         let since = self.unsaved_s();
         if let Some(fault) = self.session.recording_fault() {
             (
                 "Recording stopped; recovery files retained".to_string(),
                 pal.text,
                 fault.description(),
+            )
+        } else if self.streams() {
+            // Recording into its folder: nothing waits on a Save Again.
+            (
+                "Saved".to_string(),
+                pal.text_secondary,
+                format!("Saving to {}: {RECORDING_IN_HINT}.", self.kept_place()),
             )
         } else {
             match self.session.saved_to() {
