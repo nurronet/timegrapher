@@ -14,10 +14,6 @@ name: Windows walkthrough
 # token. The app under test does run on the same machine as the loop while
 # it walks: the loop starts it without the token and runs git without hooks.
 on:
-  # TEMPORARY for the proving run; removed before review.
-  push:
-    branches: [claude/project-thread-00w04j]
-    paths: ['.github/walkthrough/*.p*', '.github/workflows/windows-walkthrough.yml']
   workflow_dispatch:
     inputs:
       ref:
@@ -39,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-walkthrough-${{ inputs.channel || github.ref_name }}
+  group: windows-walkthrough-${{ inputs.channel }}
   cancel-in-progress: true
 
 jobs:
@@ -54,8 +50,8 @@ jobs:
       - name: Only branches of this repository
         shell: bash
         env:
-          HEAD_REF: ${{ inputs.ref || github.ref_name }}
-          BASE_REF: ${{ inputs.base_ref || (github.event_name == 'push' && 'main' || '') }}
+          HEAD_REF: ${{ inputs.ref }}
+          BASE_REF: ${{ inputs.base_ref }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           for r in "$HEAD_REF" "$BASE_REF"; do
@@ -67,14 +63,14 @@ jobs:
       - name: Head source
         uses: actions/checkout@v7
         with:
-          ref: refs/heads/${{ inputs.ref || github.ref_name }}
+          ref: refs/heads/${{ inputs.ref }}
           path: head
           persist-credentials: false
       - name: Base source
-        if: inputs.base_ref != '' || github.event_name == 'push'
+        if: inputs.base_ref != ''
         uses: actions/checkout@v7
         with:
-          ref: refs/heads/${{ inputs.base_ref || 'main' }}
+          ref: refs/heads/${{ inputs.base_ref }}
           path: base
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -89,7 +85,7 @@ jobs:
         working-directory: head
         run: cargo build --release -p timegrapher-app
       - name: Build base
-        if: inputs.base_ref != '' || github.event_name == 'push'
+        if: inputs.base_ref != ''
         working-directory: base
         run: cargo build --release -p timegrapher-app
       - name: Collect the builds
@@ -126,7 +122,7 @@ jobs:
       - name: Channel branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.channel || github.ref_name }}
+          ref: ${{ inputs.channel }}
           path: channel
           persist-credentials: false
       - name: Display 1920 x 1080
@@ -137,8 +133,8 @@ jobs:
       - name: Serve steps
         shell: bash
         env:
-          WALK_CHANNEL: ${{ inputs.channel || github.ref_name }}
-          WALK_MINUTES: ${{ inputs.minutes || '20' }}
+          WALK_CHANNEL: ${{ inputs.channel }}
+          WALK_MINUTES: ${{ inputs.minutes }}
           WALK_TOKEN: ${{ github.token }}
         run: |
           base=""

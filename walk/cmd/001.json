@@ -1,1 +1,0 @@
-[["key", "win", "up"], ["wait", 2], ["key", "escape"], ["key", "ctrl", "o"], ["wait", 3], ["type", "D:\\a\\timegrapher\\timegrapher\\channel\\crates\\timegrapher-core\\tests\\fixtures\\aquanaut324_DU_1s.flac"], ["key", "enter"], ["wait", 4], ["key", "enter"], ["wait", 5]]

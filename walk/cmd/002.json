@@ -1,1 +1,0 @@
-[["launch", "base"], ["wait", 10], ["key", "win", "up"], ["wait", 2], ["shell", "dir D:\\a\\timegrapher\\timegrapher\\apps & git -C D:\\a\\timegrapher\\timegrapher\\channel config --get core.hooksPath & echo end"]]

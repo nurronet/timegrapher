@@ -1,2 +1,0 @@
-app: head running
-took 0.2 s
