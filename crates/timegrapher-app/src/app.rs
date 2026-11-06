@@ -3948,17 +3948,11 @@ fn tenth(t: f64) -> f64 {
     (t * 10.0).round() / 10.0
 }
 
-/// Write `text` to `target` through a file beside it, renamed over it once
-/// whole, so a failed write never leaves half a file.
+/// Write `text` to `target` by core's one rule for a file put in place
+/// whole: a file beside it, flushed to disk, then renamed over it, so
+/// neither a failed write nor a power cut leaves half a file (#1286).
 fn write_replacing(target: &Path, text: &str) -> Result<(), String> {
-    let name = format!(".{}.saving", file_name(target));
-    let temp = target.with_file_name(name);
-    std::fs::write(&temp, text)
-        .and_then(|()| timegrapher_core::recorder::rename_settled(&temp, target))
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&temp);
-            format!("{}: {e}", target.display())
-        })
+    library::write_atomic(target, text.as_bytes())
 }
 
 /// How the files in a folder are put together, said where a folder is
