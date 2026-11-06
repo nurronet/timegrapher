@@ -1066,9 +1066,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
             );
             text
         });
-    if let Some(w) = theme::time_width(ui.ctx(), ui.cursor().left()) {
-        plot = plot.width(w.clamp(64.0, ui.available_width()));
-    }
+    plot = time_axis(plot, ui, r.opts);
     if let Some((lo, hi)) = range {
         plot = plot.default_y_bounds(lo, hi);
     }
@@ -1112,6 +1110,23 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         (ui, f32::NEG_INFINITY),
         pal,
     );
+}
+
+/// Readings Over Time's time axis against the strip's: ending where the
+/// strip above does only on the take's own clock. One position's
+/// stretches joined end to end are on another, which no width lines up
+/// with the strip's (Walter on #1256), so the axis says whose time it is
+/// instead (Hugh).
+fn time_axis(mut plot: Plot<'static>, ui: &egui::Ui, opts: Opts) -> Plot<'static> {
+    let width =
+        theme::time_width(ui.ctx(), ui.cursor().left()).filter(|_| opts.take_span.is_some());
+    if let Some(w) = width {
+        plot = plot.width(w.clamp(64.0, ui.available_width()));
+    }
+    if let Some(code) = opts.joined_in {
+        plot = plot.x_axis_label(format!("Time in {code}"));
+    }
+    plot
 }
 
 /// The period found: its dot on the scores, and its note.
@@ -1762,6 +1777,10 @@ pub struct Opts {
     /// strip's and the charts' are, not one position's stretches joined
     /// end to end: Readings Over Time then fits it, as they do (#1252).
     pub take_span: Option<(f64, f64)>,
+    /// The short name of the position whose stretches are joined end to
+    /// end, when they are: Readings Over Time's time is then time in it,
+    /// and its axis says so ("Time in DD", Hugh on #1256).
+    pub joined_in: Option<&'static str>,
 }
 
 /// What Wheel Periods does, for its hint.

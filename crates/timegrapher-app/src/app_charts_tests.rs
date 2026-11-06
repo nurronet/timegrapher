@@ -881,3 +881,51 @@ fn time_panes_under_the_strip_put_a_late_time_at_one_place() {
         }
     }
 }
+
+/// With a position marked, Readings Over Time reads that position's
+/// stretches joined end to end, on a clock of their own: its axis says
+/// whose time it is, and none says so on the take's own (Hugh on #1256).
+#[test]
+fn joined_readings_over_time_says_whose_time_it_is() {
+    for joined in [false, true] {
+        let mut app = synthetic(310.0, 20.0);
+        app.strip.horizontal = true;
+        app.steady_series
+            .insert(steady::View::Readings, [true, false, false]);
+        for p in [Pane::Strip, Pane::SteadyReadings] {
+            set_pane_visible(&mut app.panes.tiles, p, true);
+        }
+        for p in [Pane::Charts, Pane::Sound, Pane::Scope, Pane::Distributions] {
+            set_pane_visible(&mut app.panes.tiles, p, false);
+        }
+        if joined {
+            app.brush = Some(Position::DialDown);
+            let end = app.latest_s();
+            app.paint_position(0.0, end);
+        }
+        let log = steady::log_of(app.live.as_ref().unwrap()).unwrap();
+        app.steady = Some((app.rev, steady::compute(&log, None)));
+        let ctx = themed();
+        let mut out = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 1400.0),
+                )),
+                ..Default::default()
+            };
+            out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+        }
+        let titled =
+            out.unwrap().shapes.iter().any(
+                |c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.text() == "Time in DD"),
+            );
+        assert_eq!(
+            titled,
+            joined,
+            "joined {joined}: {:?}",
+            app.session.stretches()
+        );
+    }
+}

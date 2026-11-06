@@ -251,7 +251,8 @@ impl TimegrapherApp {
         let dur = self.update_steady(ui.ctx());
         let upto = self.steady.as_ref().map(|s| s.1.upto_s);
         let working = self.steady_job.is_some();
-        let of = if self.session.stretches().is_empty() {
+        let joined = !self.session.stretches().is_empty();
+        let of = if !joined {
             String::new()
         } else {
             format!("{} ", self.position.name())
@@ -274,9 +275,8 @@ impl TimegrapherApp {
                 maps_db: self.maps_db.on(view),
                 wheels: self.show_wheels.on(view),
                 info: self.steady_info.on(view),
-                take_span: self
-                    .take_span()
-                    .filter(|_| self.session.stretches().is_empty()),
+                take_span: self.take_span().filter(|_| !joined),
+                joined_in: joined.then(|| self.position.code()),
             },
         );
     }

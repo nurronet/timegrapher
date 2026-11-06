@@ -1612,3 +1612,79 @@ fn just_open_it_lets_the_watch_picked_go() {
     assert_eq!(app.watch_setup(), WatchSetup::default());
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A new watch made while adding a take starts with what the take says
+/// of its calibre, beat rate and lift, so the two agree (#1266). Where the
+/// calibre table gives a beat rate or lift, the watch takes the table's,
+/// as Edit… keeps it, not the take's (Vernon on #1273).
+#[test]
+fn a_new_watch_made_for_a_take_takes_its_calibre_beat_rate_and_lift() {
+    let known = timegrapher_core::calibres::find("2824-2").expect("ETA 2824-2 in the table");
+    let table_lift = known.lift_angle_deg.expect("a lift for the 2824-2");
+    for (n, calibre) in ["Unlisted 1", known.calibre.as_str()]
+        .into_iter()
+        .enumerate()
+    {
+        let base =
+            std::env::temp_dir().join(format!("tg-app-new-for-take-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Timegrapher Data");
+        library::Library::create(&root).unwrap();
+        let take = base.join("outside take");
+        std::fs::create_dir_all(&take).unwrap();
+        let audio = generate(
+            &SynthConfig {
+                duration_s: 20.0,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        );
+        timegrapher_core::audio::write_wav(&take.join("take.wav"), &audio).unwrap();
+        std::fs::write(
+            take.join(MANIFEST),
+            format!(
+                "calibre = '{calibre}'\nbph = 28800\nlift = 55.0\n\n\
+                 [[recording]]\nfile = 'take.wav'\nposition = 'DU'\n"
+            ),
+        )
+        .unwrap();
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        app.use_library(Some(root.clone()));
+        app.input = Input::File;
+        let mut a = app.open_ask_for(&take).expect("asked");
+        a.add = true;
+        a.new_watch = true;
+        a.new_name = "YM42 roam".into();
+        a.started = "2026-10-22 14:30".into();
+        let need = app.open_need(&a);
+        app.answer_open_ask(a, need);
+        assert!(
+            app.open_ask.is_none(),
+            "added: {:?}",
+            app.open_ask.as_ref().and_then(|a| a.error.clone())
+        );
+        let lib = library::Library::open(&root).unwrap();
+        let w = &lib.find("YM42 roam").expect("the new watch").watch;
+        assert_eq!(w.calibre.as_deref(), Some(calibre));
+        // What a Listen on the watch, and its Edit…, start with.
+        if n == 0 {
+            assert_eq!((w.bph, w.lift), (Some(28800), Some(55.0)));
+            assert_eq!(app.cal.watch_lift(w), Some(55.0));
+            assert_eq!(app.cal.watch_bph(w), Some(28800));
+        } else {
+            assert_eq!(
+                (w.bph, w.lift),
+                (None, None),
+                "the table's, not stored twice"
+            );
+            assert_eq!(app.cal.watch_lift(w), Some(table_lift));
+            assert_eq!(app.cal.watch_bph(w), known.bph);
+        }
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+            app.poll();
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
