@@ -1,0 +1,1 @@
+[["click", 790, 501], ["wait", 2], ["shell", "dir /s /b D:\\r\\roam\\.. | findstr /i png & dir \"%USERPROFILE%\\Timegrapher Data\" /s /b | findstr /i png"]]
