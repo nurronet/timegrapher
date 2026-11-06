@@ -1,0 +1,9 @@
+app: head running
+took 4.4 s
+$ dir /b "%USERPROFILE%\Timegrapher Data" & type "%USERPROFILE%\Timegrapher Data\library.toml"
+.cache.json
+.library.lock
+library.toml
+Sub LNab - 2024- -x- -----
+format = 1
+
