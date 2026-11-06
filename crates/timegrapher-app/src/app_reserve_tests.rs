@@ -534,6 +534,36 @@ fn a_power_reserve_test_holds_its_position_and_keeps_its_take_with_its_run() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A test in Crown Left with 100 beats heard.
+fn crown_left_test() -> reserve::Test {
+    let mut t = reserve::Test::new(
+        Position::CrownLeft,
+        false,
+        "2026-10-22T16:15:00Z".into(),
+        0.0,
+    );
+    let beats: Vec<timegrapher_core::beats::Beat> = (0..100)
+        .map(|i| timegrapher_core::beats::Beat {
+            index: i,
+            time: 1.0 + i as f64 * 0.125,
+            quality: 1.0,
+        })
+        .collect();
+    t.update(&beats, 0.125, 20.0);
+    t
+}
+
+/// The save under way takes 300 ms longer to finish.
+fn slow_save(app: &mut TimegrapherApp) {
+    let mut s = app.saving.take().expect("a save into its folder");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+}
+
 /// A Power Reserve Test kept as its analysis only, recording into its
 /// folder as it goes and stopped by hand, has its sound removed once its
 /// take is written, with no input: the window draws again while the keep
@@ -569,21 +599,7 @@ fn a_power_reserve_test_kept_as_analysis_only_lets_its_sound_go() {
     app.session.recorder = Some(r);
     let _tx = super::tests::queued_capture(&mut app, &base);
     app.position = Position::CrownLeft;
-    let mut t = reserve::Test::new(
-        Position::CrownLeft,
-        false,
-        "2026-10-22T16:15:00Z".into(),
-        0.0,
-    );
-    let beats: Vec<timegrapher_core::beats::Beat> = (0..100)
-        .map(|i| timegrapher_core::beats::Beat {
-            index: i,
-            time: 1.0 + i as f64 * 0.125,
-            quality: 1.0,
-        })
-        .collect();
-    t.update(&beats, 0.125, 20.0);
-    app.reserve = Some(t);
+    app.reserve = Some(crown_left_test());
     assert!(app.streams(), "a test of a watch picked records as it goes");
     app.stream_tick();
     app.wait_for_save();
@@ -600,13 +616,7 @@ fn a_power_reserve_test_kept_as_analysis_only_lets_its_sound_go() {
         .unwrap();
     // The next save into its folder still being written at the Stop.
     app.stream_tick();
-    let mut s = app.saving.take().expect("a save into its folder");
-    let copy = s.thread;
-    s.thread = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        copy.join().unwrap()
-    });
-    app.saving = Some(s);
+    slow_save(&mut app);
     let rec = app.session.recorder.as_mut().unwrap();
     rec.write(&block(2, 26)).unwrap();
     app.stop_listening();
