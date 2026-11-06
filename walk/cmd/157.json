@@ -1,0 +1,1 @@
+[["shell", "mkdir D:\\r & xcopy /E /I /Y channel\\walk\\fx D:\\r"], ["launch", "head"], ["wait", 6], ["move", 900, 500], ["wait", 1]]
