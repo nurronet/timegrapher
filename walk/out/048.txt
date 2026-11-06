@@ -1,0 +1,26 @@
+app: head running
+took 0.2 s
+$ type D:\w\take\session.toml & dir D:\w\take
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+notes = "Walter #1253: 30 s of the corpus YM42 DD take, for Save Again."
+
+[[recording]]
+file = "take.flac"
+position = "DD"
+masked = [[3.8965090906305235, 6.144494830391068], [7.088022636010848, 9.537800611212955], [10.35439148819274, 12.559192022158818], [15.552731807826504, 18.050493246054636], [20.54825557499322, 23.878604604652622], [26.376366710913597, 28.874128705835762]]
+ Volume in drive D is Temporary Storage
+ Volume Serial Number is 60D5-D62E
+
+ Directory of D:\w\take
+
+11/06/2026  05:31 PM    <DIR>          .
+11/06/2026  05:32 PM    <DIR>          ..
+11/06/2026  05:14 PM               502 lock.ps1
+11/06/2026  05:31 PM               476 session.toml
+11/06/2026  05:14 PM         1,726,528 take.flac
+               3 File(s)      1,727,506 bytes
+               2 Dir(s)  157,203,972,096 bytes free
+
