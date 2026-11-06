@@ -1228,7 +1228,10 @@ each carry the key to their own lines at their top right. Each chart labels its 
 in small text, however short the chart; a long time at the right end of
 the time axis is left out rather than cut in half. The charts always
 cover the whole take: to look at a stretch of it, zoom or pan them, or
-use the strip with its overlays and masks. Wherever the pointer is on the
+use the strip with its overlays and masks. The charts stacked in the pane
+share one time axis, the take's, from its start to its end (or now, while
+listening), so 0:00 sits in the same place on each, whatever its first
+reading. Wherever the pointer is on the
 strip or a chart, a thin line marks that moment on all of them, and on the
 strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
@@ -1236,7 +1239,7 @@ anywhere over a chart, a vertical line marks that moment on every chart,
 and each chart's lane, the strip above its plot, reads every line's value
 there. Their time axes move together:
 the mouse wheel, a swipe or dragging pans time, never past the take's
-first or last reading, Cmd or Ctrl and the wheel (or a pinch) zooms it
+start or its latest reading, Cmd or Ctrl and the wheel (or a pinch) zooms it
 around the pointer, and zoomed out to the whole take it shows the whole
 session again; the
 vertical scale fits the lines on its own. A double click fits the whole

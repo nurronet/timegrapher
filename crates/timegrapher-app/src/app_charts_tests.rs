@@ -340,13 +340,14 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
     let zoomed = look(&mut app, vec![egui::Event::Zoom(2.0)]);
     let (b, z) = (time_labels(&before), time_labels(&zoomed));
     assert!(span(&z) < span(&b) * 0.75, "{b:?} {z:?}");
-    // Scrolled forward: later times, over the same length.
-    let panned = look(&mut app, vec![wheel(-60.0, egui::Modifiers::NONE)]);
+    // Scrolled forward: later times, over the same length. A turn that
+    // pans past a label's step (5 s) wherever the zoom left the chart.
+    let panned = look(&mut app, vec![wheel(-200.0, egui::Modifiers::NONE)]);
     let p = time_labels(&panned);
     assert!(p[0] > z[0], "{z:?} {p:?}");
     assert!((span(&p) - span(&z)).abs() <= 10.0, "{z:?} {p:?}");
     // With Shift too, the same, back.
-    let shifted = look(&mut app, vec![wheel(60.0, egui::Modifiers::SHIFT)]);
+    let shifted = look(&mut app, vec![wheel(200.0, egui::Modifiers::SHIFT)]);
     assert!(time_labels(&shifted)[0] < p[0], "{p:?} {shifted:?}");
     // Alt and the wheel (the strip's width) does nothing here.
     let alt = egui::Modifiers {
@@ -354,6 +355,7 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         ..Default::default()
     };
     // Once the Shift turn's smooth scroll has played out.
+    look(&mut app, Vec::new());
     let settled = look(&mut app, Vec::new());
     let still = look(&mut app, vec![wheel(-60.0, alt)]);
     assert_eq!(time_labels(&still), time_labels(&settled));
@@ -691,4 +693,47 @@ fn a_take_opened_after_a_wide_one_fits_the_gutter_afresh() {
     let gutter = theme::time_gutter(&ctx);
     assert!(gutter < 76.0, "{gutter}");
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The stacked charts share one time axis, the take's: two whose first
+/// readings differ still put 0:00 at the same place (Hugh, #1252).
+#[test]
+fn stacked_charts_put_the_takes_start_at_one_place() {
+    let mut app = synthetic(60.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    for p in [Pane::Strip, Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    // The rate read from 20 s on, the amplitude from the start.
+    for p in app.trend.iter_mut().filter(|p| p.t < 20.0) {
+        p.rate_s_per_day = None;
+    }
+    assert!(app
+        .trend
+        .iter()
+        .any(|p| p.t < 20.0 && p.amplitude_deg.is_some()));
+    app.chart_series = [true, true, false];
+    let ctx = themed();
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+    }
+    let starts: Vec<f32> = out
+        .unwrap()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == "0:00" => Some(t.pos.x),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(starts.len(), 2, "one 0:00 on each chart: {starts:?}");
+    assert!((starts[0] - starts[1]).abs() < 0.5, "{starts:?}");
 }

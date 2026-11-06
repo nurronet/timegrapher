@@ -64,6 +64,13 @@ impl TimegrapherApp {
         let average = self.average_s;
         let (series, unit, decimals) = chart_lines(reading, &self.trend, average, pal);
         let (mut plot, grid) = chart_plot(reading, theme::time_gutter(ui.ctx()));
+        // One time axis for every chart in the pane: the take's, from its
+        // start to its end or now, not each chart's own first and last
+        // reading, so their times line up (Hugh, #1252).
+        let take = take_span(&self.trend);
+        if let Some((t0, t1)) = take {
+            plot = plot.include_x(t0).include_x(t1);
+        }
         // Scale to hold every point of the lines: the whole take.
         let all: Vec<[f64; 2]> = series.iter().flat_map(|s| s.pts.iter().copied()).collect();
         let y_range = data_range(&all);
@@ -83,7 +90,7 @@ impl TimegrapherApp {
         let follow = self.charts_follow;
         let resp = plot.show(ui, |p| {
             grid.draw(p, pal);
-            draw_chart(p, series, (to_live, follow), y_range, rescale)
+            draw_chart(p, series, take, (to_live, follow), (y_range, rescale))
         });
         let (click, hover, moved, at_newest) = resp.inner;
         // The moment shown and the pointer's time, painted over the plot
@@ -314,9 +321,9 @@ fn chart_plot(reading: SeriesKind, gutter: f32) -> (Plot<'static>, Grid) {
 fn draw_chart(
     p: &mut egui_plot::PlotUi<'_>,
     series: Vec<ChartLine>,
+    take: Option<(f64, f64)>,
     (to_live, follow): (bool, bool),
-    y_range: Option<(f64, f64)>,
-    rescale: bool,
+    (y_range, rescale): (Option<(f64, f64)>, bool),
 ) -> ChartInput {
     if to_live {
         p.set_auto_bounds([true, true]);
@@ -324,11 +331,10 @@ fn draw_chart(
     if let (Some((lo, hi)), true) = (y_range, rescale) {
         p.set_plot_bounds_y(lo..=hi);
     }
-    let panned = pan_and_zoom(p, &series);
+    let panned = pan_and_zoom(p, take);
     // Panned to the newest reading, a chart follows new ones at the
     // length it shows, as the strip does; Fit is the whole session (Hugh,
     // #1070).
-    let take = take_span(&series);
     let b = p.plot_bounds();
     let (lo, hi) = (b.min()[0], b.max()[0]);
     let mut at_newest = false;
@@ -376,7 +382,7 @@ fn draw_chart(
 /// width; the charts' scale fits their lines, so here it does nothing.
 /// Zoomed out to the whole take, the chart shows the whole session again.
 /// Whether it moved the chart.
-fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
+fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, take: Option<(f64, f64)>) -> bool {
     let r = p.response();
     let dragged = r.dragged_by(egui::PointerButton::Primary);
     if !r.hovered() && !dragged {
@@ -402,7 +408,7 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
         hi = at + (hi - at) / f64::from(zoom);
     }
     let dt = -f64::from(shift / px) * (hi - lo);
-    let Some(take) = take_span(series) else {
+    let Some(take) = take else {
         return false;
     };
     match keep_in(lo + dt, hi + dt, take) {
@@ -420,15 +426,11 @@ fn pan_and_zoom(p: &mut egui_plot::PlotUi<'_>, series: &[ChartLine]) -> bool {
     }
 }
 
-/// The earliest and latest times the charts' lines reach.
-fn take_span(series: &[ChartLine]) -> Option<(f64, f64)> {
-    let mut xs = series
-        .iter()
-        .flat_map(|l| l.pts.iter().map(|p| p[0]))
-        .filter(|x| x.is_finite());
-    let first = xs.next()?;
-    let (lo, hi) = xs.fold((first, first), |(lo, hi), x| (lo.min(x), hi.max(x)));
-    (hi > lo).then_some((lo, hi))
+/// The take's span on the charts' time axis: from its start to its
+/// latest reading, there or not.
+fn take_span(trend: &[TrendPoint]) -> Option<(f64, f64)> {
+    let end = trend.last()?.t;
+    (end > 0.0).then_some((0.0, end))
 }
 
 /// The time range `lo..hi` moved, not stretched, to lie within the take
