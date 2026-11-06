@@ -2151,9 +2151,11 @@ pub fn p_text(p: f64) -> String {
 /// sentence (#1195).
 fn hold_to_null(s: &mut SeriesCheck, r: &longterm::SeriesReport) {
     s.null = Some(r.search.null);
-    if let Some(c) = s.period.as_ref().and(longterm::period_uncalibrated(r)) {
-        crate::measure::add(&mut s.caveats, c);
-        s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+    for c in [longterm::period_uncalibrated(r), longterm::timing_misfit(r)] {
+        if let Some(c) = s.period.as_ref().and(c) {
+            crate::measure::add(&mut s.caveats, c);
+            s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+        }
     }
 }
 

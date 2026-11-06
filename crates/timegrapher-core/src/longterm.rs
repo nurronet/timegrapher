@@ -455,6 +455,16 @@ fn x_scale(g: &Grid, detrend_w: Option<f64>) -> f64 {
     detrend_w.unwrap_or_else(|| g.span())
 }
 
+/// Timing's mix and misfit (None where too few bands) from the spectrum `sp` of `g`, read from well
+/// above the detrend's corner, where it takes no power.
+fn timing_fit_of(g: &Grid, sp: &Spectrum, detrend_w: Option<f64>) -> (f64, Option<f64>) {
+    let scale = x_scale(g, detrend_w);
+    let from_x = if detrend_w.is_some() { 2.0 } else { 6.0 };
+    let from = (from_x / (sp.df * scale)).ceil() as usize;
+    let f = null::timing_fit(&sp.power, sp.df, g.step, from, scale);
+    (f.mix, f.misfit.is_finite().then_some(f.misfit))
+}
+
 /// The take's mix and the table's levelling for it, when the table holds
 /// every bin the search reads.
 fn null_for(
@@ -464,14 +474,9 @@ fn null_for(
     jmax: usize,
 ) -> (NullFit, Option<null::Levelling>) {
     let scale = x_scale(g, band.detrend_w);
-    let mix = match band.model {
-        NullModel::Readings => sp.rho,
-        NullModel::Timing => {
-            // From well above the detrend's corner, where it takes no power.
-            let from_x = if band.detrend_w.is_some() { 2.0 } else { 6.0 };
-            let from = (from_x / (sp.df * scale)).ceil() as usize;
-            null::timing_mix(&sp.power, sp.df, g.step, from, scale)
-        }
+    let (mix, misfit) = match band.model {
+        NullModel::Readings => (sp.rho, None),
+        NullModel::Timing => timing_fit_of(g, sp, band.detrend_w),
     };
     let lev = match band.given {
         Some(l) => Some(l.clone()),
@@ -483,6 +488,8 @@ fn null_for(
         model: band.model,
         mix,
         calibrated: lev.is_some(),
+        misfit,
+        misfit_limit: lev.as_ref().and_then(|l| l.misfit_p99),
     };
     (fit, lev)
 }
@@ -976,10 +983,17 @@ fn analyse_as(
         }
     }
     label_harmonics(&mut components);
+    let mut search = first.unwrap_or_else(Search::none);
+    // The misfit is read once the cycles found are taken out, so that a
+    // strong line, which lifts its bands, is not read as the noise's shape.
+    if model == NullModel::Timing && !components.is_empty() {
+        let w = detrend_window(g, cfg.detrend_s).map(|w| w as f64 * g.step);
+        search.null.misfit = timing_fit_of(&work, &spectrum(&work, w), w).1;
+    }
     SeriesReport {
         grid: g.clone(),
         detrended,
-        search: first.unwrap_or_else(Search::none),
+        search,
         components,
     }
 }
@@ -1051,6 +1065,8 @@ impl Search {
                 model: NullModel::Readings,
                 mix: f64::NAN,
                 calibrated: false,
+                misfit: None,
+                misfit_limit: None,
             },
             trials: 1.0,
             tail: null::Tail::trials(1.0),
@@ -1106,6 +1122,16 @@ pub fn period_uncalibrated(r: &SeriesReport) -> Option<crate::measure::Caveat> {
             span_s: r.grid.span(),
         },
     )
+}
+
+/// The caveat on a cycle the search named in `r` when the take's timing
+/// sits further from the walk plus white fitted to it than the null's
+/// 99th percentile for its cell ([`null::TimingFit::misfit`], #1218).
+pub fn timing_misfit(r: &SeriesReport) -> Option<crate::measure::Caveat> {
+    let n = r.search.null;
+    let (misfit, limit) = (n.misfit?, n.misfit_limit?);
+    (!r.components.is_empty() && misfit > limit)
+        .then_some(crate::measure::Caveat::TimingModelMisfit { misfit, limit })
 }
 
 /// The rate (s/d) at a bin of timing offsets (seconds) `dt` apart: minus

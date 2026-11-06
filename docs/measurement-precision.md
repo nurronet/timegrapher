@@ -163,7 +163,9 @@ takes (200 a cell), readings' maxima fall under p 0.01 in 402 of 43,200 (432
 expected) and under 0.001 in 40 (43); timing's in 320 and 27 of 42,000 (420
 and 42), every mix at or under its bound. On 300 seeded 30 min takes of white
 noise, a series names a cycle at p 0.01 in 1, 4 and 2 of them (rate,
-amplitude, beat error), against 17, 10 and 7 before. Outside the simulated models (a slow
+amplitude, beat error), against 17, 10 and 7 before. A take whose timing spectrum sits further from the fitted walk plus white than
+99 in 100 simulated takes (rms of the quarter-octave band powers, in decades)
+carries `timing_model_misfit` on any rate cycle it names. Outside the simulated models (a slow
 wander under white readings, flicker in the timing) the rate is not
 guaranteed.
 
