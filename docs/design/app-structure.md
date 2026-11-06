@@ -98,7 +98,7 @@ The Calibre card keeps its name, its 134 pt height and its three rows (guide, se
   - **No Watch** (right): the Calibre pop-up, Lift and Beat Rate work as today.
   - In every state, #432's rule stands: when the heard beat rate differs from the set one, the heard one is kept for the take, as today.
 - The card is still the **Calibre card**: its hover and its "?" are titled "Calibre", and the "?" says the title picks the watch and the figure is its calibre.
-- When the card is too narrow, Beat Rate hides first, as in #432. For a watch with no calibre, the beat rates head the title's menu, under "Beat Rate (hidden at this width)", just as they head the Calibre menu today. A change is saved to the watch. With No Watch they stay at the head of the Calibre pop-up, as in #432. The current rate has a ✓, as the watch on the mic does in the Recent list (blue is for the row under the pointer only), and the name in the title is cut before its ▾, never the ▾ itself.
+- When the card is too narrow, Beat Rate hides first, as in #432. For a watch with no calibre, the beat rates head the title's menu, under "Beat Rate (hidden at this width)", just as they head the Calibre menu today. A change is saved to the watch. With No Watch they sit in a Beat Rate submenu under the Calibre pop-up's search (#1192). The current rate has a ✓, as the watch on the mic does in the Recent list (blue is for the row under the pointer only), and the name in the title is cut before its ▾, never the ▾ itself.
 - **(5)** The title's menu, in this order:
   1. No Watch (Quick Listen)
   2. Recent watches, up to five, most recent first

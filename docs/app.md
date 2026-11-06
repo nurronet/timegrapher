@@ -102,7 +102,7 @@ heard fills half), so a free-form test shows which positions still need
 time; the hover gives the seconds. While you listen, or before anything
 is on show, a button sets the position; keys 1 to 6 do the same, on the Bench,
 alone (never with Ctrl, Cmd, Alt or Shift held) and not while typing in
-a field. With a take on show, and during a Positions Test
+a field or while a dialog is open. With a take on show, and during a Positions Test
 or a Power Reserve Test, the buttons only show the position, the take's
 latest or the one the test set: a take's positions can't be changed
 afterwards. **Listen** has a **Listen** icon, which starts Quick Listen
@@ -128,7 +128,9 @@ line**: the watch picked, or **No Watch (Quick Listen)**, with ⏷. It is
 the one place on the Bench that says which watch a take goes into. Its
 menu has **No Watch (Quick Listen)**, then under **Recent** up to five
 watches, the one with the newest take first, then **New Watch…** and
-**Find in Watches…**. Another watch can't be picked while listening. The
+**Find in Watches…**. While a Quick Listen is listening, picking a watch
+there (or adding one with New Watch…) keeps the take in it and listening
+goes on; while a watch's take is listening, another can't be picked. The
 card is still the Calibre card: its hover and its **?** say so. With No
 Watch, the **Calibre** pop-up is on its figure row
 (its search covers the whole table, with **Manage Calibres…** at its
@@ -164,7 +166,8 @@ its two icons, gives the take's length beside its caption ("Listen
 and shows Average Over's pop-up as **Avg 10 s**. Compact, Calibre keeps
 its pop-up with the lift and beat rate under it; on the narrowest
 windows the lift alone, since nothing finds the lift while Auto finds the
-beat rate, with the beat rates heading the Calibre menu. For a watch
+beat rate, with the beat rates in a **Beat Rate** submenu under the
+Calibre menu's search. For a watch
 with no calibre they head the title's menu instead, under **Beat Rate
 (hidden at this width)**: the rate set, Auto and Other Rates, a change
 saved to the watch. On the narrowest windows the title is a step
@@ -178,8 +181,12 @@ Watches view and starts a new session. It asks first only about what
 isn't Quick Listen's: changed masks on a recording opened, or a watch's
 unsaved details. One icon starts and stops it; there
 is no pause, and listening again starts a new take. Its take is not kept
-until it is saved: once it has stopped, **Keep in a Watch** saves it into
-the watch picked from the Save menu (or **New Watch…** there adds one
+until it is saved. While it is still listening, **Keep in a Watch** in
+the Save menu, or a watch on the Watch line, makes it that watch's take
+without stopping: the readings take the watch's calibre, lift angle and
+beat rate from then (a beat rate already heard stays), and Stop saves it
+into the watch as any take of it is. Once it has stopped, **Keep in a
+Watch** saves it into the watch picked from the Save menu (or **New Watch…** there adds one
 first, and the take is kept in it when the form's button is pressed),
 with the watch's calibre, lift angle and beat rate (a beat rate heard
 that differs from the watch's is kept as heard; a take kept in a watch
@@ -1587,9 +1594,18 @@ folder can't be moved while another copy has it open. The Watches view adds watc
 - **Calibre.** Not Set, a calibre from the list (`timegrapher_core::calibres`,
   some 4,500 of them, each with its sources), or one of your own.
   - **The menu.** On the Calibre card with no watch picked, and in the
-    New Watch form. A **Search every calibre** box at its top, ready to
-    type into, lists every calibre matching a name, another name or the
-    maker (the first 200, with how many more). Empty, the menu offers Not
+    New Watch form. A **Search every calibre** box at its top, empty and
+    ready to type into at each open, lists every calibre matching a name,
+    another name or the maker (the first 200, with how many more). It
+    works as every search menu does (design guide, Search menus):
+    - A click in the box never closes the menu.
+    - ↑/↓ move the highlight from the first match, and Enter picks it.
+      With the box empty the highlight starts on the current calibre, or
+      on nothing when it isn't listed, so Enter straight after opening
+      never changes it.
+    - A ⊗ clears the search, and so does Esc. Esc in an empty box closes
+      the menu, and never the New Watch form behind it.
+    - Tab stays in the menu. Empty, the menu offers Not
     Set, then **Recent**, the **Short List** by maker and **Custom** (your
     own calibres). The list keeps one height while you search, and
     scrolls between the search field and **Manage Calibres…**, which stays at the menu's foot and opens
@@ -1636,8 +1652,11 @@ folder can't be moved while another copy has it open. The Watches view adds watc
       **(Select All Search Results)** and picks just the values the search
       lists, as a spreadsheet's does. The star column's funnel with only
       Starred ticked shows just the short list. The
-      ticks apply on **OK**; **Cancel** leaves the filter as it was, and OK
-      needs at least one value ticked. It lists the values the other
+      ticks apply on **OK** or Enter. **Cancel**, or Esc with the search
+      empty, leaves the filter as it was, and OK needs at least one value
+      ticked. With a search typed, OK keeps only the ticked values the
+      search lists. Its search works as the Calibre menu's: a click in it keeps the
+      menu open, a ⊗ or Esc clears it, and Tab stays in the menu. It lists the values the other
       filters let through; the funnels combine, so a row shows only when
       every column's value is ticked, and the search over the table
       narrows them too.

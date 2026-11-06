@@ -896,6 +896,9 @@ const WATCH_SIDE_MAX: f32 = 1100.0;
 const WATCHES_SIDE_BY_SIDE: f32 = 900.0;
 /// Why Keep in a Watch is greyed while a take is heard.
 const KEEP_AFTER_STOP: &str = "Stop listening first, then keep the take in a watch.";
+/// The hover on a watch that a Quick Listen still heard can be kept in.
+const KEEP_HEARD_HINT: &str = "Keep this take in this watch: listening goes on, the readings \
+     take the watch's calibre, lift angle and beat rate, and Stop saves it into the watch";
 /// Why a Positions Test's take takes no Position Brush.
 const POSITIONS_TAKE_PAINT: &str = "A Positions Test sets its own positions; paint a Listen take.";
 /// The hover on a test's setting it can't change while it runs.
@@ -4085,10 +4088,11 @@ impl TimegrapherApp {
         }
         // Keys 1 to 6, alone, put the watch in a position: never with a
         // modifier held, nor in the Watches view, nor while a field is
-        // being typed in. The modifiers are the key event's own, as a
-        // shortcut's are: one pressed and let go within a frame is gone
-        // from the frame's by the time it is read.
-        if self.view == View::Bench && !ctx.wants_keyboard_input() {
+        // being typed in, nor behind a dialog. The modifiers are the key
+        // event's own, as a shortcut's are: one pressed and let go within
+        // a frame is gone from the frame's by the time it is read.
+        let dialog = ctx.memory(|m| m.top_modal_layer().is_some());
+        if self.view == View::Bench && !ctx.wants_keyboard_input() && !dialog {
             let keys = [
                 egui::Key::Num1,
                 egui::Key::Num2,
@@ -4225,6 +4229,7 @@ impl eframe::App for TimegrapherApp {
             self.info_msg(m);
         }
         self.report_save_asked();
+        theme::popups_above_dialogs(ctx);
         // The cursor shared by the strip and the charts follows the pointer;
         // repaint once more when it leaves so the line goes too.
         let next = self.cursor_next.take();

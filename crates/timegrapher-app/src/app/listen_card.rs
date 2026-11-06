@@ -579,7 +579,10 @@ impl TimegrapherApp {
                         ui.separator();
                     }
                     if into_watch {
-                        save_menu_watches(ui, &watches, !listening, can, &mut picked, &mut new);
+                        // A Quick Listen heard is kept in one and goes on.
+                        let keeps = !listening || self.quick_listen;
+                        let heard = (listening && self.quick_listen).then_some(KEEP_HEARD_HINT);
+                        save_menu_watches(ui, &watches, keeps, heard, can, &mut picked, &mut new);
                     }
                     if can
                         && ui
@@ -725,12 +728,18 @@ impl TimegrapherApp {
             ui.separator();
         }
         let free = !self.running();
+        // A Quick Listen heard can still be given its watch.
+        let keeps = free || self.quick_listen;
         if !free {
             // Said once, above what it dims, so no hint covers a row.
             ui.label(
-                RichText::new("Stop listening to pick another watch")
-                    .small()
-                    .color(pal.text_tertiary),
+                RichText::new(if keeps {
+                    "Keep this take in a watch: listening goes on"
+                } else {
+                    "Stop listening to pick another watch"
+                })
+                .small()
+                .color(pal.text_tertiary),
             );
         }
         let none = self.open_watch().is_none();
@@ -750,9 +759,13 @@ impl TimegrapherApp {
         for (id, name) in recent.into_iter().take(RECENT_WATCHES) {
             let on = self.watch_open.as_deref() == Some(id.as_str());
             if ui
-                .add_enabled_ui(free, |ui| theme::menu_item(ui, on, &name))
+                .add_enabled_ui(keeps, |ui| theme::menu_item(ui, on, &name))
                 .inner
-                .on_hover_text("Listen and the tests take this watch, saved into it")
+                .on_hover_text(if free {
+                    "Listen and the tests take this watch, saved into it"
+                } else {
+                    KEEP_HEARD_HINT
+                })
                 .clicked()
             {
                 self.line_pick(Some(id), false);
@@ -781,7 +794,14 @@ impl TimegrapherApp {
     /// shows the watch picked at once. Unsaved sound is asked about first,
     /// Quick Listen's too: sound never goes without a question here.
     pub(super) fn line_pick(&mut self, id: Option<String>, asked: bool) {
-        if self.running() || self.saving_busy() {
+        if self.running() {
+            // A Quick Listen heard is kept in the watch, and goes on.
+            if let Some(id) = id.filter(|_| self.quick_listen) {
+                self.keep_in_watch(&id);
+            }
+            return;
+        }
+        if self.saving_busy() {
             return;
         }
         if self.live.is_some() || self.session.recorder.is_some() {
@@ -816,8 +836,9 @@ impl TimegrapherApp {
 
     /// The Calibre card's figure row: the Calibre pop-up, or a watch's
     /// calibre named where the watch sets it. Where the controls row is
-    /// too narrow for the beat rate beside the lift, the beat rates head
-    /// the Calibre menu, or for a watch with no calibre the title's menu.
+    /// too narrow for the beat rate beside the lift, the beat rates sit in a
+    /// Beat Rate submenu of the Calibre menu, or for a watch with no calibre
+    /// head the title's menu.
     pub(super) fn calibre_control(&mut self, ui: &mut egui::Ui) {
         if !self.take_shows_rate_and_lift() {
             return self.calibre_line(ui);
@@ -844,7 +865,7 @@ impl TimegrapherApp {
         } else {
             // Too narrow for both under the picker: the lift keeps the
             // controls row, since Auto finds the beat rate and nothing
-            // finds the lift, and the beat rates head this menu.
+            // finds the lift, and the beat rates go in a submenu here.
             let how = self.bph_hint();
             let mut first = |ui: &mut egui::Ui| {
                 let found = match (bph, heard) {
@@ -852,10 +873,19 @@ impl TimegrapherApp {
                     (Some(b), _) => format!("Beat Rate: {b} bph"),
                     _ => "Beat Rate: Auto".to_string(),
                 };
-                ui.label(RichText::new(found).small().color(pal.text_tertiary))
-                    .on_hover_text(how);
-                bph_choices(ui, &mut bph);
+                // One row under the search, its rates in a submenu, so the
+                // field and the calibres keep the menu's room at 800 wide.
                 ui.separator();
+                ui.menu_button(found, |ui| {
+                    // A beat rate picked closes the menu, as a calibre does.
+                    let was = bph;
+                    bph_choices(ui, &mut bph);
+                    if bph != was {
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(how);
             };
             self.cal
                 .picker_with(ui, &current, rate, "Not Set", Some(&mut first))
@@ -914,7 +944,7 @@ impl TimegrapherApp {
     /// The Calibre card's controls row: the lift angle, then the beat
     /// rate, each as text where the calibre sets it. Where the row is too
     /// narrow for both, the lift alone (nothing finds it, while Auto finds
-    /// the beat rate), the beat rates heading the Calibre menu.
+    /// the beat rate), the beat rates in a submenu of the Calibre menu.
     pub(super) fn rate_and_lift(&mut self, ui: &mut egui::Ui) {
         let pal = theme::pal(ui);
         let heard = self.live.as_ref().and_then(|l| l.bph());
@@ -1257,7 +1287,10 @@ impl TimegrapherApp {
     /// Save the unsaved Quick Listen take into the watch `id`, as a take of
     /// it: the watch is picked, and the take named after it.
     pub(super) fn keep_in_watch(&mut self, id: &str) {
-        if self.running() {
+        // A Quick Listen still heard goes on: it is the watch's take from
+        // now, saved into it at Stop.
+        let heard = self.running();
+        if heard && !self.quick_listen {
             return;
         }
         let Some(name) = (match &self.library {
@@ -1275,7 +1308,9 @@ impl TimegrapherApp {
             self.take_watch_details(&w);
         }
         self.note_settings();
-        self.save_again();
+        if !heard {
+            self.save_again();
+        }
     }
 
     /// A take kept in, or opened from, the watch `w` without a calibre of
@@ -1572,12 +1607,15 @@ fn listen_length(ui_b: &mut egui::Ui, top: egui::Rect, length: &str, state: &str
 }
 
 /// The Save menu's Keep in a Watch: each of `watches`, then New Watch…,
-/// greyed unless the take `keeps` (it has ended), and a line under them
-/// when Save in a Folder… follows (`can`). Sets `picked` or `new`.
+/// greyed unless the take `keeps` (it has ended, or is a Quick Listen,
+/// which goes on as the watch's take), and a line under them
+/// when Save in a Folder… follows (`can`). `heard` is the watches' hover
+/// while a Quick Listen still heard is kept in one. Sets `picked` or `new`.
 fn save_menu_watches(
     ui: &mut egui::Ui,
     watches: &[(String, String)],
     keeps: bool,
+    heard: Option<&str>,
     can: bool,
     picked: &mut Option<String>,
     new: &mut bool,
@@ -1588,14 +1626,15 @@ fn save_menu_watches(
             .small()
             .color(pal.text_secondary),
     );
-    // A take goes into a watch once it ends: greyed,
-    // saying so, while it is heard.
+    // A recording played goes into a watch once it ends: greyed, saying
+    // so, while it is heard.
     for (id, name) in watches {
-        if ui
-            .add_enabled(keeps, egui::Button::new(name))
-            .on_disabled_hover_text(KEEP_AFTER_STOP)
-            .clicked()
-        {
+        let b = ui.add_enabled(keeps, egui::Button::new(name));
+        let b = match heard {
+            Some(h) => b.on_hover_text(h),
+            None => b,
+        };
+        if b.on_disabled_hover_text(KEEP_AFTER_STOP).clicked() {
             *picked = Some(id.clone());
         }
     }
