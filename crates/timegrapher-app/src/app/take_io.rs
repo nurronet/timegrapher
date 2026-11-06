@@ -2106,7 +2106,10 @@ impl TimegrapherApp {
     /// Cancel the opening under way: nothing is opened, and the window no
     /// longer says Opening (#1220).
     pub(super) fn cancel_open(&mut self) {
-        self.stop();
+        // Nothing of the take is left: the watch's setup from before the
+        // open comes back, and there is no take to save (#1238).
+        self.input = Input::File;
+        self.new_session();
     }
 
     pub(super) fn error(&mut self, m: String) {
