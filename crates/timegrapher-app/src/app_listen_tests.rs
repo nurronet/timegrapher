@@ -604,8 +604,38 @@ fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
     h.app.run_after_save();
     assert!(h.app.after_save.is_empty());
     assert!(opened.load(std::sync::atomic::Ordering::SeqCst));
-    assert!(h.app.closes_after_save());
-    assert!(!h.app.needs_save_confirmation());
+    assert!(h.app.closes_after_save(), "{:?}", h.app.message);
+    assert!(!h.app.needs_save_confirmation(), "{:?}", h.app.message);
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// A save into the take failing after a Stop, as one still copying the
+/// hour the pause then keeps as FLAC can on a slow machine, neither says
+/// so nor keeps a quit open: the Stop's save that follows holds all the
+/// sound (#1230, seen on Windows CI).
+#[test]
+fn a_save_into_the_take_failing_after_the_stop_leaves_it_to_the_stops_save() {
+    let mut h = held_save("stream-lost");
+    h.app.stop_listening();
+    h.app.close_after_save = true;
+    let _ = h.go.send(());
+    let mut s = h.app.saving.take().expect("the save into the take");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = copy.join();
+        Err(std::io::Error::other("the hour was kept as FLAC"))
+    });
+    h.app.saving = Some(s);
+    h.app.wait_for_save();
+    let said = h.app.message.clone();
+    assert!(!said.is_some_and(|m| m.1), "the Stop's save answers for it");
+    assert!(h.app.stream_wait.is_none(), "nothing to try again");
+    h.app.run_after_save();
+    assert!(h.app.saving.is_some(), "the Stop's save");
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert!(h.app.closes_after_save(), "{:?}", h.app.message);
+    assert!(!h.app.needs_save_confirmation(), "{:?}", h.app.message);
     assert_eq!(h.take_s(), 11.0);
 }
 
