@@ -381,12 +381,7 @@ impl<'a> Cuts<'a> {
         let Some(first) = beats.get(beats.partition_point(|x| x.time < from)) else {
             return out;
         };
-        let start = if step > 0.0 && step.is_finite() {
-            ((first.time / step).floor() * step).max(from)
-        } else {
-            first.time
-        };
-        for (s, _) in nominal_windows(start, to, len, step) {
+        for (s, _) in nominal_windows(lay_from(first.time, from, step), to, len, step) {
             if self.whole(beats, s, s + len, part) {
                 let lo = beats.partition_point(|x| x.time < s);
                 let hi = beats.partition_point(|x| x.time < s + len);
@@ -439,6 +434,19 @@ impl<'a> Cuts<'a> {
             .iter()
             .filter(|w| self.clear(self.true_time(w.start_s), self.true_time(w.end_s)))
             .collect()
+    }
+}
+
+/// Where [`Cuts::windows`] lays its windows of `step` seconds from, in a
+/// stretch from `from` whose first beat is at `first`: the tiling point
+/// at or before that beat, never before `from` ([`nominal_windows`]
+/// then snaps it forward onto the tiling), as a window snaps forward
+/// from its stretch's start, not from its first beat (#636).
+pub fn lay_from(first: f64, from: f64, step: f64) -> f64 {
+    if step > 0.0 && step.is_finite() {
+        ((first / step).floor() * step).max(from)
+    } else {
+        first
     }
 }
 

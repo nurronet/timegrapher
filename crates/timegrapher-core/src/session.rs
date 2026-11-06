@@ -2269,7 +2269,7 @@ fn reading_coverage(
     use crate::confidence::{Coverage, FigureCoverage};
     let rate_total = beats.first().map_or(0, |b| {
         crate::clean::nominal_windows(
-            b.time,
+            crate::clean::lay_from(b.time, holes.true_time(from), RATE_WINDOW_STEP_S),
             holes.true_time(to),
             RATE_WINDOW_S,
             RATE_WINDOW_STEP_S,
@@ -2386,6 +2386,20 @@ mod reading_coverage_tests {
             .caveats
             .iter()
             .any(|c| matches!(c, crate::measure::Caveat::ReadingWindows { .. })));
+    }
+
+    /// A stretch whose first beat falls just after a tiling point lays its
+    /// rate windows from that point, and counts its span from it too, so
+    /// none is used that the span does not hold (#636).
+    #[test]
+    fn rate_coverage_counts_the_windows_laid_from_the_stretchs_start() {
+        let mut log = log();
+        for b in &mut log.beats {
+            b.time += 0.3;
+        }
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.coverage.rate.windows_used, 11);
+        assert_eq!(m.coverage.rate.windows_in_span, 11);
     }
 
     /// The cells a stretch takes in are counted on true time (#636): on a
