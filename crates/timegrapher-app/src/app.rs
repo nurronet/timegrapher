@@ -1524,10 +1524,6 @@ fn sync_containers(tiles: &mut Tiles<Pane>) {
     }
 }
 
-/// Width of the time panes' left axis, the strip's (lying across) and the
-/// charts' alike, so their time axes line up when stacked.
-const GUTTER: f32 = 76.0;
-
 /// Shares labelled up the probability plot, percent, as on probability
 /// paper.
 const PROBABILITY_MARKS: [(f64, &str); 11] = [
@@ -1887,6 +1883,9 @@ pub struct TimegrapherApp {
     /// The Watches view: the watch picked (its id), the list's search,
     /// order, and the details form.
     watch_open: Option<String>,
+    /// A take started or opened: the time panes' gutter fits its labels
+    /// afresh (Hugh on #1239).
+    gutter_fresh: bool,
     /// The pane shows Unsorted's takes instead of the list.
     unsorted_open: bool,
     /// The list shown over the watch picked, or Unsorted, by ‹ All
@@ -2618,6 +2617,7 @@ impl TimegrapherApp {
             watch_search_focus: false,
             new_watch_on_mic: false,
             watch_open: None,
+            gutter_fresh: false,
             unsorted_open: false,
             list_for: None,
             quick_defaults: false,
@@ -3678,13 +3678,14 @@ fn paint_y_labels(ui: &egui::Ui, t: &egui_plot::PlotTransform, unit: &str) {
     for m in marks {
         let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
         let y = t.position_from_point_y(m.value);
-        painter.text(
+        let drawn = painter.text(
             egui::pos2(frame.left() - 6.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{v}{unit}"),
             font.clone(),
             color,
         );
+        theme::note_gutter_label(ui.ctx(), drawn);
     }
 }
 
@@ -4088,6 +4089,9 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
+        if std::mem::take(&mut self.gutter_fresh) {
+            theme::reset_time_gutter(ctx);
+        }
         crate::pump::timed("charts' readings", || self.take_reads_shown(ctx));
         // A test set up against another watch than the one picked now.
         self.find_full_wind();

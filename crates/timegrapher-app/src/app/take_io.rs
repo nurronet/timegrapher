@@ -92,6 +92,7 @@ impl TimegrapherApp {
         live.set_masked(&self.masked);
         self.live = Some(live);
         self.source_label = label;
+        self.gutter_fresh = true;
         self.anchor = None;
         self.clear_trends();
         self.strip_end = None;
@@ -2563,6 +2564,9 @@ impl TimegrapherApp {
         }
         self.opened_positions = Some(self.positions_now());
         self.live = Some(live);
+        // The opened take's labels, not those drawn while it opened
+        // (Walter's HOLD on #1239).
+        self.gutter_fresh = true;
         self.rev.new_take();
         // Readings not readied with the engine are read in the
         // background by the next frame (#1014).

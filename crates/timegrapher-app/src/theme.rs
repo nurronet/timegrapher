@@ -1202,6 +1202,27 @@ pub fn dash(ui: &mut Ui, a: Color32, b: Color32) -> Response {
 mod tests {
     use super::*;
 
+    /// The time panes' gutter fits the widest value label drawn, padded,
+    /// never under its least, and doesn't narrow again (#1225).
+    #[test]
+    fn the_time_gutter_fits_the_widest_label_and_only_grows() {
+        let ctx = egui::Context::default();
+        let label = |w: f32| egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, 10.0));
+        let mut seen = Vec::new();
+        for drawn in [vec![], vec![20.0, 52.0], vec![30.0], vec![]] {
+            let _ = ctx.run(egui::RawInput::default(), |ctx| {
+                seen.push(time_gutter(ctx));
+                for w in &drawn {
+                    note_gutter_label(ctx, label(*w));
+                }
+            });
+        }
+        assert_eq!(
+            seen,
+            [GUTTER_MIN, GUTTER_MIN, 52.0 + GUTTER_PAD, 52.0 + GUTTER_PAD]
+        );
+    }
+
     /// A dialog's button row as on a Mac, whatever order the buttons are
     /// given in: the default rightmost, Cancel to its left, others left of
     /// Cancel, a button that throws something away at the far left. Return
@@ -1406,6 +1427,71 @@ pub fn tools_drawn_at(ctx: &egui::Context) -> Vec<(String, egui::Rect)> {
 #[cfg(test)]
 pub fn tools_drawn(ctx: &egui::Context) -> Vec<String> {
     tools_drawn_at(ctx).into_iter().map(|(k, _)| k).collect()
+}
+
+/// The time panes' widest value label, by pass: the strip lying across
+/// and the charts share one left gutter, so their time axes line up.
+#[derive(Clone, Copy, Default)]
+struct Gutter {
+    pass: u64,
+    /// This pass's widest so far.
+    widest: f32,
+    /// The widest of the passes before.
+    last: f32,
+}
+
+fn gutter_id() -> egui::Id {
+    egui::Id::new("time gutter")
+}
+
+/// The least the time panes' gutter is, points: "Early" and "Late"
+/// beside the strip lying across, with room to spare.
+pub const GUTTER_MIN: f32 = 46.0;
+/// Room left of a value label in the gutter, points.
+const GUTTER_PAD: f32 = 10.0;
+
+/// The time panes' shared left gutter: as wide as the widest value label
+/// any of them has drawn, padded, instead of a fixed 76 pt (#1225, Peter's
+/// pick with Hugh). It only grows, so a pan or zoom whose labels are
+/// narrower doesn't shift the time axes under the pointer.
+pub fn time_gutter(ctx: &egui::Context) -> f32 {
+    let pass = ctx.cumulative_pass_nr();
+    let g = ctx
+        .data(|d| d.get_temp::<Gutter>(gutter_id()))
+        .unwrap_or_default();
+    let widest = if g.pass == pass {
+        g.last
+    } else {
+        g.last.max(g.widest)
+    };
+    (widest + GUTTER_PAD).max(GUTTER_MIN)
+}
+
+/// The time panes' gutter fits the labels drawn from now on only: for a
+/// take started or opened (Hugh on #1239).
+pub fn reset_time_gutter(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<Gutter>(gutter_id()));
+}
+
+/// Note a value label drawn in the time panes' gutter, `rect` where it
+/// was drawn; a label wider than the gutter drawn draws the window again.
+pub fn note_gutter_label(ctx: &egui::Context, rect: egui::Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    let grew = ctx.data_mut(|d| {
+        let g = d.get_temp_mut_or_default::<Gutter>(gutter_id());
+        if g.pass != pass {
+            *g = Gutter {
+                pass,
+                widest: 0.0,
+                last: g.last.max(g.widest),
+            };
+        }
+        g.widest = g.widest.max(rect.width());
+        g.widest > g.last + 0.5
+    });
+    if grew {
+        ctx.request_repaint();
+    }
 }
 
 fn note_drawn(ui: &Ui, title: &str, key: &str, rect: egui::Rect) {

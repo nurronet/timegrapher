@@ -461,7 +461,7 @@ impl TimegrapherApp {
             guides: self.rate_guides,
             overlays: &overlays,
             cursor_t: self.cursor_t,
-            gutter: GUTTER,
+            gutter: theme::time_gutter(ui.ctx()),
             bands: &bands,
             settles: &settles,
             measured: &self.guided_measured,
