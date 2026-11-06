@@ -1795,9 +1795,13 @@ impl TimegrapherApp {
         }
     }
 
+    /// Put a whole watch setup in place. Its beat rate is put with it, so
+    /// a calibre in it reads nothing on show again (#1241).
     pub(super) fn set_watch_setup(&mut self, s: WatchSetup) {
         self.watch = s.watch;
+        let outer = std::mem::replace(&mut self.opening, true);
         self.set_calibre(s.calibre);
+        self.opening = outer;
         self.put_lift(s.lift_deg);
         self.lift_context = s.lift_context;
         self.put_bph(s.bph);

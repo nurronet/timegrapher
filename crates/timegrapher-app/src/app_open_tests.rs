@@ -880,6 +880,13 @@ fn a_recording_opened_after_a_take_with_a_calibre_opens() {
     // The plain file starts from Quick Listen's settings, not the take's.
     assert_eq!(app.calibre, "");
     assert_eq!(app.bph, None);
+    // Listen putting the microphone's setup back over the take doesn't
+    // read it again either.
+    opened(&mut app, &take);
+    app.stop();
+    app.set_watch_setup(WatchSetup::default());
+    assert!(app.batch.is_none(), "{:?}", app.message);
+    assert_eq!(app.calibre, "");
     // Played through after the take, it is the one on show: the take
     // isn't read again behind it.
     opened(&mut app, &take);
