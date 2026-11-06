@@ -27,6 +27,8 @@ TOKEN = os.environ.pop("WALK_TOKEN")
 APP_ENV = dict(os.environ)
 BASIC = base64.b64encode(("x-access-token:" + TOKEN).encode()).decode()
 AUTH = ["-c", "http.extraheader=AUTHORIZATION: basic " + BASIC]
+# No hooks: nothing in the channel clone runs while the token is in use.
+NO_HOOKS = ["-c", "core.hooksPath=" + os.devnull]
 CMD = os.path.join(CHANNEL, "walk", "cmd")
 OUT = os.path.join(CHANNEL, "walk", "out")
 LOGS = os.path.abspath("walk-logs")
@@ -34,7 +36,7 @@ os.makedirs(LOGS, exist_ok=True)
 
 
 def git(*args, auth=False):
-    pre = ["git", "-C", CHANNEL] + (AUTH if auth else [])
+    pre = ["git", "-C", CHANNEL] + NO_HOOKS + (AUTH if auth else [])
     return subprocess.run(pre + list(args), capture_output=True, text=True)
 
 

@@ -9,9 +9,10 @@ drives live: clicks, keys, typing, and a screenshot after every batch.
   Smaller sizes are window resizes.
 - **No zoom:** walk at the app's normal scale. Don't use Ctrl+minus or Ctrl+plus.
 - **No sound input:** there's no microphone, so walk recordings opened from files.
-- **Session:** the first answer arrives about 10 minutes after starting, once the
-  build is done. After that each step takes about 10 to 15 s. A session lasts up
-  to `minutes` (default 120, 340 at most).
+- **Session:** the first answer arrives about 10 to 20 minutes after starting,
+  once the build is done. Builds start cold: the build job saves no cache, so a
+  branch under test can't plant one. After that each step takes about 10 to
+  15 s. A session lasts up to `minutes` (default 120, 340 at most).
 - **Cost:** free, because the repository is public.
 
 ## Start a session
@@ -19,8 +20,8 @@ drives live: clicks, keys, typing, and a screenshot after every batch.
 1. Use your own branch as the channel and check it out locally. Never use a PR
    branch: the session pushes `walk/` files to the channel.
 2. Start the `Windows walkthrough` workflow by hand (workflow_dispatch). Inputs:
-   - `ref`: the PR head.
-   - `base_ref`: optional, the PR base.
+   - `ref`: the PR head's branch name.
+   - `base_ref`: optional, the PR base's branch name (usually `main`).
    - `channel`: your branch.
    - `minutes`: how long the session lasts.
 3. Wait for `walk/out/ready-<run id>.png` on the channel. It shows the head build
@@ -58,7 +59,9 @@ Steps are JSON arrays. Coordinates are screen pixels.
 
 ## Recordings
 
-The repository's fixtures are under `D:\a\timegrapher\timegrapher\head\`.
+The channel branch is checked out at `D:\a\timegrapher\timegrapher\channel\`,
+so the repository's fixtures are there, for example
+`channel\crates\timegrapher-core\tests\fixtures\aquanaut324_DU_1s.flac`.
 Public corpus takes can be downloaded with a `shell` step, for example
 `curl -sLo D:\t.flac <raw URL>`. Then open them through the app's Open
 dialog by typing the full path.
@@ -71,7 +74,11 @@ cache in `%LOCALAPPDATA%`, and the library in `%USERPROFILE%\Timegrapher Data`.
 
 ## Safety
 
-The code under test is checked out and built without credentials. The
-session's write token is used only by the step loop, which starts the app
-without it. Start sessions only for branches of this repository, never a
-fork's.
+- `ref` and `base_ref` must be branch names of this repository; anything else
+  stops the run.
+- They are built in a separate job with read-only permission, and the builds
+  are passed to the walk job as an artifact.
+- The walk job holds a write token for the channel push. The app under test
+  runs on that machine: the loop starts it without the token and runs git
+  without hooks, but code in the app could still reach the token. So walk
+  only branches you would merge into this repository.
