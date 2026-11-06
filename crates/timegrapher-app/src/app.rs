@@ -2226,6 +2226,9 @@ pub struct TimegrapherApp {
     /// The settings a take on show is read again with, for a new beat
     /// rate, in place of what the take saved.
     reread_with: Option<WatchSetup>,
+    /// While a take opens: a beat rate its settings change reads nothing
+    /// again, the take before least of all (#1241).
+    opening: bool,
     /// The strip's width and length before an opened take was fitted to
     /// it, and the fitted view: Listen brings the first back, unless the
     /// strip was changed by hand since.
@@ -2711,6 +2714,7 @@ impl TimegrapherApp {
             listen_tap: None,
             anchor: None,
             reread_with: None,
+            opening: false,
             live_strip: None,
             strip_fit: false,
             strip_zoom_s: None,

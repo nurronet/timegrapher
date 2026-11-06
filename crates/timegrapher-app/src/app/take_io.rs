@@ -1641,6 +1641,14 @@ impl TimegrapherApp {
     /// analysed in, with the watch from its session file when it has one.
     #[cfg(test)]
     pub(super) fn start_replay_at(&mut self, path: &Path, speed: f32) {
+        // Its settings read nothing again, as an open's don't (#1241).
+        let outer = std::mem::replace(&mut self.opening, true);
+        self.replay_at(path, speed);
+        self.opening = outer;
+    }
+
+    #[cfg(test)]
+    fn replay_at(&mut self, path: &Path, speed: f32) {
         // Refused before anything on show is stopped or its masks cleared.
         if let Some(why) = no_analysis_to_read(path) {
             return self.open_failed(why);
@@ -1787,9 +1795,13 @@ impl TimegrapherApp {
         }
     }
 
+    /// Put a whole watch setup in place. Its beat rate is put with it, so
+    /// a calibre in it reads nothing on show again (#1241).
     pub(super) fn set_watch_setup(&mut self, s: WatchSetup) {
         self.watch = s.watch;
+        let outer = std::mem::replace(&mut self.opening, true);
         self.set_calibre(s.calibre);
+        self.opening = outer;
         self.put_lift(s.lift_deg);
         self.lift_context = s.lift_context;
         self.put_bph(s.bph);
@@ -1801,8 +1813,15 @@ impl TimegrapherApp {
     }
 
     /// Analyse `path` whole. Without a session file it starts from
-    /// `carried`, else from the defaults.
+    /// `carried`, else from the defaults. The settings it puts in place
+    /// for it read nothing again, since it is about to be read with them.
     pub(super) fn analyse_whole(&mut self, path: &Path, carried: Option<WatchSetup>) {
+        let outer = std::mem::replace(&mut self.opening, true);
+        self.open_whole(path, carried);
+        self.opening = outer;
+    }
+
+    fn open_whole(&mut self, path: &Path, carried: Option<WatchSetup>) {
         // Refused before anything on show is stopped.
         if let Some(why) = no_analysis_to_read(path).or_else(|| {
             take_folder(path)

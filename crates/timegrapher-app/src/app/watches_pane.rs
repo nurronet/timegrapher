@@ -964,9 +964,11 @@ impl TimegrapherApp {
 
     /// A beat rate picked, or Auto. A take on show is read again at it,
     /// with the settings and masks as they are now, since its readings
-    /// were worked out at the old one.
+    /// were worked out at the old one; one opening is read at it anyway.
     pub(super) fn change_bph(&mut self, bph: Option<u32>) {
-        let shown = (!self.running()).then(|| self.take_on_show()).flatten();
+        let shown = (!self.running() && !self.opening)
+            .then(|| self.take_on_show())
+            .flatten();
         if !self.set_live_bph(bph) || shown.is_some() {
             self.anchor = None;
             self.clear_trends();
