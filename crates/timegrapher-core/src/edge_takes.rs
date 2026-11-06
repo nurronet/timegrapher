@@ -889,6 +889,34 @@ mod tests {
     /// sound over the same beats (#679, #680); the list only shrinks.
     const LIVE_DIFFERS: &[(f64, u64)] = &[];
 
+    /// Five minutes of the stand's noise are judged by their sound over
+    /// the whole stretch, from the take's sample of beat sound spread
+    /// across it, not from the first minute alone: neither side shows an
+    /// unlock or a drop, so the sound says no watch, and `analyze`, a saved
+    /// reading and the live card all read no watch (silence_empty_stand's
+    /// first file, #1250).
+    #[test]
+    fn five_minutes_of_stand_noise_are_judged_by_their_sound() {
+        let samples = silence(300.0, 1);
+        let log = crate::stream::analyze_samples(&samples, FS, &Default::default());
+        let cfg = crate::amplitude::AmplitudeConfig::default();
+        let first = log.snippets.first().map(|s| s.0).unwrap();
+        let last = log.snippets.last().map(|s| s.0).unwrap();
+        assert!(first < 60.0 && last > 240.0, "{first} {last}");
+        assert_eq!(log.beat_sound(&log.beats, &cfg), Some(false));
+        let audio = Audio {
+            samples,
+            sample_rate: FS,
+        };
+        let an = crate::analysis::analyze(&audio, &Default::default());
+        assert!(!an.summary.watch_heard);
+        let m = crate::session::measure(&log, None, 0.0, 300.0);
+        assert!(!m.watch_heard);
+        let live =
+            crate::live::LiveAnalyzer::from_log(log, Default::default()).reading_at(300.0, 300.0);
+        assert!(!live.watch_heard);
+    }
+
     #[test]
     fn stand_noise_reads_no_watch_on_the_seeded_draws() {
         let take = all()

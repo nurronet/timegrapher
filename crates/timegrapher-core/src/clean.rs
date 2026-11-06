@@ -920,6 +920,26 @@ mod tests {
         assert!(cuts.clear(h.end_s, h.end_s + 10.0));
     }
 
+    /// A stretch starting at 12.3 s, just after a cut, whose first beat
+    /// lies past it: the tiling point before that beat (10 s) is before
+    /// the stretch's start, so the first window starts on the next one,
+    /// never before the stretch (#636), though beats before it would cover
+    /// a window from 10 s.
+    #[test]
+    fn no_window_starts_before_its_stretch() {
+        let beats: Vec<Beat> = (0..480)
+            .map(|i| Beat {
+                index: i,
+                time: i as f64 * 0.125,
+                quality: 1.0,
+            })
+            .collect();
+        let w = Cuts::none().windows(&beats, 28800, 12.3, 60.0, 10.0, 5.0, 2.0);
+        assert_eq!(w.first().map(|w| w.start_s), Some(15.0));
+        assert_eq!(lay_from(12.375, 12.3, 5.0), 12.3);
+        assert_eq!(lay_from(12.375, 0.0, 5.0), 10.0);
+    }
+
     #[test]
     fn windows_lie_inside_each_stretch_and_need_no_beat_past_their_end() {
         // Beats every 0.125 s for exactly 10 s: one whole 10 s window,

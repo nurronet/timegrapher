@@ -17,6 +17,7 @@ use timegrapher_core::beats::Beat;
 use timegrapher_core::capture::QUEUE_BLOCKS;
 use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
 use timegrapher_core::profile::{thin_sound, TickProfile};
+use timegrapher_core::sound_sample::SOUND_SAMPLE_BEATS;
 use timegrapher_core::synth::{generate, SynthConfig};
 
 /// The run the budget is for: an 80 h Power Reserve test.
@@ -87,6 +88,11 @@ fn run_at(rate: u32) -> (usize, String) {
     assert_eq!(live.beats().len(), cap);
     assert!(live.breaks().is_empty() && live.by_count().is_empty() && live.jumps().is_empty());
     assert!(live.candidates().len() < 4 * beats_per_s as usize);
+    // The beat sound the verdict reads, sampled across the take within
+    // its budget.
+    let sample = live.snippets();
+    assert!(sample.len() <= SOUND_SAMPLE_BEATS, "{}", sample.len());
+    let window_bytes = sample.first().map_or(0, |s| s.1.len() * size_of::<f32>());
     let window_every_s = PLAYED_S / live.amplitude_windows().len() as f64;
     assert!(
         window_every_s >= WINDOW_STEP_S,
@@ -126,6 +132,11 @@ fn run_at(rate: u32) -> (usize, String) {
             held(peak) * size_of::<SoundSlot>() + peak * curves,
         ),
         ("capture queue", QUEUE_BLOCKS * block * size_of::<f32>()),
+        (
+            "beat sound sample",
+            held(SOUND_SAMPLE_BEATS + 1) * size_of::<(f64, (bool, Vec<f32>))>()
+                + SOUND_SAMPLE_BEATS * window_bytes,
+        ),
     ];
     let text: Vec<String> = stores
         .iter()
