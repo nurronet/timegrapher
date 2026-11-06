@@ -534,6 +534,124 @@ fn a_power_reserve_test_holds_its_position_and_keeps_its_take_with_its_run() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A Power Reserve Test kept as its analysis only, recording into its
+/// folder as it goes and stopped by hand, has its sound removed once its
+/// take is written, with no input: the window draws again while the keep
+/// runs, so it is collected (#1221, Walter's find).
+#[test]
+fn a_power_reserve_test_kept_as_analysis_only_lets_its_sound_go() {
+    let base = std::env::temp_dir().join(format!("tg-app-reserve-ao-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    // A watch ticking, so its analysis has beats to keep.
+    let cfg = SynthConfig {
+        duration_s: 28.0,
+        ..Default::default()
+    };
+    let ticks = generate(&cfg, |_| 280.0, |_| 0.0).samples;
+    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
+        samples: ticks[48000 * at as usize..48000 * (at + s) as usize].to_vec(),
+        at: start + std::time::Duration::from_secs(at),
+    };
+    r.write(&block(20, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = super::tests::queued_capture(&mut app, &base);
+    app.position = Position::CrownLeft;
+    let mut t = reserve::Test::new(
+        Position::CrownLeft,
+        false,
+        "2026-10-22T16:15:00Z".into(),
+        0.0,
+    );
+    let beats: Vec<timegrapher_core::beats::Beat> = (0..100)
+        .map(|i| timegrapher_core::beats::Beat {
+            index: i,
+            time: 1.0 + i as f64 * 0.125,
+            quality: 1.0,
+        })
+        .collect();
+    t.update(&beats, 0.125, 20.0);
+    app.reserve = Some(t);
+    assert!(app.streams(), "a test of a watch picked records as it goes");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("recording into its folder")
+        .to_path_buf();
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&block(6, 20))
+        .unwrap();
+    // The next save into its folder still being written at the Stop.
+    app.stream_tick();
+    let mut s = app.saving.take().expect("a save into its folder");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(2, 26)).unwrap();
+    app.stop_listening();
+    // As the frames run: the end save written, then the sound let go.
+    for _ in 0..500 {
+        app.poll_saving();
+        app.reserve_saved();
+        if app.take_keep.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        app.take_keep.is_some(),
+        "keeping its analysis only, {:?}",
+        app.message
+    );
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!app.running());
+    assert!(
+        app.repaint_every().is_some(),
+        "an idle window draws again to collect the keep"
+    );
+    for _ in 0..1000 {
+        app.poll_take_keep();
+        if app.take_keep.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let left: Vec<_> = std::fs::read_dir(&take)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(
+        !left
+            .iter()
+            .any(|n| n.to_string_lossy().starts_with("audio-")),
+        "{left:?} {:?}",
+        app.message
+    );
+    app.session.discard_recording();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// A Power Reserve Test started with a take open runs in the position
 /// the card and the pane named, not the one listening had before the
 /// take was opened; and the status bar names the watch the Calibre
