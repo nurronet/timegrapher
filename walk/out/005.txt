@@ -1,0 +1,9 @@
+app: base running
+took 53.2 s
+$ dir /s /b "%USERPROFILE%\Timegrapher Data" & dir /b D:\a\timegrapher\timegrapher\channel\walk\fx\between
+C:\Users\runneradmin\Timegrapher Data\.cache.json
+C:\Users\runneradmin\Timegrapher Data\.library.lock
+C:\Users\runneradmin\Timegrapher Data\library.toml
+session.toml
+take.flac
+
