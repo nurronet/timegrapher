@@ -2619,7 +2619,7 @@ fn take_label(path: &Path, count: usize) -> String {
     }
 }
 
-/// A take opened by core's `take::open_entry`, for the window: its
+/// A take opened by core's `TakeContext::open`, for the window: its
 /// engine readied from its beats on what the window had when the opening
 /// started (`inputs`), with the readings over it, its clock and breaks,
 /// and for a take kept as its analysis alone, the Tick Tock profiles it
@@ -2724,13 +2724,14 @@ fn retune(
     }
 }
 
-/// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`
-/// on a thread of its own, sending what it read to `tx`: `progress` holds
+/// Open the take `opening` ([`take_entry`]) with core's
+/// `TakeContext::open`, its masks kept as data for the window to cut, on a
+/// thread of its own, sending what it read to `tx`: `progress` holds
 /// the seconds of sound read (for a take kept as its analysis alone, its
 /// length `kept_s` once read) and setting `cancel` stops it, sending
 /// nothing. Its engine and readings are readied there too, on `inputs`.
 fn open_in_background(
-    opening: (PathBuf, Manifest, RecordingEntry),
+    opening: (PathBuf, Manifest),
     settings: timegrapher_core::take::EntrySettings,
     tx: std::sync::mpsc::Sender<Result<Option<Opened>, String>>,
     progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -2741,15 +2742,15 @@ fn open_in_background(
     use std::sync::atomic::Ordering::Relaxed;
     use timegrapher_core::take;
     std::thread::spawn(move || {
-        let (base, m, e) = opening;
+        let (base, m) = opening;
         // A cancel unwinds out of the analysis from its progress report
         // (resume_unwind runs no panic hook, so nothing is printed).
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            take::open_entry(
+            timegrapher_core::take_context::TakeContext::open(
                 &base,
                 &m,
-                &e,
-                &settings,
+                settings,
+                timegrapher_core::take_context::Masks::Kept,
                 take::usb,
                 |first| take::correction_for(&m, first, None, None),
                 |s, _| {
@@ -2765,9 +2766,9 @@ fn open_in_background(
                 if let Some(s) = kept_s {
                     progress.store(s.to_bits(), Relaxed);
                 }
-                let _ = tx.send(r.map(|o| {
+                let _ = tx.send(r.map(|(o, log)| {
                     let clock = TimegrapherApp::rate_clock(&o.clock);
-                    let live = ready_engine(o.log, &inputs, &o.breaks, clock);
+                    let live = ready_engine(log, &inputs, &o.breaks, clock);
                     let trend = live.trend(inputs.average_s);
                     Some(Opened {
                         live,
@@ -2777,7 +2778,7 @@ fn open_in_background(
                         clock_source: o.clock_source,
                         breaks: o.breaks,
                         unlisted: o.unlisted,
-                        profiles: o.kept.map(|k| k.profiles),
+                        profiles: o.profiles,
                     })
                 }));
             }

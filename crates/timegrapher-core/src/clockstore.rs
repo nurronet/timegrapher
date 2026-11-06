@@ -105,19 +105,7 @@ pub fn config_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("TIMEGRAPHER_CONFIG_DIR").filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(d));
     }
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = if cfg!(target_os = "windows") {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library").join("Application Support"))
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
-    };
-    base.map(|b| b.join("timegrapher"))
+    crate::user_dirs::app_dir(crate::user_dirs::Kind::Config)
 }
 
 /// Where the store lives.

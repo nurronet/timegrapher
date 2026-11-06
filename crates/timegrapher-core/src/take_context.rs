@@ -139,6 +139,9 @@ pub struct TakeContext {
     pub masked: Vec<(f64, f64)>,
     /// Each session entry's window, in the session file's order.
     pub entries: Vec<EntryWindow>,
+    /// For a take kept as its analysis alone, the Tick Tock profiles it
+    /// kept; `None` for a take read from its sound.
+    pub profiles: Option<Vec<crate::analysis_take::StretchProfiles>>,
 }
 
 /// The recording entry `e` names, as a run of `parts`: which they are,
@@ -311,6 +314,7 @@ impl TakeContext {
             files,
             masked: crate::session::masked_spans(&masked),
             entries,
+            profiles: opened.kept.map(|k| k.profiles),
         };
         Ok((ctx, opened.log))
     }
