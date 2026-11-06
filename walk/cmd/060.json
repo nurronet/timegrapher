@@ -1,0 +1,1 @@
+[["shell", "powershell -NoProfile -c \"Get-ChildItem -Recurse -ErrorAction SilentlyContinue $env:APPDATA,$env:LOCALAPPDATA -Filter timegrapher.log | ForEach-Object { $_.FullName; Get-Content -Tail 12 $_.FullName }\""]]
