@@ -1117,7 +1117,11 @@ impl LiveAnalyzer {
             )
         });
         let jitter_us = crate::session::scatter_jitter_us(&scatter);
-        let judged_s = if scatter.is_empty() && end_s - heard_since < SCATTER_LOOKBACK_S {
+        // The same just after a jump in the beats: the windows skip it, so
+        // until one fits after it there may be none, and none is no verdict
+        // of noise (#1170).
+        let cut_since = holes.stretch_from(end_s).max(heard_since);
+        let judged_s = if scatter.is_empty() && end_s - cut_since < SCATTER_LOOKBACK_S {
             0.0
         } else {
             (end_s - window_from.max(heard_since)).max(0.0)
@@ -1424,6 +1428,9 @@ impl LiveAnalyzer {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod jump_tests;
 
 #[cfg(test)]
 mod tests {
