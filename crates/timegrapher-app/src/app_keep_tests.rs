@@ -1561,3 +1561,54 @@ fn an_hour_that_cant_be_kept_as_flac_stays_a_wav_and_is_named() {
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Just Open It opens a recording from outside the watches as no watch's
+/// take: the watch picked is let go, so the status line and the cards
+/// name the take's own watch, and the next take is a Quick Listen's.
+#[test]
+fn just_open_it_lets_the_watch_picked_go() {
+    let base = std::env::temp_dir().join(format!("tg-app-just-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Alpha")).unwrap();
+    let alpha = lib.find("Alpha").unwrap().watch.id.clone();
+    drop(lib);
+    let take = base.join("outside take");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "watch = 'Yacht-Master'\ncalibre = '3235'\nbph = 28800\nlift = 55.0\n\n\
+         [[recording]]\nfile = 'take.wav'\nposition = 'CR'\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&alpha);
+    // As Open's dialog does (`open_picked`).
+    app.input = Input::File;
+    let mut a = app.open_ask_for(&take).expect("asked");
+    a.add = false;
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll();
+    }
+    assert!(app.watch_open.is_none() && !app.unsorted_open);
+    assert_eq!(app.status_words(), "outside take · Yacht-Master · Opened");
+    assert_eq!(app.calibre, "3235");
+    // The next take starts from Quick Listen's settings, not Alpha's.
+    app.new_session();
+    assert_eq!(app.watch_setup(), WatchSetup::default());
+    let _ = std::fs::remove_dir_all(&base);
+}

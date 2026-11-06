@@ -161,7 +161,7 @@ impl TimegrapherApp {
                 self.pause();
                 self.line_pick(id, true)
             }
-            Confirm::Open { path } => self.open_recording(&path, false),
+            Confirm::Open { path, no_watch } => self.open_recording_as(&path, false, no_watch),
             Confirm::Microphone => self.listen_after_ask(),
             Confirm::QuickListen => self.quick_listen(true),
             Confirm::Quit => {
@@ -493,8 +493,9 @@ impl TimegrapherApp {
                         (
                             false,
                             "Just Open It",
-                            "Open the recording where it is. It is not added to your watches: \
-                         Save, on the Listen card, keeps it in a watch later.",
+                            "Open the recording where it is. It is not added to your watches, \
+                         and no watch stays picked: Save, on the Listen card, keeps it in a \
+                         watch later.",
                         ),
                     ],
                 );
@@ -558,7 +559,7 @@ impl TimegrapherApp {
     pub(super) fn answer_open_ask(&mut self, mut a: OpenAsk, need: OpenNeed) {
         if !a.add {
             self.keep_back = None;
-            return self.open_recording(&a.path, true);
+            return self.open_recording_as(&a.path, true, true);
         }
         match self.add_opened(&a, need) {
             Ok((take, id, fill_error)) => {

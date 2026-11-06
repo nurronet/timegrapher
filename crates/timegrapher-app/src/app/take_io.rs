@@ -1612,8 +1612,15 @@ impl TimegrapherApp {
     /// Open a recording, analysed whole. With `ask`, unsaved sound from a
     /// microphone session is not thrown away without asking first.
     pub(super) fn open_recording(&mut self, path: &Path, ask: bool) {
+        self.open_recording_as(path, ask, false);
+    }
+
+    /// Open a recording as `open_recording` does; with `no_watch`, the
+    /// watch picked is let go once it opens, not before, so a take still
+    /// heard keeps its watch if the open is called off (Just Open It).
+    pub(super) fn open_recording_as(&mut self, path: &Path, ask: bool, no_watch: bool) {
         let p = path.to_path_buf();
-        if self.behind_save(move |a| a.open_recording(&p, ask)) {
+        if self.behind_save(move |a| a.open_recording_as(&p, ask, no_watch)) {
             return;
         }
         if self.analysis_save_busy() || self.saving_busy() {
@@ -1622,10 +1629,19 @@ impl TimegrapherApp {
         if ask && (self.session.mic() || self.marks_unsaved()) && self.needs_save_confirmation() {
             self.confirm = Some(Confirm::Open {
                 path: path.to_path_buf(),
+                no_watch,
             });
-        } else {
-            self.start_batch(path);
+            return;
         }
+        if no_watch {
+            // Not one of a watch's takes, so no watch stays picked: the
+            // bar, the cards and Watches say so alike, and the next
+            // Listen is a Quick Listen (Hugh).
+            self.watch_open = None;
+            self.unsorted_open = false;
+            self.mic_setup = Some(WatchSetup::default());
+        }
+        self.start_batch(path);
     }
 
     /// Play a recording through as if live, at its own speed. The app
