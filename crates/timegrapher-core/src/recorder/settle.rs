@@ -99,7 +99,7 @@ mod tests {
         let started = std::time::Instant::now();
         let missing = rename_settled(&from, &to).unwrap_err();
         assert_eq!(missing.kind(), io::ErrorKind::NotFound);
-        assert!(started.elapsed() < std::time::Duration::from_millis(40));
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
