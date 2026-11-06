@@ -1036,6 +1036,25 @@ fn stretches_read_together_count_masked_time_once() {
     // A mask from 15 s to 30 s covers the 6 s between the stretches too.
     let m = session::measure_together(&log, None, &[], &[(15.0, 30.0)], &spans).unwrap();
     assert!((m.masked_s - 15.0).abs() < 1e-9, "{}", m.masked_s);
+    // Its caveat says what was masked by hand inside the stretches: 15 s
+    // to 20 s and 26 s to 30 s (#1228).
+    let said: Vec<f64> = m
+        .caveats
+        .iter()
+        .filter_map(|c| match c {
+            timegrapher_core::measure::Caveat::Masked { seconds } => Some(*seconds),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(said.len(), 1, "{:?}", m.caveats);
+    assert!((said[0] - 9.0).abs() < 1e-9, "{said:?}");
+    // With no hand masks, the time between is left out with no caveat.
+    let m = session::measure_together(&log, None, &[], &[], &spans).unwrap();
+    assert!((m.masked_s - 6.0).abs() < 1e-9, "{}", m.masked_s);
+    let masked_caveat = |c: &timegrapher_core::measure::Caveat| {
+        matches!(c, timegrapher_core::measure::Caveat::Masked { .. })
+    };
+    assert!(!m.caveats.iter().any(masked_caveat), "{:?}", m.caveats);
     assert!(close(m.rate_s_per_day, 5.0, 3.0), "{:?}", m.rate_s_per_day);
     assert!(session::measure_together(&log, None, &[], &[], &[]).is_none());
 }

@@ -236,4 +236,11 @@ fn a_mask_between_two_stretches_counts_once_on_the_whole_take() {
     let w = app.whole_take().expect("whole take");
     // 15 s to 40 s: the 15 s between the stretches is in it.
     assert!((w.m.masked_s - 25.0).abs() < 1e-9, "{}", w.m.masked_s);
+    // Its caveat says only what was masked by hand in CU: 15 s to 20 s
+    // and 35 s to 40 s (#1228).
+    assert!(
+        w.m.caveats.contains(&Caveat::Masked { seconds: 10.0 }),
+        "{:?}",
+        w.m.caveats
+    );
 }
