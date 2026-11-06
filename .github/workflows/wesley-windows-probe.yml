@@ -37,6 +37,7 @@ jobs:
           query user 2>&1
           Get-CimInstance Win32_VideoController | Select Name,DriverVersion,CurrentHorizontalResolution,CurrentVerticalResolution | Format-List
           Get-CimInstance Win32_SoundDevice | Select Name,Status | Format-List
+          exit 0
       - name: Python driver deps
         run: python -m pip install --quiet pyautogui pillow
       - name: Drive the app
