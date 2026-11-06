@@ -1,0 +1,24 @@
+app: head running
+took 12.7 s
+$ del D:\w\lock.log
+
+$ start "" /b powershell -NoProfile -File D:\w\take\lock.ps1 -Path D:\w\take\session.toml -Delay 0 -Hold 1.2
+
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")" & type D:\w\take\session.toml & dir /b D:\w\take
+locked D:\w\take\session.toml at 17:20:32.249
+released at 17:20:33.466
+17:20:01.179
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+notes = "Walter #1253: 30 s of the corpus YM42 DD take, for Save Again."
+
+[[recording]]
+file = "take.flac"
+position = "DD"
+masked = [[20.54825557499322, 23.878604604652622]]
+lock.ps1
+session.toml
+take.flac
+
