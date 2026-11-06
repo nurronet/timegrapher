@@ -358,9 +358,10 @@ fn the_sound_panes_follow_the_strips_newest_edge() {
     assert_eq!(beats_shown(&mut app), newest);
 }
 
-/// In an upright strip each overlay's axis is a row above it whose near
-/// end's number would sit under the axis's name: the number is left out,
-/// and hovering the row gives the scale end to end.
+/// In an upright strip each overlay's axis is a row above it, its short
+/// name over its unit (#1278), whose near end's number would sit under the
+/// unit: the number is left out, and hovering the row gives the scale end
+/// to end.
 #[test]
 fn hovering_an_overlay_axis_row_gives_its_range() {
     let ctx = themed();
@@ -374,27 +375,101 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
             events,
             ..Default::default()
         };
-        let out = ctx.run(input, |ctx| {
+        ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
-        });
-        super::tests::painted_text(&out)
+        })
     };
     for _ in 0..3 {
         pass(&mut app, Vec::new());
     }
-    let drawn = pass(&mut app, Vec::new());
-    // The first switch in the settings is Amplitude.
-    assert!(drawn.contains("Amp. (°)"), "{drawn}");
+    let out = pass(&mut app, Vec::new());
+    let drawn = super::tests::painted_text(&out);
+    // The first switch in the settings is Amplitude: its short name, and
+    // its unit on the line under it, never "Amp. (°)" on one line.
+    let at = |words: &str| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == words => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+    };
+    let name = at("Amp.").unwrap_or_else(|| panic!("{drawn}"));
+    let unit = at("(°)").unwrap_or_else(|| panic!("{drawn}"));
+    assert!(unit.top() >= name.bottom() - 1.0, "{name:?} {unit:?}");
+    assert!((unit.left() - name.left()).abs() < 0.5, "one column");
+    assert!(!drawn.contains("Amp. (°)"), "{drawn}");
     assert!(!drawn.contains("Amplitude: "), "no hover yet: {drawn}");
     // The row: under the key's line, across the middle of the strip.
     let over = egui::pos2(450.0, 30.0);
     pass(&mut app, vec![egui::Event::PointerMoved(over)]);
-    let hovered = pass(&mut app, Vec::new());
+    let hovered = super::tests::painted_text(&pass(&mut app, Vec::new()));
     let line = hovered
         .lines()
         .find(|l| l.starts_with("Amplitude: "))
         .unwrap_or_else(|| panic!("{hovered}"));
     assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
+}
+
+/// Upright, "Late" and "Early" sit on a line of their own under the ms
+/// numbers, clear of the end ones (#1278: never "Late −60" or "+60Early").
+#[test]
+fn an_upright_strips_early_and_late_stand_clear_of_its_numbers() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.strip.horizontal = false;
+    for width in [460.0, 900.0] {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(width, 500.0));
+        let mut out = None;
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            out = Some(ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+            }));
+        }
+        let out = out.unwrap();
+        let texts: Vec<(String, egui::Rect)> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    egui::Rect::from_min_size(t.pos, t.galley.size()),
+                )),
+                _ => None,
+            })
+            .collect();
+        let at = |w: &str| {
+            texts
+                .iter()
+                .find(|t| t.0 == w)
+                .unwrap_or_else(|| panic!("{w}: {texts:?}"))
+                .1
+        };
+        // The ms numbers: signed, or 0, under the plot.
+        let numbers: Vec<egui::Rect> = texts
+            .iter()
+            .filter(|t| t.0 == "0" || t.0.starts_with('+') || t.0.starts_with('−'))
+            .map(|t| t.1)
+            .filter(|r| r.top() > at("Late").top() - 30.0)
+            .collect();
+        assert!(!numbers.is_empty(), "{texts:?}");
+        for word in ["Late", "Early"] {
+            let w = at(word);
+            for n in &numbers {
+                assert!(w.top() >= n.bottom() - 1.0, "{word} {w:?} under {n:?}");
+            }
+            for (other, r) in texts.iter().filter(|t| t.0 != word) {
+                assert!(
+                    !w.expand(2.0).intersects(*r),
+                    "{word} {w:?} runs into {other} {r:?}"
+                );
+            }
+        }
+    }
 }
 
 /// Lying across, an overlay's axis is a column right of the strip under
