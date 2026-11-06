@@ -537,10 +537,15 @@ pub fn positions_of<P: Copy>(listed: impl Iterator<Item = ListedPosition<P>>) ->
         }
         // The position began where the one before it ended, the first at
         // the take's start: the app saves each entry from the end of its
-        // settling, the first's too.
+        // settling, the first's too. Where the one before is read on past
+        // this one's start (two entries of one file, each with its own
+        // window, as ym42_CR_long's third file), what it reads stays its
+        // own: this one begins where that reading ends, or where its own
+        // starts if sooner, as `session` reads each window (#1156).
         let began = match i.checked_sub(1).map(|j| listed[j].2) {
             None => 0.0,
             Some(Some(end)) if end < start => end,
+            Some(Some(end)) if end > start => end.min(from),
             Some(_) => start,
         };
         if from > began {
@@ -1779,8 +1784,8 @@ mod tests {
         );
     }
 
-    /// Each position begins where the one before it ended, or at its own
-    /// start when that one ran on past it; the first at the take's start.
+    /// Each position begins where the one before it ended, also when that
+    /// one ran on past its start; the first at the take's start.
     /// Its settling runs from there to where its reading starts, and is
     /// none when the reading starts there (#756).
     #[test]
@@ -1791,8 +1796,32 @@ mod tests {
             (120.0, 150.0, Some(300.0), 'B', false),
         ];
         let (changes, settles) = positions_of(listed.into_iter());
-        assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (290.0, 'C')]);
-        assert_eq!(settles, vec![(100.0, 150.0), (290.0, 320.0)]);
+        // B is read to 300, past C's start: C begins and settles from where
+        // B stopped being read, so no sound is both read and settling
+        // (#1156).
+        assert_eq!(changes, vec![(0.0, 'A'), (100.0, 'B'), (300.0, 'C')]);
+        assert_eq!(settles, vec![(100.0, 150.0), (300.0, 320.0)]);
+        // ym42_CR_long's third file: one entry read to 337 s, the next of
+        // the same file settling to 377 s. The second begins at 337, so
+        // the take reads both windows, as session does. One whose reading
+        // starts before the one before stops (readings overlapping) begins
+        // at its reading, with no settling.
+        let listed = [
+            (0.0, 0.0, Some(337.0), 'R', false),
+            (0.0, 377.0, None, 'R', false),
+        ];
+        assert_eq!(
+            positions_of(listed.into_iter()),
+            (vec![(0.0, 'R'), (337.0, 'R')], vec![(337.0, 377.0)])
+        );
+        let listed = [
+            (0.0, 0.0, Some(337.0), 'R', false),
+            (0.0, 300.0, None, 'R', false),
+        ];
+        assert_eq!(
+            positions_of(listed.into_iter()),
+            (vec![(0.0, 'R'), (300.0, 'R')], vec![])
+        );
     }
 
     /// An entry that carries on the one before it ([`continues_position`])

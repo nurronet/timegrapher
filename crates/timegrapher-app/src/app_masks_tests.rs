@@ -805,7 +805,7 @@ fn masked_stretches_are_saved_with_the_take() {
 
 /// A take of `hours` beating at 28,800 bph, with a 2 s amplitude window
 /// every 2 s, as a take kept as its analysis opens.
-fn long_log(hours: f64) -> BeatLog {
+pub(super) fn long_log(hours: f64) -> BeatLog {
     let duration_s = hours * 3600.0;
     BeatLog {
         sample_rate: 48000,
