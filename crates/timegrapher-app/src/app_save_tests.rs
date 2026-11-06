@@ -467,7 +467,10 @@ fn save_copies_in_the_background_while_listening_carries_on() {
     let audio = timegrapher_core::audio::load(&dest.join("audio-001.wav")).unwrap();
     assert_eq!(audio.samples.len(), 2 * 48000);
     assert_eq!(app.unsaved_s(), 1.0);
-    app.save_again();
+    // The Save asked while it was written waits its turn (#1216), then
+    // adds the second since.
+    assert_eq!(app.after_save.len(), 1);
+    app.run_after_save();
     app.wait_for_save();
     assert_eq!(app.session.saved_to(), Some(dest.as_path()));
     let audio = timegrapher_core::audio::load(&dest.join("audio-001.wav")).unwrap();

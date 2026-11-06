@@ -274,7 +274,7 @@ impl TimegrapherApp {
     /// over a watch's take still listening, it is refused.
     pub(super) fn list_pick(&mut self, id: String) {
         let again = id.clone();
-        if self.behind_stream(move |a| a.list_pick(again)) {
+        if self.behind_save(move |a| a.list_pick(again)) {
             return;
         }
         match list_pick_route(
@@ -1240,7 +1240,7 @@ impl TimegrapherApp {
     /// nothing until Keep in a Watch… or Save…. Unsaved sound is asked about first, unless
     /// `asked`.
     pub(super) fn quick_listen(&mut self, asked: bool) {
-        if self.behind_stream(move |a| a.quick_listen(asked)) {
+        if self.behind_save(move |a| a.quick_listen(asked)) {
             return;
         }
         if self.quick_listen_ready(asked) {

@@ -454,6 +454,20 @@ struct HeldSave {
     _capture: std::sync::mpsc::Sender<Event>,
 }
 
+/// Hold the save being written part way, as a long copy would be, until
+/// the sender returned sends (or 10 s pass).
+fn hold_save(app: &mut TimegrapherApp) -> std::sync::mpsc::Sender<()> {
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    let mut s = app.saving.take().expect("a save into the take");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = held.recv_timeout(std::time::Duration::from_secs(10));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+    go
+}
+
 fn held_save(name: &str) -> HeldSave {
     let base = std::env::temp_dir().join(format!("tg-app-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
@@ -480,15 +494,8 @@ fn held_save(name: &str) -> HeldSave {
     let rec = app.session.recorder.as_mut().unwrap();
     rec.write(&block(6, 3)).unwrap();
     app.stream_tick();
-    let (go, held) = std::sync::mpsc::channel::<()>();
-    let mut s = app.saving.take().expect("a save into the take");
-    assert_eq!(s.streamed, Streamed::Yes);
-    let copy = s.thread;
-    s.thread = std::thread::spawn(move || {
-        let _ = held.recv_timeout(std::time::Duration::from_secs(10));
-        copy.join().unwrap()
-    });
-    app.saving = Some(s);
+    assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::Yes));
+    let go = hold_save(&mut app);
     let rec = app.session.recorder.as_mut().unwrap();
     rec.write(&block(2, 9)).unwrap();
     HeldSave {
@@ -554,7 +561,7 @@ fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
     let opened = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let then = opened.clone();
     let open = move |_: &mut TimegrapherApp| then.store(true, std::sync::atomic::Ordering::SeqCst);
-    assert!(h.app.behind_stream(open));
+    assert!(h.app.behind_save(open));
     h.release();
     // Asks run on the window's frame, not the listening thread's.
     assert_eq!(h.app.after_save.len(), 2);
@@ -572,6 +579,62 @@ fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
     assert!(h.app.closes_after_save());
     assert!(!h.app.needs_save_confirmation());
     assert_eq!(h.take_s(), 11.0);
+}
+
+/// A Stop while a Quick Listen's first save into Unsorted Takes is still
+/// written waits for it, then saves the rest into the take (#1216, found
+/// by Walter): it was refused, leaving the take short.
+#[test]
+fn a_stop_during_a_takes_first_save_saves_the_rest_after_it() {
+    let base = std::env::temp_dir().join(format!("tg-app-first-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s as usize],
+        at: start + std::time::Duration::from_secs(at),
+    };
+    r.write(&block(3, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    // Kept in Unsorted Takes: the user's own save, held part way.
+    app.save_again();
+    assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::No));
+    let go = hold_save(&mut app);
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(2, 3)).unwrap();
+    app.stop_listening();
+    assert_eq!(app.after_save.len(), 1, "the Stop waits for the first save");
+    go.send(()).unwrap();
+    while app.saving.is_some() {
+        app.poll_saving();
+    }
+    app.run_after_save();
+    assert!(
+        app.saving.is_some(),
+        "the Stop's save, once the first is written"
+    );
+    app.wait_for_save();
+    assert!(app.unsaved_s() < 1.0, "{}", app.unsaved_s());
+    assert!(!app.needs_save_confirmation());
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let flac = take.join("audio-001.flac");
+    let kept = if flac.exists() {
+        flac
+    } else {
+        take.join("audio-001.wav")
+    };
+    let samples = timegrapher_core::audio::load(&kept).unwrap().samples.len();
+    assert_eq!(samples, 5 * 48000);
+    let _ = std::fs::remove_dir_all(&base);
 }
 
 /// Quitting with a Stop waiting on a save into the take still saves the
