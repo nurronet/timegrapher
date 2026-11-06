@@ -646,8 +646,8 @@ fn fresh_seeds_hold_the_tail() {
                     c.model, c.span_s, c.step_s, c.mix, n[0], n[1], n[2], n[3]
                 );
                 let mut t = totals.lock().unwrap();
-                for k in 0..4 {
-                    t[c.model as usize][k] += n[k];
+                for (tk, nk) in t[c.model as usize].iter_mut().zip(n) {
+                    *tk += nk;
                 }
             });
         }
