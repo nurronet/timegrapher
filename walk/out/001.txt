@@ -1,0 +1,10 @@
+app: head running
+took 6.6 s
+$ dir /s /b "%USERPROFILE%\Timegrapher Data" & dir /b %APPDATA% & dir /b %LOCALAPPDATA%\timegrapher* 2>nul
+C:\Users\runneradmin\Timegrapher Data\.cache.json
+C:\Users\runneradmin\Timegrapher Data\.library.lock
+C:\Users\runneradmin\Timegrapher Data\library.toml
+Adobe
+NuGet
+timegrapher
+
