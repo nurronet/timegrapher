@@ -1,0 +1,57 @@
+app: head running
+took 9.3 s
+$ dir D:\w\take & type D:\w\take\session.toml
+ Volume in drive D is Temporary Storage
+ Volume Serial Number is 60D5-D62E
+
+ Directory of D:\w\take
+
+11/06/2026  05:17 PM    <DIR>          .
+11/06/2026  05:17 PM    <DIR>          ..
+11/06/2026  05:14 PM               502 lock.ps1
+11/06/2026  05:14 PM               228 session.toml
+11/06/2026  05:14 PM         1,726,528 take.flac
+               3 File(s)      1,727,258 bytes
+               2 Dir(s)  157,220,397,056 bytes free
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+notes = "Walter #1253: 30 s of the corpus YM42 DD take, for Save Again."
+
+[[recording]]
+file = "take.flac"
+position = "DD"
+
+$ start "" /b powershell -NoProfile -File D:\w\take\lock.ps1 -Path D:\w\take\session.toml -Delay 0 -Hold 0.8
+
+$ powershell -NoProfile -c "while(!(Test-Path D:\w\lock.log)){Start-Sleep -m 20}; Get-Content D:\w\lock.log"
+locked D:\w\take\session.toml at 17:19:59.683
+released at 17:20:00.543
+
+$ type D:\w\lock.log & dir D:\w\take & type D:\w\take\session.toml
+locked D:\w\take\session.toml at 17:19:59.683
+released at 17:20:00.543
+ Volume in drive D is Temporary Storage
+ Volume Serial Number is 60D5-D62E
+
+ Directory of D:\w\take
+
+11/06/2026  05:20 PM    <DIR>          .
+11/06/2026  05:19 PM    <DIR>          ..
+11/06/2026  05:14 PM               502 lock.ps1
+11/06/2026  05:20 PM               270 session.toml
+11/06/2026  05:14 PM         1,726,528 take.flac
+               3 File(s)      1,727,300 bytes
+               2 Dir(s)  157,220,397,056 bytes free
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+notes = "Walter #1253: 30 s of the corpus YM42 DD take, for Save Again."
+
+[[recording]]
+file = "take.flac"
+position = "DD"
+masked = [[20.54825557499322, 23.878604604652622]]
+
