@@ -1000,6 +1000,32 @@ impl TimegrapherApp {
         self.close_after_save && self.saving.is_none() && self.after_save.is_empty()
     }
 
+    /// How soon the window draws again with no input: while listening or
+    /// reading a take, and while work on its own thread is under way, so
+    /// what it gives shows (and a take kept as its analysis only lets its
+    /// sound go, #1221) without waiting for the pointer to move.
+    pub(super) fn repaint_every(&self) -> Option<std::time::Duration> {
+        let working = self.sound_job.is_some()
+            || self.scope_job.is_some()
+            || self.steady_job.is_some()
+            || self.saving.is_some()
+            || self.take_keep.is_some()
+            || self.analysis_save.is_some();
+        if self.running() || self.batch.is_some() {
+            Some(std::time::Duration::from_millis(40))
+        } else {
+            working.then_some(std::time::Duration::from_millis(100))
+        }
+    }
+
+    /// When the window draws next: as [`Self::repaint_every`] says, and
+    /// once more at once on the frame the work ended, so what it left (a
+    /// message, the take's files) shows with no input (Walter on #1232).
+    pub(super) fn draw_next(&self, was_working: bool) -> Option<std::time::Duration> {
+        self.repaint_every()
+            .or(was_working.then_some(std::time::Duration::ZERO))
+    }
+
     /// The save being written, once it is done.
     pub(super) fn poll_saving(&mut self) {
         if self.saving.as_ref().is_some_and(|s| s.thread.is_finished()) {
