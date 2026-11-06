@@ -474,6 +474,13 @@ impl TimegrapherApp {
                     .and_then(|l| l.watch_of(&to))
                     .map(|w| w.watch.name.clone())
                     .unwrap_or_default();
+                if let Err(e) = name_watch_in_take(&to, &name) {
+                    return self.error(format!(
+                        "\"{}\" is in {name} now, but its session file still names the watch \
+                         it came from: {e}",
+                        file_name(&to)
+                    ));
+                }
                 if filed {
                     self.info_msg(format!("Filed \"{}\" under {name}.", file_name(&to)));
                 } else {
@@ -1359,4 +1366,29 @@ impl TimegrapherApp {
             }
         }
     }
+}
+
+/// Name `watch` in the session.toml of the take at `take`, moved into
+/// that watch (#1283): only the watch's name changes, keeping the calibre,
+/// lift and beat rate it was recorded with, and the rest of the file as it
+/// was, comments too. A take with no session.toml, or no watch it went
+/// to, has no name to change.
+fn name_watch_in_take(take: &Path, watch: &str) -> Result<(), String> {
+    if watch.is_empty() {
+        return Ok(());
+    }
+    let file = take.join(MANIFEST);
+    let text = match timegrapher_core::recorder::read_settled(&file) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{}: {e}", file.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
+    if doc.get("watch").and_then(|w| w.as_str()) == Some(watch) {
+        return Ok(());
+    }
+    doc["watch"] = toml_edit::value(watch);
+    write_replacing(&file, &doc.to_string())
 }

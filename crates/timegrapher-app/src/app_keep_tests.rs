@@ -974,7 +974,7 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
         timegrapher_core::audio::write_wav(&dir.join("take_part01-001.wav"), &audio).unwrap();
         std::fs::write(
             dir.join(MANIFEST),
-            "# kept as written\nbph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\n\
+            "# kept as written\nwatch = \"Pepsi\"\nbph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\n\
              position = \"DU\"\n",
         )
         .unwrap();
@@ -1070,6 +1070,17 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
         app.status_words().contains("· Daytona ·"),
         "{}",
         app.status_words()
+    );
+    // Its session file names Daytona too, and keeps the lift and beat
+    // rate it was recorded with (#1283).
+    let toml = std::fs::read_to_string(d.join(MANIFEST)).unwrap();
+    assert!(
+        toml.contains("watch = \"Daytona\"")
+            && !toml.contains("Pepsi")
+            && toml.contains("# kept as written")
+            && toml.contains("bph = 28800")
+            && toml.contains("lift = 52"),
+        "{toml}"
     );
     app.answer_take_ask(watches::Ask::Delete {
         take: d.clone(),
