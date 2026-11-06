@@ -6,9 +6,12 @@ is known to go wrong. Everything here is in core `flac.rs`, `recorder.rs`,
 
 ## What the recorder writes
 
-- **Mono, 16- or 24-bit integer.** A microphone that gives 16-bit or narrower
-  samples is kept at 16 bits. Anything wider is kept at 24 bits, including a
-  floating-point microphone (common on macOS).
+- **Mono, 16-bit integer** (`recorder::STORED_BITS`), whatever the
+  microphone gives: a 24-bit or floating-point microphone (common on macOS)
+  is rounded to the nearest 16-bit step. Tested on four 24-bit takes (#1176):
+  their low 8 bits held nothing, the 16-bit copies read the same rate,
+  amplitude and beat error, and their FLACs were 46% the size. The
+  stand's noise is a few 16-bit steps; rounding adds a third of one.
 - **48 kHz when the device offers it** (`capture::PREFERRED_RATE`). Otherwise
   the device's own default rate is used.
 - **The hour being recorded is a WAV.** Each hour is kept as FLAC once it

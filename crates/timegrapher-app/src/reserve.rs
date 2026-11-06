@@ -19,17 +19,18 @@ use timegrapher_core::chart_scale::axis_number;
 use timegrapher_core::figure_text::{base_digits, figure, fixed_text, true_minus};
 use timegrapher_core::library::length_text;
 use timegrapher_core::power_reserve::{self, Ending, Heard, Results};
+use timegrapher_core::recorder::STORED_BITS;
 use timegrapher_core::session::{beat_error_source_label, BeatErrorSource};
 
-/// Bytes of sound written an hour at `sample_rate` and `bits`, one
-/// channel, as the recorder keeps it.
-pub fn bytes_per_hour(sample_rate: u32, bits: u16) -> u64 {
-    u64::from(sample_rate) * u64::from(bits.div_ceil(8)) * 3600
+/// Bytes of sound written an hour at `sample_rate`, one channel, as the
+/// recorder keeps it: at [`STORED_BITS`] whatever the microphone gives.
+pub fn bytes_per_hour(sample_rate: u32) -> u64 {
+    u64::from(sample_rate) * u64::from(STORED_BITS.div_ceil(8)) * 3600
 }
 
 /// The sound a run of [`power_reserve::LIMIT_S`] could write at most.
-pub fn bytes_needed(sample_rate: u32, bits: u16) -> u64 {
-    bytes_per_hour(sample_rate, bits) * (power_reserve::LIMIT_S / 3600.0) as u64
+pub fn bytes_needed(sample_rate: u32) -> u64 {
+    bytes_per_hour(sample_rate) * (power_reserve::LIMIT_S / 3600.0) as u64
 }
 
 /// Bytes free to this user on the disk holding `dir`.
@@ -1142,8 +1143,9 @@ mod tests {
             t.update(&all, step, power_reserve::LIMIT_S),
             Some(Ending::Limit)
         );
-        assert_eq!(gb(bytes_needed(48_000, 16)), "27.6 GB");
-        assert_eq!(bytes_per_hour(48_000, 24), 48_000 * 3 * 3600);
+        assert_eq!(gb(bytes_needed(48_000)), "27.6 GB");
+        // A 24-bit microphone's sound is kept at 16 bits too.
+        assert_eq!(bytes_per_hour(48_000), 48_000 * 2 * 3600);
         assert!(free_bytes(&std::env::temp_dir()).is_some_and(|b| b > 0));
     }
 

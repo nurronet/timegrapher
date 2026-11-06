@@ -481,11 +481,8 @@ impl TimegrapherApp {
         let free = if self.reserve.is_none() {
             self.reserve_takes_dir().ok().and_then(|d| {
                 let have = reserve::free_bytes(&d)?;
-                let (rate, bits) = self
-                    .capture
-                    .as_ref()
-                    .map_or((48_000, 16), |c| (c.sample_rate, c.bits));
-                Some((have, reserve::bytes_needed(rate, bits)))
+                let rate = self.capture.as_ref().map_or(48_000, |c| c.sample_rate);
+                Some((have, reserve::bytes_needed(rate)))
             })
         } else {
             None
