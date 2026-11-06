@@ -413,9 +413,37 @@ pub fn mask_log(log: &mut BeatLog, masked: &[(f64, f64)]) {
         return;
     }
     log.beats.retain(|b| !in_mask(masked, b.time));
-    log.amplitude_windows
-        .retain(|w| !masked.iter().any(|&(a, b)| w.start_s < b && w.end_s > a));
+    log.amplitude_windows.retain(|w| !window_in_mask(masked, w));
     log.clipped_beats.retain(|&t| !in_mask(masked, t));
+}
+
+/// Whether the amplitude window `w` reaches into one of the masked
+/// stretches, as [`mask_log`] leaves such a window out.
+pub fn window_in_mask(masked: &[(f64, f64)], w: &AmplitudeWindow) -> bool {
+    masked.iter().any(|&(a, b)| w.start_s < b && w.end_s > a)
+}
+
+/// Leave the holes `holes` out of a log read in stretches, as a mask is:
+/// their beats and the windows reaching into them out of `log`
+/// ([`mask_log`]), the holes added to `masked` (the stretches masked by
+/// hand), and every stretch left out cut at both ends among `breaks`
+/// ([`crate::clean::mask_breaks`]), so no reading spans one. What
+/// `series` and `long` do with a take's holes and masks, and the app's
+/// Distributions and Steadiness panes with a position's (#1156).
+pub fn leave_out(
+    log: &mut BeatLog,
+    breaks: &mut Vec<crate::breaks::Break>,
+    masked: &mut Vec<(f64, f64)>,
+    holes: &[(f64, f64)],
+) {
+    if !holes.is_empty() {
+        mask_log(log, holes);
+        masked.extend(holes);
+        let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
+        *masked = masked_spans(&pairs);
+    }
+    breaks.extend(crate::clean::mask_breaks(masked));
+    breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
 }
 
 /// The beats a reading of the stretch from `from_s` to `to_s` (audio

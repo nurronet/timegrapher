@@ -466,16 +466,10 @@ fn read_take(
     let files: Vec<PathBuf> = ctx.files.iter().map(|f| f.path.clone()).collect();
     let clock = crate::clock_cmd::AppliedClock::of(ctx.clock, ctx.clock_ppm, ctx.clock_source);
     let (mut log, mut breaks, mut masked) = (log, ctx.breaks, ctx.masked);
-    if let Some(s) = &stretches {
-        timegrapher_core::session::mask_log(&mut log, &s.holes);
-        masked.extend(&s.holes);
-        let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
-        masked = timegrapher_core::session::masked_spans(&pairs);
-    }
     // Every stretch left out, masked by hand or a hole, is cut at both
     // ends, as `session` cuts a mask (#1185): no reading spans one.
-    breaks.extend(timegrapher_core::clean::mask_breaks(&masked));
-    breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));
+    let holes = stretches.as_ref().map_or(&[][..], |s| &s.holes[..]);
+    timegrapher_core::session::leave_out(&mut log, &mut breaks, &mut masked, holes);
     let stretches = stretches.map(|s| s.read);
     let pauses_unseen = stretches
         .as_deref()

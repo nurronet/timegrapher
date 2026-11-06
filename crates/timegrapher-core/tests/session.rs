@@ -1281,3 +1281,66 @@ fn a_listed_pause_the_clock_log_did_not_see_is_said() {
     let m = session::measure_masked(&log, Some(&clock), &brk, &[], 120.0, 230.0);
     assert!(!m.caveats.contains(&unseen), "{:?}", m.caveats);
 }
+
+/// A hole in a run read in stretches is left out as a mask is: its beats
+/// and every window reaching into it, merged with the masks by hand, and
+/// each stretch left out cut at both ends (#1156).
+#[test]
+fn a_hole_is_left_out_and_cut_like_a_mask() {
+    use timegrapher_core::amplitude::AmplitudeWindow;
+    use timegrapher_core::breaks::Break;
+    let window = |start_s: f64| AmplitudeWindow {
+        start_s,
+        end_s: start_s + 2.0,
+        even_deg: Some(280.0),
+        odd_deg: Some(280.0),
+        beat_error_ms: None,
+        beat_error_unlock_ms: None,
+        even_unlock_ms: None,
+        odd_unlock_ms: None,
+        even_drop_ms: None,
+        odd_drop_ms: None,
+    };
+    let mut log = timegrapher_core::stream::BeatLog {
+        sample_rate: 48000,
+        duration_s: 100.0,
+        bph: 28800,
+        lift_deg: 52.0,
+        beats: (0..800)
+            .map(|index| timegrapher_core::beats::Beat {
+                index,
+                time: index as f64 / 8.0,
+                quality: 1.0,
+            })
+            .collect(),
+        amplitude_windows: (0..50).map(|k| window(k as f64 * 2.0)).collect(),
+        clipped_beats: Vec::new(),
+        clipped_samples: 0,
+        jumps: Vec::new(),
+        sided: Vec::new(),
+        by_count: Vec::new(),
+        snippets: Vec::new(),
+    };
+    let mut breaks = vec![Break {
+        audio_s: 90.0,
+        gap_s: 3.0,
+    }];
+    let mut masked = vec![(10.0, 15.0)];
+    session::leave_out(&mut log, &mut breaks, &mut masked, &[(41.0, 50.0)]);
+    assert!(!log.beats.iter().any(|b| b.time > 41.0 && b.time < 50.0));
+    assert!(log
+        .amplitude_windows
+        .iter()
+        .all(|w| w.end_s <= 41.0 || w.start_s >= 50.0));
+    assert!(session::window_in_mask(&[(41.0, 50.0)], &window(40.0)));
+    assert!(!session::window_in_mask(&[(41.0, 50.0)], &window(50.0)));
+    assert_eq!(masked, [(10.0, 15.0), (41.0, 50.0)]);
+    let at: Vec<f64> = breaks.iter().map(|b| b.audio_s).collect();
+    assert_eq!(at, [10.0, 15.0, 41.0, 50.0, 90.0]);
+    // Only the masks by hand: nothing more taken out of the log.
+    let beats = log.beats.len();
+    let mut breaks = Vec::new();
+    session::leave_out(&mut log, &mut breaks, &mut masked, &[]);
+    assert_eq!(log.beats.len(), beats);
+    assert_eq!(breaks.len(), 4);
+}

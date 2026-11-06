@@ -158,11 +158,18 @@ fn differences(id: &str, app: &Option<WholeTake>, cli: &serde_json::Value) -> Ve
 /// Each must still differ, so the list only shrinks as the app is fixed. A
 /// file the session file lists more than once is named with its entry's
 /// place among them: `file entry 1`.
-const KNOWN: &[(&str, &str)] = &[(
-    "ym42_CR_long/take_part01-003.flac entry 1",
-    "the first of two entries for one file, with its own measure_s: the app does not keep \
-         its end",
-)];
+const KNOWN: &[(&str, &str)] = &[
+    (
+        "ym42_CR_long/take_part01-003.flac entry 1",
+        "#1197: one of two readings of one file; the app opens a file whole, reading both \
+         entries' windows, not one of them",
+    ),
+    (
+        "ym42_CR_long/take_part01-003.flac entry 2",
+        "#1197: one of two readings of one file; the app opens a file whole, reading both \
+         entries' windows, not one of them",
+    ),
+];
 
 /// Each recording the takes under `root` list, read on the app's cards and
 /// by `timegrapher session`, compared: what differs and is not on `known`,
@@ -444,8 +451,9 @@ fn figures_apart(ours: Option<&serde_json::Value>, theirs: Option<&serde_json::V
 /// pane draws, against `series`, and the run the Power Reserve pane reads
 /// from a long take, against `session`. Each as `(what, how)`; `what` is
 /// `id`, then the series and its values ("readings" or "2 s"), or
-/// "power reserve". With them, whether either surface read a run.
-fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool) {
+/// "power reserve". With them, whether either surface read a run, and
+/// how many seconds of the take the app read.
+fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool, f64) {
     use timegrapher_core::distribution as dist;
     let dir = root.join("takes").join(id);
     let mut app = opened(&dir);
@@ -497,7 +505,8 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
             format!("{ours} in the app, {theirs} from session"),
         ));
     }
-    (out, run)
+    let length = app.live.as_ref().map_or(0.0, |l| l.duration_s());
+    (out, run, length)
 }
 
 /// Pane figures the app still reads differently from the command line,
@@ -505,20 +514,21 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// take; each entry must still differ on at least one take, so the list
 /// only shrinks as the app is fixed. A take's "power reserve" entry is
 /// held to that only where a surface reads a run: a pull request's corpus
-/// cut is too short for one.
-const PANES_KNOWN: &[(&str, &str)] = &[
-    ("ym42_CR_long amplitude 2 s", MEASURE),
-    ("ym42_CR_long beat_error 2 s", MEASURE),
-    ("ym42_CR_long rate readings", MEASURE),
-    ("ym42_CR_long amplitude readings", MEASURE),
-    ("ym42_CR_long beat_error readings", MEASURE),
+/// cut is too short for one. Likewise an entry is held only where the take
+/// read reaches the seconds it gives, where its difference is: a pull
+/// request's cut of three files may stop short of it.
+const PANES_KNOWN: &[(&str, &str, f64)] = &[
+    ("ym42_CR_long amplitude 2 s", BREAK_EDGE, 5400.0),
+    ("ym42_CR_long beat_error 2 s", BREAK_EDGE, 5400.0),
 ];
 
-/// #1156, in [`PANES_KNOWN`]: ym42_CR_long's third file has two entries
-/// with their own `measure_s` and `settle_s`. Since #294 step 3 `series`
-/// reads session's windows of them; the app still reads its own cuts.
-const MEASURE: &str = "#1156: the app reads its own cuts of a take whose entries give their \
-                       own measure_s or a later file's settle_s, not session's windows";
+/// #636, in [`PANES_KNOWN`]: at ym42_CR_long's 5,400 s break (3.883 s
+/// gap) the app keeps the 2 s window ending at the break and leaves out
+/// the next, cut by a jump its engine finds 0.05 s after the break;
+/// `series` reads the break on true time with its gap and keeps the
+/// other. One window of about 3,700.
+const BREAK_EDGE: &str = "#636: the app and series pick a different 2 s window at a break \
+                          with a gap";
 
 /// Whether the difference `what` is the known gap `known`.
 fn is_known(known: &str, what: &str) -> bool {
@@ -542,21 +552,31 @@ fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
     let with_run: Vec<&str> = ids
         .iter()
         .zip(&read)
-        .filter(|(_, (_, run))| *run)
+        .filter(|(_, (_, run, _))| *run)
         .map(|(id, _)| id.as_str())
         .collect();
-    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _)| d).collect();
+    // Each take's id with the seconds of it the app read.
+    let lengths: Vec<(&str, f64)> = ids
+        .iter()
+        .zip(&read)
+        .map(|(id, (_, _, length))| (id.as_str(), *length))
+        .collect();
+    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _, _)| d).collect();
     let mut wrong = Vec::new();
     for (what, how) in &found {
-        match PANES_KNOWN.iter().find(|(k, _)| is_known(k, what)) {
-            Some((_, why)) => eprintln!("{what}: differs, as known ({why}): {how}"),
+        match PANES_KNOWN.iter().find(|(k, _, _)| is_known(k, what)) {
+            Some((_, why, _)) => eprintln!("{what}: differs, as known ({why}): {how}"),
             None => wrong.push(format!("{what}: {how}")),
         }
     }
-    for (known, _) in PANES_KNOWN {
+    for &(known, _, reaches_s) in PANES_KNOWN {
         let held = known
             .strip_suffix(" power reserve")
-            .is_none_or(|id| with_run.contains(&id));
+            .is_none_or(|id| with_run.contains(&id))
+            && lengths.iter().any(|&(id, length)| {
+                let names = known.starts_with("* ") || known.starts_with(&format!("{id} "));
+                names && length >= reaches_s
+            });
         if held && !found.iter().any(|(what, _)| is_known(known, what)) {
             wrong.push(format!("{known}: now the same; take it off PANES_KNOWN"));
         }
