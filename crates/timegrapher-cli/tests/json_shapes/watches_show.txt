@@ -32,6 +32,7 @@ takes[].bytes
 takes[].duration_s
 takes[].incomplete
 takes[].name
+takes[].named_start
 takes[].path
 takes[].positions
 takes[].reading
