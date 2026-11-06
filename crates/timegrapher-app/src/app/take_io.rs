@@ -5,7 +5,7 @@ pub(super) use timegrapher_core::recording_order::order_warning;
 use timegrapher_core::take_context::{EntryWindow, FilePart};
 
 /// An ask that goes ahead once the save being written is done
-/// ([`TimegrapherApp::behind_stream`]).
+/// ([`TimegrapherApp::behind_save`]).
 pub(super) type AfterSave = Box<dyn FnOnce(&mut TimegrapherApp) + Send>;
 
 impl TimegrapherApp {
@@ -337,7 +337,16 @@ impl TimegrapherApp {
             return;
         }
         // Never a folder dialog at a Stop: only where Save… needs none.
-        // A Quick Listen take kept already takes the sound since too.
+        // A Quick Listen take kept already takes the sound since too, and
+        // one whose first save is still written is kept once it is (#1216).
+        let kept = |a: &mut Self| {
+            if a.kept_take() {
+                a.save_again();
+            }
+        };
+        if self.behind_save(kept) {
+            return;
+        }
         if self.kept_take() {
             self.save_again();
         }
@@ -775,7 +784,7 @@ impl TimegrapherApp {
     /// [`TimegrapherApp::save_again`], or a save of a take recording into
     /// its folder as it goes, which says nothing when it is done.
     fn save_again_as(&mut self, streamed: Streamed) {
-        if self.behind_stream(move |a| a.save_again_as(streamed)) {
+        if self.behind_save(move |a| a.save_again_as(streamed)) {
             return;
         }
         if self.refuse_faulted_recording() || self.saving_busy() {
@@ -836,7 +845,7 @@ impl TimegrapherApp {
     /// Save a copy of the session's sound so far, with its clock log and
     /// settings, in a folder the user picks. Listening carries on.
     pub(super) fn save_recording(&mut self) {
-        if self.behind_stream(Self::save_recording) {
+        if self.behind_save(Self::save_recording) {
             return;
         }
         if self.refuse_faulted_recording() || self.saving_busy() {
@@ -971,13 +980,13 @@ impl TimegrapherApp {
         true
     }
 
-    /// Whether `then` waits for a take's save into its folder that is
-    /// still being written (the first can copy a whole hour): it goes
-    /// ahead once that is done, in the order asked, and the window carries
-    /// on meanwhile rather than waiting on the copy.
-    pub(super) fn behind_stream(&mut self, then: impl FnOnce(&mut Self) + Send + 'static) -> bool {
-        let streaming = |s: &Saving| s.streamed == Streamed::Yes && !s.thread.is_finished();
-        if self.after_save.is_empty() && !self.saving.as_ref().is_some_and(streaming) {
+    /// Whether `then` waits for a save into a take that is still being
+    /// written (the first can copy a whole hour), the user's own or one of
+    /// a take recording into its folder: it goes ahead once that is done,
+    /// in the order asked, and the window carries on meanwhile rather than
+    /// waiting on the copy, or refusing (#1216).
+    pub(super) fn behind_save(&mut self, then: impl FnOnce(&mut Self) + Send + 'static) -> bool {
+        if self.after_save.is_empty() && self.saving.is_none() {
             return false;
         }
         self.after_save.push(Box::new(then));
@@ -1564,7 +1573,7 @@ impl TimegrapherApp {
     /// microphone session is not thrown away without asking first.
     pub(super) fn open_recording(&mut self, path: &Path, ask: bool) {
         let p = path.to_path_buf();
-        if self.behind_stream(move |a| a.open_recording(&p, ask)) {
+        if self.behind_save(move |a| a.open_recording(&p, ask)) {
             return;
         }
         if self.analysis_save_busy() || self.saving_busy() {
