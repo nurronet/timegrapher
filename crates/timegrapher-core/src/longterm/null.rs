@@ -55,6 +55,13 @@ pub struct NullFit {
     /// false the search used the plain trials count and its false-alarm
     /// chance is not calibrated.
     pub calibrated: bool,
+    /// Timing only: how far the take's band powers sit from the walk plus
+    /// white fitted to them ([`TimingFit::misfit`]), and the null's 99th
+    /// percentile of it for this take ([`Cell::misfit_p99`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub misfit: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub misfit_limit: Option<f64>,
 }
 
 /// The table's f·w axis: 0.01 times 2^(k/4), k from 0 to 68.
@@ -86,6 +93,11 @@ pub struct Cell {
     /// lowest bins of a walk). Empty in a table made before #1218.
     #[serde(default)]
     pub shape: Vec<Option<f64>>,
+    /// Timing only: the 99th percentile over the null's draws of how far
+    /// a take's band powers sit from its fitted walk plus white
+    /// ([`timing_fit`]'s misfit). A take past it is not that model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub misfit_p99: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +123,8 @@ pub struct Levelling {
     pub mean: Vec<Option<f64>>,
     /// As [`Cell::shape`].
     pub shape: Vec<Option<f64>>,
+    /// As [`Cell::misfit_p99`].
+    pub misfit_p99: Option<f64>,
     pub mu: f64,
     pub sigma: f64,
     pub xi: f64,
@@ -248,6 +262,7 @@ fn blend(a: &Levelling, b: &Levelling, t: f64) -> Levelling {
     Levelling {
         mean: mix(&a.mean, &b.mean),
         shape: mix(&a.shape, &b.shape),
+        misfit_p99: a.misfit_p99.zip(b.misfit_p99).map(|(x, y)| x + (y - x) * t),
         mu: a.mu + (b.mu - a.mu) * t,
         sigma: a.sigma + (b.sigma - a.sigma) * t,
         xi: a.xi + (b.xi - a.xi) * t,
@@ -274,6 +289,7 @@ fn at_span(cells: &[&Cell], model: NullModel, mix: f64) -> Option<Levelling> {
     let l = |c: &Cell| Levelling {
         mean: c.mean.clone(),
         shape: c.shape.clone(),
+        misfit_p99: c.misfit_p99,
         mu: c.mu,
         sigma: c.sigma,
         xi: c.xi,
@@ -336,6 +352,60 @@ pub fn levelling_in(
 /// (the walk reaches past the Nyquist frequency, or the floor fits at or
 /// under nothing).
 pub fn timing_mix(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) -> f64 {
+    timing_fit(power, df, step_s, from, scale).mix
+}
+
+/// [`timing_mix`] and how well the model fits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimingFit {
+    pub mix: f64,
+    /// The rms over the bands of |log10(band power / the fitted model)|:
+    /// about 0.1 on a walk plus white; more where the timing is another
+    /// noise (flicker). NaN with fewer than three bands.
+    pub misfit: f64,
+}
+
+/// [`timing_mix`], with the misfit of the walk plus white it fitted:
+/// with no walk, of the white floor alone; with no floor, of the walk
+/// alone.
+pub fn timing_fit(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) -> TimingFit {
+    timing_fit_culled(power, df, step_s, from, scale, &Cull::default())
+}
+
+/// The lines taken out of a take before its misfit is read, each a
+/// frequency in Hz, and how near a bin must be to one to be culled, in
+/// bins ([`timing_fit_culled`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Cull<'a> {
+    pub removed: &'a [f64],
+    pub thinned: &'a [f64],
+    pub half: f64,
+}
+
+/// [`timing_fit`] with the lines of cycles taken out culled, each a
+/// frequency in Hz. Taking a line out disturbs the bins at and beside it,
+/// which left in read as misfit. A band holding a bin within `half` bins
+/// of a line in `removed` (the harmonics the search kept) is left out
+/// whole, as the fresh-seed checks were passed with. Of a line in
+/// `thinned` (a sharp cycle's further harmonics) only those bins are left
+/// out of their band's median, and a band left with under half its bins
+/// is dropped: a sharp cycle's harmonics reach into most bands, and
+/// leaving those out whole hid flicker beneath it.
+pub fn timing_fit_culled(
+    power: &[f64],
+    df: f64,
+    step_s: f64,
+    from: usize,
+    scale: f64,
+    cull: &Cull,
+) -> TimingFit {
+    let Cull {
+        removed,
+        thinned,
+        half,
+    } = *cull;
+    let near =
+        |lines: &[f64], j: usize| lines.iter().any(|&f| (j as f64 * df - f).abs() < half * df);
     let u = |j: usize| {
         let s = (std::f64::consts::PI * j as f64 * df * step_s).sin();
         1.0 / (4.0 * s * s)
@@ -347,14 +417,39 @@ pub fn timing_mix(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) 
         let b = ((a as f64 * 2f64.powf(0.25)).ceil() as usize)
             .max(a + 4)
             .min(top);
-        let mut v: Vec<f64> = power[a..b].to_vec();
-        let mid = (a + b) / 2;
-        bands.push((u(mid), crate::dsp::median(&mut v) / std::f64::consts::LN_2));
+        let mut v: Vec<f64> = (a..b)
+            .filter(|&j| !near(thinned, j))
+            .map(|j| power[j])
+            .collect();
+        if !(a..b).any(|j| near(removed, j)) && 2 * v.len() >= b - a {
+            let mid = (a + b) / 2;
+            bands.push((u(mid), crate::dsp::median(&mut v) / std::f64::consts::LN_2));
+        }
         a = b;
     }
+    let none = TimingFit {
+        mix: f64::NAN,
+        misfit: f64::NAN,
+    };
     if bands.len() < 3 {
-        return f64::NAN;
+        return none;
     }
+    // The rms log10 distance of the bands from p = a·u + b.
+    let misfit = |ca: f64, cb: f64| {
+        let ss: f64 = bands
+            .iter()
+            .map(|&(uu, p)| (p.max(1e-300) / (ca * uu + cb).max(1e-300)).log10().powi(2))
+            .sum();
+        (ss / bands.len() as f64).sqrt()
+    };
+    // One term alone: its level is the bands' geometric mean over it.
+    let alone = |of: &dyn Fn(f64) -> f64| {
+        let l: f64 = bands
+            .iter()
+            .map(|&(uu, p)| (p.max(1e-300) / of(uu)).ln())
+            .sum::<f64>();
+        (l / bands.len() as f64).exp()
+    };
     let mut w: Vec<f64> = bands.iter().map(|b| 1.0 / b.1.max(1e-300)).collect();
     let (mut ca, mut cb) = (0.0, 0.0);
     for _ in 0..3 {
@@ -370,24 +465,35 @@ pub fn timing_mix(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) 
         }
         let det = s_uu * s_1 - s_u * s_u;
         if det.abs() < 1e-300 {
-            return f64::NAN;
+            return none;
         }
         ca = (s_up * s_1 - s_u * s_p) / det;
         cb = (s_uu * s_p - s_u * s_up) / det;
         if ca <= 0.0 {
             // No walk: a white floor alone.
-            return 0.0;
+            return TimingFit {
+                mix: 0.0,
+                misfit: misfit(0.0, alone(&|_| 1.0)),
+            };
         }
         if cb <= 0.0 {
-            return WALK_MIX;
+            return TimingFit {
+                mix: WALK_MIX,
+                misfit: misfit(alone(&|uu| uu), 0.0),
+            };
         }
         w = bands.iter().map(|&(uu, _)| 1.0 / (ca * uu + cb)).collect();
     }
     let s2 = ca / (4.0 * cb);
-    if s2 >= 1.0 {
-        return WALK_MIX;
+    let mix = if s2 >= 1.0 {
+        WALK_MIX
+    } else {
+        s2.sqrt().asin() / (std::f64::consts::PI * step_s) * scale
+    };
+    TimingFit {
+        mix,
+        misfit: misfit(ca, cb),
     }
-    s2.sqrt().asin() / (std::f64::consts::PI * step_s) * scale
 }
 
 #[cfg(test)]

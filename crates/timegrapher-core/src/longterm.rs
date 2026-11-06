@@ -455,6 +455,37 @@ fn x_scale(g: &Grid, detrend_w: Option<f64>) -> f64 {
     detrend_w.unwrap_or_else(|| g.span())
 }
 
+/// Timing's mix and misfit (None where too few bands) from the spectrum `sp` of `g`, read from well
+/// above the detrend's corner, where it takes no power.
+/// `removed` and `thinned`: the lines already taken out of `g`, Hz, as
+/// [`null::timing_fit_culled`] takes them.
+fn timing_fit_of(
+    g: &Grid,
+    sp: &Spectrum,
+    detrend_w: Option<f64>,
+    removed: &[f64],
+    thinned: &[f64],
+) -> (f64, Option<f64>) {
+    let scale = x_scale(g, detrend_w);
+    let from_x = if detrend_w.is_some() { 2.0 } else { 6.0 };
+    let from = (from_x / (sp.df * scale)).ceil() as usize;
+    // Three independent frequencies either side of each line.
+    let half = 3.0 * sp.pad as f64;
+    let f = null::timing_fit_culled(
+        &sp.power,
+        sp.df,
+        g.step,
+        from,
+        scale,
+        &null::Cull {
+            removed,
+            thinned,
+            half,
+        },
+    );
+    (f.mix, f.misfit.is_finite().then_some(f.misfit))
+}
+
 /// The take's mix and the table's levelling for it, when the table holds
 /// every bin the search reads.
 fn null_for(
@@ -464,14 +495,9 @@ fn null_for(
     jmax: usize,
 ) -> (NullFit, Option<null::Levelling>) {
     let scale = x_scale(g, band.detrend_w);
-    let mix = match band.model {
-        NullModel::Readings => sp.rho,
-        NullModel::Timing => {
-            // From well above the detrend's corner, where it takes no power.
-            let from_x = if band.detrend_w.is_some() { 2.0 } else { 6.0 };
-            let from = (from_x / (sp.df * scale)).ceil() as usize;
-            null::timing_mix(&sp.power, sp.df, g.step, from, scale)
-        }
+    let (mix, misfit) = match band.model {
+        NullModel::Readings => (sp.rho, None),
+        NullModel::Timing => timing_fit_of(g, sp, band.detrend_w, &[], &[]),
     };
     let lev = match band.given {
         Some(l) => Some(l.clone()),
@@ -483,6 +509,8 @@ fn null_for(
         model: band.model,
         mix,
         calibrated: lev.is_some(),
+        misfit,
+        misfit_limit: lev.as_ref().and_then(|l| l.misfit_p99),
     };
     (fit, lev)
 }
@@ -976,12 +1004,196 @@ fn analyse_as(
         }
     }
     label_harmonics(&mut components);
+    let mut search = first.unwrap_or_else(Search::none);
+    // The misfit is read once the cycles found are taken out, so that a
+    // strong line, which lifts its bands, is not read as the noise's shape.
+    // Its limit is read at the mix fitted there too: the cycle's own line
+    // lifts the mix the search fitted.
+    if model == NullModel::Timing && !components.is_empty() {
+        let (mix, misfit) = misfit_without(&detrended, &components, cfg);
+        search.null.misfit = misfit;
+        if given.is_none() && search.null.misfit_limit.is_some() {
+            search.null.misfit_limit =
+                null::levelling(model, span, g.step, mix).and_then(|l| l.misfit_p99);
+        }
+    }
     SeriesReport {
         grid: g.clone(),
         detrended,
-        search: first.unwrap_or_else(Search::none),
+        search,
         components,
     }
+}
+
+/// The timing mix and misfit of `detrended` with the cycles found taken
+/// out as least-squares sinusoids, and the bands at and beside those lines
+/// culled. The fold the search subtracts is a median over every phase
+/// bin, which on a short take adds its own noise at every harmonic up to
+/// the Nyquist frequency. Each cycle's kept harmonics are taken out, then
+/// any further harmonic whose line still stands past what noise gives
+/// once in [`EXTRA_LINE_P`]⁻¹ over the harmonics tried: a sharp cycle
+/// (a few seconds in each minute) has more harmonics than the search
+/// keeps, and left in they read as misfit.
+fn misfit_without(
+    detrended: &Grid,
+    components: &[Component],
+    cfg: &LongConfig,
+) -> (f64, Option<f64>) {
+    let mut removed = Vec::new();
+    let span = detrended.span();
+    let kept = |c: &Component| (c.harmonics as usize).min(((span / c.period_s) as usize).max(1));
+    for c in components {
+        for h in 1..=kept(c) {
+            removed.push(h as f64 / c.period_s);
+        }
+    }
+    let w = detrend_window(detrended, cfg.detrend_s).map(|w| w as f64 * detrended.step);
+    let removed = distinct_lines(removed, span);
+    let rest = without_lines(detrended, &removed);
+    let more = standing_harmonics(&spectrum(&rest, w), components, kept, detrended.step);
+    let more: Vec<f64> = distinct_lines(more, span)
+        .into_iter()
+        .filter(|&f| removed.iter().all(|&r| (f - r).abs() * span >= 0.5))
+        .collect();
+    let rest = if more.is_empty() {
+        rest
+    } else {
+        without_lines(detrended, &[removed.as_slice(), &more].concat())
+    };
+    timing_fit_of(&rest, &spectrum(&rest, w), w, &removed, &more)
+}
+
+/// `lines`, Hz, sorted, keeping one of any two within half a resolution
+/// (1/`span`) of each other, which a joint fit can't tell apart: a 15 s
+/// cycle's 4th harmonic and a 60 s cycle's 16th, say.
+fn distinct_lines(mut lines: Vec<f64>, span: f64) -> Vec<f64> {
+    lines.sort_by(f64::total_cmp);
+    lines.dedup_by(|a, b| (*a - *b).abs() * span < 0.5);
+    lines
+}
+
+/// `g` less the least-squares fit of sines at `lines`, Hz, fitted jointly
+/// with a mean ([`sines_fit`]); `g` itself where they can't be fitted.
+fn without_lines(g: &Grid, lines: &[f64]) -> Grid {
+    let periods: Vec<f64> = lines.iter().map(|f| 1.0 / f).collect();
+    let mut out = g.clone();
+    if let Some(b) = sines_fit(g, &periods) {
+        for i in 0..out.y.len() {
+            out.y[i] -= sines_at(&periods, &b, g.time(i) - g.t0) - b[0];
+        }
+    }
+    out
+}
+
+/// The family-wise chance that noise alone lifts one of a cycle's
+/// further harmonics past the bar [`standing_harmonics`] sets.
+const EXTRA_LINE_P: f64 = 0.01;
+
+/// The harmonics of each component past its `kept` ones, up to the
+/// Nyquist frequency, whose power in `sp` stands past the level noise
+/// passes with the chance [`EXTRA_LINE_P`] over all those tried: an
+/// exponential's tail over the mean, read as the median over ±16
+/// independent bins (the median of an exponential is its mean times ln 2).
+fn standing_harmonics(
+    sp: &Spectrum,
+    components: &[Component],
+    kept: impl Fn(&Component) -> usize,
+    step: f64,
+) -> Vec<f64> {
+    let span = 16 * sp.pad;
+    let nyquist = 0.5 / step;
+    let tried: Vec<f64> = components
+        .iter()
+        .flat_map(|c| {
+            let top = (nyquist * c.period_s) as usize;
+            (kept(c) + 1..=top).map(move |h| h as f64 / c.period_s)
+        })
+        .collect();
+    let bar = (tried.len().max(1) as f64 / EXTRA_LINE_P).ln();
+    tried
+        .into_iter()
+        .filter(|&f| {
+            let j = (f / sp.df).round() as usize;
+            let (a, b) = (j.saturating_sub(span), (j + span + 1).min(sp.power.len()));
+            if j >= sp.power.len() || b <= a {
+                return false;
+            }
+            let mut near = sp.power[a..b].to_vec();
+            near.sort_by(f64::total_cmp);
+            let mean = near[near.len() / 2] / std::f64::consts::LN_2;
+            sp.power[j] > bar * mean
+        })
+        .collect()
+}
+
+/// The terms a mean and a sine at each of `periods` take at time `t`:
+/// 1, then the cosine and sine of each.
+fn sines_row(periods: &[f64], t: f64) -> Vec<f64> {
+    let mut r = vec![1.0; 1 + 2 * periods.len()];
+    for (j, &q) in periods.iter().enumerate() {
+        let (sin, cos) = (std::f64::consts::TAU * t / q).sin_cos();
+        r[1 + 2 * j] = cos;
+        r[2 + 2 * j] = sin;
+    }
+    r
+}
+
+/// The fit [`sines_fit`] gave, at time `t` from the grid's start.
+pub fn sines_at(periods: &[f64], b: &[f64], t: f64) -> f64 {
+    sines_row(periods, t)
+        .iter()
+        .zip(b)
+        .map(|(r, b)| r * b)
+        .sum()
+}
+
+/// Least squares fit of a mean and a sine at each of `periods`, jointly,
+/// to the finite readings of `g` (time from its start): the mean, then the
+/// cosine and sine coefficients of each. None with fewer than two
+/// readings a term, or where the terms can't be told apart. The one sine
+/// fit, for the steady pane's sizes and the misfit's lines alike.
+pub fn sines_fit(g: &Grid, periods: &[f64]) -> Option<Vec<f64>> {
+    let m = 1 + 2 * periods.len();
+    let pts: Vec<(f64, f64)> =
+        g.y.iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_finite())
+            .map(|(i, &v)| (g.time(i) - g.t0, v))
+            .collect();
+    let n = pts.len();
+    if n < 2 * m {
+        return None;
+    }
+    // Normal equations, solved by elimination with partial pivoting.
+    let mut a = vec![vec![0.0; m + 1]; m];
+    for &(t, v) in &pts {
+        let r = sines_row(periods, t);
+        for i in 0..m {
+            for j in 0..m {
+                a[i][j] += r[i] * r[j];
+            }
+            a[i][m] += r[i] * v;
+        }
+    }
+    for col in 0..m {
+        let piv = (col..m)
+            .max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))
+            .unwrap_or(col);
+        a.swap(col, piv);
+        if a[col][col].abs() <= 1e-9 * n as f64 {
+            return None;
+        }
+        let pivot = a[col].clone();
+        for (i, r) in a.iter_mut().enumerate() {
+            if i != col {
+                let k = r[col] / pivot[col];
+                for (x, p) in r.iter_mut().zip(&pivot).skip(col) {
+                    *x -= k * p;
+                }
+            }
+        }
+    }
+    Some((0..m).map(|i| a[i][m] / a[i][i]).collect())
 }
 
 /// A sinusoid at 60 s also lights up the harmonics of 120 s and
@@ -1051,6 +1263,8 @@ impl Search {
                 model: NullModel::Readings,
                 mix: f64::NAN,
                 calibrated: false,
+                misfit: None,
+                misfit_limit: None,
             },
             trials: 1.0,
             tail: null::Tail::trials(1.0),
@@ -1106,6 +1320,16 @@ pub fn period_uncalibrated(r: &SeriesReport) -> Option<crate::measure::Caveat> {
             span_s: r.grid.span(),
         },
     )
+}
+
+/// The caveat on a cycle the search named in `r` when the take's timing
+/// sits further from the walk plus white fitted to it than the null's
+/// 99th percentile for its cell ([`null::TimingFit::misfit`], #1218).
+pub fn timing_misfit(r: &SeriesReport) -> Option<crate::measure::Caveat> {
+    let n = r.search.null;
+    let (misfit, limit) = (n.misfit?, n.misfit_limit?);
+    (!r.components.is_empty() && misfit > limit)
+        .then_some(crate::measure::Caveat::TimingModelMisfit { misfit, limit })
 }
 
 /// The rate (s/d) at a bin of timing offsets (seconds) `dt` apart: minus

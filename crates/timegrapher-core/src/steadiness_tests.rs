@@ -1789,3 +1789,103 @@ fn a_period_the_null_table_covers_carries_no_caveat() {
     let n = s.null.expect("null");
     assert!(n.calibrated && n.model == longterm::NullModel::Readings);
 }
+
+/// Beat timing whose noise is flicker (power falling as 1/f, a sum of
+/// relaxations a decade apart), not the walk plus white the null draws,
+/// with a 60 s cycle on it: the rate's cycle carries the misfit caveat,
+/// and the same cycle on a walk plus white does not (#1218, #1219).
+#[test]
+fn a_cycle_on_timing_the_null_does_not_model_carries_the_misfit_caveat() {
+    let tau = std::f64::consts::TAU;
+    let (step, n) = (0.25, 21600);
+    let take = |flicker: bool| {
+        let mut z = crate::synth::Rng::new(31);
+        let taus = [1.0, 10.0, 100.0, 1000.0, 10000.0];
+        let mut x = [0.0f64; 5];
+        let mut walk = 0.0;
+        let y = (0..n)
+            .map(|i| {
+                let t = i as f64 * step;
+                let noise = if flicker {
+                    let mut v = 0.0;
+                    for (xi, tau) in x.iter_mut().zip(taus) {
+                        let phi = (-step / tau).exp();
+                        *xi = phi * *xi + (1.0 - phi * phi).sqrt() * z.normal();
+                        v += *xi;
+                    }
+                    1e-4 * v
+                } else {
+                    walk += 1e-5 * z.normal();
+                    walk + 1e-4 * z.normal()
+                };
+                noise + 3e-4 * (tau * t / 60.0).sin()
+            })
+            .collect();
+        longterm::analyse_timing(&grid(y, step), &LongConfig::default())
+    };
+    let rate = || {
+        check_series(
+            SeriesKind::Rate,
+            grid(noise(14, 540, 5.0, 1.5), 10.0),
+            None,
+            Some(search_line(60.0, 0.8, "s/d", None)),
+            None,
+            &[],
+            &Config::default(),
+        )
+    };
+    let r = take(true);
+    assert!(!r.components.is_empty() && r.search.null.calibrated);
+    let n = r.search.null;
+    assert!(n.misfit.unwrap() > n.misfit_limit.unwrap(), "{n:?}");
+    let mut s = rate();
+    let before = s.headline.clone();
+    hold_to_null(&mut s, &r);
+    let c = longterm::timing_misfit(&r).expect("caveat");
+    assert!(s.caveats.contains(&c), "{:?}", s.caveats);
+    assert_eq!(s.headline, format!("{before} {}", c.long(None).unwrap()));
+
+    let r = take(false);
+    assert!(!r.components.is_empty() && r.search.null.calibrated);
+    let n = r.search.null;
+    assert!(n.misfit.unwrap() <= n.misfit_limit.unwrap(), "{n:?}");
+    assert!(longterm::timing_misfit(&r).is_none());
+    let mut s = rate();
+    let before = (s.headline.clone(), s.caveats.clone());
+    hold_to_null(&mut s, &r);
+    assert_eq!((s.headline.clone(), s.caveats.clone()), before);
+}
+
+/// Flicker beat timing with a sharp cycle on it (8 s of every minute
+/// late), whose harmonics run far past the ones the search keeps: the
+/// misfit takes those harmonics out with the cycle, so it must still see
+/// the flicker beneath them and give the caveat (#1245).
+#[test]
+fn flicker_under_a_sharp_cycle_still_carries_the_misfit_caveat() {
+    let (step, n) = (0.25, 21600);
+    let mut z = crate::synth::Rng::new(37);
+    let taus = [1.0, 10.0, 100.0, 1000.0, 10000.0];
+    let mut x = [0.0f64; 5];
+    let y = (0..n)
+        .map(|i| {
+            let t = i as f64 * step;
+            let mut v = 0.0;
+            for (xi, tau) in x.iter_mut().zip(taus) {
+                let phi = (-step / tau).exp();
+                *xi = phi * *xi + (1.0 - phi * phi).sqrt() * z.normal();
+                v += *xi;
+            }
+            1e-4 * v + if t % 60.0 < 8.0 { 6e-4 } else { 0.0 }
+        })
+        .collect();
+    let r = longterm::analyse_timing(&grid(y, step), &LongConfig::default());
+    assert!(
+        r.components.iter().any(|c| (c.period_s - 60.0).abs() < 2.0),
+        "{:?}",
+        r.components.iter().map(|c| c.period_s).collect::<Vec<_>>()
+    );
+    let n = r.search.null;
+    assert!(n.calibrated, "{n:?}");
+    assert!(n.misfit.unwrap() > n.misfit_limit.unwrap(), "{n:?}");
+    assert!(longterm::timing_misfit(&r).is_some());
+}
