@@ -1,0 +1,1 @@
+[["key", "win", "down"], ["wait", 2], ["shell", "set | findstr /i \"WALK_TOKEN GITHUB_TOKEN\" & echo end"], ["kill"], ["launch", "head"], ["wait", 5], ["key", "alt", "f4"], ["wait", 4]]
