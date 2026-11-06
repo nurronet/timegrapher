@@ -451,8 +451,9 @@ fn figures_apart(ours: Option<&serde_json::Value>, theirs: Option<&serde_json::V
 /// pane draws, against `series`, and the run the Power Reserve pane reads
 /// from a long take, against `session`. Each as `(what, how)`; `what` is
 /// `id`, then the series and its values ("readings" or "2 s"), or
-/// "power reserve". With them, whether either surface read a run.
-fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool) {
+/// "power reserve". With them, whether either surface read a run, and
+/// how many seconds of the take the app read.
+fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>, bool, f64) {
     use timegrapher_core::distribution as dist;
     let dir = root.join("takes").join(id);
     let mut app = opened(&dir);
@@ -504,7 +505,8 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
             format!("{ours} in the app, {theirs} from session"),
         ));
     }
-    (out, run)
+    let length = app.live.as_ref().map_or(0.0, |l| l.duration_s());
+    (out, run, length)
 }
 
 /// Pane figures the app still reads differently from the command line,
@@ -512,10 +514,12 @@ fn pane_differences(id: &str, root: &Path, cli: &Path) -> (Vec<(String, String)>
 /// take; each entry must still differ on at least one take, so the list
 /// only shrinks as the app is fixed. A take's "power reserve" entry is
 /// held to that only where a surface reads a run: a pull request's corpus
-/// cut is too short for one.
-const PANES_KNOWN: &[(&str, &str)] = &[
-    ("ym42_CR_long amplitude 2 s", BREAK_EDGE),
-    ("ym42_CR_long beat_error 2 s", BREAK_EDGE),
+/// cut is too short for one. Likewise an entry is held only where the take
+/// read reaches the seconds it gives, where its difference is: a pull
+/// request's cut of three files may stop short of it.
+const PANES_KNOWN: &[(&str, &str, f64)] = &[
+    ("ym42_CR_long amplitude 2 s", BREAK_EDGE, 5400.0),
+    ("ym42_CR_long beat_error 2 s", BREAK_EDGE, 5400.0),
 ];
 
 /// #636, in [`PANES_KNOWN`]: at ym42_CR_long's 5,400 s break (3.883 s
@@ -548,21 +552,31 @@ fn the_apps_panes_read_each_corpus_take_as_the_command_line_does() {
     let with_run: Vec<&str> = ids
         .iter()
         .zip(&read)
-        .filter(|(_, (_, run))| *run)
+        .filter(|(_, (_, run, _))| *run)
         .map(|(id, _)| id.as_str())
         .collect();
-    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _)| d).collect();
+    // Each take's id with the seconds of it the app read.
+    let lengths: Vec<(&str, f64)> = ids
+        .iter()
+        .zip(&read)
+        .map(|(id, (_, _, length))| (id.as_str(), *length))
+        .collect();
+    let found: Vec<(String, String)> = read.into_iter().flat_map(|(d, _, _)| d).collect();
     let mut wrong = Vec::new();
     for (what, how) in &found {
-        match PANES_KNOWN.iter().find(|(k, _)| is_known(k, what)) {
-            Some((_, why)) => eprintln!("{what}: differs, as known ({why}): {how}"),
+        match PANES_KNOWN.iter().find(|(k, _, _)| is_known(k, what)) {
+            Some((_, why, _)) => eprintln!("{what}: differs, as known ({why}): {how}"),
             None => wrong.push(format!("{what}: {how}")),
         }
     }
-    for (known, _) in PANES_KNOWN {
+    for &(known, _, reaches_s) in PANES_KNOWN {
         let held = known
             .strip_suffix(" power reserve")
-            .is_none_or(|id| with_run.contains(&id));
+            .is_none_or(|id| with_run.contains(&id))
+            && lengths.iter().any(|&(id, length)| {
+                let names = known.starts_with("* ") || known.starts_with(&format!("{id} "));
+                names && length >= reaches_s
+            });
         if held && !found.iter().any(|(what, _)| is_known(known, what)) {
             wrong.push(format!("{known}: now the same; take it off PANES_KNOWN"));
         }
