@@ -165,7 +165,8 @@ pub struct TwoState {
 }
 
 struct Block {
-    /// Which `block_s` stretch of the take the block is, from its start:
+    /// Which `block_s` stretch of the take the block is, from its start
+    /// (the stretch its samples' middles lie in):
     /// blocks that are missing (masked, in a gap, too thin) leave holes
     /// in these numbers.
     k: i64,
@@ -220,10 +221,13 @@ fn blocks(samples: &[Sample], p: &Params) -> (Vec<Block>, f64) {
     let need = ((0.6 * block_s / len).floor() as usize).max(1);
     let mut out = Vec::new();
     let mut i = 0;
+    // Each sample in the block its middle lies in, blocks laid from the
+    // take's first sample (#636), as every other surface places a window.
+    let block_of = |s: &Sample| (0.5 * (s.start_s + s.end_s) / block_s).floor();
     while i < kept.len() {
-        let k = (kept[i].start_s / block_s).floor();
+        let k = block_of(kept[i]);
         let mut j = i;
-        while j < kept.len() && (kept[j].start_s / block_s).floor() == k {
+        while j < kept.len() && block_of(kept[j]) == k {
             j += 1;
         }
         let b = &kept[i..j];

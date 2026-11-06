@@ -2278,9 +2278,14 @@ fn reading_coverage(
         .count()
     });
     let part = window_part_s(&log.amplitude_windows);
-    let amp_total = crate::clean::nominal_windows(0.0, log.duration_s, part, part)
-        .filter(|&(a, b)| window_span_in(a, b, from, to))
-        .filter(|&(a, b)| holes.clear(holes.true_time(a), holes.true_time(b)))
+    // The cells of the take's one tiling on true time (#636) that the
+    // stretch takes in by the rule its windows are taken in by (middle
+    // inside, half-open) and that are clear of every hole: with nothing
+    // culled, every one holds a window.
+    let (from_t, to_t) = (holes.true_time(from), holes.true_time(to));
+    let amp_total = crate::clean::nominal_windows(0.0, holes.true_time(log.duration_s), part, part)
+        .filter(|&(a, b)| window_span_in(a, b, from_t, to_t))
+        .filter(|&(a, b)| holes.clear(a, b))
         .count();
     FigureCoverage {
         rate: Coverage {

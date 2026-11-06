@@ -355,8 +355,10 @@ impl<'a> Cuts<'a> {
             .collect()
     }
 
-    /// Fits over whole bins of `len` seconds, one every `step` seconds
-    /// from the first beat at or after `from` up to `to` (true time). A
+    /// Fits over whole bins of `len` seconds, one every `step` seconds on
+    /// the take's one tiling ([`nominal_windows`]), the first starting at
+    /// or after the first beat at or after `from`, up to `to` (true
+    /// time). A
     /// bin is fitted on the beats from its start up to its end when it is
     /// [`whole`](Self::whole) with parts of `part` seconds, so none spans
     /// a hole or a dropout, and none needs a beat at or past its end.
@@ -390,6 +392,14 @@ impl<'a> Cuts<'a> {
             }
         }
         out
+    }
+
+    /// The cell of `cell` seconds of the take's one tiling on true time
+    /// (cells laid from its first sample, #636) that the window `w`
+    /// belongs to: the one its middle lies in, half-open, as
+    /// [`Self::window_in`] takes a window into a stretch.
+    pub fn cell_of(&self, w: &AmplitudeWindow, cell: f64) -> i64 {
+        (self.window_middle(w) / cell).floor() as i64
     }
 
     /// A window's middle on true time: where it sits for every rule that
@@ -455,15 +465,32 @@ pub fn covered(beats: &[Beat], start: f64, end: f64, part: f64) -> bool {
     })
 }
 
-/// The nominal grid shared by window fits and their coverage denominator.
-/// A missing fit does not remove its nominal window from this grid.
+/// The first time at or after `t` that is a whole number of `step`s from
+/// the take's first sample (true time 0): where the one tiling (#636)
+/// starts a window. Never before `t`, so a window snapped onto it never
+/// reaches back into settling or a cut.
+pub fn on_tiling(t: f64, step: f64) -> f64 {
+    if step > 0.0 && step.is_finite() && t.is_finite() {
+        (t / step).ceil() * step
+    } else {
+        t
+    }
+}
+
+/// The nominal grid shared by window fits and their coverage denominator:
+/// windows of `len` seconds, one every `step`, each starting on a whole
+/// number of steps from the take's first sample (true time 0, #636), the
+/// first at or after `from`, the last ending by `to`. So a 10 s reading
+/// is five 2 s cells of the one tiling, and readings from any surface
+/// line up. A missing fit does not remove its nominal window from this
+/// grid.
 pub fn nominal_windows(
     from: f64,
     to: f64,
     len: f64,
     step: f64,
 ) -> impl Iterator<Item = (f64, f64)> {
-    let mut start = from;
+    let mut start = on_tiling(from, step);
     std::iter::from_fn(move || {
         if !start.is_finite()
             || !to.is_finite()

@@ -2437,36 +2437,46 @@ fn windows_grid(
     f: &dyn Fn(&crate::amplitude::AmplitudeWindow) -> Option<f64>,
 ) -> Grid {
     let holes = Cuts::new(clock, breaks, &[]);
-    let map = |t: f64| holes.true_time(t);
     let aw = &log.amplitude_windows;
-    // One window's length on true time, so the grid keeps step with the
-    // windows when the clock fit stretches time (2.9 s over 16 h at
-    // 50 ppm on the audio's own spacing).
-    let astep = aw.first().map_or(2.0, |w| map(w.end_s) - map(w.start_s));
-    let Some(w0) = aw.first() else {
+    // The take's one tiling on true time (#636): cells of one window's
+    // length laid from its first sample, each window in the cell its
+    // middle lies in, as `Cuts::window_in` takes a window into a stretch.
+    // Each gap is left empty. Windows are made a window apart on the
+    // audio's own time, so on a clock that drifts they slip against the
+    // cells: where two share one, the one whose middle is nearer the
+    // cell's is kept (the earlier on a tie), never the two averaged, and
+    // a cell none falls in is left empty.
+    let astep = crate::session::window_part_s(aw);
+    let kept = holes.amplitude_windows(aw);
+    let (Some(first), Some(last)) = (kept.first(), kept.last()) else {
         return Grid {
             t0: 0.0,
             step: astep,
             y: Vec::new(),
         };
     };
-    // On true time, so each gap is left empty. Each window goes in the
-    // cell its middle lies in, as `Cuts::window_in` takes a window into a
-    // stretch. The cells start at the first window; one tiling from a
-    // fixed origin for every surface is #636's next step.
-    let t0 = map(w0.start_s);
-    let cell = |w: &crate::amplitude::AmplitudeWindow| {
-        ((holes.window_middle(w) - t0) / astep).floor().max(0.0) as usize
-    };
-    let n = aw.last().map_or(0, cell) + 1;
+    let k0 = holes.cell_of(first, astep);
+    let n = (holes.cell_of(last, astep) - k0).max(0) as usize + 1;
     let mut y = vec![f64::NAN; n];
-    for w in holes.amplitude_windows(aw) {
-        let i = cell(w);
+    let mut off = vec![f64::INFINITY; n];
+    for w in kept {
+        let k = holes.cell_of(w, astep);
+        let Ok(i) = usize::try_from(k - k0) else {
+            continue;
+        };
         if i < n {
-            y[i] = f(w).unwrap_or(f64::NAN);
+            let d = (holes.window_middle(w) - (k as f64 + 0.5) * astep).abs();
+            if d < off[i] {
+                off[i] = d;
+                y[i] = f(w).unwrap_or(f64::NAN);
+            }
         }
     }
-    Grid { t0, step: astep, y }
+    Grid {
+        t0: k0 as f64 * astep,
+        step: astep,
+        y,
+    }
 }
 
 /// The amplitude and beat error windows on true time, one grid point
@@ -2524,8 +2534,11 @@ pub fn reading_grids(
 /// three; with no rate reading, laid from the amplitude windows' start
 /// over their span.
 fn into_readings(rate: &Grid, amp: &Grid, be: &Grid, r: f64) -> [Grid; 2] {
+    // With no rate readings, the readings still lie on the take's one
+    // tiling (#636): from a whole number of readings after its start.
     let (t0, n) = if rate.y.is_empty() {
-        (amp.t0, (amp.span() / r).ceil() as usize)
+        let t0 = (amp.t0 / r).floor() * r;
+        (t0, ((amp.t0 + amp.span() - t0) / r).ceil() as usize)
     } else {
         (rate.t0, rate.y.len())
     };
@@ -2833,9 +2846,12 @@ mod window_grid_tests {
 
     #[test]
     fn windows_keep_step_with_a_stretched_clock() {
-        // 16 h of 2 s windows on a sound card 50 ppm fast and no breaks:
-        // every window keeps its own grid point, and the grid's time for
-        // it is the window's true time.
+        // 16 h of 2 s windows on a sound card 50 ppm fast and no breaks.
+        // The cells are the take's one tiling on true time (#636), fixed
+        // at 2 s, so the windows, 2.0001 s long on true time, slip 2.88 s
+        // against them: once the slip passes a second, each window falls
+        // one cell later, and the one cell between is left empty. Every
+        // window keeps its value, in the cell its true middle lies in.
         let n = 28800;
         let log = log_of(n);
         let k = 1.0 + 50e-6;
@@ -2848,11 +2864,13 @@ mod window_grid_tests {
         let clock = ClockFit::new(&pairs).unwrap();
         let map = crate::longrun::true_time(Some(&clock), &[]);
         let [amp, _] = window_grids(&log, Some(&clock), &[]);
-        assert_eq!(amp.y.len(), n);
-        for (i, w) in log.amplitude_windows.iter().enumerate() {
-            assert_eq!(amp.y[i], w.even_deg.unwrap(), "{i}");
-            let t = amp.t0 + i as f64 * amp.step;
-            assert!((t - map(w.start_s)).abs() < 0.01, "{i}: {t}");
+        assert_eq!((amp.t0, amp.step), (0.0, 2.0));
+        assert_eq!(amp.y.len(), n + 1);
+        assert_eq!(amp.y.iter().filter(|v| v.is_nan()).count(), 1);
+        for w in &log.amplitude_windows {
+            let mid = 0.5 * (map(w.start_s) + map(w.end_s));
+            let i = (mid / amp.step).floor() as usize;
+            assert_eq!(amp.y[i], w.even_deg.unwrap(), "{mid}");
         }
     }
 }
