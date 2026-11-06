@@ -109,9 +109,10 @@ impl TimegrapherApp {
     /// Whether `c` can be run now: what dims its item.
     pub(super) fn menu_enabled(&self, c: MenuCommand) -> bool {
         let can_save = self.session.allows(Action::Save);
-        let saving = self.saving.is_some();
+        let saving = self.saving_asked();
         match c {
-            MenuCommand::Save => self.marks_unsaved() || (can_save && !saving),
+            // A take recording into its folder needs no Save Again.
+            MenuCommand::Save => self.marks_unsaved() || (can_save && !saving && !self.streams()),
             MenuCommand::SaveAs => can_save && self.session.saved_to().is_some() && !saving,
             MenuCommand::SaveAnalysisOnly => self.can_save_analysis(),
             MenuCommand::NewSession => self.live.is_some(),
@@ -270,14 +271,24 @@ impl TimegrapherApp {
     /// items.
     fn file_menu_save(&mut self, ui: &mut egui::Ui) {
         let can_save = self.session.allows(Action::Save);
-        let saving = self.saving.is_some();
+        let saving = self.saving_asked();
         let nothing = "Nothing to save yet: listen to a watch first";
+        let recording_in = format!(
+            "Saving to {} as it records: nothing to save again",
+            self.kept_place()
+        );
         let save_hint = if self.marks_unsaved() {
             SAVE_MARKS_HINT
         } else {
             SAVE_HINT
         };
-        let off = if saving { SAVING_HINT } else { nothing };
+        let off = if saving {
+            SAVING_HINT
+        } else if self.streams() {
+            &recording_in
+        } else {
+            nothing
+        };
         self.menu_item(ui, MenuCommand::Save, "Save…", save_hint, off);
         let off = if saving {
             SAVING_HINT

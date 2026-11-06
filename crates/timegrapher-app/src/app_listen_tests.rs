@@ -357,3 +357,261 @@ fn a_second_tap_on_stop_starts_nothing() {
     app.capture = None;
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A Quick Listen kept in Unsorted Takes records into it as it goes (Peter,
+/// 5 Nov): each [`STREAM_EVERY_S`] more of sound is added to the take with
+/// no Save Again, the Save menu says where it is saving and has no Save
+/// Again, the status bar says it is saved, and Stop adds the last of it
+/// with no question.
+#[test]
+fn a_kept_quick_listen_records_into_its_take() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    let mut heard = 0;
+    let mut hear = |r: &mut Recorder, s: u64| {
+        r.write(&timegrapher_core::capture::Block {
+            samples: vec![0.0; 48000 * s as usize],
+            at: start + std::time::Duration::from_secs(heard),
+        })
+        .unwrap();
+        heard += s;
+    };
+    hear(&mut r, 3);
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    // Not kept yet: nothing is saved as it goes.
+    assert!(!app.streams());
+    app.stream_tick();
+    assert!(app.saving.is_none());
+    // Kept in Unsorted Takes, as the Save menu's Unsorted Takes does.
+    assert!(app.saves_into_unsorted());
+    app.save_again();
+    app.wait_for_save();
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let wav = take.join("audio-001.wav");
+    let samples = |p: &std::path::Path| timegrapher_core::audio::load(p).unwrap().samples.len();
+    assert_eq!(samples(&wav), 3 * 48000);
+    assert!(
+        app.streams(),
+        "a kept Quick Listen heard records into its take"
+    );
+    assert_eq!(app.kept_place(), "Unsorted Takes");
+    // Under STREAM_EVERY_S more: not yet.
+    hear(app.session.recorder.as_mut().unwrap(), 4);
+    app.stream_tick();
+    assert!(app.saving.is_none());
+    // Past it: the sound since is added, saying nothing.
+    hear(app.session.recorder.as_mut().unwrap(), 2);
+    app.message = None;
+    app.stream_tick();
+    assert!(app.saving.is_some(), "a save of the sound since");
+    app.wait_for_save();
+    assert!(app.message.is_none(), "{:?}", app.message);
+    assert_eq!(samples(&wav), 9 * 48000);
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(app.unsaved_s() < 1.0);
+    // Nothing to save again: File > Save is dimmed, saying where it saves.
+    assert!(!app.menu_enabled(menus::MenuCommand::Save));
+    // The status bar: saved, its hover saying where to.
+    {
+        let pal = theme::LIGHT;
+        let r = app.session.recorder.as_ref().unwrap();
+        let (text, _, hover) = app.recording_state(r, &pal);
+        assert_eq!(text, "Saved");
+        assert!(hover.starts_with("Saving to Unsorted Takes:"), "{hover}");
+    }
+    // Stop adds the last of it, with no question.
+    hear(app.session.recorder.as_mut().unwrap(), 2);
+    app.stop_listening();
+    assert!(app.confirm.is_none());
+    app.wait_for_save();
+    assert!(!app.streams());
+    assert!(!app.needs_save_confirmation());
+    let flac = take.join("audio-001.flac");
+    let kept = if flac.exists() { flac } else { wav };
+    assert_eq!(samples(&kept), 11 * 48000);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// What the delete dialog for the first kept sound says.
+fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, egui::Pos2)> {
+    app.kept_delete_ask = Some(app.kept[0].dir.clone());
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        drawn = drawn_at(&ctx.run(egui::RawInput::default(), |ctx| app.kept_delete_dialog(ctx)));
+    }
+    app.kept_delete_ask = None;
+    drawn
+}
+
+/// A watch's own take records into its folder as it goes, from its first
+/// [`STREAM_EVERY_S`] of sound, so a crash costs only seconds; a quit adds
+/// the last of it with no question.
+#[test]
+fn a_watchs_take_records_into_its_folder_as_it_goes() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-watch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let takes = root.join("Pepsi").join(library::TAKES);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    r.write(&timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * 6],
+        at: std::time::SystemTime::now(),
+    })
+    .unwrap();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    assert!(app.streams() && !app.quick_listen);
+    assert_eq!(app.kept_place(), "Pepsi");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("saved as it goes")
+        .to_path_buf();
+    assert!(take.starts_with(&takes), "{}", take.display());
+    let wav = take.join("audio-001.wav");
+    assert_eq!(
+        timegrapher_core::audio::load(&wav).unwrap().samples.len(),
+        6 * 48000
+    );
+    assert!(app.message.is_none(), "{:?}", app.message);
+    assert!(!app.needs_save_confirmation());
+    // Walter's walk of #1201: after a crash, the next start knows the
+    // sound left behind is a copy of this take, not sound never saved.
+    let scratch = app.session.recorder.as_ref().unwrap().dir().to_path_buf();
+    let note = timegrapher_core::recorder::STREAMED_TO;
+    assert!(scratch.join(note).is_file());
+    // A second save, with the note there: it isn't copied into the take.
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&timegrapher_core::capture::Block {
+            samples: vec![0.0; 48000 * 6],
+            at: std::time::SystemTime::now(),
+        })
+        .unwrap();
+    app.stream_tick();
+    app.wait_for_save();
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!take.join(note).exists(), "the note stays out of the take");
+    let left = base.join("after a crash");
+    let copy = left.join(scratch.file_name().unwrap());
+    std::fs::create_dir_all(&copy).unwrap();
+    for e in std::fs::read_dir(&scratch).unwrap().flatten() {
+        if e.file_type().unwrap().is_file() {
+            std::fs::copy(e.path(), copy.join(e.file_name())).unwrap();
+        }
+    }
+    let kept = kept_sounds(&left);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].streamed_to.as_deref(), Some(take.as_path()));
+    // Its notice offers the take, not the copy as sound never saved.
+    app.kept = kept;
+    let ctx = theme_ctx();
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        drawn = drawn_at(&ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.kept_notice(ui));
+        }));
+    }
+    assert!(drawn.iter().any(|t| t.0 == "Open Take"), "{drawn:?}");
+    assert!(
+        !drawn.iter().any(|t| t.0.contains("wasn't saved")),
+        "{drawn:?}"
+    );
+    let said = delete_says(&ctx, &mut app);
+    assert!(
+        said.iter().any(|t| t.0.starts_with("Its take keeps")),
+        "{said:?}"
+    );
+    // Vernon's HOLD: with the take gone, the copy is the only one, and
+    // everything says so; the note goes, so a move takes none with it.
+    std::fs::remove_dir_all(&take).unwrap();
+    app.kept = kept_sounds(&left);
+    assert_eq!(app.kept[0].streamed_to, None);
+    assert!(!copy.join(note).exists());
+    let said = delete_says(&ctx, &mut app);
+    assert!(
+        said.iter()
+            .any(|t| t.0.contains("never saved anywhere else")),
+        "{said:?}"
+    );
+    app.capture = None;
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A Power Reserve Test of a watch picked records into its folder as it
+/// goes too, in the folder the test's end saves into, with no results file
+/// until then: a crash 39 h in loses only seconds (Hugh, 5 Nov). Its end
+/// saves into the same folder, with its results.
+#[test]
+fn a_power_reserve_test_records_into_its_folder_as_it_goes() {
+    let base = std::env::temp_dir().join(format!("tg-app-stream-reserve-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&pepsi);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    r.write(&timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * 6],
+        at: std::time::SystemTime::now(),
+    })
+    .unwrap();
+    let started = r.started_utc().to_string();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    app.reserve = Some(reserve::Test::new(app.position, true, started, 0.0));
+    assert!(app.streams(), "a test of a watch picked records as it goes");
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("saved as it goes")
+        .to_path_buf();
+    let name = take.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.ends_with(" Power Reserve"), "{name}");
+    assert!(!take.join(timegrapher_core::power_reserve::FILE).exists());
+    assert!(app.message.is_none(), "{:?}", app.message);
+    // With no watch picked, the end asks where it goes: nothing until then.
+    app.watch_open = None;
+    assert!(!app.streams());
+    app.watch_open = Some(pepsi.clone());
+    // Its end saves into the same folder, and nothing more streams.
+    app.end_reserve();
+    app.wait_for_save();
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!app.streams());
+    let _ = std::fs::remove_dir_all(&base);
+}
