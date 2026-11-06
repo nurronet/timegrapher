@@ -1,0 +1,12 @@
+app: head running
+took 3.3 s
+$ powershell -NoProfile -c "Get-ChildItem -Recurse -ErrorAction SilentlyContinue $env:APPDATA,$env:LOCALAPPDATA -Filter timegrapher.log | ForEach-Object { $_.FullName; Get-Content -Tail 12 $_.FullName }"
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log
+2026-11-06T18:42:49.880Z info  Timegrapher 0.4.2 (e99e3c3, built 2026-11-06) on windows x86_64
+2026-11-06T18:42:49.920Z warn  OpenGL didn't open the window (egui_glow: OpenGL: egui_glow requires opengl 2.0+. ); trying wgpu
+2026-11-06T18:42:50.308Z info  Drawing with wgpu Dx12 on Microsoft Basic Render Driver (Cpu)
+2026-11-06T18:42:50.310Z info  The window drew its first frame
+2026-11-06T18:42:50.333Z error Can't open the input. no default sound input; name one (see the list of devices)
+2026-11-06T18:44:55.491Z info  Analysed the whole recording. Drag the strip to look back.
+2026-11-06T18:45:59.457Z error Couldn't save the masked stretches: D:\w\take\session.toml: The process cannot access the file because it is being used by another process. (os error 32)
+
