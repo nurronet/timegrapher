@@ -1010,3 +1010,62 @@ fn a_power_reserve_test_records_into_its_folder_as_it_goes() {
     assert!(!app.streams());
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Just Open It over a take of a watch still heard asks first, and lets
+/// the watch go only once the open goes ahead: called off, the take keeps
+/// its watch and is filed under it (Vernon's HOLD on #1247).
+#[test]
+fn just_open_it_called_off_leaves_the_watch_of_the_take_heard() {
+    let (mut app, base, _capture) = listening("just-open-off");
+    let alpha = add_watch(&mut app, "Alpha");
+    // A take of Alpha's, still heard, 13 s of it not saved.
+    app.watch_open = Some(alpha.clone());
+    app.quick_listen = false;
+    let r = app.session.recorder.as_mut().unwrap();
+    r.write(&silence(10, 3)).unwrap();
+    assert!(app.needs_save_confirmation(), "{}", app.unsaved_s());
+    let outside = base.join("outside").join("plain.wav");
+    std::fs::create_dir_all(outside.parent().unwrap()).unwrap();
+    let audio = timegrapher_core::synth::generate(
+        &timegrapher_core::synth::SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&outside, &audio).unwrap();
+    let mut a = app.open_ask_for(&outside).expect("asked");
+    a.add = false;
+    let need = app.open_need(&a);
+    let setup_before = app.mic_setup.clone();
+    app.answer_open_ask(a, need);
+    assert!(
+        matches!(app.confirm, Some(Confirm::Open { no_watch: true, .. })),
+        "asked before the sound heard goes"
+    );
+    // Called off: nothing changed.
+    app.confirm = None;
+    assert_eq!(app.watch_open.as_deref(), Some(alpha.as_str()));
+    assert_eq!(app.mic_setup, setup_before);
+    assert!(app.running());
+    // Asked again and answered: it opens with no watch picked.
+    let mut a = app.open_ask_for(&outside).expect("asked");
+    a.add = false;
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    let Some(what) = app.confirm.take() else {
+        panic!("asked")
+    };
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut what = Some(what);
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        if let Some(w) = what.take() {
+            app.confirmed(w, ctx);
+        }
+    });
+    assert!(app.watch_open.is_none() && !app.unsorted_open);
+    assert_eq!(app.mic_setup, Some(WatchSetup::default()));
+    let _ = std::fs::remove_dir_all(&base);
+}

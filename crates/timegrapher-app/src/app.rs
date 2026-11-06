@@ -357,6 +357,8 @@ enum Confirm {
     /// Open a recording, analysed whole.
     Open {
         path: PathBuf,
+        /// Just Open It's: no watch stays picked once it opens.
+        no_watch: bool,
     },
     /// Start Test on the Power Reserve pane: a new take of the watch.
     ReserveStart,
