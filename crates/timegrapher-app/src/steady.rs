@@ -230,7 +230,13 @@ pub fn reading_breaks(
 /// The session's beats and amplitude windows so far, as a recording's
 /// analysis would give them.
 pub fn log_of(live: &LiveAnalyzer) -> Option<BeatLog> {
-    let masked = live.masked();
+    log_masked(live, live.masked())
+}
+
+/// [`log_of`], with only the stretches `masked` left out of it: a long
+/// take's run reads its log with the masks by hand alone, so a settling
+/// culled from its hours never moves where it starts (#1233).
+pub fn log_masked(live: &LiveAnalyzer, masked: &[(f64, f64)]) -> Option<BeatLog> {
     let mut log = BeatLog {
         sample_rate: live.sample_rate(),
         duration_s: live.duration_s(),

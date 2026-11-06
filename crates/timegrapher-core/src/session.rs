@@ -424,7 +424,7 @@ pub fn window_in_mask(masked: &[(f64, f64)], w: &AmplitudeWindow) -> bool {
 }
 
 /// The stretches masked by hand, `masked`, with the `holes` (a take's
-/// settlings, or the time between its stretches) left out as a mask is:
+/// settlings) left out as a mask is:
 /// together, cleaned ([`masked_spans`]). What a reading over a whole take
 /// culls, so none falls in a settling (#1233).
 pub fn with_holes(masked: &[(f64, f64)], holes: &[(f64, f64)]) -> Vec<(f64, f64)> {

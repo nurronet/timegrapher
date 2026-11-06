@@ -88,9 +88,7 @@ impl TimegrapherApp {
         self.session.discard_recording();
         self.session.clear();
         self.put_input_clock(None);
-        let mut live = LiveAnalyzer::new(sample_rate, self.live_config());
-        live.set_masked(&self.masked);
-        self.live = Some(live);
+        self.live = Some(LiveAnalyzer::new(sample_rate, self.live_config()));
         self.source_label = label;
         self.gutter_fresh = true;
         self.anchor = None;
@@ -106,6 +104,8 @@ impl TimegrapherApp {
         self.reserve = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
+        // Its masks, once nothing of the last test's is left.
+        self.mask_engine();
         self.rev.new_take();
     }
 
@@ -445,6 +445,8 @@ impl TimegrapherApp {
                     l.skip(paused);
                     self.session.resumed_at(l.duration_s());
                 }
+                // A settling begun at Resume is left out, too.
+                self.mask_engine();
                 self.opened_at = Instant::now();
                 self.audio_at = None;
                 self.gaps = None;
@@ -527,6 +529,7 @@ impl TimegrapherApp {
         self.test_keep = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
+        self.mask_engine();
         self.source_label.clear();
         // The recording opened goes too: what follows is a new take.
         if self.input == Input::File {
@@ -1747,6 +1750,7 @@ impl TimegrapherApp {
                 {
                     live.set_breaks(breaks);
                 }
+                self.mask_engine();
                 self.opened_path = path.display().to_string();
                 c.set_speed(speed);
                 self.capture = Some(c);
@@ -2200,6 +2204,11 @@ impl TimegrapherApp {
                     }
                     live.skip(gap);
                     self.session.resumed_at(live.duration_s());
+                    live.set_masked(&super::masks::engine_masks(
+                        &self.masked,
+                        &self.session,
+                        &self.guided_unused,
+                    ));
                 }
                 if let Some(t) = self.clock_track.as_mut() {
                     t.restart(live.sample_rate());
@@ -2770,7 +2779,7 @@ fn ready_engine(
     live.set_breaks(timegrapher_core::take::reading_cuts(
         breaks, &i.changes, &i.settles,
     ));
-    live.set_masked(&i.masked);
+    live.set_masked(&engine_masked(i));
     // The new engine's first sight of the take's clock; after this only
     // put_take_clock gives it one.
     live.set_rate_clock(clock);
@@ -2806,9 +2815,16 @@ fn retune(
             &now.settles,
         ));
     }
-    if now.masked != was.masked {
-        live.set_masked(&now.masked);
+    if (&now.masked, &now.settles) != (&was.masked, &was.settles) {
+        live.set_masked(&engine_masked(now));
     }
+}
+
+/// An opened take's engine masks: its masks by hand with each settling
+/// left out as a mask is, as `TimegrapherApp::engine_masked` gives them
+/// once the take is open (#1233).
+fn engine_masked(i: &OpenInputs) -> Vec<(f64, f64)> {
+    timegrapher_core::session::with_holes(&i.masked, &i.settles)
 }
 
 /// Open the take `opening` ([`take_entry`]) with core's

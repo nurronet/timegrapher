@@ -1125,11 +1125,7 @@ impl LiveAnalyzer {
             )
         });
         let jitter_us = crate::session::scatter_jitter_us(&scatter);
-        let judged_s = if scatter.is_empty() && end_s - heard_since < SCATTER_LOOKBACK_S {
-            0.0
-        } else {
-            (end_s - window_from.max(heard_since)).max(0.0)
-        };
+        let judged_s = judged_s(!scatter.is_empty(), end_s, window_from, heard_since, holes);
         let timing_scatter_fraction =
             bph.and_then(|b| crate::beats::timing_scatter_fraction(jitter_us, b));
         // Where the timing can't say, the beats' averaged sound, from the
@@ -1432,6 +1428,24 @@ impl LiveAnalyzer {
             .collect()
     }
 }
+
+/// How long the watch verdict judges a reading ending at `end_s` over,
+/// seconds: none while no scatter window fits (`fitted` false) within
+/// [`SCATTER_LOOKBACK_S`] of the latest heard break, `heard_since`, or the
+/// latest of the reading's `holes`, a jump in the beats too: the windows
+/// skip a jump, so until one fits after it there may be none, and none is
+/// no verdict of noise (#1170). Past that, having none is.
+fn judged_s(fitted: bool, end_s: f64, window_from: f64, heard_since: f64, holes: &Cuts) -> f64 {
+    let cut_since = holes.stretch_from(end_s).max(heard_since);
+    if !fitted && end_s - cut_since < SCATTER_LOOKBACK_S {
+        0.0
+    } else {
+        (end_s - window_from.max(heard_since)).max(0.0)
+    }
+}
+
+#[cfg(test)]
+mod jump_tests;
 
 #[cfg(test)]
 mod tests {

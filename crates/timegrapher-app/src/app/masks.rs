@@ -57,9 +57,7 @@ impl TimegrapherApp {
     pub(super) fn set_masked(&mut self, spans: Vec<(f64, f64)>) {
         let pairs: Vec<[f64; 2]> = spans.iter().map(|&(a, b)| [a, b]).collect();
         self.put_masked(timegrapher_core::session::masked_spans(&pairs));
-        if let Some(live) = self.live.as_mut() {
-            live.set_masked(&self.masked);
-        }
+        self.mask_engine();
         // A Positions Test's positions are read again without them.
         if let Some(log) = self.live.as_ref().and_then(steady::log_of) {
             let clock = self.reading_clock(log.duration_s);
@@ -314,8 +312,25 @@ impl TimegrapherApp {
             breaks.dedup();
             live.set_breaks(breaks);
         }
+        self.mask_engine();
         self.rev.breaks += 1;
         self.refresh_trend();
+    }
+
+    /// The engine's masks: those by hand with each settling left out as a
+    /// mask is ([`timegrapher_core::session::with_holes`]), the settlings
+    /// the strip shades, so no reading falls where the watch was just
+    /// handled (#1233).
+    pub(super) fn engine_masked(&self) -> Vec<(f64, f64)> {
+        engine_masks(&self.masked, &self.session, &self.guided_unused)
+    }
+
+    /// Give the engine its masks ([`Self::engine_masked`]).
+    pub(super) fn mask_engine(&mut self) {
+        let masked = self.engine_masked();
+        if let Some(live) = self.live.as_mut() {
+            live.set_masked(&masked);
+        }
     }
 
     /// Bring back the masked stretch over `t`, if there is one.
@@ -330,4 +345,28 @@ impl TimegrapherApp {
             self.set_masked(v);
         }
     }
+}
+
+/// The masks by hand, `masked`, with the settlings `session` has left out
+/// as a mask is ([`TimegrapherApp::engine_masked`]).
+pub(super) fn engine_masks(
+    masked: &[(f64, f64)],
+    session: &crate::session::Session,
+    unused: &[(f64, f64, &'static str)],
+) -> Vec<(f64, f64)> {
+    // Every settling, a move's (even one the strip shades as a test's
+    // unused time) and a Positions Test's own; the time before the test
+    // began, or that it didn't use, was read as any listening is and
+    // stays.
+    let settles: Vec<(f64, f64)> = session
+        .settles()
+        .into_iter()
+        .chain(
+            unused
+                .iter()
+                .filter(|s| s.2 == crate::guided::SETTLING)
+                .map(|&(a, b, _)| (a, b)),
+        )
+        .collect();
+    timegrapher_core::session::with_holes(masked, &settles)
 }
