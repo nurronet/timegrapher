@@ -37,6 +37,31 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 16-bit steps, rounding adds a third of one.
 pub const STORED_BITS: u16 = 16;
 
+/// A sample of sound between -1 and 1 as it is kept at [`STORED_BITS`]:
+/// rounded to the nearest step, full scale one step short of the top.
+/// The recorder keeps a microphone's sound this way, and a floating-point
+/// WAV is kept as FLAC this way ([`crate::flac::encode_wav`]). Not a
+/// number keeps as 0.
+pub fn stored_sample(s: f32) -> i32 {
+    let full = ((1u64 << (STORED_BITS - 1)) - 1) as f32;
+    (s.clamp(-1.0, 1.0) * full).round() as i32
+}
+
+/// A `bits`-bit integer sample as it is kept at [`STORED_BITS`]: rounded
+/// to the nearest step, half away from zero, the top kept in range. One
+/// already at [`STORED_BITS`] or fewer keeps as it is, so sound from a
+/// 16-bit microphone in a wider file keeps exactly.
+pub fn stored_int(x: i32, bits: u16) -> i32 {
+    match bits.checked_sub(STORED_BITS) {
+        None | Some(0) => x,
+        Some(drop) => {
+            let top = (1i64 << (STORED_BITS - 1)) - 1;
+            let r = (x as f64 / (1u64 << drop) as f64).round() as i64;
+            r.clamp(-top - 1, top) as i32
+        }
+    }
+}
+
 /// What is known about a recording when it starts.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionInfo {
@@ -411,15 +436,13 @@ impl Recorder {
                 .unwrap_or_else(|| self.info.device.clone());
             self.start_break(b, before, device)?;
         }
-        let full = ((1u64 << (STORED_BITS - 1)) - 1) as f32;
         for &s in &b.samples {
             if self.writer.is_none() || self.seg_frames >= SEGMENT_S * fs {
                 self.close_segment()?;
                 self.open_segment()?;
             }
             let w = self.writer.as_mut().expect("segment open");
-            w.write_sample((s.clamp(-1.0, 1.0) * full).round() as i32)
-                .map_err(io_err)?;
+            w.write_sample(stored_sample(s)).map_err(io_err)?;
             self.seg_frames += 1;
         }
         self.frames += b.samples.len() as u64;
@@ -1482,6 +1505,23 @@ mod tests {
         assert_eq!(utc(UNIX_EPOCH), "1970-01-01T00:00:00.000Z");
         let leap = UNIX_EPOCH + Duration::from_secs(951_782_400);
         assert_eq!(&utc(leap)[..10], "2000-02-29");
+    }
+
+    /// A wider integer sample keeps at 16 bits rounded half away from
+    /// zero, the top in range; 16 bits or fewer keep as they are.
+    #[test]
+    fn a_wide_sample_rounds_to_the_nearest_16_bit_step() {
+        assert_eq!(stored_int(127, 24), 0);
+        assert_eq!(stored_int(128, 24), 1);
+        assert_eq!(stored_int(-128, 24), -1);
+        assert_eq!(stored_int(-129, 24), -1);
+        assert_eq!(stored_int(0x7f_ff_ff, 24), 32_767);
+        assert_eq!(stored_int(-0x80_00_00, 24), -32_768);
+        assert_eq!(stored_int(i32::MAX, 32), 32_767);
+        assert_eq!(stored_int(i32::MIN, 32), -32_768);
+        assert_eq!(stored_int(0x12_34 << 8, 24), 0x12_34);
+        assert_eq!(stored_int(-5, 16), -5);
+        assert_eq!(stored_int(100, 8), 100);
     }
 
     /// A 24-bit microphone's take is kept at 16 bits, each sample the
