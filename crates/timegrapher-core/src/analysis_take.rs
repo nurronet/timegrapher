@@ -950,7 +950,7 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
         if back.log.beats.len() != stored.log.beats.len() {
             return Err(invalid("the analysis didn't read back as written".into()));
         }
-        fs::rename(&staged, dest)
+        crate::recorder::rename_settled(&staged, dest)
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&staged);

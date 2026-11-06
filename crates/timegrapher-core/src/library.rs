@@ -218,10 +218,12 @@ pub fn write_atomic(p: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(failed)?;
     let written = f.write_all(bytes).and_then(|_| f.sync_all());
     drop(f);
-    written.and_then(|_| fs::rename(&tmp, p)).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        failed(e)
-    })
+    written
+        .and_then(|_| crate::recorder::rename_settled(&tmp, p))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            failed(e)
+        })
 }
 
 /// A folder name for `name` that every system accepts: the characters
@@ -1242,7 +1244,7 @@ impl Library {
                 // Opened to write: Windows refuses to flush a file opened
                 // only to read.
                 .and_then(|_| fs::OpenOptions::new().write(true).open(&part)?.sync_all())
-                .and_then(|_| fs::rename(&part, &to));
+                .and_then(|_| crate::recorder::rename_settled(&part, &to));
             match copied {
                 Ok(()) => added.push(to),
                 Err(e) => {
@@ -1348,8 +1350,10 @@ impl Library {
         }
         let staged = takes.join(format!(".adding-{}", file_name(&to)));
         let _ = fs::remove_dir_all(&staged);
-        let copied = copy_tree(from, &staged, &[])
-            .and_then(|_| fs::rename(&staged, &to).map_err(|e| format!("{}: {e}", to.display())));
+        let copied = copy_tree(from, &staged, &[]).and_then(|_| {
+            crate::recorder::rename_settled(&staged, &to)
+                .map_err(|e| format!("{}: {e}", to.display()))
+        });
         if let Err(e) = copied {
             let _ = fs::remove_dir_all(&staged);
             return Err(e);
@@ -1408,7 +1412,8 @@ impl Library {
                 let dst = staged.join(file);
                 fs::write(&dst, text).map_err(|e| format!("{}: {e}", dst.display()))?;
             }
-            fs::rename(&staged, &to).map_err(|e| format!("{}: {e}", to.display()))
+            crate::recorder::rename_settled(&staged, &to)
+                .map_err(|e| format!("{}: {e}", to.display()))
         })();
         if let Err(e) = put {
             let _ = fs::remove_dir_all(&staged);
