@@ -181,7 +181,17 @@ fn a_positions_test_is_marked_from_its_first_position() {
         &[(0.0, Position::DialDown), (1.0, Position::DialUp)],
         &[(1.0, 3.0)],
     );
-    assert_eq!(app.strip_settles()[0], (0.0, 5.0, guided::BEFORE_TEST));
+    // Shaded as settling where it is culled, settling winning the overlap;
+    // the rest of the time before the test keeps its kind (Hugh).
+    assert_eq!(
+        app.strip_settles(),
+        [
+            (0.0, 1.0, guided::BEFORE_TEST),
+            (1.0, 3.0, guided::SETTLING),
+            (3.0, 5.0, guided::BEFORE_TEST),
+            (5.0, 10.0, guided::SETTLING),
+        ]
+    );
     app.mask_engine();
     assert_eq!(
         app.live.as_ref().unwrap().masked(),

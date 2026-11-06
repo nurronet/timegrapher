@@ -745,7 +745,7 @@ fn track_masked(
 
 /// The parts of `a` to `b` that none of the stretches `hidden` covers, in
 /// order.
-fn showing(a: f64, b: f64, hidden: impl Iterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+pub(crate) fn showing(a: f64, b: f64, hidden: impl Iterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
     let mut hidden: Vec<(f64, f64)> = hidden.filter(|p| p.1 > a && p.0 < b).collect();
     hidden.sort_by(|x, y| x.0.total_cmp(&y.0));
     let mut from = a;
