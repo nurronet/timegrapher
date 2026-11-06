@@ -384,6 +384,10 @@ pub struct SeriesCheck {
     /// The strongest periodic component, when the period search found one.
     pub period: Option<Period>,
     pub two_state: Option<TwoState>,
+    /// The null the series' period search was held to (#1195): its noise
+    /// model, the take's mix (ρ, or the timing's crossover times the
+    /// detrend's window) and whether the table covered it.
+    pub null: Option<longterm::NullFit>,
     /// The cycle found by the two-state finder, the autocorrelation or the
     /// period search, if any.
     pub cycle: Option<Cycle>,
@@ -999,6 +1003,7 @@ pub fn check_series(
         trend: None,
         period,
         two_state,
+        null: None,
         cycle: None,
         unlock_hopping: false,
     };
@@ -2311,6 +2316,16 @@ pub fn check(
     beat_error::set_provenance(&mut series, &selected_be);
     for (s, r) in series.iter_mut().skip(1).zip([&long.amplitude, &be_long]) {
         if let Some(c) = s.period.as_ref().and(longterm::period_may_be_noise(r)) {
+            crate::measure::add(&mut s.caveats, c);
+            s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+        }
+    }
+    for (s, r) in series
+        .iter_mut()
+        .zip([&long.timing, &long.amplitude, &be_long])
+    {
+        s.null = Some(r.search.null);
+        if let Some(c) = s.period.as_ref().and(longterm::period_uncalibrated(r)) {
             crate::measure::add(&mut s.caveats, c);
             s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
         }

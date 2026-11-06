@@ -124,16 +124,43 @@ restricted to the searched band. Its Gamma-tail calculation is:
 P(X >= x) = exp(−x) × sum(i = 0 … K−1, x^i / i!)
 score = −log10(P)
 trials = max(1, searched FFT bins / padding factor × 4)
-threshold = log10(trials) − log10(configured false_alarm)
 ```
 
-`significance` is `score − log10(trials)`. A value of 2 corresponds to a
-model-based whole-search false-alarm approximation of 1%, not a posterior
-probability that noise caused the observation. Local normalization, a finite
-estimated noise floor, zero padding, harmonic trials, gaps and repeated
-fold/subtract searches do not establish independent exponential bins. There is
-no universal calibration guarantee for arbitrary noise colour or nonstationary
-watch behaviour.
+Those bins are not independent exponentials: local normalization, a finite
+estimated noise floor, zero padding, harmonic sums and the running median's
+own shape near its window all move them. So since #1195 the search is held to
+a simulated null of its own pipeline, `data/period-null.json`, generated with
+fixed seeds by `write_period_null_table` in
+[`longterm/null_tests.rs`](../crates/timegrapher-core/src/longterm/null_tests.rs):
+
+- Two noise models. Readings (amplitude, beat error) are AR(1), indexed by
+  the ρ the spectrum is whitened with. The beats' timing is a random walk
+  (white rate noise integrated) plus white jitter, indexed by the crossover
+  frequency where the two meet times the detrend's window (the span under
+  the quadratic). The crossover is fitted to the median power in
+  quarter-octave bands from twice the detrend's corner up, so a line, which
+  lifts a few bins, does not move it; a walk with no floor in the band is its
+  own cell.
+- For each take length, grid step and mix: the whitened null spectrum's mean
+  against f·w, which the search divides out (the random walk leaves a hump of
+  2 to 2.5 just below the running median's corner, where it read false cycles
+  at 5 to 10 times its stated rate), and the distribution of the maximum
+  score over the searched band as a generalised extreme value (location and
+  scale per cell, the shape per take length). A take between cells is
+  interpolated; one outside the table is searched by the trials count alone
+  and a cycle it names carries `period_search_uncalibrated`.
+
+```text
+threshold = the score noise's maximum reaches with chance false_alarm
+significance = −log10(the tail of that maximum at the score)
+```
+
+Over the table's 170,400 simulated maxima, 1,617 fall under p 0.01 (1,704
+expected) and 193 under 0.001 (170). On 300 seeded 30 min takes of white
+noise, each series' strongest line passes p 0.01 in 2, 4 and 6 of them (rate,
+amplitude, beat error), against 17, 10 and 7 before. Outside the simulated models (a slow
+wander under white readings, flicker in the timing) the rate is not
+guaranteed.
 
 Default acceptance also requires a folded component to explain at least 0.5%
 of the detrended variance; up to four components are sought. The search refines

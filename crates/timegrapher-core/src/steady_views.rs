@@ -889,7 +889,7 @@ mod tests {
         assert_eq!(
             super::threshold_hover(super::LongConfig::default().false_alarm),
             "Peaks above this line are named. Expected noise would cross it somewhere in this search 1 time in 100. \
-             On test noise it was crossed about 1 time in 33, and up to 1 time in 10 on short takes with correlated readings. \
+             On test noise it was crossed about 1 time in 100, and up to 1 time in 24 on short takes with correlated readings. \
              The more periods searched, the higher the line."
         );
         assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));

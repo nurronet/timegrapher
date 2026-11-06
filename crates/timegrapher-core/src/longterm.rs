@@ -27,6 +27,11 @@
 //!    the four is the period's score. A pure sinusoid wins with K = 1, a
 //!    short dip with K = 8, and a subharmonic (twice the true period) loses
 //!    because half its harmonics are noise.
+//!    Those sums are not Gamma in practice (local levels, zero padding,
+//!    the detrend's own shape), so the whitened spectrum is also divided
+//!    by a simulated null's mean, and the best score is read against that
+//!    null's maximum ([`null`], #1195): the threshold is where noise alone
+//!    reaches it with the configured false-alarm chance.
 //! 4. Fold the series at the strongest period to get the shape of one
 //!    cycle and a raster (one row per turn of the wheel), subtract that
 //!    shape, and search again. The periods of a watch's wheels are integer
@@ -37,6 +42,13 @@ use crate::dsp::median;
 use crate::periodicity::{polyfit2, Wheel};
 use realfft::RealFftPlanner;
 use serde::Serialize;
+
+pub mod null;
+pub use null::{NullFit, NullModel};
+
+/// The shortest run detrended with a running median; shorter ones take a
+/// quadratic.
+pub const MEDIAN_FROM_S: f64 = 1200.0;
 
 #[derive(Debug, Clone)]
 pub struct LongConfig {
@@ -242,7 +254,7 @@ pub fn detrend_fit_terms(g: &Grid, window_s: f64) -> Option<usize> {
 /// `None` under 20 min, where it fits a quadratic instead.
 fn detrend_window(g: &Grid, window_s: f64) -> Option<usize> {
     let span = g.span();
-    (span >= 1200.0).then(|| ((window_s.min(span / 4.0) / g.step).round() as usize).max(3))
+    (span >= MEDIAN_FROM_S).then(|| ((window_s.min(span / 4.0) / g.step).round() as usize).max(3))
 }
 
 /// log10 of the chance that a Gamma(k, 1) variable exceeds `x`:
@@ -272,6 +284,8 @@ struct Spectrum {
     /// Zero-padding factor: `pad` bins per independent frequency.
     pad: usize,
     white: Vec<f64>,
+    /// The plain power, before whitening.
+    power: Vec<f64>,
     /// The lag-one ρ of the AR(1) noise it was whitened by.
     rho: f64,
 }
@@ -362,6 +376,7 @@ fn spectrum(g: &Grid, detrend_w: Option<f64>) -> Spectrum {
         df,
         pad,
         white,
+        power,
         rho,
     }
 }
@@ -377,6 +392,13 @@ pub struct Search {
     pub harmonics: Vec<u8>,
     /// Score a period needs to be reported (includes the trials correction).
     pub threshold: f64,
+    /// The null the search was levelled and counted against (#1195).
+    pub null: NullFit,
+    /// The trials count: independent frequencies times harmonic counts.
+    pub trials: f64,
+    /// How noise's maximum score falls: the table's, or the trials
+    /// count's where the table doesn't reach.
+    pub tail: null::Tail,
     /// The lag-one ρ the spectrum was whitened by.
     #[serde(skip)]
     pub rho: f64,
@@ -415,26 +437,82 @@ const SHORT_MIN: usize = 32;
 /// (a mean-1 exponential reference exceeds it about 5% of the time).
 const FUNDAMENTAL_MIN: f64 = 3.0;
 
-fn search(
-    g: &Grid,
+/// The band a search covers and the null it is held to.
+struct Band<'a> {
     min_p: f64,
     max_p: f64,
     false_alarm: f64,
-    exclude: &[f64],
     detrend_w: Option<f64>,
-) -> Search {
-    let sp = spectrum(g, detrend_w);
-    let jmin = ((1.0 / max_p) / sp.df).ceil().max(1.0) as usize;
-    let jmax = ((1.0 / min_p) / sp.df).floor() as usize;
+    model: NullModel,
+    /// A levelling to use instead of the table's: the table's own
+    /// simulation.
+    given: Option<&'a null::Levelling>,
+}
+
+/// f·w of spectrum bin `j`: the detrend's window, or the span under the
+/// quadratic.
+fn x_scale(g: &Grid, detrend_w: Option<f64>) -> f64 {
+    detrend_w.unwrap_or_else(|| g.span())
+}
+
+/// The take's mix and the table's levelling for it, when the table holds
+/// every bin the search reads.
+fn null_for(
+    g: &Grid,
+    sp: &Spectrum,
+    band: &Band,
+    jmax: usize,
+) -> (NullFit, Option<null::Levelling>) {
+    let scale = x_scale(g, band.detrend_w);
+    let mix = match band.model {
+        NullModel::Readings => sp.rho,
+        NullModel::Timing => {
+            // From well above the detrend's corner, where it takes no power.
+            let from_x = if band.detrend_w.is_some() { 2.0 } else { 6.0 };
+            let from = (from_x / (sp.df * scale)).ceil() as usize;
+            null::timing_mix(&sp.power, sp.df, g.step, from, scale)
+        }
+    };
+    let lev = match band.given {
+        Some(l) => Some(l.clone()),
+        None => null::levelling(band.model, g.span(), g.step, mix),
+    };
+    let jmin = ((1.0 / band.max_p) / sp.df).ceil().max(1.0) as usize;
+    let lev = lev.filter(|l| (jmin..=jmax).all(|j| l.at(j as f64 * sp.df * scale).is_some()));
+    let fit = NullFit {
+        model: band.model,
+        mix,
+        calibrated: lev.is_some(),
+    };
+    (fit, lev)
+}
+
+fn search(g: &Grid, band: &Band, exclude: &[f64]) -> Search {
+    let mut sp = spectrum(g, band.detrend_w);
+    let jmin = ((1.0 / band.max_p) / sp.df).ceil().max(1.0) as usize;
+    let jmax = ((1.0 / band.min_p) / sp.df).floor() as usize;
+    let jmax = jmax.min(sp.white.len() - 1);
+    let (fit, lev) = null_for(g, &sp, band, jmax);
+    if let Some(l) = &lev {
+        let scale = x_scale(g, band.detrend_w);
+        for j in jmin..=jmax {
+            if let Some(m) = l.at(j as f64 * sp.df * scale) {
+                sp.white[j] /= m.max(1e-9);
+            }
+        }
+    }
     let mut out = Search {
         period_s: Vec::new(),
         score: Vec::new(),
         harmonics: Vec::new(),
         threshold: 0.0,
+        null: fit,
+        trials: 1.0,
+        tail: null::Tail::trials(1.0),
         rho: sp.rho,
         first_j: jmin,
     };
-    for j in jmin..=jmax.min(sp.white.len() - 1) {
+    for j in jmin..=jmax {
         let period = 1.0 / (j as f64 * sp.df);
         // Harmonics only count when the fundamental itself shows: otherwise
         // a line just below the shortest period searched would be reported
@@ -465,10 +543,13 @@ fn search(
         out.score.push(if excluded { 0.0 } else { best.0 });
         out.harmonics.push(best.1);
     }
-    // Independent frequencies tried, times the harmonic counts.
+    // Independent frequencies tried, times the harmonic counts; the table
+    // turns that into the maximum's tail.
     let trials =
         ((jmax.saturating_sub(jmin) + 1) as f64 / sp.pad as f64 * HARMONICS.len() as f64).max(1.0);
-    out.threshold = trials.log10() - false_alarm.log10();
+    out.trials = trials;
+    out.tail = lev.map_or(null::Tail::trials(trials), |l| l.tail(trials));
+    out.threshold = out.tail.score_at(band.false_alarm);
     out
 }
 
@@ -793,7 +874,24 @@ fn explained_at(g: &Grid, period: f64, bins: usize) -> f64 {
         / total.max(1) as f64
 }
 
+/// The period search over a series of readings (amplitude, beat error):
+/// AR(1) noise is its null.
 pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
+    analyse_as(g, cfg, NullModel::Readings, None)
+}
+
+/// The period search over the beats' timing: random walk plus white noise
+/// is its null.
+pub fn analyse_timing(g: &Grid, cfg: &LongConfig) -> SeriesReport {
+    analyse_as(g, cfg, NullModel::Timing, None)
+}
+
+fn analyse_as(
+    g: &Grid,
+    cfg: &LongConfig,
+    model: NullModel,
+    given: Option<&null::Levelling>,
+) -> SeriesReport {
     let detrended = detrend(g, cfg.detrend_s);
     let span = g.span();
     // At least one reading for each of the fold's 8 bins. With fewer, a
@@ -810,15 +908,17 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
     let mut found: Vec<f64> = Vec::new();
     if max_p > min_p && total_var > 0.0 {
         for _ in 0..cfg.max_components {
-            let s = search(
-                &work,
+            let band = Band {
                 min_p,
                 max_p,
-                cfg.false_alarm,
-                &found,
-                detrend_window(g, cfg.detrend_s).map(|w| w as f64 * g.step),
-            );
+                false_alarm: cfg.false_alarm,
+                detrend_w: detrend_window(g, cfg.detrend_s).map(|w| w as f64 * g.step),
+                model,
+                given,
+            };
+            let s = search(&work, &band, &found);
             let threshold = s.threshold;
+            let s_tail = s.tail;
             let pick = pick_period(&s, &work, g.step);
             if first.is_none() {
                 first = Some(s);
@@ -861,7 +961,7 @@ pub fn analyse(g: &Grid, cfg: &LongConfig) -> SeriesReport {
             components.push(Component {
                 period_s: period,
                 resolution_s: resolution,
-                significance: score - threshold + (1.0 / cfg.false_alarm).log10(),
+                significance: s_tail.significance(score),
                 harmonics,
                 explained,
                 peak_to_peak: hi - lo,
@@ -945,6 +1045,13 @@ impl Search {
             score: Vec::new(),
             harmonics: Vec::new(),
             threshold: 0.0,
+            null: NullFit {
+                model: NullModel::Readings,
+                mix: f64::NAN,
+                calibrated: false,
+            },
+            trials: 1.0,
+            tail: null::Tail::trials(1.0),
             rho: 0.0,
             first_j: 0,
         }
@@ -952,15 +1059,16 @@ impl Search {
 }
 
 /// One series' search crossed its threshold about 1 time in this many on
-/// seeded white and AR(1) noise, the noise its model fits: 3 to 3.5% in the
-/// #916 grid (400 seeds a cell), about 3× its design rate. Said in
-/// [`period_may_be_noise`]'s words and the Periods threshold's hover.
-pub const MEASURED_CROSSING_IN: u32 = 33;
+/// seeded white and AR(1) noise, the noise its model fits: 4 of 400 at
+/// 30 min for ρ 0, 0.5 and 0.9 alike, 3 to 5 of 400 at 2 h, its design
+/// rate since the search is held to its simulated null (#1195; 3 to 3.5%
+/// before, #916). Said in [`period_may_be_noise`]'s words and the Periods
+/// threshold's hover.
+pub const MEASURED_CROSSING_IN: u32 = 100;
 /// …and up to 1 time in this many on 30 min takes with a slow wander under
-/// white noise, lag one 0.5 to 0.8 (9 to 10%, the same grid), the case
-/// [`period_may_be_noise`] names. Since #1030 these cells read 8 to 9.2%
-/// and white and AR(1) noise 2.5 to 3.2% at 30 min; both words still hold.
-pub const SHORT_CORRELATED_CROSSING_IN: u32 = 10;
+/// white noise, lag one 0.8, the case [`period_may_be_noise`] names: 17 of
+/// 400 at φ 0.98 a window, 11 at 0.95 (#1195; 9 to 10% before, #916).
+pub const SHORT_CORRELATED_CROSSING_IN: u32 = 24;
 
 /// Stretches shorter than this get [`period_may_be_noise`].
 pub const NOISE_CAVEAT_SPAN_S: f64 = 7200.0;
@@ -970,19 +1078,31 @@ pub const NOISE_CAVEAT_RHO: f64 = 0.7;
 /// The caveat on a cycle the search named in `r`, an amplitude or beat
 /// error series, when the stretch is shorter than 2 h and the ρ the search
 /// whitened by is 0.7 or more. There a slow wander under white
-/// measurement noise is not the AR(1) the search divides out. On seeded
-/// 30 min nulls of 2 s windows (400 seeds a cell), a wander of φ 0.98 per
-/// window under white noise named a cycle in 9 to 10% of takes (lag one
-/// 0.5 to 0.8; 9.2% at sd 1.5° wander and 1.06° white), φ 0.95 in 7 to 8%,
-/// against 3 to 3.5% on white and AR(1) noise; at 2 h and longer, 5% or
-/// under; the whole pane named something in 9 to 13% at ρ 0.7 to 0.9
-/// (#916). The rate's searches were within bounds, so its series takes
-/// none. No figure, score or threshold changes.
+/// measurement noise is not the AR(1) the search's null simulates. On
+/// seeded 30 min nulls of 2 s windows (400 seeds a cell), a wander of φ
+/// 0.98 per window under white noise named a cycle in 4.25% of takes, φ
+/// 0.95 in 2.75%, against 1% on white and AR(1) noise; at 2 h, 0.5%
+/// (#1195; 9 to 10% and 3 to 3.5% before the search was calibrated,
+/// #916). The rate's searches are held to their own null, so its series
+/// takes none. No figure, score or threshold changes.
 pub fn period_may_be_noise(r: &SeriesReport) -> Option<crate::measure::Caveat> {
     let span_s = r.grid.span();
     let rho = r.search.rho;
     (!r.components.is_empty() && span_s < NOISE_CAVEAT_SPAN_S && rho >= NOISE_CAVEAT_RHO)
         .then_some(crate::measure::Caveat::PeriodMayBeNoise { rho, span_s })
+}
+
+/// The caveat on a cycle the search named in `r` when its simulated null
+/// did not cover the take ([`null`], #1195).
+pub fn period_uncalibrated(r: &SeriesReport) -> Option<crate::measure::Caveat> {
+    let n = r.search.null;
+    (!r.components.is_empty() && !n.calibrated).then_some(
+        crate::measure::Caveat::PeriodSearchUncalibrated {
+            model: n.model,
+            mix: n.mix,
+            span_s: r.grid.span(),
+        },
+    )
 }
 
 /// The rate (s/d) at a bin of timing offsets (seconds) `dt` apart: minus

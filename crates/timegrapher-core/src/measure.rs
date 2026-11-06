@@ -271,9 +271,20 @@ pub enum Caveat {
     /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose 2 s
     /// windows are correlated at `rho` (lag one, the ρ the search whitens
     /// by, not the 10 s readings' lag-1 r) of [`crate::longterm::NOISE_CAVEAT_RHO`] or more, over `span_s`:
-    /// there the search names a cycle in noise alone about 1 time in 10
+    /// there the search names a cycle in noise alone about 1 time in 24
     /// (#916).
     PeriodMayBeNoise { rho: f64, span_s: f64 },
+    /// The period search named a cycle on a take its simulated null
+    /// ([`crate::longterm::null`]) does not cover: its length, grid step
+    /// or noise `mix` (ρ for readings, the crossover times the detrend's
+    /// window for the timing) is outside the table, so the cycle is held
+    /// to the plain trials count, which ran 2 to 10 times over its stated
+    /// rate where it was measured (#1195).
+    PeriodSearchUncalibrated {
+        model: crate::longterm::NullModel,
+        mix: f64,
+        span_s: f64,
+    },
 }
 
 impl Caveat {
@@ -331,6 +342,9 @@ impl Caveat {
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
             Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
+            Caveat::PeriodSearchUncalibrated { .. } => {
+                "cycle search not calibrated here".to_string()
+            }
         })
     }
 
@@ -435,6 +449,9 @@ impl Caveat {
                  and are left out of the readings."
             ),
             Caveat::PeriodMayBeNoise { rho, span_s } => may_be_noise_text(*rho, *span_s),
+            Caveat::PeriodSearchUncalibrated { model, mix, span_s } => {
+                uncalibrated_text(*model, *mix, *span_s)
+            }
         })
     }
 
@@ -491,6 +508,7 @@ impl Caveat {
             Caveat::BeatErrorUnknownSource { .. } => 19,
             Caveat::ReadingWindows { .. } => 17,
             Caveat::PeriodMayBeNoise { .. } => 19,
+            Caveat::PeriodSearchUncalibrated { .. } => 19,
         }
     }
 }
@@ -514,6 +532,23 @@ fn may_be_noise_text(rho: f64, span_s: f64) -> String {
          the next, over {:.0} min), the period search names a cycle in noise alone about 1 \
          time in {SHORT_CORRELATED_CROSSING_IN}, not 1 in {MEASURED_CROSSING_IN}: this cycle may be noise.",
         span_s / 60.0
+    )
+}
+
+/// [`Caveat::PeriodSearchUncalibrated`] as a sentence.
+fn uncalibrated_text(model: crate::longterm::NullModel, mix: f64, span_s: f64) -> String {
+    use crate::longterm::NullModel;
+    let what = match model {
+        NullModel::Readings => format!("readings correlated at ρ {mix:.2}"),
+        NullModel::Timing if mix < crate::longterm::null::WALK_MIX => {
+            format!("beat timing whose wander meets its jitter at {mix:.0} cycles a detrend window")
+        }
+        NullModel::Timing => "beat timing with no jitter floor to measure".to_string(),
+    };
+    format!(
+        "The period search has no simulated noise for {:.1} h of {what}, so how often it \
+         names a cycle in noise alone is not known here: this cycle may be noise.",
+        span_s / 3600.0
     )
 }
 
