@@ -1,0 +1,1 @@
+[["launch", "head"], ["wait", 10], ["click", 344, 41], ["wait", 3], ["shell", "dir /s /b \"%USERPROFILE%\\Timegrapher Data\" & dir /s /b %APPDATA%\\timegrapher"]]
