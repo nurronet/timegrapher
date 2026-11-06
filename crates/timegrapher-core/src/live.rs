@@ -1106,14 +1106,16 @@ impl LiveAnalyzer {
         // the windows skip it but still look back past it. The sound heard
         // before a regular beat was found counts by its peaks (the
         // candidates), as a saved reading logs them. It looks back at
-        // least SCATTER_LOOKBACK_S, so a 10 s average holds a whole window.
+        // least SCATTER_LOOKBACK_S, so a 10 s average holds a whole window,
+        // from the tiling point at or before that (#636), as session's
+        // windows lie on the same tiling: so the sound before a jump in
+        // the beats gets its own whole window.
         // Within that of a break, before a window can be whole, regularity
         // is not assessed; past it, no whole window is noise.
         let heard_since = self.heard_cuts().stretch_from(end_s).max(0.0);
-        let scatter_from = window_from
-            .min(end_s - SCATTER_LOOKBACK_S)
-            .max(heard_since)
-            .max(0.0);
+        let step = crate::measure::RATE_WINDOW_STEP_S;
+        let look_back = ((end_s - SCATTER_LOOKBACK_S) / step).floor() * step;
+        let scatter_from = window_from.min(look_back).max(heard_since).max(0.0);
         let scatter = bph.map_or_else(Vec::new, |b| {
             crate::session::scatter_windows(
                 holes,

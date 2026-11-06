@@ -685,30 +685,36 @@ mod tests {
     /// miss it at ρ 0.9 (#916's caveat, #917). 2 h at ρ 0 to 0.5 is the
     /// control test above; 8 h and 24 h are the test below.
     ///
-    /// With the one 2 s tiling (#636) two cells are held on 300 seeds at
+    /// With the one 2 s tiling (#636) three cells are held on 300 seeds at
     /// their measured count, as Peter chose on 2026-11-05: 30 min at ρ 0
     /// names something on 20 of 300 (18 before the tiling), missing the
-    /// target before and after (#1195), and 2 h at ρ 0.7 on 3 of 300 (2
-    /// before). 30 min at ρ 0.7 fell from 6 to 5 of 100.
+    /// target before and after (#1195), 2 h at ρ 0.7 on 3 of 300 (2
+    /// before), and 30 min at ρ 0.7 on 13 of 300 (6 of the first 100, as
+    /// before the tiling).
     #[test]
     fn a_steady_watch_with_red_noise_names_little_on_the_whole_pane() {
-        red_pane_within_of(&[(1800.0, 0.0, 300, 20), (7200.0, 0.7, 300, 3)]);
+        red_pane_within_of(&[
+            (1800.0, 0.0, 300, 20),
+            (1800.0, 0.7, 300, 13),
+            (7200.0, 0.7, 300, 3),
+        ]);
         red_pane_within(&[
             (1800.0, 0.3, 0),
             (1800.0, 0.5, 1),
-            (1800.0, 0.7, 5),
             (1800.0, 0.9, 20),
             (7200.0, 0.9, 7),
         ]);
     }
 
     /// The rest of the grid, too slow for every run (about 25 minutes on
-    /// one core): every cell meets the target of 5.
+    /// one core): every cell meets the target of 5. With the one 2 s
+    /// tiling (#636), 2 h at ρ 0 is held on 300 seeds at its measured
+    /// count, 3 (1 of the first 100, 0 before the tiling).
     #[test]
     #[ignore = "8 h and 24 h takes: run by hand"]
     fn long_steady_watches_with_red_noise_name_little_on_the_whole_pane() {
+        red_pane_within_of(&[(7200.0, 0.0, 300, 3)]);
         red_pane_within(&[
-            (7200.0, 0.0, 0),
             (7200.0, 0.3, 2),
             (7200.0, 0.5, 3),
             (28800.0, 0.0, 1),

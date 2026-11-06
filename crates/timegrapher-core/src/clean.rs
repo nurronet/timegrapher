@@ -356,9 +356,12 @@ impl<'a> Cuts<'a> {
     }
 
     /// Fits over whole bins of `len` seconds, one every `step` seconds on
-    /// the take's one tiling ([`nominal_windows`]), the first starting at
-    /// or after the first beat at or after `from`, up to `to` (true
-    /// time). A
+    /// the take's one tiling ([`nominal_windows`]), laid from the
+    /// stretch's start `from` up to `to` (true time): the first from the
+    /// tiling point at or after `from`, as a window snaps forward from its
+    /// stretch's start, not from the stretch's first beat (#636). The
+    /// tiling points before the one at or before the first beat hold no
+    /// beat and are skipped. A
     /// bin is fitted on the beats from its start up to its end when it is
     /// [`whole`](Self::whole) with parts of `part` seconds, so none spans
     /// a hole or a dropout, and none needs a beat at or past its end.
@@ -378,7 +381,12 @@ impl<'a> Cuts<'a> {
         let Some(first) = beats.get(beats.partition_point(|x| x.time < from)) else {
             return out;
         };
-        for (s, _) in nominal_windows(first.time, to, len, step) {
+        let start = if step > 0.0 && step.is_finite() {
+            ((first.time / step).floor() * step).max(from)
+        } else {
+            first.time
+        };
+        for (s, _) in nominal_windows(start, to, len, step) {
             if self.whole(beats, s, s + len, part) {
                 let lo = beats.partition_point(|x| x.time < s);
                 let hi = beats.partition_point(|x| x.time < s + len);

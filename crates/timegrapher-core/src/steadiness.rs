@@ -2550,7 +2550,8 @@ fn into_readings(rate: &Grid, amp: &Grid, be: &Grid, r: f64) -> [Grid; 2] {
 /// span: each of its 2 s stretches (the amplitude windows' length) must
 /// hold beats, so a reading at the edge of a gap or a masked stretch is
 /// left out, not averaged over what is left. Laid by [`Cuts::windows`]
-/// from the first beat to the end of the take, as a take's readings are.
+/// from the take's start to its end on the take's one tiling, as a
+/// take's readings are: the first is the first whole one (#636).
 pub(crate) fn rate_windows(
     log: &BeatLog,
     clock: Option<&ClockFit>,
@@ -2563,11 +2564,10 @@ pub(crate) fn rate_windows(
         .amplitude_windows
         .first()
         .map_or(2.0, |w| w.end_s - w.start_s);
-    let from = beats.first().map_or(0.0, |b| b.time);
     holes.windows(
         &beats,
         log.bph,
-        from,
+        0.0,
         holes.true_time(log.duration_s),
         r,
         r,
