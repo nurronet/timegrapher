@@ -1688,3 +1688,106 @@ fn a_new_watch_made_for_a_take_takes_its_calibre_beat_rate_and_lift() {
         let _ = std::fs::remove_dir_all(&base);
     }
 }
+
+/// A New Watch made for a recording that can't be added is taken back, so
+/// it isn't left empty in the watches and a second try can use its name
+/// (#1275).
+#[cfg(unix)]
+#[test]
+fn a_new_watch_for_a_recording_that_cant_be_added_is_taken_back() {
+    let base = std::env::temp_dir().join(format!("tg-app-add-undo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    library::Library::create(&root).unwrap();
+    let take = base.join("outside take");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\nlift = 55.0\n\n[[recording]]\nfile = 'take.wav'\nposition = 'DU'\n",
+    )
+    .unwrap();
+    // A link in the take, which can't be copied.
+    let link = take.join("notes.txt");
+    std::os::unix::fs::symlink(take.join("take.wav"), &link).unwrap();
+    // Two watches already there with no takes: one with nothing in it,
+    // one with a photo.
+    let mut lib = library::Library::open(&root).unwrap();
+    lib.add(&library::Watch::new("Alpha")).unwrap();
+    let pictured = lib.add(&library::Watch::new("Pictured")).unwrap();
+    std::fs::write(pictured.join(library::PHOTOS).join("dial.jpg"), b"jpeg").unwrap();
+    let alpha = lib.find("Alpha").unwrap().watch.id.clone();
+    let photo = lib.find("Pictured").unwrap().watch.id.clone();
+    // One with a photo is never taken back.
+    let err = lib.remove_empty(&photo).unwrap_err();
+    assert!(err.contains("has takes or photos"), "{err}");
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.input = Input::File;
+    // A failed add into a watch already there leaves it, empty or not.
+    let mut a = app.open_ask_for(&take).expect("asked");
+    a.add = true;
+    a.new_watch = false;
+    a.watch = Some(alpha);
+    a.started = "2026-10-22 14:30".into();
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    assert!(app.open_ask.as_ref().is_some_and(|a| a.error.is_some()));
+    app.open_ask = None;
+    let ask = |app: &TimegrapherApp| {
+        let mut a = app.open_ask_for(&take).expect("asked");
+        a.add = true;
+        a.new_watch = true;
+        a.new_name = "YM42 roam".into();
+        a.started = "2026-10-22 14:30".into();
+        a
+    };
+    let a = ask(&app);
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    let why = app.open_ask.as_ref().and_then(|a| a.error.clone());
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("link")),
+        "{why:?}"
+    );
+    let names = |root: &Path| -> Vec<String> {
+        library::Library::open(root)
+            .unwrap()
+            .watches
+            .iter()
+            .map(|e| e.watch.name.clone())
+            .collect()
+    };
+    assert_eq!(
+        names(&root),
+        ["Alpha", "Pictured"],
+        "only the new one taken back"
+    );
+    // Fixed, the same name is free to try again.
+    std::fs::remove_file(&link).unwrap();
+    // As the question does, still open with the reason in it.
+    let mut a = app.open_ask.take().expect("the question stays open");
+    a.error = None;
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    assert!(
+        app.open_ask.is_none(),
+        "{:?}",
+        app.open_ask.as_ref().and_then(|a| a.error.clone())
+    );
+    assert_eq!(names(&root), ["Alpha", "Pictured", "YM42 roam"]);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll();
+    }
+    let _ = std::fs::remove_dir_all(&base);
+}

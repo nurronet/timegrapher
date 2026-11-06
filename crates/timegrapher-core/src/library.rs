@@ -1298,6 +1298,30 @@ impl Library {
         gone.map_err(|e| format!("Deleting {}: {e}", take.display()))
     }
 
+    /// Take back a watch just added (by its id) while it is still empty:
+    /// no takes and no photos, as when what it was added for failed
+    /// (#1275). A watch with anything in it is left as it is.
+    pub fn remove_empty(&mut self, id: &str) -> Result<(), String> {
+        self.writable()?;
+        let w = self
+            .watches
+            .iter()
+            .find(|w| w.watch.id == id)
+            .ok_or("That watch is no longer in your watches")?;
+        // Only a folder not there is empty: one unreadable may hold anything.
+        let empty = |d: PathBuf| match fs::read_dir(d) {
+            Ok(mut e) => e.next().is_none(),
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
+        if !empty(w.dir.join(TAKES)) || !empty(w.dir.join(PHOTOS)) {
+            return Err(format!("\"{}\" has takes or photos in it", w.watch.name));
+        }
+        let dir = w.dir.clone();
+        let gone = fs::remove_dir_all(&dir);
+        self.scan();
+        gone.map_err(|e| format!("Removing {}: {e}", dir.display()))
+    }
+
     /// Put `kept` (the take kept as its analysis alone, written beside it)
     /// in place of `take`: the take is moved aside, `kept` takes its name,
     /// and only then is the take with its sound deleted. `Ok(Some(why))`
@@ -2129,6 +2153,36 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    /// Only a watch with nothing in it is taken back (#1275).
+    #[test]
+    fn only_an_empty_watch_is_taken_back() {
+        let base = scratch("remove-empty");
+        let root = base.join("Timegrapher Data");
+        let mut lib = Library::create(&root).unwrap();
+        lib.add(&Watch::new("Empty")).unwrap();
+        lib.add(&Watch::new("Kept")).unwrap();
+        let id = |lib: &Library, n: &str| lib.find(n).unwrap().watch.id.clone();
+        let src = base.join("outside");
+        take(&src, &[("a.wav", "DU")], 1, "2026-10-22T14:30:00Z");
+        let kept = id(&lib, "Kept");
+        lib.add_take(&src, &kept, true).unwrap();
+        let err = lib.remove_empty(&kept).unwrap_err();
+        assert!(err.contains("has takes or photos"), "{err}");
+        let empty = id(&lib, "Empty");
+        lib.remove_empty(&empty).unwrap();
+        assert!(lib.find("Empty").is_none() && lib.find("Kept").is_some());
+        assert!(lib.remove_empty(&empty).is_err(), "gone already");
+        // An unreadable takes folder (a file in its place) is not empty.
+        lib.add(&Watch::new("Unread")).unwrap();
+        let (unread, dir) = (id(&lib, "Unread"), lib.find("Unread").unwrap().dir.clone());
+        fs::remove_dir_all(dir.join(TAKES)).unwrap();
+        fs::write(dir.join(TAKES), "not a folder").unwrap();
+        let err = lib.remove_empty(&unread).unwrap_err();
+        assert!(err.contains("has takes or photos"), "{err}");
+        assert!(dir.join(TAKES).is_file(), "the folder is kept");
+        fs::remove_dir_all(base).unwrap();
     }
 
     /// The rate a take keeps is as heard; its clock log corrects it, as

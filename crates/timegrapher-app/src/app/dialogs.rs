@@ -618,68 +618,13 @@ impl TimegrapherApp {
         } else {
             a.watch.clone().ok_or("Choose a watch first.")?
         };
-        let watch = lib
-            .watches
-            .iter()
-            .find(|e| e.watch.id == id)
-            .map(|e| e.watch.clone())
-            .ok_or("That watch is no longer in your watches")?;
-        if a.has.manifest {
-            let dir = if inner.is_dir() {
-                inner.clone()
-            } else {
-                inner
-                    .parent()
-                    .ok_or("The recording has no folder")?
-                    .to_path_buf()
-            };
-            let (take, _) = lib.add_take(&dir, &id, true)?;
-            let filled = fill_take(&take, &watch, &fill).err().map(|e| {
-                format!("The take is in the watch, but what it was missing couldn't be saved with it: {e}")
-            });
-            lib.scan();
-            return Ok((take, id, filled));
+        let added = add_into(lib, a, &id, &inner, &files, &fill);
+        // A new watch made for a recording that couldn't be added is taken
+        // back, so a second try can use its name (#1275).
+        if added.is_err() && a.new_watch {
+            let _ = lib.remove_empty(&id);
         }
-        let named =
-            position_in_name(&inner).or_else(|| files.first().and_then(|f| position_in_name(f)));
-        let position = fill.position.or(named);
-        let lift = fill.lift.or(watch.lift.map(|l| (l, true)));
-        let m = Manifest {
-            watch: Some(watch.name.clone()),
-            calibre: watch.calibre.clone().filter(|c| !c.is_empty()),
-            bph: fill.bph.or(watch.bph),
-            lift: lift.map(|l| l.0),
-            lift_known: lift.map(|l| l.1),
-            recordings: vec![RecordingEntry {
-                file: ".".into(),
-                position: position.map(|p| p.code().into()),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        let toml = toml::to_string_pretty(&m).map_err(|e| e.to_string())?;
-        let dir_json = inner.is_dir().then(|| inner.join("session.json"));
-        let json = with_start(dir_json.as_deref(), &fill)?;
-        let started = fill
-            .started_utc
-            .clone()
-            .or_else(|| started_in(&inner))
-            .unwrap_or_default();
-        let minute = watches::local_minute(&started).unwrap_or_else(|| started.replace(':', "."));
-        let name = library::take_name(
-            &minute,
-            &position
-                .and_then(|p| timegrapher_core::session::Position::parse(p.code()))
-                .into_iter()
-                .collect::<Vec<_>>(),
-        );
-        let take = lib.add_recording(
-            &inner,
-            &id,
-            &name,
-            &[(MANIFEST, toml), ("session.json", json)],
-        )?;
-        Ok((take, id, None))
+        added
     }
 
     /// A newer release is published: its version and a button to its page.
@@ -1229,6 +1174,82 @@ fn open_ask_fields(ui: &mut egui::Ui, a: &mut OpenAsk, asks: OpenNeed, started_o
             );
         }
     }
+}
+
+/// Add `a`'s recording (`inner`, its sound `files`) into the watch `id` of
+/// `lib`, with what `fill` gives written into its session files: the take,
+/// the watch's id, and why what was missing couldn't be written.
+fn add_into(
+    lib: &mut library::Library,
+    a: &OpenAsk,
+    id: &str,
+    inner: &Path,
+    files: &[PathBuf],
+    fill: &Fill,
+) -> Result<(PathBuf, String, Option<String>), String> {
+    let watch = lib
+        .watches
+        .iter()
+        .find(|e| e.watch.id == id)
+        .map(|e| e.watch.clone())
+        .ok_or("That watch is no longer in your watches")?;
+    if a.has.manifest {
+        let dir = if inner.is_dir() {
+            inner.to_path_buf()
+        } else {
+            inner
+                .parent()
+                .ok_or("The recording has no folder")?
+                .to_path_buf()
+        };
+        let (take, _) = lib.add_take(&dir, id, true)?;
+        let filled = fill_take(&take, &watch, fill).err().map(|e| {
+            format!(
+                "The take is in the watch, but what it was missing couldn't be saved with it: {e}"
+            )
+        });
+        lib.scan();
+        return Ok((take, id.to_string(), filled));
+    }
+    let named = position_in_name(inner).or_else(|| files.first().and_then(|f| position_in_name(f)));
+    let position = fill.position.or(named);
+    let lift = fill.lift.or(watch.lift.map(|l| (l, true)));
+    let m = Manifest {
+        watch: Some(watch.name.clone()),
+        calibre: watch.calibre.clone().filter(|c| !c.is_empty()),
+        bph: fill.bph.or(watch.bph),
+        lift: lift.map(|l| l.0),
+        lift_known: lift.map(|l| l.1),
+        recordings: vec![RecordingEntry {
+            file: ".".into(),
+            position: position.map(|p| p.code().into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let toml = toml::to_string_pretty(&m).map_err(|e| e.to_string())?;
+    let dir_json = inner.is_dir().then(|| inner.join("session.json"));
+    let json = with_start(dir_json.as_deref(), fill)?;
+    let started = fill
+        .started_utc
+        .clone()
+        .or_else(|| started_in(inner))
+        .unwrap_or_default();
+    let minute = watches::local_minute(&started).unwrap_or_else(|| started.replace(':', "."));
+    let name = library::take_name(
+        &minute,
+        &position
+            .and_then(|p| timegrapher_core::session::Position::parse(p.code()))
+            .into_iter()
+            .collect::<Vec<_>>(),
+    );
+    let take = lib.add_recording(
+        inner,
+        id,
+        &name,
+        &[(MANIFEST, toml), ("session.json", json)],
+    )?;
+    Ok((take, id.to_string(), None))
 }
 
 /// A new watch made for `a`'s recording: named as asked, with the
