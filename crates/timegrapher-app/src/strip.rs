@@ -1101,7 +1101,7 @@ fn strip_rects(
         // of its top number.
         let units = if cols.is_empty() { 0.0 } else { row_h - 4.0 };
         Rect::from_min_max(
-            outer.min + Vec2::new(gutter.max(46.0), 3.0 + lane_h + units),
+            outer.min + Vec2::new(gutter.max(crate::theme::GUTTER_MIN), 3.0 + lane_h + units),
             outer.max - Vec2::new(4.0 + cols.iter().sum::<f32>(), row_h + 2.0),
         )
     } else {
@@ -1716,14 +1716,14 @@ impl Frame<'_> {
         let (painter, r, outer, vis, font) =
             (&self.painter, self.g.r, self.outer, &self.vis, &self.font);
         let colors = side_colors(vis.dark_mode);
-        let mut at = if self.g.horizontal {
-            Pos2::new(outer.left() + 6.0, self.lane.top() + 1.0)
+        if self.g.horizontal {
+            self.paint_corner_key(colors);
         } else {
-            Pos2::new(r.left(), outer.top() + 3.0)
-        };
-        for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
-            let k = painter.text(at, Align2::LEFT_TOP, label, font.clone(), c);
-            at.x = k.right() + 8.0;
+            let mut at = Pos2::new(r.left(), outer.top() + 3.0);
+            for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
+                let k = painter.text(at, Align2::LEFT_TOP, label, font.clone(), c);
+                at.x = k.right() + 8.0;
+            }
         }
         let Some(n) = self.extras.note else {
             return;
@@ -1743,6 +1743,30 @@ impl Frame<'_> {
                 font.clone(),
                 vis.text_color(),
             );
+        }
+    }
+
+    /// The key lying across: in the plot's top-left corner, Tick over
+    /// Tock, each a dot and its word in its side's colour, on a plate of
+    /// the plot's ground at 80% under the beats (#1225, Peter's C2).
+    fn paint_corner_key(&self, colors: [Color32; 2]) {
+        let (painter, r) = (&self.painter, self.g.r);
+        let rows = [("Tick", colors[0]), ("Tock", colors[1])]
+            .map(|(w, c)| (painter.layout_no_wrap(w.into(), self.font.clone(), c), c));
+        let dot = 3.0;
+        let text_x = 4.0 + 2.0 * dot + 4.0;
+        let row_h = rows.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max);
+        let wide = rows.iter().map(|(g, _)| g.size().x).fold(0.0, f32::max);
+        let plate = Rect::from_min_size(
+            r.min + Vec2::new(4.0, 4.0),
+            Vec2::new(text_x + wide + 4.0, 2.0 * row_h + 4.0),
+        );
+        painter.rect_filled(plate, 2.0, self.vis.extreme_bg_color.gamma_multiply(0.8));
+        for (i, (g, c)) in rows.into_iter().enumerate() {
+            let top = plate.top() + 2.0 + i as f32 * row_h;
+            let mid = top + row_h / 2.0;
+            painter.circle_filled(Pos2::new(plate.left() + 4.0 + dot, mid), dot, c);
+            painter.galley(Pos2::new(plate.left() + text_x, top), g, c);
         }
     }
 
@@ -2368,6 +2392,73 @@ mod tests {
             let got = painted_frames(&ctx, None, &painted, &right(p));
             assert!(got.iter().all(|i| i.unpaint_at.is_none()), "{p:?}");
             assert!(got.iter().any(|i| i.unmask_at.is_some()), "{p:?}");
+        }
+    }
+
+    /// Lying across, the key is in the plot's top-left corner, Tick over
+    /// Tock, on a plate; lying down it is a row over the plot, as before
+    /// (#1225, Peter's C2).
+    #[test]
+    fn the_key_lies_in_the_plots_corner_across_and_over_it_down() {
+        for horizontal in [true, false] {
+            let ctx = egui::Context::default();
+            let view = StripView {
+                half_width_ms: 10.0,
+                span_s: 100.0,
+                horizontal,
+            };
+            let extras = Extras {
+                gutter: 46.0,
+                ..Default::default()
+            };
+            let mut origin = Pos2::ZERO;
+            let out = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 300.0))),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        origin = ui.cursor().min;
+                        draw_strip(
+                            ui,
+                            &[],
+                            0.125,
+                            None,
+                            100.0,
+                            &view,
+                            &extras,
+                            Vec2::new(460.0, 260.0),
+                        );
+                    });
+                },
+            );
+            let at = |want: &str| {
+                out.shapes
+                    .iter()
+                    .find_map(|c| match &c.shape {
+                        egui::Shape::Text(t) if t.galley.text() == want => {
+                            Some(c.shape.visual_bounding_rect())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{want} drawn"))
+            };
+            let (tick, tock) = (at("Tick"), at("Tock"));
+            if horizontal {
+                assert!(
+                    tick.left() >= origin.x + 46.0,
+                    "in the plot, not the gutter: {tick:?}"
+                );
+                assert!(
+                    tick.bottom() <= tock.top() + 1.0,
+                    "Tick over Tock: {tick:?} {tock:?}"
+                );
+                assert!((tick.left() - tock.left()).abs() < 0.5);
+            } else {
+                assert!((tick.center().y - tock.center().y).abs() < 0.5, "a row");
+                assert!(tock.left() > tick.right());
+            }
         }
     }
 

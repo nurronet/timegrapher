@@ -1524,10 +1524,6 @@ fn sync_containers(tiles: &mut Tiles<Pane>) {
     }
 }
 
-/// Width of the time panes' left axis, the strip's (lying across) and the
-/// charts' alike, so their time axes line up when stacked.
-const GUTTER: f32 = 76.0;
-
 /// Shares labelled up the probability plot, percent, as on probability
 /// paper.
 const PROBABILITY_MARKS: [(f64, &str); 11] = [
@@ -3678,13 +3674,14 @@ fn paint_y_labels(ui: &egui::Ui, t: &egui_plot::PlotTransform, unit: &str) {
     for m in marks {
         let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
         let y = t.position_from_point_y(m.value);
-        painter.text(
+        let drawn = painter.text(
             egui::pos2(frame.left() - 6.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{v}{unit}"),
             font.clone(),
             color,
         );
+        theme::note_gutter_label(ui.ctx(), drawn);
     }
 }
 
