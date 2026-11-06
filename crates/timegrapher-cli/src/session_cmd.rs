@@ -826,7 +826,7 @@ fn long_run_of(c: &Ctx, read: &take::EntryRead) -> Option<power_reserve::Results
         &read.log,
         read.clock.as_ref(),
         &read.breaks,
-        &read.masked,
+        &session::with_holes(&read.masked, &read.holes()),
         &positions_listed(c),
         "",
         read.kept.is_none(),
@@ -1033,11 +1033,14 @@ fn whole_take_run(c: &Ctx) -> Result<Option<power_reserve::Results>, String> {
     // Cut where the take's readings are cut, as the app cuts the take it
     // opens.
     let breaks = ctx.reading_breaks(c.m);
+    // Its settlings left out as a mask is (#1233); the run still starts at
+    // its first beat.
+    let masked = session::with_holes(&ctx.masked, &ctx.holes(c.m));
     Ok(power_reserve::from_long_take(
         &log,
         ctx.clock.as_ref(),
         &breaks,
-        &ctx.masked,
+        &masked,
         &positions_listed(c),
         "",
         !ctx.files.is_empty(),

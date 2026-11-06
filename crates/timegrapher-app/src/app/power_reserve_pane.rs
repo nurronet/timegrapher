@@ -372,8 +372,10 @@ impl TimegrapherApp {
         } else {
             codes
         };
-        let (masked, position, sound) =
-            (self.masked.clone(), self.position, self.no_sound.is_none());
+        // Its settlings left out as a mask is, as session reads the run
+        // (#1233); the run still starts at its first beat.
+        let masked = timegrapher_core::session::with_holes(&self.masked, &self.session.settles());
+        let (position, sound) = (self.position, self.no_sound.is_none());
         Some(move || {
             let log = steady::log_of(&live)?;
             let fit = reading_clock(take_clock.as_ref(), opened, ppm, log.duration_s);
