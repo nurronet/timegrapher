@@ -322,7 +322,7 @@ impl TimegrapherApp {
     /// the strip shades, so no reading falls where the watch was just
     /// handled (#1233).
     pub(super) fn engine_masked(&self) -> Vec<(f64, f64)> {
-        engine_masks(&self.masked, &self.session)
+        engine_masks(&self.masked, &self.session, &self.guided_unused)
     }
 
     /// Give the engine its masks ([`Self::engine_masked`]).
@@ -352,6 +352,14 @@ impl TimegrapherApp {
 pub(super) fn engine_masks(
     masked: &[(f64, f64)],
     session: &crate::session::Session,
+    unused: &[(f64, f64, &'static str)],
 ) -> Vec<(f64, f64)> {
-    timegrapher_core::session::with_holes(masked, &session.settles())
+    // Only settlings: the time before a Positions Test began, or that it
+    // didn't use, was read as any listening is and stays.
+    let settles: Vec<(f64, f64)> = super::paper_strip::strip_settles_of(session, unused)
+        .into_iter()
+        .filter(|s| s.2 == crate::guided::SETTLING)
+        .map(|(a, b, _)| (a, b))
+        .collect();
+    timegrapher_core::session::with_holes(masked, &settles)
 }

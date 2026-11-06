@@ -88,9 +88,7 @@ impl TimegrapherApp {
         self.session.discard_recording();
         self.session.clear();
         self.put_input_clock(None);
-        let mut live = LiveAnalyzer::new(sample_rate, self.live_config());
-        live.set_masked(&self.engine_masked());
-        self.live = Some(live);
+        self.live = Some(LiveAnalyzer::new(sample_rate, self.live_config()));
         self.source_label = label;
         self.gutter_fresh = true;
         self.anchor = None;
@@ -106,6 +104,8 @@ impl TimegrapherApp {
         self.reserve = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
+        // Its masks, once nothing of the last test's is left.
+        self.mask_engine();
         self.rev.new_take();
     }
 
@@ -529,6 +529,7 @@ impl TimegrapherApp {
         self.test_keep = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
+        self.mask_engine();
         self.source_label.clear();
         // The recording opened goes too: what follows is a new take.
         if self.input == Input::File {
@@ -2203,7 +2204,11 @@ impl TimegrapherApp {
                     }
                     live.skip(gap);
                     self.session.resumed_at(live.duration_s());
-                    live.set_masked(&super::masks::engine_masks(&self.masked, &self.session));
+                    live.set_masked(&super::masks::engine_masks(
+                        &self.masked,
+                        &self.session,
+                        &self.guided_unused,
+                    ));
                 }
                 if let Some(t) = self.clock_track.as_mut() {
                     t.restart(live.sample_rate());
