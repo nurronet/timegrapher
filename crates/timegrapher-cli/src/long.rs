@@ -282,6 +282,15 @@ pub(crate) fn expand_dirs(files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     timegrapher_core::take::sound_files(files)
 }
 
+/// A note on stderr where the files read as one recording were written in
+/// another order than they are joined in (core's
+/// `recording_order::order_warning`, as the app says it, #1203).
+pub(crate) fn note_join_order(files: &[PathBuf]) {
+    if let Some(n) = timegrapher_core::recording_order::order_warning(files) {
+        eprintln!("note: {n}");
+    }
+}
+
 /// Where the sound card's clock error comes from: a clock log recorded
 /// with the take, else `--card-ppm`, else the stored error for `device` or
 /// for the input the recording names.
@@ -354,6 +363,7 @@ pub(crate) fn read(
     cfg.analysis.amplitude.lift_deg = resolved_train.lift_deg(lift);
     cfg.analysis.lift_known = resolved_train.lift_given(lift).is_some();
     let files = expand_dirs(files)?;
+    note_join_order(&files);
     let file = files.first().ok_or("no recording given")?.clone();
     audio::info(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     // Once the recordings open, so a run that fails on them says only why.
@@ -464,6 +474,7 @@ fn read_take(
     // take seconds; a hole inside one position's run cut as a mask is.
     let stretches = ctx.spans(&m);
     let files: Vec<PathBuf> = ctx.files.iter().map(|f| f.path.clone()).collect();
+    note_join_order(&files);
     let clock = crate::clock_cmd::AppliedClock::of(ctx.clock, ctx.clock_ppm, ctx.clock_source);
     let (mut log, mut breaks, mut masked) = (log, ctx.breaks, ctx.masked);
     // Every stretch left out, masked by hand or a hole, is cut at both

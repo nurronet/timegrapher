@@ -114,7 +114,7 @@ outside the Watches folder) and **Save in a Folder…**, which asks where,
 or **Save Again** once it has been saved. On a take opened whose painted
 positions or masks have changed, the menu offers **Save Changes** first
 and the status bar says "Changes not saved". The Save icon is hidden for a
-watch's own take, which saves itself at Stop. Beside them are the take's
+watch's own take, which records into its folder as it goes (below). Beside them are the take's
 length ("12:48"), live while listening and the whole take for one
 opened, and its state under it (Listening, Stopped, Opened, or 0:00 and
 Not Started). The status bar no longer gives the length. Under them
@@ -193,7 +193,21 @@ that differs from the watch's is kept as heard; a take kept in a watch
 without a calibre, by an older app, opens with the watch's),
 **Save in a Folder…** saves it into a folder chosen, and **Save…** in the
 File menu saves it into Unsorted, named as a watch's takes are. Once
-kept, Stop or Save Again adds the sound since to the same take. Until it
+kept, while it is heard the take records into its folder as it goes, and
+so does a watch's own take: every 5 s of sound is added to the take with
+no Save Again, so a crash or a power cut costs only seconds. Meanwhile the
+Save icon is lit, its menu and hover say "Saving to" the watch, Unsorted
+Takes or the folder, and it has no Save Again. File ▸ Save is dimmed
+for the same reason, and the status bar says "Saved". Stop and quitting
+add the last seconds and close the take with no question. A save that
+fails says so, and the next is tried a minute later. Only the new
+sound is written each time. After a crash, the next start says the take
+holds all but its last few seconds, and offers **Open Take** or **Delete
+Copy…** for the copy left on this computer with those seconds. A Positions or Power Reserve Test of a watch
+picked records into the watch the same way, and its results are written
+as it ends. One with no watch picked asks where it goes as it ends, so
+until then its sound is kept only on this computer, and it is offered
+back at the next start after a crash. Until it
 is kept, its sound goes without a question when you quit, start another
 take or open a recording, and is not kept for the next start to offer
 back. Starting a take of a watch ends Quick Listen.
@@ -1864,7 +1878,7 @@ when. It holds:
 
 | File | Contents |
 | --- | --- |
-| `audio-001.flac`, ... | The audio as captured, mono, 16-bit for a 16-bit microphone, in files of at most an hour; listening again after a break (the computer sleeping) starts a new file. The hour being recorded is a WAV, kept as FLAC once it closes (checked sample for sample, then the WAV deleted) |
+| `audio-001.flac`, ... | The audio as captured, mono, 16-bit whatever the microphone gives, in files of at most an hour; listening again after a break (the computer sleeping) starts a new file. The hour being recorded is a WAV, kept as FLAC once it closes (checked sample for sample, then the WAV deleted) |
 | `clock.csv` | System time against frames captured, every 10 s, and on both sides of each break; frames run on across a break, with no line made up for the gap |
 | `session.json` | Watch, position, lift angle, beat rate, device, start and end, position changes, the readings at the end, and (only once the take has a break, such as the computer sleeping while it listened) `breaks`: one entry per break with `frame` (frames in the take before it), `audio_s`, `segment` (its first file), `utc` (host time of its first frame), `gap_s` (host time missing, from the clock log either side) and `device` (the input after it) |
 | `session.toml` | The session file `timegrapher session` reads: watch, calibre (with the wheels of a custom one), lift angle, beat rate, and one `[[recording]]` per stretch in one position with its `start_s` and `end_s` (for a take saved during a Positions Test, the test's own measured stretches, after each settling and for its measuring time, so `timegrapher session` reads the seconds its table did, with `wind_h` in the 24 hour half) |

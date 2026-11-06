@@ -440,7 +440,7 @@ impl TimegrapherApp {
         };
         let started = watches::local_minute(r.started_utc())
             .unwrap_or_else(|| r.started_utc().replace(':', "."));
-        let dir = library::unused_dir(&takes, &format!("{started} Power Reserve"));
+        let dir = library::unused_dir(&takes, &reserve_take_name(&started));
         if let Some(name) = dir.file_name() {
             r.name_first_copy(name.to_owned());
         }
@@ -481,11 +481,8 @@ impl TimegrapherApp {
         let free = if self.reserve.is_none() {
             self.reserve_takes_dir().ok().and_then(|d| {
                 let have = reserve::free_bytes(&d)?;
-                let (rate, bits) = self
-                    .capture
-                    .as_ref()
-                    .map_or((48_000, 16), |c| (c.sample_rate, c.bits));
-                Some((have, reserve::bytes_needed(rate, bits)))
+                let rate = self.capture.as_ref().map_or(48_000, |c| c.sample_rate);
+                Some((have, reserve::bytes_needed(rate)))
             })
         } else {
             None
@@ -507,4 +504,10 @@ impl TimegrapherApp {
             self.ready_test() == Some(NewTake::PowerReserve),
         );
     }
+}
+
+/// The folder name of a Power Reserve Test's take started at `started`
+/// (local time, as a watch's takes are named).
+pub(super) fn reserve_take_name(started: &str) -> String {
+    format!("{started} Power Reserve")
 }

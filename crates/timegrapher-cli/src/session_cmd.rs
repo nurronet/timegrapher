@@ -884,6 +884,11 @@ pub fn run(paths: &[PathBuf], o: &Options) -> Result<(), String> {
         return init(paths, o);
     }
     let (m, base) = load_manifest(paths)?;
+    // The take's files in the order a folder of them is joined in, as the
+    // app opens it.
+    if let Ok(files) = take::sound_files(std::slice::from_ref(&base)) {
+        crate::long::note_join_order(&files);
+    }
     let selection = o.calibre(&m)?;
     let cal = selection.train.calibre.as_ref();
     let calibre_notes = o.calibre_notes(&m, &selection);

@@ -963,6 +963,44 @@ mod tests {
     use super::*;
     use crate::timing;
 
+    /// Sound too short for one beat's window, as a 1 s entry after its
+    /// settling leaves, is measured without a panic (#1207): silence, hiss
+    /// and a lone click, at 8 and 48 kHz. Where no beat is heard (silence,
+    /// one sample) the shape holds no figure, as 10 s of silence gives on
+    /// main: every interval and ratio None, the first sound found in none
+    /// of the windows, no extra sounds.
+    #[test]
+    fn the_shape_of_a_moment_of_sound_is_measured_without_a_panic() {
+        let no_figure = |m: &session::ShapeSummary| {
+            [&m.even, &m.odd].iter().all(|s| {
+                [s.i12_ms, s.i13_ms, s.ratio13, s.ratio23, s.noise_ratio]
+                    .iter()
+                    .all(Option::is_none)
+                    && s.sound1_found == 0.0
+                    && s.extra_pre.is_empty()
+                    && s.extra_post.is_empty()
+            })
+        };
+        for fs in [8_000.0, 48_000.0] {
+            for s in [1.0 / fs, 0.01, 0.1, 0.124, 0.126, 0.25, 1.0] {
+                let n = (fs * s) as usize;
+                let silence = vec![0.0f32; n];
+                let hiss: Vec<f32> = (0..n)
+                    .map(|i| ((i * 7919) % 101) as f32 / 500.0 - 0.1)
+                    .collect();
+                let mut click = vec![0.0f32; n];
+                click[n / 2] = 0.9;
+                let quiet = measure_shape(&silence, fs, 28_800, 0.0);
+                assert!(quiet.as_ref().is_some_and(no_figure), "{fs} Hz, {s} s");
+                let _ = measure_shape(&hiss, fs, 28_800, 0.0);
+                let one = measure_shape(&click, fs, 28_800, 0.0);
+                if n == 1 {
+                    assert!(one.as_ref().is_some_and(no_figure), "{fs} Hz, one sample");
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_shape_is_measured_clear_of_masked_stretches() {
         assert_eq!(shape_stretch(&[], 30.0, 600.0), Some((30.0, SHAPE_S)));
