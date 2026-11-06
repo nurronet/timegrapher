@@ -316,6 +316,7 @@ fn the_watch_line_menu_offers_no_watch_the_recent_watches_new_and_find() {
             audio: true,
             incomplete: false,
             started_utc: Some(when.into()),
+            named_start: None,
             duration_s: None,
             positions: Vec::new(),
             at_end: None,
