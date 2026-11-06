@@ -496,3 +496,303 @@ fn fit_shapes(done: &[Measured]) -> Vec<Cell> {
     }
     out
 }
+
+/// Outside the table there is no levelling, never a clamped cell: a
+/// take shorter than its shortest, longer than its longest, a ρ past its
+/// last, a step it has no cells for, a step it has only at other lengths,
+/// a span between the two detrend branches' cells, or no fitted mix
+/// (#1195, Norm's condition 2).
+#[test]
+fn levelling_is_none_outside_the_table() {
+    use NullModel::{Readings, Timing};
+    for (model, span, step, mix) in [
+        (Readings, 60.0, 2.0, 0.3),
+        (Readings, 1.0e6, 2.0, 0.3),
+        (Readings, 1800.0, 2.0, 0.995),
+        (Readings, 1800.0, 1.0, 0.3),
+        (Readings, 3600.0, 4.0, 0.3),
+        (Readings, 1199.5, 2.0, 0.3),
+        (Timing, 60.0, 0.25, 10.0),
+        (Timing, 1.0e6, 4.0, 10.0),
+        (Timing, 1800.0, 0.1, 10.0),
+        (Timing, 1800.0, 0.25, f64::NAN),
+    ] {
+        assert!(
+            levelling(model, span, step, mix).is_none(),
+            "{model:?} {span} s at {step} s, mix {mix}"
+        );
+    }
+    // Each side's own edge cells are inside.
+    assert!(levelling(Readings, 1199.0, 2.0, 0.3).is_some());
+    assert!(levelling(Readings, 1200.0, 2.0, 0.3).is_some());
+    assert!(levelling(Readings, 1800.0, 2.0, 0.99).is_some());
+}
+
+/// A lookup on a cell returns that cell; one between two take lengths or
+/// two mixes is the blend of the cells either side, linear in log span
+/// and on the mix axis.
+#[test]
+fn a_lookup_between_cells_interpolates() {
+    use NullModel::Readings;
+    let cell = |span: f64, mix: f64| {
+        table()
+            .cells
+            .iter()
+            .find(|c| c.model == Readings && c.span_s == span && c.step_s == 2.0 && c.mix == mix)
+            .unwrap_or_else(|| panic!("no cell {span} {mix}"))
+    };
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-9 * (1.0 + b.abs());
+    let on = levelling(Readings, 1800.0, 2.0, 0.5).unwrap();
+    let c = cell(1800.0, 0.5);
+    assert_eq!(
+        (on.mu, on.sigma, on.xi, on.log_trials),
+        (c.mu, c.sigma, c.xi, c.log_trials)
+    );
+    assert_eq!(on.mean, c.mean);
+    // Halfway in log span between 1800 and 2700 s.
+    let (a, b) = (cell(1800.0, 0.5), cell(2700.0, 0.5));
+    let mid = levelling(Readings, (1800.0f64 * 2700.0).sqrt(), 2.0, 0.5).unwrap();
+    assert!(
+        close(mid.mu, (a.mu + b.mu) / 2.0),
+        "{} {} {}",
+        mid.mu,
+        a.mu,
+        b.mu
+    );
+    assert!(close(mid.sigma, (a.sigma + b.sigma) / 2.0));
+    for k in 0..X_POINTS {
+        match (a.mean[k], b.mean[k], mid.mean[k]) {
+            (Some(x), Some(y), Some(m)) => assert!(close(m, (x + y) / 2.0)),
+            (_, _, m) => assert!(m.is_none()),
+        }
+    }
+    // A quarter of the way from ρ 0.5 to 0.7 at 1800 s.
+    let (a, b) = (cell(1800.0, 0.5), cell(1800.0, 0.7));
+    let q = levelling(Readings, 1800.0, 2.0, 0.55).unwrap();
+    assert!(
+        close(q.mu, a.mu + (b.mu - a.mu) * 0.25),
+        "{} {} {}",
+        q.mu,
+        a.mu,
+        b.mu
+    );
+    assert!(close(q.xi, a.xi + (b.xi - a.xi) * 0.25));
+    assert!(q.mu != a.mu && q.mu != b.mu);
+}
+
+/// Out of sample: fresh seeds (none the table was fitted on) through the
+/// whole search, its own mix fitted and looked up, at every cell; the
+/// count of maxima past p 0.01 and 0.001 against the expected. Run by
+/// hand: `FRESH_DRAWS` draws a cell (default 100).
+#[test]
+#[ignore = "out-of-sample tail check; run by hand"]
+fn fresh_seeds_hold_the_tail() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    let draws: usize = std::env::var("FRESH_DRAWS").map_or(100, |s| s.parse().unwrap());
+    let only: Option<String> = std::env::var("FRESH_MODEL").ok();
+    let mut cells: Vec<&Cell> = table()
+        .cells
+        .iter()
+        .filter(|c| only.as_ref().is_none_or(|m| format!("{:?}", c.model) == *m))
+        .collect();
+    cells.sort_by(|a, b| (b.span_s / b.step_s).total_cmp(&(a.span_s / a.step_s)));
+    let next = AtomicUsize::new(0);
+    // Per model: maxima, uncalibrated, past 0.01, past 0.001.
+    let totals = Mutex::new([[0usize; 4]; 2]);
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|sc| {
+        for _ in 0..workers {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(c) = cells.get(i) else { break };
+                let g0 = null_grid(NullModel::Readings, c.span_s, c.step_s, 0.0, 1.0, 1);
+                let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * c.step_s);
+                let scale = x_scale(&g0, w);
+                let mi = (c.mix.min(1e15) * 1000.0).round() as u64;
+                let id = [
+                    c.model as u64,
+                    c.span_s as u64,
+                    (c.step_s * 100.0) as u64,
+                    mi,
+                ];
+                let mut n = [0usize; 4];
+                for d in 0..draws {
+                    let seed = seed_of(&[id[0], id[1], id[2], id[3], 7, d as u64]);
+                    let g = null_grid(c.model, c.span_s, c.step_s, c.mix, scale, seed);
+                    let det = detrend(&g, DETREND_S);
+                    let band = Band {
+                        min_p: 3f64.max(8.0 * c.step_s),
+                        max_p: c.span_s / 3.0,
+                        false_alarm: 0.01,
+                        detrend_w: w,
+                        model: c.model,
+                        given: None,
+                    };
+                    let s = search(&det, &band, &[]);
+                    n[0] += 1;
+                    if !s.null.calibrated {
+                        n[1] += 1;
+                        continue;
+                    }
+                    let sig = s
+                        .tail
+                        .significance(s.score.iter().copied().fold(0.0, f64::max));
+                    n[2] += usize::from(sig > 2.0);
+                    n[3] += usize::from(sig > 3.0);
+                }
+                eprintln!(
+                    "cell {:?} {} {} {}: {} {} {} {}",
+                    c.model, c.span_s, c.step_s, c.mix, n[0], n[1], n[2], n[3]
+                );
+                let mut t = totals.lock().unwrap();
+                for k in 0..4 {
+                    t[c.model as usize][k] += n[k];
+                }
+            });
+        }
+    });
+    let t = totals.into_inner().unwrap();
+    for (m, name) in [(0, "readings"), (1, "timing")] {
+        let held = (t[m][0] - t[m][1]) as f64;
+        eprintln!(
+            "{name}: {} maxima, {} uncalibrated; past p 0.01 {} (expected {:.0}), past 0.001 {} (expected {:.1})",
+            t[m][0],
+            t[m][1],
+            t[m][2],
+            held * 0.01,
+            t[m][3],
+            held * 0.001
+        );
+    }
+}
+
+/// The plain trials count's tail is the old Bonferroni: significance
+/// score − log10 N, threshold log10 N − log10 p.
+#[test]
+fn the_trials_tail_is_bonferroni() {
+    for n in [1.0, 37.0, 4096.0] {
+        let t = Tail::trials(n);
+        for s in [0.5, 3.0, 9.25] {
+            assert!((t.significance(s) - (s - f64::log10(n))).abs() < 1e-12);
+        }
+        for p in [0.01, 0.001] {
+            assert!((t.score_at(p) - (f64::log10(n) - f64::log10(p))).abs() < 1e-12);
+        }
+    }
+}
+
+/// `score_at` and `significance` invert each other, with no shape and
+/// with one.
+#[test]
+fn score_at_and_significance_invert() {
+    for xi in [0.0, 0.08, 0.2] {
+        let t = Tail {
+            mu: 3.1,
+            sigma: 0.52,
+            xi,
+        };
+        for p in [0.05, 0.01, 0.001, 1e-6] {
+            let s = t.score_at(p);
+            assert!((t.significance(s) + p.log10()).abs() < 1e-9, "ξ {xi} p {p}");
+        }
+    }
+}
+
+/// A cell's levelling moved to its own trials count is its own tail;
+/// to ten times as many, its maximum's location rises as ten draws'.
+#[test]
+fn a_levellings_tail_at_its_own_trials_is_its_own() {
+    for xi in [0.0, 0.12] {
+        let l = Levelling {
+            mean: vec![Some(1.0); X_POINTS],
+            mu: 3.4,
+            sigma: 0.47,
+            xi,
+            log_trials: 2.7,
+        };
+        let t = l.tail(10f64.powf(2.7));
+        assert!((t.mu - 3.4).abs() < 1e-12 && (t.sigma - 0.47).abs() < 1e-12 && t.xi == xi);
+        // The maximum of ten: P(max ≤ s)^10, so −ln P, the chance the
+        // tail states, is ten times as large at every score.
+        let ten = l.tail(10f64.powf(3.7));
+        let s = t.score_at(0.01);
+        assert!(
+            (ten.significance(s) - (t.significance(s) - 1.0)).abs() < 1e-9,
+            "ξ {xi}"
+        );
+    }
+}
+
+/// A step within 0.1% of the table's is the table's: real takes read a
+/// few ppm off the nominal 2 s.
+#[test]
+fn a_step_a_few_ppm_off_finds_its_cells() {
+    let on = levelling(NullModel::Readings, 1800.0, 2.0, 0.5).unwrap();
+    let off = levelling(NullModel::Readings, 1800.0, 2.0000378, 0.5).unwrap();
+    assert_eq!(on.mu, off.mu);
+    assert!(levelling(NullModel::Readings, 1800.0, 2.01, 0.5).is_none());
+}
+
+/// The timing's crossover fit on the null itself: about none on white
+/// noise, the pure walk's mark on a walk, and close to the crossover a
+/// walk plus white noise was made with (the median of 21 draws).
+#[test]
+fn timing_mix_recovers_the_crossover() {
+    let (span, step) = (7200.0, 0.25);
+    let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
+    let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
+    let scale = x_scale(&g0, w);
+    let fit = |mix: f64| {
+        let mut v: Vec<f64> = (0..21)
+            .map(|d| {
+                let g = null_grid(NullModel::Timing, span, step, mix, scale, seed_of(&[9, d]));
+                let sp = spectrum(&detrend(&g, DETREND_S), w);
+                let from = (2.0 / (sp.df * scale)).ceil() as usize;
+                timing_mix(&sp.power, sp.df, step, from, scale)
+            })
+            .collect();
+        v.sort_by(f64::total_cmp);
+        v[10]
+    };
+    assert!(fit(0.0) < 1.0, "white: {}", fit(0.0));
+    assert_eq!(fit(WALK_MIX), WALK_MIX);
+    for mix in [30.0, 300.0, 1000.0] {
+        let got = fit(mix);
+        assert!((got / mix).ln().abs() < 0.25f64.ln_1p(), "{mix}: {got}");
+    }
+}
+
+/// The table as the generator writes it: every model, span and step row
+/// with its full mix list, a shape on 0 to 0.2, a positive scale, and
+/// positive means (a truncated or hand-edited table fails here).
+#[test]
+fn the_null_table_has_the_generators_shape() {
+    let t = table();
+    for model in [NullModel::Readings, NullModel::Timing] {
+        for (span, step) in rows(model) {
+            let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
+            let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
+            let want = mixes(model, x_scale(&g0, w), step);
+            let mut got: Vec<f64> = t
+                .cells
+                .iter()
+                .filter(|c| c.model == model && c.span_s == span && c.step_s == step)
+                .map(|c| c.mix)
+                .collect();
+            got.sort_by(f64::total_cmp);
+            assert_eq!(got, want, "{model:?} {span} s at {step} s");
+        }
+    }
+    for c in &t.cells {
+        let at = format!("{:?} {} {} {}", c.model, c.span_s, c.step_s, c.mix);
+        assert!((0.0..=0.2).contains(&c.xi), "{at}: ξ {}", c.xi);
+        assert!(
+            c.sigma > 0.0 && c.mu.is_finite() && c.log_trials > 0.0,
+            "{at}"
+        );
+        assert_eq!(c.mean.len(), X_POINTS, "{at}");
+        assert!(c.mean.iter().flatten().all(|&m| m > 0.0), "{at}");
+        assert!(c.mean.iter().flatten().count() >= 10, "{at}");
+    }
+}

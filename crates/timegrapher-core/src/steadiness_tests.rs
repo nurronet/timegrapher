@@ -1730,3 +1730,62 @@ fn reading_grids_are_the_readings_check_counts() {
         .unwrap();
     assert_eq!(selected.beat_error_source, be.beat_error_source);
 }
+
+/// A period named where the null table does not reach (here a 1 s step,
+/// which the table holds no cells for) carries `period_search_uncalibrated`
+/// and its sentence, and the series reports the null as uncalibrated
+/// (#1195, Norm's condition 2).
+#[test]
+fn a_period_the_null_table_does_not_reach_carries_the_caveat() {
+    let tau = std::f64::consts::TAU;
+    let mut z = Noise(15);
+    let y = (0..600)
+        .map(|i| (tau * (i as f64 + 0.5) / 60.0).sin() + 0.1 * z.next())
+        .collect();
+    let r = longterm::analyse(&grid(y, 1.0), &LongConfig::default());
+    assert!(!r.components.is_empty());
+    assert!(!r.search.null.calibrated);
+    let mut s = check_series(
+        SeriesKind::Amplitude,
+        grid(noise(14, 360, 270.0, 1.5), 10.0),
+        None,
+        Some(search_line(60.0, 0.8, "deg", None)),
+        None,
+        &[],
+        &Config::default(),
+    );
+    let before = s.headline.clone();
+    hold_to_null(&mut s, &r);
+    let c = longterm::period_uncalibrated(&r).expect("caveat");
+    assert!(s.caveats.contains(&c), "{:?}", s.caveats);
+    assert_eq!(s.headline, format!("{before} {}", c.long(None).unwrap()));
+    assert!(!s.null.expect("null").calibrated);
+}
+
+/// The same cycle on 2 s windows over 30 min, which the table covers,
+/// carries no such caveat, and the series reports its null as held.
+#[test]
+fn a_period_the_null_table_covers_carries_no_caveat() {
+    let tau = std::f64::consts::TAU;
+    let mut z = Noise(16);
+    let y = (0..900)
+        .map(|i| (tau * (i as f64 + 0.5) * 2.0 / 60.0).sin() + 0.5 * z.next())
+        .collect();
+    let r = longterm::analyse(&grid(y, 2.0), &LongConfig::default());
+    assert!(!r.components.is_empty());
+    assert!(r.search.null.calibrated);
+    let mut s = check_series(
+        SeriesKind::Amplitude,
+        grid(noise(14, 360, 270.0, 1.5), 10.0),
+        None,
+        Some(search_line(60.0, 0.8, "deg", None)),
+        None,
+        &[],
+        &Config::default(),
+    );
+    let before = (s.headline.clone(), s.caveats.clone());
+    hold_to_null(&mut s, &r);
+    assert_eq!((s.headline.clone(), s.caveats.clone()), before);
+    let n = s.null.expect("null");
+    assert!(n.calibrated && n.model == longterm::NullModel::Readings);
+}

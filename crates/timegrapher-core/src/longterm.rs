@@ -1060,9 +1060,10 @@ impl Search {
 
 /// One series' search crossed its threshold about 1 time in this many on
 /// seeded white and AR(1) noise, the noise its model fits: 4 of 400 at
-/// 30 min for ρ 0, 0.5 and 0.9 alike, 3 to 5 of 400 at 2 h, its design
-/// rate since the search is held to its simulated null (#1195; 3 to 3.5%
-/// before, #916). Said in [`period_may_be_noise`]'s words and the Periods
+/// 30 min for ρ 0, 0.5 and 0.9 alike, and 3, 7 and 5 of 400 at 2 h (27
+/// of 2400 in all, 24 expected), its design rate since the search is
+/// held to its simulated null (#1195; 3 to 3.5% before, #916). Re-measured
+/// by `crossing_counts_on_400_seeds`. Said in [`period_may_be_noise`]'s words and the Periods
 /// threshold's hover.
 pub const MEASURED_CROSSING_IN: u32 = 100;
 /// …and up to 1 time in this many on 30 min takes with a slow wander under
@@ -1275,6 +1276,32 @@ mod tests {
                 .map(|i| f((i as f64 + 0.5) * step) + noise * rng.normal())
                 .collect(),
         }
+    }
+
+    /// Outside the null table (a 1 s step, which it holds no cells for)
+    /// the search counts trials exactly as before #1195: significance is
+    /// the score less log10 of the independent frequencies times the
+    /// harmonic counts, and the report says it is uncalibrated.
+    #[test]
+    fn outside_the_table_the_search_counts_trials_as_before() {
+        let tau = std::f64::consts::TAU;
+        let g = series(600, 1.0, |t| (tau * t / 60.0).sin(), 0.5, 21);
+        let r = analyse(&g, &LongConfig::default());
+        let s = &r.search;
+        assert!(!s.null.calibrated);
+        let w = detrend_window(&g, DETREND_S).map(|w| w as f64 * g.step);
+        let pad = spectrum(&r.detrended, w).pad;
+        let trials = (s.score.len() as f64 / pad as f64 * HARMONICS.len() as f64).max(1.0);
+        assert_eq!(s.trials, trials);
+        let best = s.score.iter().copied().fold(0.0, f64::max);
+        let top = &r.components[0];
+        assert!(
+            (top.significance - (best - trials.log10())).abs() < 1e-9,
+            "{} against {}",
+            top.significance,
+            best - trials.log10()
+        );
+        assert!(period_uncalibrated(&r).is_some());
     }
 
     #[test]
@@ -1681,6 +1708,88 @@ mod tests {
 
     /// A slow wander (φ 0.98 a 2 s window) under white measurement noise,
     /// lag one 0.8, the amplitude windows #916 found the search misreads.
+    /// The 400-seed counts [`MEASURED_CROSSING_IN`] and
+    /// [`SHORT_CORRELATED_CROSSING_IN`] quote: how often one series'
+    /// search names a cycle in AR(1) noise at 30 min and 2 h (2 s
+    /// windows), and in a slow wander under white noise at 30 min. Run by
+    /// hand: it takes minutes.
+    #[test]
+    #[ignore = "re-measures the crossing constants; run by hand"]
+    fn crossing_counts_on_400_seeds() {
+        let ar1 = |rho: f64, n: usize, seed: u64| -> Vec<f64> {
+            let mut z = Rng::new(seed);
+            let inn = (1.0 - rho * rho).sqrt();
+            let mut x = z.normal();
+            (0..n)
+                .map(|_| {
+                    let v = x;
+                    x = rho * x + inn * z.normal();
+                    v
+                })
+                .collect()
+        };
+        let wander95 = |n: usize, seed: u64| -> Vec<f64> {
+            let (phi, s) = (0.95f64, 0.8 / 0.95);
+            let mut z = Rng::new(seed);
+            let innov = (s * (1.0 - phi * phi)).sqrt();
+            let mut x = s.sqrt() * z.normal();
+            (0..n)
+                .map(|_| {
+                    x = phi * x + innov * z.normal();
+                    x + (1.0 - s).sqrt() * z.normal()
+                })
+                .collect()
+        };
+        type Gen<'a> = Box<dyn Fn(u64) -> Vec<f64> + Sync + 'a>;
+        // (case, series, the counts the constants' docs quote)
+        let cases: Vec<(&str, Gen, std::ops::RangeInclusive<usize>)> = vec![
+            ("ρ 0, 30 min", Box::new(|s| ar1(0.0, 900, s)), 4..=4),
+            ("ρ 0.5, 30 min", Box::new(|s| ar1(0.5, 900, s)), 4..=4),
+            ("ρ 0.9, 30 min", Box::new(|s| ar1(0.9, 900, s)), 4..=4),
+            ("ρ 0, 2 h", Box::new(|s| ar1(0.0, 3600, s)), 3..=3),
+            ("ρ 0.5, 2 h", Box::new(|s| ar1(0.5, 3600, s)), 7..=7),
+            ("ρ 0.9, 2 h", Box::new(|s| ar1(0.9, 3600, s)), 5..=5),
+            (
+                "wander φ 0.98, 30 min",
+                Box::new(|s| wander_under_white(900, s)),
+                17..=17,
+            ),
+            (
+                "wander φ 0.95, 30 min",
+                Box::new(|s| wander95(900, s)),
+                11..=11,
+            ),
+        ];
+        let counts: Vec<usize> = std::thread::scope(|sc| {
+            let jobs: Vec<_> = cases
+                .iter()
+                .map(|(_, gen, _)| {
+                    sc.spawn(move || {
+                        (1..=400u64)
+                            .filter(|&seed| {
+                                let y = gen(seed * 31 + 5);
+                                let g = Grid {
+                                    t0: 0.0,
+                                    step: 2.0,
+                                    y,
+                                };
+                                !analyse(&g, &LongConfig::default()).components.is_empty()
+                            })
+                            .count()
+                    })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap()).collect()
+        });
+        for ((name, _, want), got) in cases.iter().zip(&counts) {
+            eprintln!("{name}: {got} of 400");
+            assert!(
+                want.contains(got),
+                "{name}: {got} of 400, the docs say {want:?}"
+            );
+        }
+    }
+
     fn wander_under_white(n: usize, seed: u64) -> Vec<f64> {
         let (phi, s) = (0.98f64, 0.8 / 0.98);
         let mut z = Rng::new(seed);

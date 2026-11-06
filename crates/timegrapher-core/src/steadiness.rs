@@ -2140,6 +2140,17 @@ pub fn p_text(p: f64) -> String {
     }
 }
 
+/// The null `r`'s period search was held to, onto its series; and when
+/// it named a period the table does not reach, the caveat and its
+/// sentence (#1195).
+fn hold_to_null(s: &mut SeriesCheck, r: &longterm::SeriesReport) {
+    s.null = Some(r.search.null);
+    if let Some(c) = s.period.as_ref().and(longterm::period_uncalibrated(r)) {
+        crate::measure::add(&mut s.caveats, c);
+        s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+    }
+}
+
 /// Check the rate, the amplitude and the beat error of a long-run
 /// analysis. `log` and `clock` are what `long` was run on, and `long`
 /// its report (whose period search is reused).
@@ -2324,11 +2335,7 @@ pub fn check(
         .iter_mut()
         .zip([&long.timing, &long.amplitude, &be_long])
     {
-        s.null = Some(r.search.null);
-        if let Some(c) = s.period.as_ref().and(longterm::period_uncalibrated(r)) {
-            crate::measure::add(&mut s.caveats, c);
-            s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
-        }
+        hold_to_null(s, r);
     }
     // An amplitude split one side carries alone is the unlock mark
     // hopping (the two-state finder's direct check): whatever the
