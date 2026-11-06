@@ -12,10 +12,6 @@ name: Windows walkthrough
 # write token reaches only the step loop, which passes the app an
 # environment without it. Run it only on branches of this repository.
 on:
-  # TEMPORARY for the proving run; removed before review.
-  push:
-    branches: [claude/project-thread-00w04j]
-    paths: ['.github/walkthrough/*.p*', '.github/workflows/windows-walkthrough.yml']
   workflow_dispatch:
     inputs:
       ref:
@@ -37,7 +33,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-walkthrough-${{ inputs.channel || github.ref_name }}
+  group: windows-walkthrough-${{ inputs.channel }}
   cancel-in-progress: true
 
 jobs:
@@ -56,7 +52,7 @@ jobs:
       - name: Head source
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref }}
           path: head
           persist-credentials: false
       - name: Base source
@@ -83,7 +79,7 @@ jobs:
       - name: Channel branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.channel || github.ref_name }}
+          ref: ${{ inputs.channel }}
           path: channel
           persist-credentials: false
       - name: Display 1920 x 1080
@@ -94,8 +90,8 @@ jobs:
       - name: Serve steps
         shell: bash
         env:
-          WALK_CHANNEL: ${{ inputs.channel || github.ref_name }}
-          WALK_MINUTES: ${{ inputs.minutes || '30' }}
+          WALK_CHANNEL: ${{ inputs.channel }}
+          WALK_MINUTES: ${{ inputs.minutes }}
           WALK_TOKEN: ${{ github.token }}
           BASE_REF: ${{ inputs.base_ref }}
         run: |

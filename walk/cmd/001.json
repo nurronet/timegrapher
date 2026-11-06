@@ -1,1 +1,0 @@
-[["key", "win", "up"], ["wait", 2], ["key", "escape"], ["wait", 1], ["key", "ctrl", "o"], ["wait", 3], ["type", "D:\\a\\timegrapher\\timegrapher\\head\\crates\\timegrapher-core\\tests\\fixtures\\aquanaut324_DU_1s.flac"], ["key", "enter"], ["wait", 4], ["key", "enter"], ["wait", 5], ["shell", "dir \"%USERPROFILE%\\Timegrapher Data\" & dir %APPDATA% | findstr /i time"]]

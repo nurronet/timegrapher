@@ -1,2 +1,0 @@
-app: head exited, code 0
-took 0.2 s
