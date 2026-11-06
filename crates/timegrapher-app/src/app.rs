@@ -1883,6 +1883,9 @@ pub struct TimegrapherApp {
     /// The Watches view: the watch picked (its id), the list's search,
     /// order, and the details form.
     watch_open: Option<String>,
+    /// A take started or opened: the time panes' gutter fits its labels
+    /// afresh (Hugh on #1239).
+    gutter_fresh: bool,
     /// The pane shows Unsorted's takes instead of the list.
     unsorted_open: bool,
     /// The list shown over the watch picked, or Unsorted, by ‹ All
@@ -2614,6 +2617,7 @@ impl TimegrapherApp {
             watch_search_focus: false,
             new_watch_on_mic: false,
             watch_open: None,
+            gutter_fresh: false,
             unsorted_open: false,
             list_for: None,
             quick_defaults: false,
@@ -4085,6 +4089,9 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
+        if std::mem::take(&mut self.gutter_fresh) {
+            theme::reset_time_gutter(ctx);
+        }
         crate::pump::timed("charts' readings", || self.take_reads_shown(ctx));
         // A test set up against another watch than the one picked now.
         self.find_full_wind();

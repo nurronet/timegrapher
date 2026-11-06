@@ -1467,6 +1467,12 @@ pub fn time_gutter(ctx: &egui::Context) -> f32 {
     (widest + GUTTER_PAD).max(GUTTER_MIN)
 }
 
+/// The time panes' gutter fits the labels drawn from now on only: for a
+/// take started or opened (Hugh on #1239).
+pub fn reset_time_gutter(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<Gutter>(gutter_id()));
+}
+
 /// Note a value label drawn in the time panes' gutter, `rect` where it
 /// was drawn; a label wider than the gutter drawn draws the window again.
 pub fn note_gutter_label(ctx: &egui::Context, rect: egui::Rect) {

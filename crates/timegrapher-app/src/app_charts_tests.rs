@@ -617,4 +617,20 @@ fn the_strip_and_the_charts_share_a_fitted_gutter() {
         .map(|(_, r)| r.width())
         .fold(0.0, f32::max);
     assert!(gutter >= widest, "{gutter} {widest}");
+    // A wide label once keeps the gutter wide, until a take is started
+    // or opened (Hugh on #1239).
+    let wide = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(200.0, 10.0));
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        theme::note_gutter_label(ctx, wide)
+    });
+    let _ = ctx.run(egui::RawInput::default(), |_| {});
+    assert!(theme::time_gutter(&ctx) > 200.0);
+    app.reset_session(48000, "Next".into());
+    let _ = ctx.run(egui::RawInput::default(), |ctx| app.panels(ctx));
+    let _ = ctx.run(egui::RawInput::default(), |_| {});
+    assert!(
+        theme::time_gutter(&ctx) < 76.0,
+        "{}",
+        theme::time_gutter(&ctx)
+    );
 }

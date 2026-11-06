@@ -92,6 +92,7 @@ impl TimegrapherApp {
         live.set_masked(&self.masked);
         self.live = Some(live);
         self.source_label = label;
+        self.gutter_fresh = true;
         self.anchor = None;
         self.clear_trends();
         self.strip_end = None;
