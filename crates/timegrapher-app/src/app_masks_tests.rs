@@ -932,3 +932,40 @@ fn a_masked_stretch_keeps_its_beats_when_opened() {
     assert!(under(&app) > 30, "{}", under(&app));
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// An opened take's settling is left out of the engine's readings as a
+/// mask is, beside the masks by hand and never among them, the same
+/// settling the strip shades (#1233).
+#[test]
+fn a_settling_is_left_out_of_an_opened_takes_readings() {
+    let base = std::env::temp_dir().join(format!("tg-app-settle-out-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(
+        base.join(MANIFEST),
+        "lift = 52.0\n\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\nstart_s = 0\nend_s = 10\nsettle_s = 0\n\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"DD\"\nstart_s = 10\nsettle_s = 4\n",
+    )
+    .unwrap();
+    let mut app = opened_recording(&base, "take.wav", 20.0);
+    assert_eq!(app.session.settles(), [(10.0, 14.0)]);
+    assert!(app
+        .strip_settles()
+        .iter()
+        .any(|s| (s.0, s.1) == (10.0, 14.0)));
+    let engine = |app: &TimegrapherApp| app.live.as_ref().unwrap().masked().to_vec();
+    assert!(app.masked.is_empty(), "a settling is no mask by hand");
+    assert_eq!(engine(&app), [(10.0, 14.0)]);
+    app.set_masked(vec![(2.0, 3.0)]);
+    assert_eq!(app.masked, [(2.0, 3.0)]);
+    assert_eq!(engine(&app), [(2.0, 3.0), (10.0, 14.0)]);
+    app.refresh_trend();
+    assert!(
+        app.trend
+            .iter()
+            .all(|p| !(10.0..14.0).contains(&p.t) || p.rate_s_per_day.is_none()),
+        "nothing read in the settling"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}

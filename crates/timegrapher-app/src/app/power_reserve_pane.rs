@@ -374,7 +374,7 @@ impl TimegrapherApp {
         };
         // Its settlings left out as a mask is, as session reads the run
         // (#1233); the run still starts at its first beat.
-        let masked = timegrapher_core::session::with_holes(&self.masked, &self.session.settles());
+        let masked = self.engine_masked();
         let (position, sound) = (self.position, self.no_sound.is_none());
         Some(move || {
             let log = steady::log_of(&live)?;
