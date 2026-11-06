@@ -1319,8 +1319,10 @@ impl Frame<'_> {
     /// back, Mask on or off.
     fn hover(&self, resp: &egui::Response, input: &mut StripInput) {
         if let Some(len) = resp.hover_pos().and_then(|p| self.band_at(p)) {
-            resp.clone()
-                .on_hover_text_at_pointer(format!("Settling, {}", crate::fields::duration(len)));
+            resp.clone().on_hover_text_at_pointer(format!(
+                "Settling, {}: not read",
+                crate::fields::duration(len)
+            ));
         } else if resp.hover_pos().and_then(|p| self.painted_at(p)).is_some() {
             resp.clone().on_hover_text_at_pointer(
                 "Painted with the Position Brush. Right-click to remove the painting and bring \
