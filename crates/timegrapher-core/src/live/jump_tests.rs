@@ -50,3 +50,32 @@ fn readings_return_a_whole_average_after_a_jump_in_the_beats() {
         "jump at {jump}, charts back at {resumed}"
     );
 }
+
+/// The bound the jump widens, pinned (Trevor, #1254): with no scatter
+/// window fitted, a reading within SCATTER_LOOKBACK_S of a jump is not
+/// judged, and one past it is, as noise, as it is after a heard break.
+/// A window fitted is judged whatever the cuts.
+#[test]
+fn no_window_after_a_jump_is_not_judged_until_the_look_back_clears_it() {
+    let jump = 100.0;
+    let breaks = [Break {
+        audio_s: jump,
+        gap_s: 0.0,
+    }];
+    let holes = Cuts::new(None, &breaks, &[]);
+    let at = |end: f64, fitted, heard| judged_s(fitted, end, end - 10.0, heard, &holes);
+    assert_eq!(at(jump + 12.0, false, 0.0), 0.0, "not assessed yet");
+    assert_eq!(
+        at(jump + 16.0, false, 0.0),
+        10.0,
+        "judged: none fits, so noise"
+    );
+    assert_eq!(
+        at(jump + 12.0, true, 0.0),
+        10.0,
+        "a window fitted is judged"
+    );
+    // A heard break later than the jump counts from itself, as before.
+    assert_eq!(at(jump + 16.0, false, jump + 4.0), 0.0);
+    assert_eq!(at(jump + 20.0, false, jump + 4.0), 10.0);
+}
