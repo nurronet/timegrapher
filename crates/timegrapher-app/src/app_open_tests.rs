@@ -193,7 +193,7 @@ fn a_take_refused_while_read_is_no_longer_opening() {
 /// A cancelled opening leaves nothing opening: the window no longer says
 /// Opening (#1220, Walter's find).
 #[test]
-fn a_cancelled_open_is_no_longer_opening() {
+fn a_cancelled_open_is_no_longer_opening_and_leaves_nothing() {
     let base = std::env::temp_dir().join(format!("tg-app-cancel-open-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
@@ -207,10 +207,18 @@ fn a_cancelled_open_is_no_longer_opening() {
     );
     let wav = base.join("long.wav");
     timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    std::fs::write(
+        base.join(MANIFEST),
+        "calibre = '3235'\nlift = 55.0\n\n[[recording]]\nfile = 'long.wav'\nposition = 'CD'\n",
+    )
+    .unwrap();
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
-    app.start_batch(&wav);
+    let before = (app.status_words(), app.watch_setup());
+    app.input = Input::File;
+    app.start_batch(&base);
     assert!(app.batch.is_some(), "{:?}", app.message);
     assert_eq!(app.state_words(), "Opening");
+    assert_eq!(app.calibre, "3235");
     app.cancel_open();
     for _ in 0..10 {
         app.poll();
@@ -222,6 +230,11 @@ fn a_cancelled_open_is_no_longer_opening() {
         "{:?}",
         app.message
     );
+    // Nothing of the take is left: the bar and the cards are as they were
+    // before, and Save has nothing to keep (#1238).
+    assert_eq!((app.status_words(), app.watch_setup()), before);
+    assert!(app.source_label.is_empty(), "{}", app.source_label);
+    assert!(!app.session.allows(Action::Save));
     let _ = std::fs::remove_dir_all(&base);
 }
 
