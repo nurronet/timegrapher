@@ -1,0 +1,1 @@
+[["key", "win", "up"], ["wait", 2], ["shell", "mkdir D:\\r & xcopy /E /I /Y channel\\walk\\fx\\roam D:\\r\\roam >nul & xcopy /E /I /Y channel\\walk\\fx\\roam D:\\r\\roam2 >nul & dir /b D:\\r"], ["click", 1200, 1015], ["wait", 0.7], ["move", 342, 39], ["wait", 0.5], ["click", 342, 39], ["wait", 2]]
