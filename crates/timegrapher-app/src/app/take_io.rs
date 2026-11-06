@@ -972,6 +972,12 @@ impl TimegrapherApp {
             Ok(Ok(copy)) => {
                 if let Some(r) = self.session.recorder.as_mut() {
                     r.note_saved(&copy);
+                    // Where the take is recording into, for the next start
+                    // after a crash: the sound left here is there already.
+                    if s.streamed == Streamed::Yes {
+                        let note = r.dir().join(timegrapher_core::recorder::STREAMED_TO);
+                        let _ = std::fs::write(note, copy.dir.to_string_lossy().as_bytes());
+                    }
                 }
                 if s.streamed == Streamed::No {
                     self.info_msg(format!(

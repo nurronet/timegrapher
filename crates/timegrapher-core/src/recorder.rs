@@ -99,6 +99,10 @@ const SEGMENT_S: u64 = 3600;
 /// this much more has been heard ([`Recorder::begin_stream_save`]): a
 /// crash or a power cut costs no more.
 pub const STREAM_EVERY_S: f64 = 5.0;
+/// In a recording folder whose take records into its copy as it goes, the
+/// file naming that copy's folder: sound left here after a crash is
+/// already there, but for its last few seconds. Never copied with a save.
+pub const STREAMED_TO: &str = "streamed-to.txt";
 
 /// After a failed save of a take kept while it records, the next is tried
 /// this much later.
@@ -788,7 +792,11 @@ impl Recorder {
         for e in fs::read_dir(&self.dir)? {
             let e = e?;
             let n = e.file_name();
-            if e.file_type()?.is_file() && n != take::RECORD && !is_sound(&n.to_string_lossy()) {
+            if e.file_type()?.is_file()
+                && n != take::RECORD
+                && n != STREAMED_TO
+                && !is_sound(&n.to_string_lossy())
+            {
                 sources.insert(e.path());
             }
         }

@@ -201,7 +201,9 @@ Takes or the folder, and it has no Save Again. File ▸ Save is dimmed
 for the same reason, and the status bar says "Saved". Stop and quitting
 add the last seconds and close the take with no question. A save that
 fails says so, and the next is tried a minute later. Only the new
-sound is written each time. A Positions or Power Reserve Test of a watch
+sound is written each time. After a crash, the next start says the take
+holds all but its last few seconds, and offers **Open Take** or **Delete
+Copy…** for the copy left on this computer with those seconds. A Positions or Power Reserve Test of a watch
 picked records into the watch the same way, and its results are written
 as it ends. One with no watch picked asks where it goes as it ends, so
 until then its sound is kept only on this computer, and it is offered

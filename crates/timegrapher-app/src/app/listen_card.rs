@@ -596,10 +596,7 @@ impl TimegrapherApp {
                         save_menu_watches(ui, &watches, keeps, heard, can, &mut picked, &mut new);
                     }
                     if let Some(place) = &recording_in {
-                        ui.label(
-                            RichText::new(format!("Saving to {place}")).color(pal.text_secondary),
-                        )
-                        .on_hover_text(RECORDING_IN_HINT);
+                        saving_to(ui, place);
                     }
                     if can
                         && recording_in.is_none()
@@ -1618,6 +1615,17 @@ fn listen_length(ui_b: &mut egui::Ui, top: egui::Rect, length: &str, state: &str
             "The take's length: the sound heard so far while listening, or the whole \
              take opened",
         );
+}
+
+/// The Save menu's "Saving to" line: one line, the menu as wide as it
+/// needs, never wrapped and spread across the menu's width.
+fn saving_to(ui: &mut egui::Ui, place: &str) {
+    let pal = theme::pal(ui);
+    ui.add(
+        egui::Label::new(RichText::new(format!("Saving to {place}")).color(pal.text_secondary))
+            .wrap_mode(egui::TextWrapMode::Extend),
+    )
+    .on_hover_text(RECORDING_IN_HINT);
 }
 
 /// The Save icon's hover: where a take recording into its folder is

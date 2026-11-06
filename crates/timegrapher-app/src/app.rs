@@ -410,6 +410,9 @@ struct KeptSound {
     started: Option<String>,
     duration_s: Option<f64>,
     bytes: u64,
+    /// The take it was recording into as it went, which holds all of it
+    /// but its last few seconds.
+    streamed_to: Option<PathBuf>,
 }
 
 /// The sound kept in `scratch` from earlier sessions, oldest first,
@@ -450,11 +453,17 @@ fn kept_sounds(scratch: &Path) -> Vec<KeptSound> {
                         format!("{} UTC", at.replace(':', "."))
                     })
                 });
+            let streamed_to =
+                std::fs::read_to_string(dir.join(timegrapher_core::recorder::STREAMED_TO))
+                    .ok()
+                    .map(|t| PathBuf::from(t.trim()))
+                    .filter(|t| t.is_dir());
             Some(KeptSound {
                 started,
                 duration_s: about.as_ref().and_then(|a| a["duration_s"].as_f64()),
                 bytes,
                 dir,
+                streamed_to,
             })
         })
         .collect();

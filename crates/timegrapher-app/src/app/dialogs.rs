@@ -721,6 +721,9 @@ impl TimegrapherApp {
         let Some(k) = self.kept.first().cloned() else {
             return;
         };
+        if let Some(to) = k.streamed_to.clone() {
+            return self.streamed_notice(ui, &k, &to);
+        }
         let (mut open, mut move_to, mut delete, mut later) = (false, false, false, false);
         let what = format!(
             "Sound from an earlier session wasn't saved{}{}, {}. Open it, move it into a \
@@ -782,6 +785,47 @@ impl TimegrapherApp {
         }
     }
 
+    /// Sound kept from a take that was recording into its folder as it
+    /// went when the app stopped: the take there holds all of it but its
+    /// last few seconds, so this is a copy. Open the take, or delete the
+    /// copy.
+    fn streamed_notice(&mut self, ui: &mut egui::Ui, k: &KeptSound, to: &Path) {
+        let (mut open, mut delete, mut later) = (false, false, false);
+        let name = to
+            .file_name()
+            .map_or_else(|| to.display().to_string(), |n| n.to_string_lossy().into());
+        let what = format!(
+            "Timegrapher stopped while \"{name}\" was recording into its folder: the take \
+             there holds all but its last few seconds. A copy with those seconds is \
+             kept too, {}. Open the take, or delete the copy?",
+            size_text(k.bytes),
+        );
+        notice(ui, Some(theme::Alert::Warning), &what, |ui| {
+            later = ui
+                .add(egui::Button::new("Later").frame_when_inactive(false))
+                .on_hover_text("Leave the copy where it is: it is offered again next time")
+                .clicked();
+            delete = ui
+                .add(egui::Button::new("Delete Copy…"))
+                .on_hover_text("Delete the copy for good. It asks first.")
+                .clicked();
+            open = ui
+                .add(theme::primary(ui, "Open Take"))
+                .on_hover_text(format!("Open the take in {}", to.display()))
+                .clicked();
+        });
+        if open {
+            self.kept.remove(0);
+            self.input = Input::File;
+            self.file_path = to.display().to_string();
+            self.open_recording(to, true);
+        } else if delete {
+            self.kept_delete_ask = Some(k.dir.clone());
+        } else if later {
+            self.kept.clear();
+        }
+    }
+
     /// Delete… on kept sound asks first: it can't be got back.
     pub(super) fn kept_delete_dialog(&mut self, ctx: &egui::Context) {
         let Some(dir) = self.kept_delete_ask.clone() else {
@@ -792,7 +836,14 @@ impl TimegrapherApp {
             ui.set_width(380.0);
             ui.label(RichText::new("Delete the unsaved sound?").font(theme::semibold(15.0)));
             ui.add_space(4.0);
-            ui.label("It was never saved anywhere else, so it can't be got back.");
+            // A copy of a take recording into its folder: the take keeps
+            // all but its last few seconds.
+            let copy = dir.join(timegrapher_core::recorder::STREAMED_TO).is_file();
+            ui.label(if copy {
+                "Its take keeps all of it but the last few seconds, which can't be got back."
+            } else {
+                "It was never saved anywhere else, so it can't be got back."
+            });
             ui.add_space(8.0);
             // Nothing that can't be got back is the default: Return does
             // nothing, and the button that throws it away is far from Cancel.

@@ -487,6 +487,51 @@ fn a_watchs_take_records_into_its_folder_as_it_goes() {
     );
     assert!(app.message.is_none(), "{:?}", app.message);
     assert!(!app.needs_save_confirmation());
+    // Walter's walk of #1201: after a crash, the next start knows the
+    // sound left behind is a copy of this take, not sound never saved.
+    let scratch = app.session.recorder.as_ref().unwrap().dir().to_path_buf();
+    let note = timegrapher_core::recorder::STREAMED_TO;
+    assert!(scratch.join(note).is_file());
+    // A second save, with the note there: it isn't copied into the take.
+    app.session
+        .recorder
+        .as_mut()
+        .unwrap()
+        .write(&timegrapher_core::capture::Block {
+            samples: vec![0.0; 48000 * 6],
+            at: std::time::SystemTime::now(),
+        })
+        .unwrap();
+    app.stream_tick();
+    app.wait_for_save();
+    assert_eq!(app.session.saved_to(), Some(take.as_path()));
+    assert!(!take.join(note).exists(), "the note stays out of the take");
+    let left = base.join("after a crash");
+    let copy = left.join(scratch.file_name().unwrap());
+    std::fs::create_dir_all(&copy).unwrap();
+    for e in std::fs::read_dir(&scratch).unwrap().flatten() {
+        if e.file_type().unwrap().is_file() {
+            std::fs::copy(e.path(), copy.join(e.file_name())).unwrap();
+        }
+    }
+    let kept = kept_sounds(&left);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].streamed_to.as_deref(), Some(take.as_path()));
+    // Its notice offers the take, not the copy as sound never saved.
+    app.kept = kept;
+    let ctx = theme_ctx();
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        drawn = drawn_at(&ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.kept_notice(ui));
+        }));
+    }
+    assert!(drawn.iter().any(|t| t.0 == "Open Take"), "{drawn:?}");
+    assert!(
+        !drawn.iter().any(|t| t.0.contains("wasn't saved")),
+        "{drawn:?}"
+    );
+    app.capture = None;
     let _ = std::fs::remove_dir_all(&base);
 }
 
