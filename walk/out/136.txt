@@ -1,0 +1,5 @@
+app: head running
+took 17.7 s
+$ dir /s /b "%USERPROFILE%\Timegrapher Data\Sub*"
+C:\Users\runneradmin\Timegrapher Data\Sub LNab - 2024- -x- -----
+
