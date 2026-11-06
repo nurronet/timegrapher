@@ -70,19 +70,7 @@ pub fn default_dir() -> Option<PathBuf> {
 /// The system's cache folder for Timegrapher: the one place every kind of
 /// cached file (beats, photo thumbnails) is put under.
 pub fn cache_base() -> Option<PathBuf> {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = if cfg!(target_os = "windows") {
-        env("LOCALAPPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library").join("Caches"))
-    } else {
-        env("XDG_CACHE_HOME").or_else(|| env("HOME").map(|h| h.join(".cache")))
-    };
-    base.map(|b| b.join("timegrapher"))
+    crate::user_dirs::app_dir(crate::user_dirs::Kind::Cache)
 }
 
 /// The key of the beats of `files` read with `cfg`, as a file name; none
