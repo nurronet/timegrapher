@@ -1864,7 +1864,7 @@ when. It holds:
 
 | File | Contents |
 | --- | --- |
-| `audio-001.flac`, ... | The audio as captured, mono, 16-bit for a 16-bit microphone, in files of at most an hour; listening again after a break (the computer sleeping) starts a new file. The hour being recorded is a WAV, kept as FLAC once it closes (checked sample for sample, then the WAV deleted) |
+| `audio-001.flac`, ... | The audio as captured, mono, 16-bit whatever the microphone gives, in files of at most an hour; listening again after a break (the computer sleeping) starts a new file. The hour being recorded is a WAV, kept as FLAC once it closes (checked sample for sample, then the WAV deleted) |
 | `clock.csv` | System time against frames captured, every 10 s, and on both sides of each break; frames run on across a break, with no line made up for the gap |
 | `session.json` | Watch, position, lift angle, beat rate, device, start and end, position changes, the readings at the end, and (only once the take has a break, such as the computer sleeping while it listened) `breaks`: one entry per break with `frame` (frames in the take before it), `audio_s`, `segment` (its first file), `utc` (host time of its first frame), `gap_s` (host time missing, from the clock log either side) and `device` (the input after it) |
 | `session.toml` | The session file `timegrapher session` reads: watch, calibre (with the wheels of a custom one), lift angle, beat rate, and one `[[recording]]` per stretch in one position with its `start_s` and `end_s` (for a take saved during a Positions Test, the test's own measured stretches, after each settling and for its measuring time, so `timegrapher session` reads the seconds its table did, with `wind_h` in the 24 hour half) |
