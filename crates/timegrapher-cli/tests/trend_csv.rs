@@ -115,11 +115,11 @@ fn a_take_is_cut_and_corrected_as_the_app_reads_it() {
     let mut cut = 0;
     for (a, b) in alone.iter().zip(&read) {
         let t: f64 = a[0].parse().unwrap();
-        // No 4 s reading reaches across the move at 30 s, the settling's
-        // end at 35 s or the mask from 40 to 44 s.
+        // No 4 s reading reaches across the move at 30 s, into the
+        // settling from 30 to 35 s, which is culled as a mask is (#1233),
+        // or across the mask from 40 to 44 s.
         // A reading ending on a cut takes no beats past it either.
-        let across =
-            (30.0..34.0).contains(&t) || (35.0..39.0).contains(&t) || (40.0..48.0).contains(&t);
+        let across = (30.0..39.0).contains(&t) || (40.0..48.0).contains(&t);
         if t < 10.0 {
             continue;
         }

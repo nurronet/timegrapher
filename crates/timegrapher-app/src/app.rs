@@ -357,6 +357,8 @@ enum Confirm {
     /// Open a recording, analysed whole.
     Open {
         path: PathBuf,
+        /// Just Open It's: no watch stays picked once it opens.
+        no_watch: bool,
     },
     /// Start Test on the Power Reserve pane: a new take of the watch.
     ReserveStart,
@@ -3830,7 +3832,8 @@ fn started_in(dir: &Path) -> Option<String> {
 fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
     let mut v = match existing.filter(|p| p.is_file()) {
         Some(p) => {
-            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let text = timegrapher_core::recorder::read_settled(p)
+                .map_err(|e| format!("{}: {e}", p.display()))?;
             serde_json::from_str(&text).map_err(|e| format!("Can't read {}: {e}", p.display()))?
         }
         None => serde_json::json!({}),
@@ -3853,7 +3856,8 @@ fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
 /// session.toml as it was, comments too.
 fn fill_take(take: &Path, watch: &library::Watch, fill: &Fill) -> Result<(), String> {
     let file = take.join(MANIFEST);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let text = timegrapher_core::recorder::read_settled(&file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
     let mut doc: toml_edit::DocumentMut = text
         .parse()
         .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
@@ -3950,7 +3954,7 @@ fn write_replacing(target: &Path, text: &str) -> Result<(), String> {
     let name = format!(".{}.saving", file_name(target));
     let temp = target.with_file_name(name);
     std::fs::write(&temp, text)
-        .and_then(|()| std::fs::rename(&temp, target))
+        .and_then(|()| timegrapher_core::recorder::rename_settled(&temp, target))
         .map_err(|e| {
             let _ = std::fs::remove_file(&temp);
             format!("{}: {e}", target.display())

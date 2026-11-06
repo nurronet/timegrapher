@@ -193,7 +193,7 @@ fn a_take_refused_while_read_is_no_longer_opening() {
 /// A cancelled opening leaves nothing opening: the window no longer says
 /// Opening (#1220, Walter's find).
 #[test]
-fn a_cancelled_open_is_no_longer_opening() {
+fn a_cancelled_open_is_no_longer_opening_and_leaves_nothing() {
     let base = std::env::temp_dir().join(format!("tg-app-cancel-open-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
@@ -207,10 +207,17 @@ fn a_cancelled_open_is_no_longer_opening() {
     );
     let wav = base.join("long.wav");
     timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    std::fs::write(
+        base.join(MANIFEST),
+        "calibre = '3235'\nlift = 55.0\n\n[[recording]]\nfile = 'long.wav'\nposition = 'CD'\n",
+    )
+    .unwrap();
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
-    app.start_batch(&wav);
+    let before = (app.status_words(), app.watch_setup());
+    app.start_batch(&base);
     assert!(app.batch.is_some(), "{:?}", app.message);
     assert_eq!(app.state_words(), "Opening");
+    assert_eq!(app.calibre, "3235");
     app.cancel_open();
     for _ in 0..10 {
         app.poll();
@@ -222,6 +229,11 @@ fn a_cancelled_open_is_no_longer_opening() {
         "{:?}",
         app.message
     );
+    // Nothing of the take is left: the bar and the cards are as they were
+    // before, and Save has nothing to keep (#1238).
+    assert_eq!((app.status_words(), app.watch_setup()), before);
+    assert!(app.source_label.is_empty(), "{}", app.source_label);
+    assert!(!app.session.allows(Action::Save));
     let _ = std::fs::remove_dir_all(&base);
 }
 
@@ -895,5 +907,53 @@ fn a_recording_opened_after_a_take_with_a_calibre_opens() {
     assert_eq!(app.source_label, "plain.wav", "{:?}", app.message);
     assert_eq!(app.calibre, "");
     app.stop();
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take's own file opened after a plain one reads as it does opened
+/// first: its watch on the status line and its calibre on the cards, with
+/// nothing left of the file before's "No watch settings" (#1240, which
+/// #1242's fix for the re-read loop also fixed).
+#[test]
+fn a_takes_file_opened_after_a_plain_one_names_its_watch() {
+    let base = std::env::temp_dir().join(format!("tg-app-after-plain-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let take = base.join("take");
+    std::fs::create_dir_all(&take).unwrap();
+    let synth = |s: f64| {
+        generate(
+            &SynthConfig {
+                duration_s: s,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        )
+    };
+    timegrapher_core::audio::write_wav(&take.join("take.wav"), &synth(30.0)).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "watch = 'Yacht-Master'\ncalibre = '3235'\nlift = 55.0\n\n\
+         [[recording]]\nfile = 'take.wav'\nposition = 'CU'\n",
+    )
+    .unwrap();
+    let wav = base.join("plain.wav");
+    timegrapher_core::audio::write_wav(&wav, &synth(30.0)).unwrap();
+    let opened = |app: &mut TimegrapherApp, path: &std::path::Path| {
+        app.input = Input::File;
+        app.open_recording(path, true);
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+            app.poll();
+        }
+        assert!(app.batch.is_none(), "{:?}", app.message);
+        (app.status_words(), app.watch_setup(), app.message.clone())
+    };
+    let mut fresh = TimegrapherApp::with_devices(Vec::new(), None);
+    let first = opened(&mut fresh, &take.join("take.wav"));
+    assert_eq!(first.0, "take.wav · Yacht-Master · Opened");
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    opened(&mut app, &wav);
+    assert_eq!(opened(&mut app, &take.join("take.wav")), first);
     let _ = std::fs::remove_dir_all(&base);
 }

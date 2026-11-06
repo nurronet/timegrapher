@@ -90,18 +90,26 @@ impl TimegrapherApp {
     }
 
     /// The stretches the strip draws faintly, each with what the ticker
-    /// says over it: the settling after each move, and during and after a
-    /// Positions Test the time it didn't use, in place of the moves'
-    /// settling it covers.
+    /// says over it: every settling, as the engine culls it
+    /// ([`super::masks::settlings`]), and during and after a Positions
+    /// Test the rest of the time it didn't use. Settling wins where the
+    /// two overlap: what is shaded as settling is not read, and what is
+    /// culled is shaded (Hugh).
     pub(super) fn strip_settles(&self) -> Vec<(f64, f64, &'static str)> {
-        let test = &self.guided_unused;
-        let mut out: Vec<(f64, f64, &'static str)> = self
-            .session
-            .settles()
-            .into_iter()
-            .filter(|s| !test.iter().any(|t| s.0 < t.1 && t.0 < s.1))
-            .map(|(a, b)| (a, b, guided::SETTLING))
-            .chain(test.iter().copied())
+        let settling = super::masks::settlings(&self.session, &self.guided_unused);
+        let rest = self
+            .guided_unused
+            .iter()
+            .filter(|s| s.2 != guided::SETTLING)
+            .flat_map(|&(a, b, kind)| {
+                crate::strip::showing(a, b, settling.iter().copied())
+                    .into_iter()
+                    .map(move |(x, y)| (x, y, kind))
+            });
+        let mut out: Vec<(f64, f64, &'static str)> = settling
+            .iter()
+            .map(|&(a, b)| (a, b, guided::SETTLING))
+            .chain(rest)
             .collect();
         out.sort_by(|a, b| a.0.total_cmp(&b.0));
         out

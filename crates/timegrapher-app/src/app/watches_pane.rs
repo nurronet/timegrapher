@@ -748,8 +748,8 @@ impl TimegrapherApp {
     /// false`), how to read it and its shape stretches; or why it can't.
     fn keep_prepare(&self, take: &Path) -> Result<KeepPrep, String> {
         let file = take.join(MANIFEST);
-        let text =
-            std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = timegrapher_core::recorder::read_settled(&file)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
         let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if m.audio == Some(false) {
             return Err("its sound has already been removed".into());

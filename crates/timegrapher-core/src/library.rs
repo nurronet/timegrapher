@@ -218,10 +218,12 @@ pub fn write_atomic(p: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(failed)?;
     let written = f.write_all(bytes).and_then(|_| f.sync_all());
     drop(f);
-    written.and_then(|_| fs::rename(&tmp, p)).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        failed(e)
-    })
+    written
+        .and_then(|_| crate::recorder::rename_settled(&tmp, p))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            failed(e)
+        })
 }
 
 /// A folder name for `name` that every system accepts: the characters
@@ -415,15 +417,10 @@ impl Take {
         }
         let test = positions_test || self.power_reserve.is_some();
         if let Some((rate, amplitude, beat_error)) = figures.filter(|_| !test) {
-            if let Some(r) = rate {
-                parts.push(format!("{r:+.1} s/d"));
-            }
-            if let Some(x) = amplitude {
-                parts.push(format!("{x:.0}°"));
-            }
-            if let Some(b) = beat_error {
-                parts.push(format!("{:.1} ms", b.abs()));
-            }
+            let [r, x, b] = figure_texts(rate, amplitude, beat_error);
+            parts.extend(r.map(|r| format!("{r} s/d")));
+            parts.extend(x.map(|x| format!("{x}°")));
+            parts.extend(b.map(|b| format!("{b} ms")));
         }
         if !self.audio {
             parts.push("Analysis Only".into());
@@ -433,6 +430,25 @@ impl Take {
         }
         parts
     }
+}
+
+/// A take's rate, amplitude and beat error as its listed figures, without
+/// units: each at its base decimals ([`crate::figure_text::base_digits`],
+/// the decimals a card shows with no ± to follow), the rate signed and
+/// the beat error as its size. The one rule for the takes the app and
+/// `timegrapher watches` list (#1267: a beat error of 0.04 ms is never
+/// "0.0").
+pub fn figure_texts(
+    rate: Option<f64>,
+    amplitude: Option<f64>,
+    beat_error: Option<f64>,
+) -> [Option<String>; 3] {
+    use crate::figure_text::{base_digits, figure};
+    [
+        rate.map(|r| figure(r, None, base_digits::RATE, true)),
+        amplitude.map(|x| figure(x, None, base_digits::AMPLITUDE, false)),
+        beat_error.map(|b| figure(b.abs(), None, base_digits::BEAT_ERROR, false)),
+    ]
 }
 
 /// A take's own reading, as `timegrapher session` reads it: its last
@@ -1242,7 +1258,7 @@ impl Library {
                 // Opened to write: Windows refuses to flush a file opened
                 // only to read.
                 .and_then(|_| fs::OpenOptions::new().write(true).open(&part)?.sync_all())
-                .and_then(|_| fs::rename(&part, &to));
+                .and_then(|_| crate::recorder::rename_settled(&part, &to));
             match copied {
                 Ok(()) => added.push(to),
                 Err(e) => {
@@ -1280,6 +1296,30 @@ impl Library {
         let gone = fs::remove_dir_all(take);
         self.scan();
         gone.map_err(|e| format!("Deleting {}: {e}", take.display()))
+    }
+
+    /// Take back a watch just added (by its id) while it is still empty:
+    /// no takes and no photos, as when what it was added for failed
+    /// (#1275). A watch with anything in it is left as it is.
+    pub fn remove_empty(&mut self, id: &str) -> Result<(), String> {
+        self.writable()?;
+        let w = self
+            .watches
+            .iter()
+            .find(|w| w.watch.id == id)
+            .ok_or("That watch is no longer in your watches")?;
+        // Only a folder not there is empty: one unreadable may hold anything.
+        let empty = |d: PathBuf| match fs::read_dir(d) {
+            Ok(mut e) => e.next().is_none(),
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
+        if !empty(w.dir.join(TAKES)) || !empty(w.dir.join(PHOTOS)) {
+            return Err(format!("\"{}\" has takes or photos in it", w.watch.name));
+        }
+        let dir = w.dir.clone();
+        let gone = fs::remove_dir_all(&dir);
+        self.scan();
+        gone.map_err(|e| format!("Removing {}: {e}", dir.display()))
     }
 
     /// Put `kept` (the take kept as its analysis alone, written beside it)
@@ -1348,8 +1388,10 @@ impl Library {
         }
         let staged = takes.join(format!(".adding-{}", file_name(&to)));
         let _ = fs::remove_dir_all(&staged);
-        let copied = copy_tree(from, &staged, &[])
-            .and_then(|_| fs::rename(&staged, &to).map_err(|e| format!("{}: {e}", to.display())));
+        let copied = copy_tree(from, &staged, &[]).and_then(|_| {
+            crate::recorder::rename_settled(&staged, &to)
+                .map_err(|e| format!("{}: {e}", to.display()))
+        });
         if let Err(e) = copied {
             let _ = fs::remove_dir_all(&staged);
             return Err(e);
@@ -1408,7 +1450,8 @@ impl Library {
                 let dst = staged.join(file);
                 fs::write(&dst, text).map_err(|e| format!("{}: {e}", dst.display()))?;
             }
-            fs::rename(&staged, &to).map_err(|e| format!("{}: {e}", to.display()))
+            crate::recorder::rename_settled(&staged, &to)
+                .map_err(|e| format!("{}: {e}", to.display()))
         })();
         if let Err(e) = put {
             let _ = fs::remove_dir_all(&staged);
@@ -1855,6 +1898,21 @@ fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
 mod tests {
     use super::*;
 
+    /// A take's listed beat error keeps the Bench card's two decimals, so a
+    /// good watch's 0.04 ms is never "0.0" and 0.06 never "0.1" (#1267);
+    /// rate and amplitude at theirs, a rate that rounds to zero unsigned.
+    #[test]
+    fn a_takes_figures_keep_the_cards_decimals() {
+        assert_eq!(
+            figure_texts(Some(-0.04), Some(271.6), Some(-0.04)),
+            [Some("0.0".into()), Some("272".into()), Some("0.04".into())]
+        );
+        assert_eq!(
+            figure_texts(Some(2.0), None, Some(0.06)),
+            [Some("+2.0".into()), None, Some("0.06".into())]
+        );
+    }
+
     /// A take's reading is kept until what it reads changes: a report
     /// written into the take's folder keeps it; a changed session file,
     /// kept analysis or sound in a folder of its own doesn't.
@@ -2011,7 +2069,7 @@ mod tests {
         };
         assert_eq!(
             t.facts(false),
-            ["Dial Up", "2:00", "+3.5 s/d", "281°", "0.4 ms"]
+            ["Dial Up", "2:00", "+3.5 s/d", "281°", "0.40 ms"]
         );
         assert_eq!(t.facts(true), ["Positions Test", "Dial Up", "2:00"]);
         let r = Take {
@@ -2095,6 +2153,36 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    /// Only a watch with nothing in it is taken back (#1275).
+    #[test]
+    fn only_an_empty_watch_is_taken_back() {
+        let base = scratch("remove-empty");
+        let root = base.join("Timegrapher Data");
+        let mut lib = Library::create(&root).unwrap();
+        lib.add(&Watch::new("Empty")).unwrap();
+        lib.add(&Watch::new("Kept")).unwrap();
+        let id = |lib: &Library, n: &str| lib.find(n).unwrap().watch.id.clone();
+        let src = base.join("outside");
+        take(&src, &[("a.wav", "DU")], 1, "2026-10-22T14:30:00Z");
+        let kept = id(&lib, "Kept");
+        lib.add_take(&src, &kept, true).unwrap();
+        let err = lib.remove_empty(&kept).unwrap_err();
+        assert!(err.contains("has takes or photos"), "{err}");
+        let empty = id(&lib, "Empty");
+        lib.remove_empty(&empty).unwrap();
+        assert!(lib.find("Empty").is_none() && lib.find("Kept").is_some());
+        assert!(lib.remove_empty(&empty).is_err(), "gone already");
+        // An unreadable takes folder (a file in its place) is not empty.
+        lib.add(&Watch::new("Unread")).unwrap();
+        let (unread, dir) = (id(&lib, "Unread"), lib.find("Unread").unwrap().dir.clone());
+        fs::remove_dir_all(dir.join(TAKES)).unwrap();
+        fs::write(dir.join(TAKES), "not a folder").unwrap();
+        let err = lib.remove_empty(&unread).unwrap_err();
+        assert!(err.contains("has takes or photos"), "{err}");
+        assert!(dir.join(TAKES).is_file(), "the folder is kept");
+        fs::remove_dir_all(base).unwrap();
     }
 
     /// The rate a take keeps is as heard; its clock log corrects it, as

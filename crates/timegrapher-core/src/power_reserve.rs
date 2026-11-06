@@ -501,7 +501,7 @@ impl Results {
 pub fn write(dir: &std::path::Path, r: &Results) -> std::io::Result<()> {
     let tmp = dir.join(format!(".{FILE}.part"));
     std::fs::write(&tmp, r.to_json())?;
-    std::fs::rename(&tmp, dir.join(FILE))
+    crate::recorder::rename_settled(&tmp, &dir.join(FILE))
 }
 
 /// The whole seconds a run time counts, so every place that gives it
@@ -614,6 +614,27 @@ mod tests {
             from_long_take(&stopped, None, &[], &[], &[], "", true).map(|r| r.position),
             Some(String::new())
         );
+    }
+
+    /// A long take's settling, left out as a mask is
+    /// ([`crate::session::with_holes`]), is not read in its first hour, and
+    /// the hours still count from the first beat heard (#1233).
+    #[test]
+    fn a_settling_is_left_out_of_the_first_hour_not_the_run() {
+        let take = take_of(LONG_TAKE_S + 1800.0, 60.0);
+        let read = |masked: &[(f64, f64)]| {
+            from_long_take(&take, None, &[], masked, &["DU"], "", true).unwrap()
+        };
+        let (whole, settled) = (
+            read(&[]),
+            read(&crate::session::with_holes(&[], &[(0.0, 125.0)])),
+        );
+        assert_eq!(settled.first_beat_s, whole.first_beat_s);
+        assert_eq!(settled.run_s, whole.run_s);
+        assert_eq!(settled.hours.len(), whole.hours.len());
+        let lost = whole.hours[0].read_s - settled.hours[0].read_s;
+        assert!(lost >= 110.0, "{lost}");
+        assert_eq!(settled.hours[1].read_s, whole.hours[1].read_s);
     }
 
     /// A take shorter than [`LONG_TAKE_S`], or in more than one position,

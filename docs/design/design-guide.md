@@ -358,7 +358,7 @@ A change of position made on the Position card, or by the guided Positions Test,
   - **(45)** "Settling" when the band is 64 pt or wider;
   - **(46)** "STL" from 28 pt;
   - **(47)** "S" from 12 pt;
-  - **(48)** no word under 12 pt. The band stays solid, and its hover always says "Settling, 20 s" (the Settle in use).
+  - **(48)** no word under 12 pt. The band stays solid, and its hover always says "Settling, 20 s: not read" (the Settle in use; Hugh, #1257).
 - **The position's name starts after the band,** on its plate, so the two never overlap.
 - **The band follows the Settle setting.** Changing Settle on the Positions Test pane redraws every band and the table together.
 
