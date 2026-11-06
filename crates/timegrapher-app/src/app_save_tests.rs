@@ -552,7 +552,8 @@ fn saved_metadata_edits_warn_without_new_sound_and_reverts_are_clean() {
     );
     app.save_again();
     app.wait_for_save();
-    assert!(!app.needs_save_confirmation());
+    // Says why, should Save Again ever fail here (#1169).
+    assert!(!app.needs_save_confirmation(), "{:?}", app.message);
     app.session.discard_recording();
     std::fs::remove_dir_all(base).unwrap();
 }
