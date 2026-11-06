@@ -1,0 +1,17 @@
+app: head running
+took 6.3 s
+$ del D:\w\lock.log
+
+$ powershell -NoProfile -c "Start-Process powershell -WindowStyle Hidden -ArgumentList ('-NoProfile -File D:\w\lock2.ps1 -Path D:\w\take\session.toml -Delay 0 -Hold 0.7')"
+
+$ echo t1 %time%
+t1 17:32:40.74
+
+$ echo t2 %time%
+t2 17:32:40.96
+
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")"
+locked D:\w\take\session.toml at 17:32:40.466
+released at 17:32:41.212
+17:31:30.474
+
