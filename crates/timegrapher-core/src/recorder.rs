@@ -1141,6 +1141,9 @@ fn grow_in_place(f: &PendingFile, from: u64, to: &Path) -> io::Result<bool> {
             format!("{} got shorter during the save", f.source.display()),
         ));
     }
+    // The new sound is on disk before the header that counts it: a power
+    // cut between the two leaves the header giving the length before.
+    out.sync_data()?;
     out.seek(io::SeekFrom::Start(0))?;
     out.write_all(&f.head)?;
     out.sync_data()?;
