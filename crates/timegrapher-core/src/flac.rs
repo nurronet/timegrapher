@@ -823,15 +823,15 @@ mod tests {
     }
 
     /// Loud 24-bit sound that flacenc codes in far more than its plain
-    /// samples (a 12:53 take came out 40 GB; flacenc's Rice size estimate
-    /// wraps for big residuals): a full-scale square wave of 34 samples,
-    /// one 4096-sample block of which flacenc alone writes in about a GB,
-    /// a clipped sine, and uniform noise of ±2^22. Every block comes out
-    /// no bigger than plain, so the FLAC is no bigger than its samples
-    /// plain with the stream's and each block's headers (about its WAV's
-    /// size at worst), and it holds the same samples.
+    /// samples at 24 bits (a 12:53 take came out 40 GB; flacenc's Rice
+    /// size estimate wraps for big residuals): a full-scale square wave of
+    /// 34 samples, one 4096-sample block of which flacenc alone writes in
+    /// about a GB, a clipped sine, and uniform noise of ±2^22. Its WAV is
+    /// kept at 16 bits (#1176), every block no bigger than plain 16-bit
+    /// samples, so the FLAC is no bigger than those with the stream's and
+    /// each block's headers, and it holds the samples rounded.
     #[test]
-    fn loud_24_bit_sound_is_never_kept_bigger_than_plain() {
+    fn a_loud_24_bit_wav_is_kept_at_16_bits_never_bigger_than_plain() {
         let dir = scratch("loud");
         let w = dir.join("audio-001.wav");
         let spec = hound::WavSpec {
@@ -863,7 +863,7 @@ mod tests {
         let f = dir.join("audio-001.flac");
         assert_eq!(encode_wav(&w, &f).unwrap(), 3 * 4096);
         let size = |p: &Path| std::fs::metadata(p).unwrap().len();
-        let most = 42 + 3 * (4096 * 3 + 16 + 8 + 2);
+        let most = 42 + 3 * (4096 * 2 + 16 + 8 + 2);
         assert!(size(&f) <= most, "{} > {most}", size(&f));
         assert!(same_samples(&w, &f).unwrap());
         assert!(!bloated(&f));

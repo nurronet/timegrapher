@@ -88,7 +88,7 @@ added hiss) were all within 0.08% of plain. A fuzz target
 
 ## Tests that guard this
 
-- `flac::tests::loud_24_bit_sound_is_never_kept_bigger_than_plain`
+- `flac::tests::a_loud_24_bit_wav_is_kept_at_16_bits_never_bigger_than_plain`
 - `flac::tests::a_bloated_flac_is_written_again_with_the_same_samples`
 - `flac::tests::a_wav_faster_than_96_khz_becomes_a_flac_at_its_own_rate`
 - `flac::tests::wide_and_floating_point_wavs_are_kept_as_16_bit_flac`
