@@ -312,6 +312,16 @@ fn a_take_copied_in_without_its_record_is_as_long_as_its_sound() {
     assert_eq!(t.started_utc, None);
     assert_eq!(t.duration_s, Some(135.25));
     assert_eq!(t.facts(false), ["Dial Up, Dial Down", "2:15"]);
+    // One file split into two entries, each a stretch of it, is one
+    // sound: its length counts once.
+    fs::write(
+        dir.join("session.toml"),
+        "bph = 28800\n\n[[recording]]\nfile = 'take.wav'\nposition = 'DU'\nend_s = 40.0\n\
+         \n[[recording]]\nfile = 'take.wav'\nposition = 'DD'\nstart_s = 40.0\n\
+         \n[[recording]]\nfile = 'hours'\nposition = 'CU'\n",
+    )
+    .unwrap();
+    assert_eq!(read_take(&dir, 0).unwrap().duration_s, Some(135.25));
     fs::write(dir.join("session.json"), r#"{"duration_s":140.0}"#).unwrap();
     assert_eq!(read_take(&dir, 0).unwrap().duration_s, Some(140.0));
     // One whose sound isn't all there has no length to give.

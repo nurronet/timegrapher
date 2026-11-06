@@ -1816,19 +1816,26 @@ fn sound_length(dir: &Path, m: &Manifest) -> Option<f64> {
         let i = crate::audio::info(f).ok()?;
         Some(i.frames? as f64 / f64::from(i.sample_rate.max(1)))
     };
-    // Each entry is a sound file, or a folder of them read in order.
-    let entry = |file: &str| {
-        let p = dir.join(file);
-        let files = if p.is_dir() {
+    // Each entry is a sound file, or a folder of them read in order; a
+    // file two entries name (one recording split in stretches, #1197) is
+    // one sound, counted once.
+    let mut files: Vec<PathBuf> = Vec::new();
+    for r in &m.recordings {
+        let p = dir.join(&r.file);
+        let found = if p.is_dir() {
             crate::recording_order::recordings_in(&p, &[]).ok()?
         } else {
             vec![p]
         };
-        files.iter().map(seconds).sum::<Option<f64>>()
-    };
-    m.recordings
+        for f in found {
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+    }
+    files
         .iter()
-        .map(|r| entry(&r.file))
+        .map(seconds)
         .sum::<Option<f64>>()
         .filter(|s| *s > 0.0)
 }

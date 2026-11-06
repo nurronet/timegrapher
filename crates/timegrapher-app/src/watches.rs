@@ -917,19 +917,28 @@ pub fn new_take_buttons(
 }
 
 /// A take's start in its row: `22 Oct 2026 09:10`, in this computer's
-/// time zone; "Unknown" when no `session.json` says, as for a take copied
-/// in by hand (#1272): never its folder's name, which would put a second
-/// form in the column and its position beside the Position column's.
+/// time zone. A take copied in without its `session.json` (#1272) reads it
+/// from its folder's name when that starts as the app names a take
+/// (`2026-10-22 09.10`, its recording computer's time), and is a dash
+/// when neither says: never the name itself, which would put a second form
+/// in the column and its position beside the Position column's.
 pub fn started_words(t: &Take) -> String {
-    t.started_utc
+    const SHOWN: &str = "%-d %b %Y %H:%M";
+    if let Some(d) = t
+        .started_utc
         .as_deref()
         .and_then(|u| chrono::DateTime::parse_from_rfc3339(u).ok())
-        .map(|d| {
-            d.with_timezone(&chrono::Local)
-                .format("%-d %b %Y %H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|| "Unknown".into())
+    {
+        return d.with_timezone(&chrono::Local).format(SHOWN).to_string();
+    }
+    named_start(&t.name).map_or_else(|| "—".into(), |d| d.format(SHOWN).to_string())
+}
+
+/// When a take folder named as the app names a take (`2026-10-22 09.10`,
+/// then anything) says it started.
+fn named_start(name: &str) -> Option<chrono::NaiveDateTime> {
+    let head = name.get(..16)?;
+    chrono::NaiveDateTime::parse_from_str(head, "%Y-%m-%d %H.%M").ok()
 }
 
 /// A Positions Test take's positions measured and its Mean row: rate,
@@ -1525,8 +1534,15 @@ fn take_hover(
         )),
         _ => {}
     }
+    // Where a start not recorded in the take comes from, or that it is
+    // unknown (#1272).
+    let start = match (&t.started_utc, named_start(&t.name)) {
+        (Some(_), _) => "",
+        (None, Some(_)) => "\n\nStart time from the take folder's name.",
+        (None, None) => "\n\nStart time not recorded.",
+    };
     format!(
-        "{}{figures}\n\n{}",
+        "{}{start}{figures}\n\n{}",
         take_line(t, test, reading),
         if on_show {
             "This take is on show on the Bench. Right-click for more."
@@ -2305,12 +2321,31 @@ mod tests {
             watch_heard: true,
         };
         let r = Some(&reading);
-        // No session.json says when it started: Unknown, never the
-        // folder's name (#1272).
+        // No session.json says when it started: read from a folder named
+        // as the app names a take, else a dash, never the name (#1272).
         assert_eq!(
             take_cells(&t, None, r),
-            ["Unknown", "DU", "30:00", "+9.8", "287", "0.21", "112.6"].map(String::from)
+            [
+                "22 Oct 2026 09:10",
+                "DU",
+                "30:00",
+                "+9.8",
+                "287",
+                "0.21",
+                "112.6"
+            ]
+            .map(String::from)
         );
+        let named = |name: &str| {
+            started_words(&Take {
+                name: name.into(),
+                ..t.clone()
+            })
+        };
+        assert_eq!(named("2026-11-06 18.30 Dial Up"), "6 Nov 2026 18:30");
+        assert_eq!(named("ym42 copied"), "—");
+        assert_eq!(named("2026-13-06 18.30"), "—");
+        assert_eq!(named("2026-11-0"), "—");
         // Until its reading is worked out the figures are blank, never
         // the ones the app showed when it saved the take.
         assert_eq!(
