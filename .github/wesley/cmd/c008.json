@@ -1,1 +1,0 @@
-[["shell","pwsh -File .github/wesley/res/res.ps1"],["wait",3],["click",960,500],["key","win","up"],["wait",3]]

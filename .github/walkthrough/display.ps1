@@ -1,3 +1,7 @@
+# Sets the primary display to WIDTH x HEIGHT (default 1920 x 1080) and prints
+# the size Windows reports afterwards. GitHub's Windows runners start at
+# 1024 x 768; their virtual display offers 1920 x 1080 but not 2560 x 1440.
+param([int]$Width = 1920, [int]$Height = 1080)
 $src = @"
 using System; using System.Runtime.InteropServices;
 public class Disp {
@@ -16,16 +20,12 @@ public class Disp {
 }
 "@
 Add-Type $src
-$m = New-Object Disp+DEVMODE; $m.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($m)
-$modes = @{}; $i = 0
-while ([Disp]::EnumDisplaySettings($null, $i, [ref]$m)) { $modes["$($m.dmPelsWidth)x$($m.dmPelsHeight)"] = 1; $i++ }
-"MODES: " + (($modes.Keys | Sort-Object { [int]($_ -split 'x')[0] }) -join ' ')
-foreach ($wh in @(@(2560,1440), @(1920,1080))) {
-  [Disp]::EnumDisplaySettings($null, -1, [ref]$m) | Out-Null
-  $m.dmPelsWidth = $wh[0]; $m.dmPelsHeight = $wh[1]; $m.dmFields = 0x180000
-  $r = [Disp]::ChangeDisplaySettings([ref]$m, 0)
-  "TRY $($wh[0])x$($wh[1]) -> $r"
-  if ($r -eq 0) { break }
-}
+$m = New-Object Disp+DEVMODE
+$m.dmSize = [Runtime.InteropServices.Marshal]::SizeOf($m)
+[Disp]::EnumDisplaySettings($null, -1, [ref]$m) | Out-Null
+$m.dmPelsWidth = $Width; $m.dmPelsHeight = $Height; $m.dmFields = 0x180000
+$r = [Disp]::ChangeDisplaySettings([ref]$m, 0)
 Add-Type -AssemblyName System.Windows.Forms
-"NOW: " + [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+"display: asked ${Width}x${Height}, result code $r, now $($b.Width)x$($b.Height)"
+if ($b.Width -ne $Width -or $b.Height -ne $Height) { exit 1 }

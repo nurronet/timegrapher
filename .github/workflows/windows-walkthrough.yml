@@ -1,0 +1,106 @@
+name: Windows walkthrough
+
+# A Windows desktop an agent drives live, for walkthroughs of the desktop app
+# (.github/walkthrough/README.md). Started by hand; not part of CI.
+#
+# It builds the app at `ref` (and at `base_ref` when given), sets the display
+# to 1920 x 1080, opens the head build, then for `minutes` serves step files
+# pushed to walk/cmd/ on the `channel` branch, answering each with a
+# screenshot in walk/out/ on that branch.
+#
+# The code under test is checked out and built without credentials. The
+# write token reaches only the step loop, which passes the app an
+# environment without it. Run it only on branches of this repository.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to walk (the PR head)
+        required: true
+      base_ref:
+        description: Optional second build to compare against (the PR base)
+        required: false
+        default: ''
+      channel:
+        description: Branch the agent pushes steps to and reads answers from
+        required: true
+      minutes:
+        description: How long the session serves steps
+        required: false
+        default: '120'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-walkthrough-${{ inputs.channel }}
+  cancel-in-progress: true
+
+jobs:
+  walk:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    env:
+      CARGO_PROFILE_RELEASE_DEBUG: "0"
+    steps:
+      - name: Tool scripts
+        uses: actions/checkout@v7
+        with:
+          path: tool
+          persist-credentials: false
+          sparse-checkout: .github/walkthrough
+      - name: Head source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          path: head
+          persist-credentials: false
+      - name: Base source
+        if: inputs.base_ref != ''
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.base_ref }}
+          path: base
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-walkthrough
+          workspaces: |
+            head
+            base
+      - name: Build head
+        working-directory: head
+        run: cargo build --release -p timegrapher-app
+      - name: Build base
+        if: inputs.base_ref != ''
+        working-directory: base
+        run: cargo build --release -p timegrapher-app
+      - name: Channel branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.channel }}
+          path: channel
+          persist-credentials: false
+      - name: Display 1920 x 1080
+        shell: pwsh
+        run: ./tool/.github/walkthrough/display.ps1
+      - name: Driver
+        run: python -m pip install --quiet pyautogui==0.9.54 pillow
+      - name: Serve steps
+        shell: bash
+        env:
+          WALK_CHANNEL: ${{ inputs.channel }}
+          WALK_MINUTES: ${{ inputs.minutes }}
+          WALK_TOKEN: ${{ github.token }}
+        run: |
+          base=""
+          [ -n "${{ inputs.base_ref }}" ] && base=base/target/release/timegrapher-app.exe
+          python tool/.github/walkthrough/driver.py channel head/target/release/timegrapher-app.exe $base
+      - name: App logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: walk-logs
+          path: walk-logs/
+          if-no-files-found: ignore
