@@ -67,6 +67,7 @@ pub mod twostate;
 pub mod update;
 pub mod usbagc;
 pub mod usbclock;
+pub mod user_dirs;
 pub mod walk;
 pub mod wheel_lines;
 
