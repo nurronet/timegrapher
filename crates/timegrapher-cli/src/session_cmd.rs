@@ -1380,6 +1380,10 @@ mod tests {
     /// reads it over: one carrying on the position of the file before it
     /// settles no more, and one with its own settling keeps it (#1145).
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test checking session's reading against core's own window"
+    )]
     fn a_files_entry_alone_settles_as_in_the_whole_session_file() {
         let dir = std::env::temp_dir().join(format!("tg-listing-settle-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
