@@ -41,6 +41,7 @@ impl TimegrapherApp {
         self.positions_take = true;
         self.guided_unused.clear();
         self.guided_measured.clear();
+        self.mask_engine();
         self.reveal_pane(Pane::PositionsTest);
     }
 
@@ -150,6 +151,8 @@ impl TimegrapherApp {
         // stops listening and keeps its take, as Stop does.
         let done =
             phase == guided::Phase::Turn && test.next_position().is_none() && !test.needs_reading();
+        // The test's settlings leave the readings as a move's do.
+        self.mask_engine();
         if done && self.running() {
             self.end_guided(now, true);
         }
@@ -175,6 +178,7 @@ impl TimegrapherApp {
         self.guided_unused = test.unused(now);
         self.guided_measured = test.measured(now);
         self.guided = Some(test);
+        self.mask_engine();
         self.stop_listening();
     }
 
@@ -492,5 +496,6 @@ impl TimegrapherApp {
         self.guided_unused = test.unused(now);
         self.guided_measured = test.measured(now);
         self.guided = Some(test);
+        self.mask_engine();
     }
 }

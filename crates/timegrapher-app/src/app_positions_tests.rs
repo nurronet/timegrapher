@@ -170,6 +170,24 @@ fn a_positions_test_is_marked_from_its_first_position() {
     let settles = app.strip_settles();
     assert_eq!(settles[0], (0.0, 5.0, guided::BEFORE_TEST));
     assert_eq!(settles[1], (5.0, 10.0, guided::SETTLING));
+    // The test's settling leaves the readings as a move's does; the time
+    // before it began stays read, and neither is a mask by hand (#1233).
+    app.mask_engine();
+    assert_eq!(app.live.as_ref().unwrap().masked(), [(5.0, 10.0)]);
+    assert!(app.masked.is_empty());
+    // A move's settling before the test began is culled though the strip
+    // shades it as the time before the test; the rest of that time is not.
+    app.session.load(
+        &[(0.0, Position::DialDown), (1.0, Position::DialUp)],
+        &[(1.0, 3.0)],
+    );
+    assert_eq!(app.strip_settles()[0], (0.0, 5.0, guided::BEFORE_TEST));
+    app.mask_engine();
+    assert_eq!(
+        app.live.as_ref().unwrap().masked(),
+        [(1.0, 3.0), (5.0, 10.0)]
+    );
+    assert!(app.masked.is_empty());
 }
 
 /// A new position keeps the strip's beats and marks the stretch; the
