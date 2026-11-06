@@ -963,6 +963,28 @@ mod tests {
     use super::*;
     use crate::timing;
 
+    /// Sound too short for one beat's window, as a 1 s entry after its
+    /// settling leaves, is measured without a panic (#1207): silence, hiss
+    /// and a lone click, at 8 and 48 kHz.
+    #[test]
+    fn the_shape_of_a_moment_of_sound_is_measured_without_a_panic() {
+        for fs in [8_000.0, 48_000.0] {
+            for s in [1.0 / fs, 0.01, 0.1, 0.124, 0.126, 0.25, 1.0] {
+                let n = (fs * s) as usize;
+                let silence = vec![0.0f32; n];
+                let hiss: Vec<f32> = (0..n)
+                    .map(|i| ((i * 7919) % 101) as f32 / 500.0 - 0.1)
+                    .collect();
+                let mut click = vec![0.0f32; n];
+                click[n / 2] = 0.9;
+                for x in [silence, hiss, click] {
+                    let m = measure_shape(&x, fs, 28_800, 0.0);
+                    assert!(m.is_some(), "{fs} Hz, {s} s");
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_shape_is_measured_clear_of_masked_stretches() {
         assert_eq!(shape_stretch(&[], 30.0, 600.0), Some((30.0, SHAPE_S)));

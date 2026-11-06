@@ -137,11 +137,16 @@ pub fn moving_average(x: &[f32], w: usize) -> Vec<f32> {
 /// Sliding dot product of `x` with `template`:
 /// `out[n] = sum_k x[n + k] * template[k]`, for `n` in `0..x.len()`
 /// (samples past the end of `x` count as zero). FFT overlap-save.
+///
+/// Never panics. A template that is not all finite numbers matches
+/// nothing, all zeros: one built from no beats is NaN throughout, as a
+/// take too short for a single beat's window gives (#1207). A sample of
+/// `x` that is not a finite number counts as zero.
 #[allow(clippy::needless_range_loop)]
 pub fn correlate(x: &[f32], template: &[f32]) -> Vec<f32> {
     let m = template.len();
     let n = x.len();
-    if m == 0 || n == 0 {
+    if m == 0 || n == 0 || !template.iter().all(|v| v.is_finite()) {
         return vec![0.0; n];
     }
     let l = (4 * m).next_power_of_two().max(4096);
@@ -156,7 +161,9 @@ pub fn correlate(x: &[f32], template: &[f32]) -> Vec<f32> {
         h[m - 1 - k] = v;
     }
     let mut hs = fwd.make_output_vec();
-    fwd.process(&mut h, &mut hs).expect("fft");
+    if fwd.process(&mut h, &mut hs).is_err() {
+        return vec![0.0; n];
+    }
 
     let mut out = vec![0.0f32; n];
     let mut buf = vec![0.0f32; l];
@@ -167,13 +174,26 @@ pub fn correlate(x: &[f32], template: &[f32]) -> Vec<f32> {
         // Block covers x[s .. s + l]; outputs y[s + j] for j >= m - 1 are
         // valid, and out[n'] = y[n' + m - 1].
         for (j, b) in buf.iter_mut().enumerate() {
-            *b = x.get(s + j).copied().unwrap_or(0.0);
+            *b = x
+                .get(s + j)
+                .copied()
+                .filter(|v| v.is_finite())
+                .unwrap_or(0.0);
         }
-        fwd.process(&mut buf, &mut spec).expect("fft");
+        if fwd.process(&mut buf, &mut spec).is_err() {
+            return vec![0.0; n];
+        }
         for (a, b) in spec.iter_mut().zip(hs.iter()) {
             *a *= *b;
         }
-        inv.process(&mut spec, &mut buf).expect("ifft");
+        // The inverse takes only a real first and last bin; a product
+        // that overflowed would leave them not quite real.
+        for edge in [0, spec.len() - 1] {
+            spec[edge].im = 0.0;
+        }
+        if inv.process(&mut spec, &mut buf).is_err() {
+            return vec![0.0; n];
+        }
         for j in (m - 1)..l {
             let idx = s + j - (m - 1);
             if idx >= n || j - (m - 1) >= step {
@@ -610,6 +630,31 @@ mod tests {
                 fast[n]
             );
         }
+    }
+
+    /// A template made from no beats is NaN throughout, as a take too
+    /// short for one beat's window gives: it matches nothing, and a
+    /// sample that is not a number counts as zero. Neither panics (#1207).
+    #[test]
+    fn correlate_never_panics_on_a_template_or_sound_that_is_not_a_number() {
+        let x: Vec<f32> = (0..5_000).map(|i| (i % 13) as f32 / 13.0).collect();
+        assert_eq!(correlate(&x, &[f32::NAN; 400]), vec![0.0; x.len()]);
+        assert_eq!(correlate(&x, &[1.0, f32::INFINITY]), vec![0.0; x.len()]);
+        assert_eq!(correlate(&[], &[f32::NAN]), Vec::<f32>::new());
+        // NaN and infinite samples count as zero.
+        let t = [0.5f32, -0.25, 1.0];
+        let mut bad = x.clone();
+        bad[100] = f32::NAN;
+        bad[2_000] = f32::NEG_INFINITY;
+        let mut zeroed = x.clone();
+        zeroed[100] = 0.0;
+        zeroed[2_000] = 0.0;
+        let (got, want) = (correlate(&bad, &t), correlate(&zeroed, &t));
+        assert!(got.iter().zip(&want).all(|(a, b)| (a - b).abs() < 1e-4));
+        // Sound loud enough that the spectrum overflows still gives finite
+        // numbers or infinities, never a panic.
+        let loud = vec![f32::MAX / 4.0; 5_000];
+        assert_eq!(correlate(&loud, &[f32::MAX / 4.0; 64]).len(), 5_000);
     }
 
     #[test]
