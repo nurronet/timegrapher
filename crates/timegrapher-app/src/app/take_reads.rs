@@ -240,17 +240,14 @@ impl TimegrapherApp {
             log.jumps.retain(|&j| !edge(j));
             let breaks = steady::reading_breaks(take_breaks.unwrap_or_default(), &log);
             // The time between the stretches, another position or its
-            // settling, is left out as a mask is.
-            let mut masked = masks;
-            masked.extend(spans.windows(2).map(|w| (w[0].1, w[1].0)));
-            let mut m = timegrapher_core::session::measure_masked(
+            // settling, is left out as a mask is (core's rule).
+            let mut m = timegrapher_core::session::measure_together(
                 &log,
                 clock.as_ref(),
                 &breaks,
-                &masked,
-                from,
-                to,
-            );
+                &masks,
+                &spans,
+            )?;
             m.take_doubts(lift_known, unlisted);
             Some(WholeTake { m, span })
         };

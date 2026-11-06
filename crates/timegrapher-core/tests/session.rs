@@ -1019,6 +1019,27 @@ fn a_takes_positions_table_reads_each_position_marked() {
     assert!(t.indices.d_amplitude.is_none() && t.indices.d_beat_error.is_none());
 }
 
+/// Stretches read together leave out the time between them and the masks,
+/// counting a mask over that time once; no stretches read nothing.
+#[test]
+fn stretches_read_together_count_masked_time_once() {
+    let cfg = SynthConfig {
+        duration_s: 45.0,
+        rate_s_per_day: 5.0,
+        ..Default::default()
+    };
+    let path = temp_wav("read-together");
+    write_wav(&path, &generate(&cfg, |_| 280.0, |_| 0.0)).unwrap();
+    let log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();
+    std::fs::remove_file(&path).ok();
+    let spans = [(2.0, 20.0), (26.0, 42.0)];
+    // A mask from 15 s to 30 s covers the 6 s between the stretches too.
+    let m = session::measure_together(&log, None, &[], &[(15.0, 30.0)], &spans).unwrap();
+    assert!((m.masked_s - 15.0).abs() < 1e-9, "{}", m.masked_s);
+    assert!(close(m.rate_s_per_day, 5.0, 3.0), "{:?}", m.rate_s_per_day);
+    assert!(session::measure_together(&log, None, &[], &[], &[]).is_none());
+}
+
 /// A break the recorder wrote with a gap under 0 s (its timestamps put the
 /// first sound after a pause before the last one before it) is read as a
 /// break of no time: true time doesn't run backwards.
