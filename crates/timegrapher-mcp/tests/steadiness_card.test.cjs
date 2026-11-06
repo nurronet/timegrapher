@@ -66,7 +66,7 @@ test("a series' own caveat shows once, on that series, in the server's words", (
     constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
     ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
-  const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 10, not 1 in 33: this cycle may be noise.";
+  const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 24, not 1 in 100: this cycle may be noise.";
   const series = [rate, { ...rate, series: "amplitude", unit: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },
     { ...rate, series: "beat_error", unit: "ms" }];
   const take = [{ where: null, text: "The beat error is given as a size." }];

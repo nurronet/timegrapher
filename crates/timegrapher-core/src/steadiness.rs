@@ -384,6 +384,10 @@ pub struct SeriesCheck {
     /// The strongest periodic component, when the period search found one.
     pub period: Option<Period>,
     pub two_state: Option<TwoState>,
+    /// The null the series' period search was held to (#1195): its noise
+    /// model, the take's mix (ρ, or the timing's crossover times the
+    /// detrend's window) and whether the table covered it.
+    pub null: Option<longterm::NullFit>,
     /// The cycle found by the two-state finder, the autocorrelation or the
     /// period search, if any.
     pub cycle: Option<Cycle>,
@@ -593,10 +597,16 @@ pub(crate) fn ln_gamma(x: f64) -> f64 {
 
 /// Regularised upper incomplete gamma Q(a, x) = P(Gamma(a) > x).
 fn gamma_q(a: f64, x: f64) -> f64 {
+    ln_gamma_q(a, x).exp()
+}
+
+/// ln Q(a, x), kept in logs so a far tail does not underflow.
+pub(crate) fn ln_gamma_q(a: f64, x: f64) -> f64 {
     if x <= 0.0 {
-        return 1.0;
+        return 0.0;
     }
-    let lead = (-x + a * x.ln() - ln_gamma(a)).exp();
+    let ln_lead = -x + a * x.ln() - ln_gamma(a);
+    let lead = ln_lead.exp();
     if x < a + 1.0 {
         // Series for P.
         let (mut sum, mut term, mut ap) = (1.0 / a, 1.0 / a, a);
@@ -608,7 +618,7 @@ fn gamma_q(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        (1.0 - sum * lead).clamp(0.0, 1.0)
+        (1.0 - sum * lead).clamp(0.0, 1.0).ln()
     } else {
         // Continued fraction for Q (modified Lentz).
         let tiny = 1e-300;
@@ -634,7 +644,7 @@ fn gamma_q(a: f64, x: f64) -> f64 {
                 break;
             }
         }
-        (lead * h).clamp(0.0, 1.0)
+        (ln_lead + h.ln()).min(0.0)
     }
 }
 
@@ -999,6 +1009,7 @@ pub fn check_series(
         trend: None,
         period,
         two_state,
+        null: None,
         cycle: None,
         unlock_hopping: false,
     };
@@ -2135,6 +2146,17 @@ pub fn p_text(p: f64) -> String {
     }
 }
 
+/// The null `r`'s period search was held to, onto its series; and when
+/// it named a period the table does not reach, the caveat and its
+/// sentence (#1195).
+fn hold_to_null(s: &mut SeriesCheck, r: &longterm::SeriesReport) {
+    s.null = Some(r.search.null);
+    if let Some(c) = s.period.as_ref().and(longterm::period_uncalibrated(r)) {
+        crate::measure::add(&mut s.caveats, c);
+        s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
+    }
+}
+
 /// Check the rate, the amplitude and the beat error of a long-run
 /// analysis. `log` and `clock` are what `long` was run on, and `long`
 /// its report (whose period search is reused).
@@ -2314,6 +2336,12 @@ pub fn check(
             crate::measure::add(&mut s.caveats, c);
             s.headline = format!("{} {}", s.headline, c.long(None).unwrap_or_default());
         }
+    }
+    for (s, r) in series
+        .iter_mut()
+        .zip([&long.timing, &long.amplitude, &be_long])
+    {
+        hold_to_null(s, r);
     }
     // An amplitude split one side carries alone is the unlock mark
     // hopping (the two-state finder's direct check): whatever the

@@ -542,8 +542,9 @@ mod tests {
     }
 
     /// The cycles `long` and a session list are the ones the pane names
-    /// (#659). On control seed 33 the period search finds one amplitude
-    /// line that Holm's correction across the pane drops: with the family
+    /// (#659). On control seed 130 the period search finds one amplitude
+    /// line that Holm's correction across the pane drops (seed 33's, until
+    /// the search was calibrated, #1195): with the family
     /// held, no list names it. On takes with real cycles, each list keeps
     /// what the pane names, no more and no less.
     #[test]
@@ -555,7 +556,7 @@ mod tests {
             ..Default::default()
         };
         for (name, seed) in [
-            ("control", 33),
+            ("control", 130),
             ("fourth-wheel", 1),
             ("escape-wheel", 1),
             ("slow-cycle", 1),
@@ -655,20 +656,20 @@ mod tests {
     /// (#659, R9): 100 seeds a cell, the trend's F test and the period
     /// search held to Holm's correction, and the autocorrelation only
     /// refining a cycle the search kept. Each cap is the count the pane
-    /// gave at #1103 and may only fall. The target is 5: 30 min misses it
-    /// at ρ 0, 0.7 and 0.9 and 2 h at ρ 0.9 (#916's caveat, #917). 2 h at
-    /// ρ 0 to 0.5 is the control test above; 8 h and 24 h are the test
-    /// below.
+    /// gave once the period search was calibrated against its simulated
+    /// null (#1195), and may only fall. The target is 5: 30 min and 2 h
+    /// miss it at ρ 0.9 (#916's caveat, #917). 2 h at ρ 0 to 0.5 is the
+    /// control test above; 8 h and 24 h are the test below.
     #[test]
     fn a_steady_watch_with_red_noise_names_little_on_the_whole_pane() {
         red_pane_within(&[
-            (1800.0, 0.0, 7),
-            (1800.0, 0.3, 1),
-            (1800.0, 0.5, 2),
-            (1800.0, 0.7, 11),
-            (1800.0, 0.9, 32),
+            (1800.0, 0.0, 5),
+            (1800.0, 0.3, 0),
+            (1800.0, 0.5, 1),
+            (1800.0, 0.7, 6),
+            (1800.0, 0.9, 20),
             (7200.0, 0.7, 2),
-            (7200.0, 0.9, 8),
+            (7200.0, 0.9, 7),
         ]);
     }
 
@@ -678,27 +679,26 @@ mod tests {
     #[ignore = "8 h and 24 h takes: run by hand"]
     fn long_steady_watches_with_red_noise_name_little_on_the_whole_pane() {
         red_pane_within(&[
-            (7200.0, 0.0, 3),
-            (7200.0, 0.3, 4),
+            (7200.0, 0.0, 0),
+            (7200.0, 0.3, 2),
             (7200.0, 0.5, 3),
-            // One more take each from #1030's leveller clip, seed 82's
-            // rate (decided on #659).
-            (28800.0, 0.0, 3),
-            (28800.0, 0.3, 3),
-            (28800.0, 0.5, 2),
-            (28800.0, 0.7, 2),
-            (28800.0, 0.9, 2),
+            (28800.0, 0.0, 1),
+            (28800.0, 0.3, 1),
+            (28800.0, 0.5, 0),
+            (28800.0, 0.7, 0),
+            (28800.0, 0.9, 1),
             (86400.0, 0.0, 0),
-            (86400.0, 0.3, 2),
-            (86400.0, 0.5, 2),
-            (86400.0, 0.7, 2),
+            (86400.0, 0.3, 0),
+            (86400.0, 0.5, 0),
+            (86400.0, 0.7, 0),
             (86400.0, 0.9, 1),
         ]);
     }
 
     /// The caveat that a short take's cycle may be noise goes on the
-    /// amplitude and the beat error only (#916). Seed 35 of 30 min of red
-    /// noise names a cycle in the rate, whose search read ρ over 0.7, so
+    /// amplitude and the beat error only (#916). Seed 112 of 30 min of red
+    /// noise (seed 35 until the search was calibrated, #1195) names a cycle
+    /// in the rate, whose search read ρ over 0.7, so
     /// the rule would give it one; its series carries none. Seed 37 names
     /// one in the amplitude, which carries it and says so in its headline.
     #[test]
@@ -721,7 +721,7 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Caveat::PeriodMayBeNoise { .. }))
         };
-        let (long, r) = pane(35);
+        let (long, r) = pane(112);
         assert!(r.series[0].period.is_some(), "the rate names a cycle");
         assert!(crate::longterm::period_may_be_noise(&long.timing).is_some());
         assert!(!noise(&r.series[0]));

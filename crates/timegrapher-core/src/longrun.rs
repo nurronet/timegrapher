@@ -235,7 +235,7 @@ fn analyse_read(
     let aw: Vec<f64> = at.iter().map(|&t| to_watch(t)).collect();
     let amp_grid = grid_median(&aw, &av, 0.0, astep, (duration / astep).floor() as usize);
 
-    let timing = longterm::analyse(&timing_grid, cfg);
+    let timing = longterm::analyse_timing(&timing_grid, cfg);
     let amplitude = longterm::analyse(&amp_grid, cfg);
     let rate_components = timing
         .components
