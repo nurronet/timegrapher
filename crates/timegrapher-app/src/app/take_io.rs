@@ -1641,6 +1641,14 @@ impl TimegrapherApp {
     /// analysed in, with the watch from its session file when it has one.
     #[cfg(test)]
     pub(super) fn start_replay_at(&mut self, path: &Path, speed: f32) {
+        // Its settings read nothing again, as an open's don't (#1241).
+        let outer = std::mem::replace(&mut self.opening, true);
+        self.replay_at(path, speed);
+        self.opening = outer;
+    }
+
+    #[cfg(test)]
+    fn replay_at(&mut self, path: &Path, speed: f32) {
         // Refused before anything on show is stopped or its masks cleared.
         if let Some(why) = no_analysis_to_read(path) {
             return self.open_failed(why);
