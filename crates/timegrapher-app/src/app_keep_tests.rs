@@ -1770,7 +1770,7 @@ fn a_new_watch_for_a_recording_that_cant_be_added_is_taken_back() {
     assert_eq!(
         names(&root),
         ["Alpha", "Pictured"],
-        "the new one left behind?"
+        "only the new one taken back"
     );
     // Fixed, the same name is free to try again.
     std::fs::remove_file(&link).unwrap();
