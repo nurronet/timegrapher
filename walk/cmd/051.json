@@ -1,0 +1,1 @@
+[["shell", "type D:\\w\\lock.log & powershell -NoProfile -c \"(Get-Item D:\\w\\take\\session.toml).LastWriteTime.ToString(\\\"HH:mm:ss.fff\\\")\" & findstr masked D:\\w\\take\\session.toml"]]
