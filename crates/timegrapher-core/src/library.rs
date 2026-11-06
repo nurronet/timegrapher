@@ -417,15 +417,10 @@ impl Take {
         }
         let test = positions_test || self.power_reserve.is_some();
         if let Some((rate, amplitude, beat_error)) = figures.filter(|_| !test) {
-            if let Some(r) = rate {
-                parts.push(format!("{r:+.1} s/d"));
-            }
-            if let Some(x) = amplitude {
-                parts.push(format!("{x:.0}°"));
-            }
-            if let Some(b) = beat_error {
-                parts.push(format!("{:.1} ms", b.abs()));
-            }
+            let [r, x, b] = figure_texts(rate, amplitude, beat_error);
+            parts.extend(r.map(|r| format!("{r} s/d")));
+            parts.extend(x.map(|x| format!("{x}°")));
+            parts.extend(b.map(|b| format!("{b} ms")));
         }
         if !self.audio {
             parts.push("Analysis Only".into());
@@ -435,6 +430,25 @@ impl Take {
         }
         parts
     }
+}
+
+/// A take's rate, amplitude and beat error as its listed figures, without
+/// units: each at its base decimals ([`crate::figure_text::base_digits`],
+/// the decimals a card shows with no ± to follow), the rate signed and
+/// the beat error as its size. The one rule for the takes the app and
+/// `timegrapher watches` list (#1267: a beat error of 0.04 ms is never
+/// "0.0").
+pub fn figure_texts(
+    rate: Option<f64>,
+    amplitude: Option<f64>,
+    beat_error: Option<f64>,
+) -> [Option<String>; 3] {
+    use crate::figure_text::{base_digits, figure};
+    [
+        rate.map(|r| figure(r, None, base_digits::RATE, true)),
+        amplitude.map(|x| figure(x, None, base_digits::AMPLITUDE, false)),
+        beat_error.map(|b| figure(b.abs(), None, base_digits::BEAT_ERROR, false)),
+    ]
 }
 
 /// A take's own reading, as `timegrapher session` reads it: its last
@@ -1860,6 +1874,21 @@ fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
 mod tests {
     use super::*;
 
+    /// A take's listed beat error keeps the Bench card's two decimals, so a
+    /// good watch's 0.04 ms is never "0.0" and 0.06 never "0.1" (#1267);
+    /// rate and amplitude at theirs, a rate that rounds to zero unsigned.
+    #[test]
+    fn a_takes_figures_keep_the_cards_decimals() {
+        assert_eq!(
+            figure_texts(Some(-0.04), Some(271.6), Some(-0.04)),
+            [Some("0.0".into()), Some("272".into()), Some("0.04".into())]
+        );
+        assert_eq!(
+            figure_texts(Some(2.0), None, Some(0.06)),
+            [Some("+2.0".into()), None, Some("0.06".into())]
+        );
+    }
+
     /// A take's reading is kept until what it reads changes: a report
     /// written into the take's folder keeps it; a changed session file,
     /// kept analysis or sound in a folder of its own doesn't.
@@ -2016,7 +2045,7 @@ mod tests {
         };
         assert_eq!(
             t.facts(false),
-            ["Dial Up", "2:00", "+3.5 s/d", "281°", "0.4 ms"]
+            ["Dial Up", "2:00", "+3.5 s/d", "281°", "0.40 ms"]
         );
         assert_eq!(t.facts(true), ["Positions Test", "Dial Up", "2:00"]);
         let r = Take {

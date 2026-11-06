@@ -880,13 +880,12 @@ impl TimegrapherApp {
             let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let mut hint = format!(
                 "Timed against the computer's clock over {} of listening, this input's \
-                 clock runs {:.1} ± {:.1} ppm {way}: {:+.1} seconds per day on every rate. \
+                 clock runs {} ppm {way}: {:+.1} seconds per day on every rate. \
                  Keep it to show the corrected rate as True Clock from now on; the command \
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
                 length_text(f.span_s),
-                f.ppm.abs(),
-                f.ppm_sd,
+                timed_clock_text(f.ppm, f.ppm_sd),
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {
@@ -1765,4 +1764,13 @@ fn status_item(
         resp
     })
     .inner
+}
+
+/// A clock timed while listening as the hint gives it, `ppm` as its size
+/// and its standard error `sd`, both to the decimals the ± calls for
+/// (core's [`timegrapher_core::figure_text::figure_with_pm`], #510 R8):
+/// "0.84 ± 0.06", "20.2 ± 0.3". The hint says "fast" or "slow" after it.
+pub(super) fn timed_clock_text(ppm: f64, sd: f64) -> String {
+    use timegrapher_core::figure_text::{base_digits, figure_with_pm};
+    figure_with_pm(ppm.abs(), Some(sd), base_digits::CLOCK, false)
 }
