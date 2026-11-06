@@ -69,6 +69,13 @@ mod tests {
         );
         assert!(got.is_err());
         assert_eq!(tries, 21, "a file never let go gives up");
+        // Windows' held-open codes count only there; another error nowhere.
+        for code in [5, 32, 33] {
+            assert_eq!(
+                held_open(&io::Error::from_raw_os_error(code)),
+                cfg!(windows)
+            );
+        }
         assert!(!held_open(&io::Error::from_raw_os_error(2)));
     }
 }
