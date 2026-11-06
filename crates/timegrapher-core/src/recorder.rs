@@ -1358,9 +1358,6 @@ mod tests {
         assert_eq!(&utc(leap)[..10], "2000-02-29");
     }
 
-    /// A folder being recorded into reads as in use, to this process and
-    /// any other; once finished, or its recorder gone without finishing,
-    /// it doesn't.
     /// A 24-bit microphone's take is kept at 16 bits, each sample the
     /// sound rounded to the nearest 16-bit step (#1176).
     #[test]
@@ -1398,6 +1395,9 @@ mod tests {
         let _ = fs::remove_dir_all(&parent);
     }
 
+    /// A folder being recorded into reads as in use, to this process and
+    /// any other; once finished, or its recorder gone without finishing,
+    /// it doesn't.
     #[test]
     fn a_recording_folder_is_in_use_only_while_recorded() {
         let parent = std::env::temp_dir().join(format!("tg-rec-lock-{}", std::process::id()));
