@@ -1,0 +1,6 @@
+app: head running
+took 4.2 s
+$ powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")" & findstr masked D:\w\take\session.toml
+17:25:28.542
+masked = [[20.54825557499322, 23.878604604652622], [26.376366710913597, 28.874128705835762]]
+
