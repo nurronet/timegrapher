@@ -1,0 +1,21 @@
+app: base running
+took 6.6 s
+$ del D:\w\lock.log
+
+$ powershell -NoProfile -c "Start-Process powershell -WindowStyle Hidden -ArgumentList ('-NoProfile -File D:\w\lock3.ps1 -Path D:\w\take\session.toml -Share Read -Delay 0 -Hold 0.7')"
+
+$ echo t1 %time%
+t1 18:49:13.20
+
+$ echo t2 %time%
+t2 18:49:13.34
+
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\"); Get-Content -Tail 3 $env:APPDATA\timegrapher\logs\timegrapher.log" & findstr masked D:\w\take\session.toml
+locked D:\w\take\session.toml at 18:49:12.857
+released at 18:49:13.581
+18:47:32.008
+2026-11-06T18:47:49.449Z info  The window drew its first frame
+2026-11-06T18:48:41.357Z info  Analysed the whole recording. Drag the strip to look back.
+2026-11-06T18:49:13.209Z error Couldn't save the masked stretches: D:\w\take\session.toml: Access is denied. (os error 5)
+masked = [[24.877709625299104, 27.208954079667254]]
+
