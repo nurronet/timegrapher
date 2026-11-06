@@ -2509,12 +2509,6 @@ fn recordings_info(
     Ok((files, info))
 }
 
-/// A take opened from the folder `path` of several sound files, with its
-/// session file `m` and that file's `entries` for the folder, laid out by
-/// core (`take_context::entry_layout`): each sound file's place on the
-/// strip, and each entry's window there, one per entry (#1154). None for
-/// a lone file, a folder of one, one core can't lay out, or one with an
-/// entry for the whole folder, which reads over the take whole as before.
 /// The take kept sound in `dir` was recording into as it went, which
 /// holds all of it but its last few seconds. A take moved or deleted
 /// since leaves this the only copy, kept as sound never saved, and the
@@ -2529,6 +2523,12 @@ pub(super) fn streamed_to(dir: &Path) -> Option<PathBuf> {
     None
 }
 
+/// A take opened from the folder `path` of several sound files, with its
+/// session file `m` and that file's `entries` for the folder, laid out by
+/// core (`take_context::entry_layout`): each sound file's place on the
+/// strip, and each entry's window there, one per entry (#1154). None for
+/// a lone file, a folder of one, one core can't lay out, or one with an
+/// entry for the whole folder, which reads over the take whole as before.
 pub(super) fn folder_layout(
     path: &Path,
     m: &Manifest,

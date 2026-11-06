@@ -443,9 +443,6 @@ fn a_kept_quick_listen_records_into_its_take() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
-/// A watch's own take records into its folder as it goes, from its first
-/// [`STREAM_EVERY_S`] of sound, so a crash costs only seconds; a quit adds
-/// the last of it with no question.
 /// What the delete dialog for the first kept sound says.
 fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, egui::Pos2)> {
     app.kept_delete_ask = Some(app.kept[0].dir.clone());
@@ -457,6 +454,9 @@ fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, eg
     drawn
 }
 
+/// A watch's own take records into its folder as it goes, from its first
+/// [`STREAM_EVERY_S`] of sound, so a crash costs only seconds; a quit adds
+/// the last of it with no question.
 #[test]
 fn a_watchs_take_records_into_its_folder_as_it_goes() {
     let base = std::env::temp_dir().join(format!("tg-app-stream-watch-{}", std::process::id()));
