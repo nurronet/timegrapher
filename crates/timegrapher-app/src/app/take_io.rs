@@ -2044,6 +2044,12 @@ impl TimegrapherApp {
         self.batch = None;
     }
 
+    /// Cancel the opening under way: nothing is opened, and the window no
+    /// longer says Opening (#1220).
+    pub(super) fn cancel_open(&mut self) {
+        self.stop();
+    }
+
     pub(super) fn error(&mut self, m: String) {
         applog::error(&m);
         self.message = Some((plain_error(&m), true));
