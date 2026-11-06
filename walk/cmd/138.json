@@ -1,0 +1,1 @@
+[["move", 1760, 1015], ["wait", 0.6], ["click", 1760, 1015], ["wait", 1.5], ["shell", "dir /s \"%USERPROFILE%\\Timegrapher Data\\Sub LNab - 2024- -x- -----\\takes\" & powershell -NoProfile -c \"Get-Content -Tail 12 $env:APPDATA\\timegrapher\\logs\\timegrapher.log\""]]
