@@ -1058,8 +1058,17 @@ impl TimegrapherApp {
 
     /// A save that failed says so. A take recording into its folder tries
     /// again a minute later, its sound kept here meanwhile; a quit waiting
-    /// on the save stays open.
+    /// on the save stays open. Once the take is stopped, its Stop's save
+    /// waiting its turn holds all its sound, so it alone answers for the
+    /// take and the quit: the pause can take the hour from under a copy
+    /// still under way (#1230).
     fn save_failed(&mut self, streamed: Streamed, dest: &Path, e: String) {
+        if streamed == Streamed::Yes && !self.running() && !self.after_save.is_empty() {
+            return applog::info(&format!(
+                "a save into {} failed after the Stop, whose save follows: {e}",
+                dest.display()
+            ));
+        }
         self.close_after_save = false;
         if streamed == Streamed::Yes {
             self.stream_wait = Some(Instant::now());
