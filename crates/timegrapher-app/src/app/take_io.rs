@@ -1018,6 +1018,14 @@ impl TimegrapherApp {
         }
     }
 
+    /// When the window draws next: as [`Self::repaint_every`] says, and
+    /// once more at once on the frame the work ended, so what it left (a
+    /// message, the take's files) shows with no input (Walter on #1232).
+    pub(super) fn draw_next(&self, was_working: bool) -> Option<std::time::Duration> {
+        self.repaint_every()
+            .or(was_working.then_some(std::time::Duration::ZERO))
+    }
+
     /// The save being written, once it is done.
     pub(super) fn poll_saving(&mut self) {
         if self.saving.as_ref().is_some_and(|s| s.thread.is_finished()) {

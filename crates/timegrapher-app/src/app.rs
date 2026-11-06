@@ -4226,6 +4226,7 @@ impl TimegrapherApp {
 impl eframe::App for TimegrapherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::frame_built();
+        let was_working = self.repaint_every().is_some();
         // One settling for every change of position: the pane's Settle.
         self.session.set_settle_s(self.guided_settle_s);
         if std::mem::take(&mut self.listen_pending) && !self.running() {
@@ -4295,7 +4296,7 @@ impl eframe::App for TimegrapherApp {
             ctx.request_repaint();
         }
 
-        if let Some(every) = self.repaint_every() {
+        if let Some(every) = self.draw_next(was_working) {
             ctx.request_repaint_after(every);
         }
     }

@@ -975,3 +975,96 @@ fn a_long_take_lands_with_its_run_and_charts_read_in_the_background() {
     };
     assert_eq!(text(&app), text(&here));
 }
+
+/// An idle window draws only when asked; one listening or reading a
+/// batch draws every 40 ms; work on a thread of its own, each kind on its
+/// own, every 100 ms, so what it gives shows with no input (Trevor's HOLD
+/// on #1232); and once more on the frame it ended (Walter's).
+#[test]
+fn the_window_draws_again_only_while_work_is_under_way() {
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+    let idle = || TimegrapherApp::with_devices(Vec::new(), None);
+    assert_eq!(idle().repaint_every(), None, "idle");
+    // Once more at once on the frame work ended, then no more.
+    assert_eq!(idle().draw_next(true), Some(Duration::ZERO));
+    assert_eq!(idle().draw_next(false), None);
+    let analysis = || AnalysisSave {
+        rx: channel().1,
+        progress: Default::default(),
+        cancel: Default::default(),
+        total_s: 1.0,
+    };
+    type Set = Box<dyn Fn(&mut TimegrapherApp)>;
+    let slow: [(&str, Set); 6] = [
+        (
+            "sound",
+            Box::new(|a| a.sound_job = Some((0.0, 0, channel().1))),
+        ),
+        ("scope", Box::new(|a| a.scope_job = Some(channel().1))),
+        (
+            "steady",
+            Box::new(|a| a.steady_job = Some((Revision::default(), channel().1))),
+        ),
+        (
+            "save",
+            Box::new(|a| {
+                a.saving = Some(Saving {
+                    thread: std::thread::spawn(|| Err(std::io::Error::other("held"))),
+                    dest: PathBuf::new(),
+                    parent: PathBuf::new(),
+                    secs: 0.0,
+                    metadata: a.session.metadata_snapshot(a.save_metadata()),
+                    rescan: false,
+                    streamed: Streamed::No,
+                })
+            }),
+        ),
+        (
+            "keep",
+            Box::new(move |a| a.take_keep = Some((PathBuf::new(), analysis()))),
+        ),
+        (
+            "analysis",
+            Box::new(move |a| a.analysis_save = Some(analysis())),
+        ),
+    ];
+    for (name, set) in slow {
+        let mut a = idle();
+        set(&mut a);
+        assert_eq!(
+            a.repaint_every(),
+            Some(Duration::from_millis(100)),
+            "{name}"
+        );
+        assert_eq!(a.draw_next(true), Some(Duration::from_millis(100)));
+    }
+    let mut a = idle();
+    a.batch = Some(Batch {
+        rx: channel().1,
+        progress: Default::default(),
+        cancel: Default::default(),
+        duration_s: None,
+        label: String::new(),
+        started: Instant::now(),
+        files: 1,
+        first: String::new(),
+        last: String::new(),
+        stretches: Vec::new(),
+        settles: Vec::new(),
+        order_note: None,
+    });
+    assert_eq!(a.repaint_every(), Some(Duration::from_millis(40)), "batch");
+    let base = std::env::temp_dir().join(format!("tg-app-repaint-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let mut a = idle();
+    let _tx = super::tests::queued_capture(&mut a, &base);
+    assert!(a.running());
+    assert_eq!(
+        a.repaint_every(),
+        Some(Duration::from_millis(40)),
+        "listening"
+    );
+    drop(a);
+    let _ = std::fs::remove_dir_all(&base);
+}
