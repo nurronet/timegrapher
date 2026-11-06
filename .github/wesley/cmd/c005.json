@@ -1,0 +1,1 @@
+[["key","alt","f4"],["wait",5],["shell","wevtutil qe Application /c:5 /rd:true /f:text /q:\"*[System[(EventID=1000 or EventID=1001)]]\""]]
