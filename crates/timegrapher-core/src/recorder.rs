@@ -918,6 +918,20 @@ impl Recorder {
         (f.open_sound && path == to && *len >= f.head.len() as u64 && *len <= f.len).then_some(*len)
     }
 
+    /// The copy saved last moved from `from` to `to` (filed under a
+    /// watch): Save Again saves into it there, and a take recording into
+    /// its folder grows it there.
+    pub fn copy_moved(&mut self, from: &Path, to: &Path) {
+        if let Some(name) = to.file_name() {
+            self.saved_name = Some(name.to_owned());
+        }
+        if let Some((path, _)) = self.grown.as_mut() {
+            if let Ok(rest) = path.strip_prefix(from) {
+                *path = to.join(rest);
+            }
+        }
+    }
+
     /// Note a copy [`PendingSave::write`] wrote, so Save Again saves into
     /// it.
     pub fn note_saved(&mut self, copy: &SavedCopy) {
@@ -1816,6 +1830,37 @@ mod tests {
         if let Some(id) = file_identity(&wav) {
             assert_ne!(Some(id), file_id.flatten(), "copied whole");
         }
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A copy moved (filed under a watch) and noted with
+    /// [`Recorder::copy_moved`] goes on growing in place where it is, and
+    /// Save Again saves into it there under its new name.
+    #[test]
+    fn a_moved_copy_goes_on_growing_where_it_is() {
+        let (mut r, base) = save_fixture("moved");
+        let stream = |r: &mut Recorder, parent: &Path| {
+            let copy = r
+                .begin_stream_save(parent, "", None, &[])
+                .unwrap()
+                .write()
+                .unwrap();
+            r.note_saved(&copy);
+            copy.dir
+        };
+        append_second(&mut r, 2);
+        let from = stream(&mut r, &base.join("unsorted"));
+        let to = base.join("watch").join("moved take");
+        fs::create_dir_all(to.parent().unwrap()).unwrap();
+        fs::rename(&from, &to).unwrap();
+        r.copy_moved(&from, &to);
+        let wav = to.join("audio-001.wav");
+        let id = file_identity(&wav);
+        append_second(&mut r, 3);
+        assert_eq!(stream(&mut r, to.parent().unwrap()), to);
+        assert_eq!(file_identity(&wav), id, "grown in place");
+        let saved = crate::audio::load(&wav).unwrap();
+        assert_eq!(saved.samples.len(), 3 * 8000);
         fs::remove_dir_all(&base).unwrap();
     }
 
