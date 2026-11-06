@@ -25,7 +25,8 @@ pub(super) fn save_marks_to_take(
             .to_path_buf()
     };
     let file = dir.join(MANIFEST);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let text = timegrapher_core::recorder::read_settled(&file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
     let mut doc: toml_edit::DocumentMut = text
         .parse()
         .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
