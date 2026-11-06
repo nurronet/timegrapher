@@ -837,6 +837,7 @@ fn a_lookup_between_cells_interpolates() {
         (c.mu, c.sigma, c.xi, c.log_trials)
     );
     assert_eq!(on.mean, c.mean);
+    assert_eq!(on.shape, c.shape);
     // Halfway in log span between 1800 and 2700 s.
     let (a, b) = (cell(1800.0, 0.5), cell(2700.0, 0.5));
     let mid = levelling(Readings, (1800.0f64 * 2700.0).sqrt(), 2.0, 0.5).unwrap();
@@ -853,7 +854,15 @@ fn a_lookup_between_cells_interpolates() {
             (Some(x), Some(y), Some(m)) => assert!(close(m, (x + y) / 2.0)),
             (_, _, m) => assert!(m.is_none()),
         }
+        match (a.shape[k], b.shape[k], mid.shape[k]) {
+            (Some(x), Some(y), Some(m)) => assert!(close(m, (x + y) / 2.0), "shape at {k}"),
+            (_, _, m) => assert!(m.is_none(), "shape at {k}"),
+        }
     }
+    assert!(
+        (0..X_POINTS).any(|k| a.shape[k] != b.shape[k]),
+        "the shapes differ"
+    );
     // A quarter of the way from ρ 0.5 to 0.7 at 1800 s.
     let (a, b) = (cell(1800.0, 0.5), cell(1800.0, 0.7));
     let q = levelling(Readings, 1800.0, 2.0, 0.55).unwrap();
@@ -866,6 +875,16 @@ fn a_lookup_between_cells_interpolates() {
     );
     assert!(close(q.xi, a.xi + (b.xi - a.xi) * 0.25));
     assert!(q.mu != a.mu && q.mu != b.mu);
+    for k in 0..X_POINTS {
+        match (a.shape[k], b.shape[k], q.shape[k]) {
+            (Some(x), Some(y), Some(m)) => assert!(close(m, x + (y - x) * 0.25), "shape at {k}"),
+            (_, _, m) => assert!(m.is_none(), "shape at {k}"),
+        }
+    }
+    assert!(
+        (0..X_POINTS).any(|k| a.shape[k] != b.shape[k]),
+        "the shapes differ"
+    );
 }
 
 /// Out of sample: fresh seeds (none the table was fitted on) through the
