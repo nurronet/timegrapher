@@ -1,0 +1,5 @@
+app: head running
+took 2.3 s
+$ dir /s /b D:\r\roam\.. | findstr /i png & dir "%USERPROFILE%\Timegrapher Data" /s /b | findstr /i png
+C:\Users\runneradmin\Timegrapher Data\YM42 roam\takes\Paper Strip.png
+
