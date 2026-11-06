@@ -1,0 +1,1 @@
+[["click", 862, 719], ["wait", 1], ["key", "win", "up"], ["wait", 2], ["shell", "mkdir D:\\w & xcopy /E /I /Y channel\\walk\\fx\\save1253 D:\\w\\take & dir D:\\w\\take"], ["click", 22, 16], ["wait", 1.5]]
