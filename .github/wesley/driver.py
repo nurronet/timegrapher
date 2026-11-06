@@ -48,7 +48,7 @@ deadline = time.time() + int(os.environ.get("WESLEY_LOOP_SECONDS", "2400"))
 branch = os.environ.get("GITHUB_REF_NAME", "")
 subprocess.run(["git", "config", "user.name", "wesley-probe"])
 subprocess.run(["git", "config", "user.email", "wesley-probe@users.noreply.github.com"])
-done = set()
+done = set(f for f in os.listdir(".github/wesley/cmd")) if os.path.isdir(".github/wesley/cmd") else set()
 while time.time() < deadline and app.poll() is None:
     subprocess.run(["git", "pull", "-q", "--rebase", "origin", branch], capture_output=True)
     d = ".github/wesley/cmd"
