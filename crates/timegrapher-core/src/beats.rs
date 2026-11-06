@@ -133,7 +133,8 @@ const ONSET_BLOCK_S: f64 = 1.0;
 
 /// Where sound starts in `env`, samples: the start of the first
 /// [`ONSET_BLOCK_S`] stretch whose loudest point reaches a quarter of the
-/// loud stretches' (the 90th percentile of the stretches' loudest points).
+/// loud stretches' (the 90th percentile of the stretches' loudest points,
+/// by core's one rule, [`crate::dsp::quantile_f32`]).
 /// So digital silence or a low noise before a watch is placed is passed
 /// over. `None` when the envelope is all zero.
 pub fn sound_onset(env: &[f32], fs: f64) -> Option<usize> {
@@ -144,7 +145,10 @@ pub fn sound_onset(env: &[f32], fs: f64) -> Option<usize> {
         .collect();
     let mut sorted = tops.clone();
     sorted.sort_by(f32::total_cmp);
-    let loud = *sorted.get((sorted.len() * 9 / 10).min(sorted.len().saturating_sub(1)))?;
+    if sorted.is_empty() {
+        return None;
+    }
+    let loud = crate::dsp::quantile_f32(&sorted, 0.9);
     if loud <= 0.0 {
         return None;
     }
@@ -1501,6 +1505,23 @@ mod tests {
         let fs = 48_000.0;
         assert_eq!(guess_bph(&vec![0.0; (12.0 * fs) as usize], fs), 28_800);
         assert_eq!(sound_onset(&vec![0.0; (12.0 * fs) as usize], fs), None);
+    }
+
+    /// The loud stretches' level is core's 90th percentile of the 1 s
+    /// stretches' peaks ([`crate::dsp::quantile_f32`], #512): one lone
+    /// click louder than the rest does not set it, so a steady watch heard
+    /// from the start starts there.
+    #[test]
+    fn a_lone_click_does_not_set_the_onset_level() {
+        let fs = 100.0;
+        let mut env = vec![0.2_f32; 1000];
+        env[950] = 1.0;
+        // Peaks: nine of 0.2 and one of 1.0. The 90th percentile is 0.28,
+        // and every stretch reaches a quarter of it.
+        assert_eq!(sound_onset(&env, fs), Some(0));
+        // Quiet before the watch is still passed over.
+        env[..300].fill(0.01);
+        assert_eq!(sound_onset(&env, fs), Some(300));
     }
 
     /// Beats of a watch with 0.5 ms beat error and 0.1 ms of scatter, with

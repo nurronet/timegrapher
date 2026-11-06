@@ -143,7 +143,7 @@ impl UserCalibres {
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, text + "\n").map_err(err)?;
-        std::fs::rename(&tmp, path).map_err(err)
+        crate::recorder::rename_settled(&tmp, path).map_err(err)
     }
 
     /// Set the turn of `wheel` on a calibre, table or custom; it replaces

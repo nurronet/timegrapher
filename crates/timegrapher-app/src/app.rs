@@ -3952,7 +3952,7 @@ fn write_replacing(target: &Path, text: &str) -> Result<(), String> {
     let name = format!(".{}.saving", file_name(target));
     let temp = target.with_file_name(name);
     std::fs::write(&temp, text)
-        .and_then(|()| std::fs::rename(&temp, target))
+        .and_then(|()| timegrapher_core::recorder::rename_settled(&temp, target))
         .map_err(|e| {
             let _ = std::fs::remove_file(&temp);
             format!("{}: {e}", target.display())

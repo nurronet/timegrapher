@@ -745,7 +745,7 @@ fn track_masked(
 
 /// The parts of `a` to `b` that none of the stretches `hidden` covers, in
 /// order.
-fn showing(a: f64, b: f64, hidden: impl Iterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
+pub(crate) fn showing(a: f64, b: f64, hidden: impl Iterator<Item = (f64, f64)>) -> Vec<(f64, f64)> {
     let mut hidden: Vec<(f64, f64)> = hidden.filter(|p| p.1 > a && p.0 < b).collect();
     hidden.sort_by(|x, y| x.0.total_cmp(&y.0));
     let mut from = a;
@@ -1319,8 +1319,10 @@ impl Frame<'_> {
     /// back, Mask on or off.
     fn hover(&self, resp: &egui::Response, input: &mut StripInput) {
         if let Some(len) = resp.hover_pos().and_then(|p| self.band_at(p)) {
-            resp.clone()
-                .on_hover_text_at_pointer(format!("Settling, {}", crate::fields::duration(len)));
+            resp.clone().on_hover_text_at_pointer(format!(
+                "Settling, {}: not read",
+                crate::fields::duration(len)
+            ));
         } else if resp.hover_pos().and_then(|p| self.painted_at(p)).is_some() {
             resp.clone().on_hover_text_at_pointer(
                 "Painted with the Position Brush. Right-click to remove the painting and bring \

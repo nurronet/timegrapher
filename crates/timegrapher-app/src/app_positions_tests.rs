@@ -181,13 +181,47 @@ fn a_positions_test_is_marked_from_its_first_position() {
         &[(0.0, Position::DialDown), (1.0, Position::DialUp)],
         &[(1.0, 3.0)],
     );
-    assert_eq!(app.strip_settles()[0], (0.0, 5.0, guided::BEFORE_TEST));
+    // Shaded as settling where it is culled, settling winning the overlap;
+    // the rest of the time before the test keeps its kind (Hugh).
+    assert_eq!(
+        app.strip_settles(),
+        [
+            (0.0, 1.0, guided::BEFORE_TEST),
+            (1.0, 3.0, guided::SETTLING),
+            (3.0, 5.0, guided::BEFORE_TEST),
+            (5.0, 10.0, guided::SETTLING),
+        ]
+    );
     app.mask_engine();
     assert_eq!(
         app.live.as_ref().unwrap().masked(),
         [(1.0, 3.0), (5.0, 10.0)]
     );
     assert!(app.masked.is_empty());
+    // A move's settling overlapping the test's merges with it, one band
+    // and one mask.
+    app.session.load(
+        &[
+            (0.0, Position::DialDown),
+            (1.0, Position::DialUp),
+            (4.0, Position::DialDown),
+        ],
+        &[(1.0, 3.0), (4.0, 6.0)],
+    );
+    assert_eq!(
+        app.strip_settles(),
+        [
+            (0.0, 1.0, guided::BEFORE_TEST),
+            (1.0, 3.0, guided::SETTLING),
+            (3.0, 4.0, guided::BEFORE_TEST),
+            (4.0, 10.0, guided::SETTLING),
+        ]
+    );
+    app.mask_engine();
+    assert_eq!(
+        app.live.as_ref().unwrap().masked(),
+        [(1.0, 3.0), (4.0, 10.0)]
+    );
 }
 
 /// A new position keeps the strip's beats and marks the stretch; the
