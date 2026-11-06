@@ -168,7 +168,7 @@ further harmonic of theirs that stands clear of the noise), sits
 further from the fitted walk plus white than 99 in 100 simulated takes (rms of
 the quarter-octave band powers, in decades; 2,000 a drawn mix) carries
 `timing_model_misfit` on any rate cycle it names. On fresh takes with a sine
-added (200 a cell) it is given on 239 of 41,808, every cell at or under its
+added (200 a cell) it is given on 251 of 41,780, every cell at or under its
 bound. On 300 s and 600 s takes the limit is high (0.86 and 0.98 at mix 300),
 so there it seldom fires. Outside the simulated models (a slow
 wander under white readings, flicker in the timing) the rate is not
