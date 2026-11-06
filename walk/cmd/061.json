@@ -1,0 +1,1 @@
+[["shell", "copy /Y channel\\walk\\fx\\save1253\\lock3.ps1 D:\\w\\lock3.ps1"], ["move", 1862, 974], ["wait", 0.5], ["click", 1862, 974], ["wait", 1]]
