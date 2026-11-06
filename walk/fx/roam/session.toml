@@ -1,0 +1,29 @@
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+settle_s = 10.0
+notes = "Walter free roam: 4 min of one corpus take, cut into four positions."
+
+[[recording]]
+file = "take.flac"
+position = "DU"
+end_s = 60.0
+
+[[recording]]
+file = "take.flac"
+position = "DD"
+start_s = 60.0
+end_s = 120.0
+
+[[recording]]
+file = "take.flac"
+position = "CU"
+start_s = 120.0
+end_s = 180.0
+
+[[recording]]
+file = "take.flac"
+position = "CR"
+start_s = 180.0
+end_s = 240.0
