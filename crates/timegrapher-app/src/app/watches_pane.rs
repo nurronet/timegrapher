@@ -273,6 +273,10 @@ impl TimegrapherApp {
     /// Watch line asks), then the listening stops and the watch is picked;
     /// over a watch's take still listening, it is refused.
     pub(super) fn list_pick(&mut self, id: String) {
+        let again = id.clone();
+        if self.behind_save(move |a| a.list_pick(again)) {
+            return;
+        }
         match list_pick_route(
             self.running(),
             self.quick_listen && !self.saving_busy(),
@@ -592,7 +596,13 @@ impl TimegrapherApp {
 
     /// A take moved: the recording opened from it follows, and so does
     /// Save Again.
-    fn take_moved(&mut self, from: &Path, to: &Path) {
+    pub(super) fn take_moved(&mut self, from: &Path, to: &Path) {
+        // The take being heard: its next save goes into it where it is.
+        if self.session.saved_to() == Some(from) {
+            if let Some(r) = self.session.recorder.as_mut() {
+                r.copy_moved(from, to);
+            }
+        }
         self.session.saved_moved(from, to);
         if let Ok(rest) = Path::new(&self.opened_path).strip_prefix(from) {
             let now = to.join(rest);
@@ -1236,6 +1246,9 @@ impl TimegrapherApp {
     /// nothing until Keep in a Watch… or Save…. Unsaved sound is asked about first, unless
     /// `asked`.
     pub(super) fn quick_listen(&mut self, asked: bool) {
+        if self.behind_save(move |a| a.quick_listen(asked)) {
+            return;
+        }
         if self.quick_listen_ready(asked) {
             self.start_microphone();
         }

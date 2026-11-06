@@ -443,6 +443,401 @@ fn a_kept_quick_listen_records_into_its_take() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A Quick Listen kept in Unsorted Takes with 9 s heard, its save into
+/// the take of the last 6 s held part way, as a long copy would be, until
+/// the sender returned sends (or 10 s pass); 2 s more heard since.
+struct HeldSave {
+    app: TimegrapherApp,
+    base: PathBuf,
+    take: PathBuf,
+    go: std::sync::mpsc::Sender<()>,
+    _capture: std::sync::mpsc::Sender<Event>,
+}
+
+/// Hold the save being written part way, as a long copy would be, until
+/// the sender returned sends (or 10 s pass).
+fn hold_save(app: &mut TimegrapherApp) -> std::sync::mpsc::Sender<()> {
+    let (go, held) = std::sync::mpsc::channel::<()>();
+    let mut s = app.saving.take().expect("a save into the take");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = held.recv_timeout(std::time::Duration::from_secs(10));
+        copy.join().unwrap()
+    });
+    app.saving = Some(s);
+    go
+}
+
+/// A Quick Listen heard for 3 s, its sound not yet kept.
+fn listening(name: &str) -> (TimegrapherApp, PathBuf, std::sync::mpsc::Sender<Event>) {
+    let base = std::env::temp_dir().join(format!("tg-app-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    r.write(&silence(3, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let capture = queued_capture(&mut app, &base);
+    (app, base, capture)
+}
+
+/// `s` seconds of silence heard `at` seconds in.
+fn silence(s: u64, at: u64) -> timegrapher_core::capture::Block {
+    timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s as usize],
+        at: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_760_000_000 + at),
+    }
+}
+
+/// A watch named `name` added to the Watches folder, by id.
+fn add_watch(app: &mut TimegrapherApp, name: &str) -> String {
+    match &mut app.library {
+        Ok(Some(l)) => {
+            l.add(&library::Watch::new(name)).unwrap();
+            l.find(name).unwrap().watch.id.clone()
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// The folder a watch's takes are kept in.
+fn takes_of(app: &TimegrapherApp, name: &str) -> PathBuf {
+    match &app.library {
+        Ok(Some(l)) => l.find(name).unwrap().dir.join(library::TAKES),
+        _ => unreachable!(),
+    }
+}
+
+fn held_save(name: &str) -> HeldSave {
+    let (mut app, base, capture) = listening(name);
+    app.save_again();
+    app.wait_for_save();
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&silence(6, 3)).unwrap();
+    app.stream_tick();
+    assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::Yes));
+    let go = hold_save(&mut app);
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&silence(2, 9)).unwrap();
+    HeldSave {
+        app,
+        base,
+        take,
+        go,
+        _capture: capture,
+    }
+}
+
+impl HeldSave {
+    /// The seconds of sound in the take.
+    fn take_s(&self) -> f64 {
+        let flac = self.take.join("audio-001.flac");
+        let wav = self.take.join("audio-001.wav");
+        let kept = if flac.exists() { flac } else { wav };
+        timegrapher_core::audio::load(&kept).unwrap().samples.len() as f64 / 48000.0
+    }
+
+    fn held(&self) -> bool {
+        self.app
+            .saving
+            .as_ref()
+            .is_some_and(|s| s.streamed == Streamed::Yes)
+    }
+
+    /// Let the held save go, and wait until it is written.
+    fn release(&mut self) {
+        self.go.send(()).unwrap();
+        while self.held() {
+            self.app.poll_saving();
+        }
+    }
+}
+
+impl Drop for HeldSave {
+    fn drop(&mut self) {
+        let _ = self.go.send(());
+        self.app.wait_for_save();
+        let _ = std::fs::remove_dir_all(&self.base);
+    }
+}
+
+/// A Stop while a take's save into its folder is still being written (the
+/// first can copy a whole hour) waits its turn, rather than the window
+/// waiting on the copy (Vernon's point on #1201); once that save is
+/// written, the Stop's save adds the rest, and an ask after it waits for
+/// that too (Felix).
+#[test]
+fn a_stop_waits_its_turn_behind_a_save_into_its_take() {
+    let mut h = held_save("stream-turn");
+    h.app.stop_listening();
+    assert!(h.held(), "the Stop didn't wait on the copy");
+    assert_eq!(h.app.after_save.len(), 1);
+    assert!(
+        h.app.saving_busy(),
+        "nothing jumps the Stop waiting its turn"
+    );
+    // Closing the window waits for it too.
+    h.app.close_after_save = true;
+    assert!(!h.app.closes_after_save());
+    let opened = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let then = opened.clone();
+    let open = move |_: &mut TimegrapherApp| then.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(h.app.behind_save(open));
+    h.release();
+    // Asks run on the window's frame, not the listening thread's.
+    assert_eq!(h.app.after_save.len(), 2);
+    h.app.run_after_save();
+    assert!(
+        h.app.saving.is_some(),
+        "the Stop's save, once the other is written"
+    );
+    assert_eq!(h.app.after_save.len(), 1, "the next ask waits for it");
+    assert!(!h.app.closes_after_save());
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert!(h.app.after_save.is_empty());
+    assert!(opened.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(h.app.closes_after_save(), "{:?}", h.app.message);
+    assert!(!h.app.needs_save_confirmation(), "{:?}", h.app.message);
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// A save into the take failing after a Stop, as one still copying the
+/// hour the pause then keeps as FLAC can on a slow machine, neither says
+/// so nor keeps a quit open: the Stop's save that follows holds all the
+/// sound (#1230, seen on Windows CI).
+#[test]
+fn a_save_into_the_take_failing_after_the_stop_leaves_it_to_the_stops_save() {
+    let mut h = held_save("stream-lost");
+    h.app.stop_listening();
+    h.app.close_after_save = true;
+    let _ = h.go.send(());
+    let mut s = h.app.saving.take().expect("the save into the take");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = copy.join();
+        Err(std::io::Error::other("the hour was kept as FLAC"))
+    });
+    h.app.saving = Some(s);
+    h.app.wait_for_save();
+    let said = h.app.message.clone();
+    assert!(!said.is_some_and(|m| m.1), "the Stop's save answers for it");
+    assert!(h.app.stream_wait.is_none(), "nothing to try again");
+    h.app.run_after_save();
+    assert!(h.app.saving.is_some(), "the Stop's save");
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert!(h.app.closes_after_save(), "{:?}", h.app.message);
+    assert!(!h.app.needs_save_confirmation(), "{:?}", h.app.message);
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// A Stop while a Quick Listen's first save into Unsorted Takes is still
+/// written waits for it, then saves the rest into the take (#1216, found
+/// by Walter): it was refused, leaving the take short.
+#[test]
+fn a_stop_during_a_takes_first_save_saves_the_rest_after_it() {
+    let base = std::env::temp_dir().join(format!("tg-app-first-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    drop(library::Library::create(&root).unwrap());
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    assert!(app.quick_listen_ready(true));
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let start = std::time::SystemTime::now();
+    let block = |s: u64, at: u64| timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s as usize],
+        at: start + std::time::Duration::from_secs(at),
+    };
+    r.write(&block(3, 0)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = queued_capture(&mut app, &base);
+    // Kept in Unsorted Takes: the user's own save, held part way.
+    app.save_again();
+    assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::No));
+    let go = hold_save(&mut app);
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(2, 3)).unwrap();
+    app.stop_listening();
+    assert_eq!(app.after_save.len(), 1, "the Stop waits for the first save");
+    go.send(()).unwrap();
+    while app.saving.is_some() {
+        app.poll_saving();
+    }
+    app.run_after_save();
+    assert!(
+        app.saving.is_some(),
+        "the Stop's save, once the first is written"
+    );
+    app.wait_for_save();
+    assert!(app.unsaved_s() < 1.0, "{}", app.unsaved_s());
+    assert!(!app.needs_save_confirmation());
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let flac = take.join("audio-001.flac");
+    let kept = if flac.exists() {
+        flac
+    } else {
+        take.join("audio-001.wav")
+    };
+    let samples = timegrapher_core::audio::load(&kept).unwrap().samples.len();
+    assert_eq!(samples, 5 * 48000);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A Quick Listen kept in Unsorted Takes and then picked into a watch on
+/// the Watch line is filed under it, after the save being written, and
+/// records into its folder there; Unsorted Takes keeps nothing (#1217,
+/// found by Walter).
+#[test]
+fn a_kept_quick_listen_picked_into_a_watch_is_filed_under_it() {
+    let mut h = held_save("file-kept");
+    let alpha = add_watch(&mut h.app, "Alpha");
+    let unsorted = h.take.parent().unwrap().to_path_buf();
+    // Picked while its save into Unsorted Takes is still written.
+    h.app.line_pick(Some(alpha.clone()), false);
+    assert!(h.app.open_watch().is_some_and(|w| w.watch.id == alpha));
+    assert_eq!(h.app.after_save.len(), 1, "filed once the save is written");
+    h.release();
+    h.app.run_after_save();
+    let filed = h.app.session.saved_to().expect("kept").to_path_buf();
+    let watch_takes = takes_of(&h.app, "Alpha");
+    assert_eq!(filed.parent(), Some(watch_takes.as_path()), "{filed:?}");
+    assert!(!h.take.exists());
+    assert_eq!(std::fs::read_dir(&unsorted).unwrap().count(), 0);
+    // Its next saves go into it there, not into a new folder.
+    h.take = filed.clone();
+    h.app.save_again();
+    h.app.wait_for_save();
+    assert_eq!(h.app.session.saved_to(), Some(filed.as_path()));
+    assert_eq!(std::fs::read_dir(&watch_takes).unwrap().count(), 1);
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// A watch picked while a Quick Listen's first save is still copying,
+/// before the take has a folder, files it once the copy is written
+/// (Walter's HOLD on #1229).
+#[test]
+fn a_quick_listen_picked_into_a_watch_during_its_first_save_is_filed_under_it() {
+    let (mut app, base, _capture) = listening("file-first");
+    let alpha = add_watch(&mut app, "Alpha");
+    app.save_again();
+    let go = hold_save(&mut app);
+    assert_eq!(app.session.saved_to(), None, "the first copy still written");
+    app.line_pick(Some(alpha), false);
+    assert_eq!(app.after_save.len(), 1, "filed once the copy is written");
+    go.send(()).unwrap();
+    app.wait_for_save();
+    app.run_after_save();
+    let filed = app.session.saved_to().expect("kept").to_path_buf();
+    assert_eq!(filed.parent(), Some(takes_of(&app, "Alpha").as_path()));
+    let unsorted = match &app.library {
+        Ok(Some(l)) => l.unsorted_dir().unwrap(),
+        _ => unreachable!(),
+    };
+    assert_eq!(std::fs::read_dir(&unsorted).unwrap().count(), 0);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take kept in one watch then another while a save into it is written
+/// is filed under the last, with no error (Vernon's HOLD on #1229).
+#[test]
+fn two_watches_picked_during_a_save_file_the_take_under_the_last() {
+    let mut h = held_save("file-twice");
+    let alpha = add_watch(&mut h.app, "Alpha");
+    let beta = add_watch(&mut h.app, "Beta");
+    // Paused, so each Keep in a Watch picks again (one still heard keeps
+    // the first watch picked).
+    h.app.pause();
+    h.app.keep_in_watch(&alpha);
+    h.app.keep_in_watch(&beta);
+    assert!(h.app.after_save.len() >= 2, "both wait on the save");
+    h.release();
+    while h.app.saving.is_some() || !h.app.after_save.is_empty() {
+        h.app.wait_for_save();
+        h.app.run_after_save();
+    }
+    assert!(
+        !h.app.message.as_ref().is_some_and(|m| m.1),
+        "{:?}",
+        h.app.message
+    );
+    let filed = h.app.session.saved_to().expect("kept").to_path_buf();
+    assert_eq!(filed.parent(), Some(takes_of(&h.app, "Beta").as_path()));
+    assert_eq!(h.app.watch, "Beta");
+    assert!(
+        !takes_of(&h.app, "Alpha").exists()
+            || std::fs::read_dir(takes_of(&h.app, "Alpha"))
+                .unwrap()
+                .count()
+                == 0
+    );
+    h.take = filed.clone();
+    assert_eq!(h.take_s(), 11.0);
+    // Filed under a watch already, it stays there: only a take in
+    // Unsorted Takes is filed.
+    h.app.keep_in_watch(&alpha);
+    h.app.wait_for_save();
+    h.app.run_after_save();
+    assert_eq!(h.app.session.saved_to(), Some(filed.as_path()));
+}
+
+/// Quitting with a Stop waiting on a save into the take still saves the
+/// take's last seconds (Trevor's HOLD on #1214).
+#[test]
+fn a_quit_with_a_stop_waiting_saves_the_last_seconds() {
+    let mut h = held_save("stream-quit");
+    h.app.stop_listening();
+    assert_eq!(h.app.after_save.len(), 1);
+    let _ = h.go.send(());
+    eframe::App::on_exit(&mut h.app, None);
+    assert!(h.app.after_save.is_empty());
+    assert!(h.app.saving.is_none());
+    assert_eq!(h.take_s(), 11.0);
+}
+
+/// Each ask that would wait on a save into the take waits its turn
+/// instead (Trevor's HOLD on #1214).
+#[test]
+fn each_ask_waits_its_turn_behind_a_save_into_its_take() {
+    let mut h = held_save("stream-asks");
+    h.app.pause();
+    let elsewhere = h.base.join("elsewhere.wav");
+    type Ask = Box<dyn Fn(&mut TimegrapherApp)>;
+    let asks: [(&str, Ask); 7] = [
+        ("Save", Box::new(|a| a.save_again())),
+        ("Save As", Box::new(|a| a.save_recording())),
+        (
+            "Open",
+            Box::new(move |a| a.open_recording(&elsewhere, false)),
+        ),
+        ("Watch line", Box::new(|a| a.line_pick(None, true))),
+        ("New Take", Box::new(|a| a.new_take(NewTake::Listen, true))),
+        ("Watches list", Box::new(|a| a.list_pick("w".into()))),
+        ("Quick Listen", Box::new(|a| a.quick_listen(true))),
+    ];
+    for (name, ask) in asks {
+        h.app.after_save.clear();
+        let at = std::time::Instant::now();
+        ask(&mut h.app);
+        assert!(h.held(), "{name} waited on the copy");
+        assert!(at.elapsed() < std::time::Duration::from_secs(5), "{name}");
+        assert_eq!(h.app.after_save.len(), 1, "{name} waits its turn");
+    }
+    h.app.after_save.clear();
+    h.release();
+}
+
 /// What the delete dialog for the first kept sound says.
 fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, egui::Pos2)> {
     app.kept_delete_ask = Some(app.kept[0].dir.clone());

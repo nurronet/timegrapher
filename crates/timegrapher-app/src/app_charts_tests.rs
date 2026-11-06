@@ -353,8 +353,10 @@ fn the_charts_wheel_pans_time_and_a_zoom_zooms_it() {
         alt: true,
         ..Default::default()
     };
+    // Once the Shift turn's smooth scroll has played out.
+    let settled = look(&mut app, Vec::new());
     let still = look(&mut app, vec![wheel(-60.0, alt)]);
-    assert_eq!(time_labels(&still), time_labels(&shifted));
+    assert_eq!(time_labels(&still), time_labels(&settled));
     // Panned far past either end, the chart stops at the take's first or
     // last reading, its length kept.
     for dy in [-6000.0, 6000.0] {
@@ -552,4 +554,141 @@ fn the_charts_panned_to_the_newest_reading_follow_new_ones() {
     assert!(back[0] < later[0], "{later:?} {back:?}");
     more(&mut app, 30);
     assert_eq!(look(&mut app, Vec::new()), back);
+}
+
+/// The strip lying across and the charts share one left gutter, fitted to
+/// the widest value label rather than a fixed 76 pt, so their time axes
+/// still line up (#1225).
+#[test]
+fn the_strip_and_the_charts_share_a_fitted_gutter() {
+    let mut app = synthetic(120.0, 20.0);
+    app.strip.horizontal = true;
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    set_pane_visible(&mut app.panes.tiles, Pane::Strip, true);
+    for p in [Pane::Sound, Pane::Scope, Pane::Distributions] {
+        set_pane_visible(&mut app.panes.tiles, p, false);
+    }
+    let ctx = themed();
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| app.panels(ctx)));
+    }
+    let out = out.unwrap();
+    let texts: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => {
+                Some((t.galley.text().to_string(), c.shape.visual_bounding_rect()))
+            }
+            _ => None,
+        })
+        .collect();
+    let early = texts
+        .iter()
+        .find(|(t, _)| t == "Early")
+        .map(|(_, r)| *r)
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    // The rate chart's value labels, in its gutter: the leftmost "s/d".
+    let rate = texts
+        .iter()
+        .filter(|(t, _)| t.ends_with(" s/d"))
+        .map(|(_, r)| *r)
+        .min_by(|a, b| a.right().total_cmp(&b.right()))
+        .unwrap_or_else(|| panic!("{}", painted_text(&out)));
+    // Each pane's plot starts where its labels end: the strip's 4 pt on,
+    // the charts' 6 pt.
+    assert!(
+        (early.right() + 4.0 - (rate.right() + 6.0)).abs() < 1.0,
+        "{early:?} {rate:?}"
+    );
+    let gutter = theme::time_gutter(&ctx);
+    assert!(gutter < 76.0, "{gutter}");
+    let widest = texts
+        .iter()
+        .filter(|(t, r)| t.ends_with(" s/d") && (r.right() - rate.right()).abs() < 0.5)
+        .map(|(_, r)| r.width())
+        .fold(0.0, f32::max);
+    assert!(gutter >= widest, "{gutter} {widest}");
+    // A wide label once keeps the gutter wide, until a take is started
+    // or opened (Hugh on #1239).
+    let wide = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(200.0, 10.0));
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        theme::note_gutter_label(ctx, wide)
+    });
+    let _ = ctx.run(egui::RawInput::default(), |_| {});
+    assert!(theme::time_gutter(&ctx) > 200.0);
+    app.reset_session(48000, "Next".into());
+    let _ = ctx.run(egui::RawInput::default(), |ctx| app.panels(ctx));
+    let _ = ctx.run(egui::RawInput::default(), |_| {});
+    assert!(
+        theme::time_gutter(&ctx) < 76.0,
+        "{}",
+        theme::time_gutter(&ctx)
+    );
+}
+
+/// A take opened after one whose labels widened the gutter fits it
+/// afresh: File > Open as well as Listen (Walter's HOLD on #1239).
+#[test]
+fn a_take_opened_after_a_wide_one_fits_the_gutter_afresh() {
+    let base = std::env::temp_dir().join(format!("tg-app-gutter-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let audio = timegrapher_core::synth::generate(
+        &timegrapher_core::synth::SynthConfig {
+            duration_s: 60.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    let wav = base.join("narrow.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let mut app = synthetic(120.0, 20.0);
+    set_pane_visible(&mut app.panes.tiles, Pane::Charts, true);
+    let ctx = themed();
+    let frame = |app: &mut TimegrapherApp| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 1000.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| app.panels(ctx));
+    };
+    // The wide take on show, its labels drawn.
+    frame(&mut app);
+    let wide = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(200.0, 10.0));
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        theme::note_gutter_label(ctx, wide)
+    });
+    frame(&mut app);
+    assert!(theme::time_gutter(&ctx) > 200.0);
+    // Opened as File > Open does.
+    app.open_recording(&wav, false);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        // What is drawn while it opens: wide labels, as the take before's.
+        frame(&mut app);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            theme::note_gutter_label(ctx, wide)
+        });
+        app.poll();
+    }
+    assert!(app.batch.is_none(), "{:?}", app.message);
+    for _ in 0..3 {
+        frame(&mut app);
+    }
+    let gutter = theme::time_gutter(&ctx);
+    assert!(gutter < 76.0, "{gutter}");
+    let _ = std::fs::remove_dir_all(&base);
 }

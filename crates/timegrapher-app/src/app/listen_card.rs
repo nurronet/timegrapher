@@ -812,7 +812,8 @@ impl TimegrapherApp {
             }
             return;
         }
-        if self.saving_busy() {
+        let again = id.clone();
+        if self.behind_save(move |a| a.line_pick(again, asked)) || self.saving_busy() {
             return;
         }
         if self.live.is_some() || self.session.recorder.is_some() {
@@ -1103,7 +1104,10 @@ impl TimegrapherApp {
         // A test is set up over a Quick Listen still listening, which
         // stops once its sound is asked about; never over a test.
         let over = kind == NewTake::Listen || self.test_listening() || !self.quick_listen;
-        if self.saving_busy() || (self.running() && over) {
+        if self.behind_save(move |a| a.new_take(kind, asked))
+            || self.saving_busy()
+            || (self.running() && over)
+        {
             return;
         }
         if !asked && self.new_take_asks() {
@@ -1319,8 +1323,35 @@ impl TimegrapherApp {
             self.take_watch_details(&w);
         }
         self.note_settings();
+        // Kept in Unsorted Takes already: filed under the watch (#1217).
+        self.file_kept_take();
         if !heard {
             self.save_again();
+        }
+    }
+
+    /// File the take being heard or just heard, if it is kept in Unsorted
+    /// Takes, under the watch picked, once any save into it is written; its
+    /// next save goes into it there. Both are read when it runs, so a
+    /// later pick, or a move already made, wins (#1229).
+    fn file_kept_take(&mut self) {
+        if self.behind_save(|a| a.file_kept_take()) {
+            return;
+        }
+        let (Ok(Some(l)), Some(take), Some(id)) = (
+            &mut self.library,
+            self.session.saved_to(),
+            self.watch_open.as_deref(),
+        ) else {
+            return;
+        };
+        if !l.is_unsorted(take) {
+            return;
+        }
+        let take = take.to_path_buf();
+        match l.move_take(&take, id) {
+            Ok(to) => self.take_moved(&take, &to),
+            Err(e) => self.error(format!("The take couldn't be filed under its watch: {e}")),
         }
     }
 

@@ -4,6 +4,10 @@ use super::*;
 pub(super) use timegrapher_core::recording_order::order_warning;
 use timegrapher_core::take_context::{EntryWindow, FilePart};
 
+/// An ask that goes ahead once the save being written is done
+/// ([`TimegrapherApp::behind_save`]).
+pub(super) type AfterSave = Box<dyn FnOnce(&mut TimegrapherApp) + Send>;
+
 impl TimegrapherApp {
     pub(super) fn live_config(&self) -> LiveConfig {
         config_for(&self.open_inputs(&[], &[]))
@@ -88,6 +92,7 @@ impl TimegrapherApp {
         live.set_masked(&self.masked);
         self.live = Some(live);
         self.source_label = label;
+        self.gutter_fresh = true;
         self.anchor = None;
         self.clear_trends();
         self.strip_end = None;
@@ -333,7 +338,16 @@ impl TimegrapherApp {
             return;
         }
         // Never a folder dialog at a Stop: only where Save… needs none.
-        // A Quick Listen take kept already takes the sound since too.
+        // A Quick Listen take kept already takes the sound since too, and
+        // one whose first save is still written is kept once it is (#1216).
+        let kept = |a: &mut Self| {
+            if a.kept_take() {
+                a.save_again();
+            }
+        };
+        if self.behind_save(kept) {
+            return;
+        }
         if self.kept_take() {
             self.save_again();
         }
@@ -771,6 +785,9 @@ impl TimegrapherApp {
     /// [`TimegrapherApp::save_again`], or a save of a take recording into
     /// its folder as it goes, which says nothing when it is done.
     fn save_again_as(&mut self, streamed: Streamed) {
+        if self.behind_save(move |a| a.save_again_as(streamed)) {
+            return;
+        }
         if self.refuse_faulted_recording() || self.saving_busy() {
             return;
         }
@@ -829,6 +846,9 @@ impl TimegrapherApp {
     /// Save a copy of the session's sound so far, with its clock log and
     /// settings, in a folder the user picks. Listening carries on.
     pub(super) fn save_recording(&mut self) {
+        if self.behind_save(Self::save_recording) {
+            return;
+        }
         if self.refuse_faulted_recording() || self.saving_busy() {
             return;
         }
@@ -937,6 +957,11 @@ impl TimegrapherApp {
     /// While a save is being written, say so and refuse what would start
     /// another or throw the sound it is copying away.
     pub(super) fn saving_busy(&mut self) -> bool {
+        // Asks waiting on a save go first: this one never jumps them.
+        if !self.after_save.is_empty() {
+            self.info_msg("Saving into its take: wait until it is written.".into());
+            return true;
+        }
         // A take recording into its folder: its few seconds are written
         // first, then what was asked for goes ahead.
         if self
@@ -956,8 +981,54 @@ impl TimegrapherApp {
         true
     }
 
+    /// Whether `then` waits for a save into a take that is still being
+    /// written (the first can copy a whole hour), the user's own or one of
+    /// a take recording into its folder: it goes ahead once that is done,
+    /// in the order asked, and the window carries on meanwhile rather than
+    /// waiting on the copy, or refusing (#1216).
+    pub(super) fn behind_save(&mut self, then: impl FnOnce(&mut Self) + Send + 'static) -> bool {
+        if self.after_save.is_empty() && self.saving.is_none() {
+            return false;
+        }
+        self.after_save.push(Box::new(then));
+        self.info_msg("Saving into its take: this goes ahead once it is written.".into());
+        true
+    }
+
+    /// Whether the window closes now, once a Stop's save into the take
+    /// and the asks waiting on it are all done.
+    pub(super) fn closes_after_save(&self) -> bool {
+        self.close_after_save && self.saving.is_none() && self.after_save.is_empty()
+    }
+
+    /// How soon the window draws again with no input: while listening or
+    /// reading a take, and while work on its own thread is under way, so
+    /// what it gives shows (and a take kept as its analysis only lets its
+    /// sound go, #1221) without waiting for the pointer to move.
+    pub(super) fn repaint_every(&self) -> Option<std::time::Duration> {
+        let working = self.sound_job.is_some()
+            || self.scope_job.is_some()
+            || self.steady_job.is_some()
+            || self.saving.is_some()
+            || self.take_keep.is_some()
+            || self.analysis_save.is_some();
+        if self.running() || self.batch.is_some() {
+            Some(std::time::Duration::from_millis(40))
+        } else {
+            working.then_some(std::time::Duration::from_millis(100))
+        }
+    }
+
+    /// When the window draws next: as [`Self::repaint_every`] says, and
+    /// once more at once on the frame the work ended, so what it left (a
+    /// message, the take's files) shows with no input (Walter on #1232).
+    pub(super) fn draw_next(&self, was_working: bool) -> Option<std::time::Duration> {
+        self.repaint_every()
+            .or(was_working.then_some(std::time::Duration::ZERO))
+    }
+
     /// The save being written, once it is done.
-    fn poll_saving(&mut self) {
+    pub(super) fn poll_saving(&mut self) {
         if self.saving.as_ref().is_some_and(|s| s.thread.is_finished()) {
             self.wait_for_save();
         }
@@ -1000,10 +1071,31 @@ impl TimegrapherApp {
         }
     }
 
+    /// What was asked while a take's save into its folder was written,
+    /// in the order asked, once no save is. One that starts a save of its
+    /// own (a Stop's) holds the rest until that is written too.
+    pub(super) fn run_after_save(&mut self) {
+        while self.saving.is_none() && !self.after_save.is_empty() {
+            let mut rest = std::mem::take(&mut self.after_save);
+            rest.remove(0)(self);
+            rest.append(&mut self.after_save);
+            self.after_save = rest;
+        }
+    }
+
     /// A save that failed says so. A take recording into its folder tries
     /// again a minute later, its sound kept here meanwhile; a quit waiting
-    /// on the save stays open.
+    /// on the save stays open. Once the take is stopped, its Stop's save
+    /// waiting its turn holds all its sound, so it alone answers for the
+    /// take and the quit: the pause can take the hour from under a copy
+    /// still under way (#1230).
     fn save_failed(&mut self, streamed: Streamed, dest: &Path, e: String) {
+        if streamed == Streamed::Yes && !self.running() && !self.after_save.is_empty() {
+            return applog::info(&format!(
+                "a save into {} failed after the Stop, whose save follows: {e}",
+                dest.display()
+            ));
+        }
         self.close_after_save = false;
         if streamed == Streamed::Yes {
             self.stream_wait = Some(Instant::now());
@@ -1419,6 +1511,10 @@ impl TimegrapherApp {
     /// entry) placing each on the strip: an entry for one of them gives its
     /// positions, settling and masks in seconds into its own file, so each
     /// is moved to where that file starts (#1154).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the strip shows the session file's positions as the take starts to open, before its TakeContext arrives, laid by core's folder layout; and the positions recorded under painting are the app's own record"
+    )]
     pub(super) fn apply_manifest_placed(
         &mut self,
         m: &Manifest,
@@ -1516,6 +1612,10 @@ impl TimegrapherApp {
     /// Open a recording, analysed whole. With `ask`, unsaved sound from a
     /// microphone session is not thrown away without asking first.
     pub(super) fn open_recording(&mut self, path: &Path, ask: bool) {
+        let p = path.to_path_buf();
+        if self.behind_save(move |a| a.open_recording(&p, ask)) {
+            return;
+        }
         if self.analysis_save_busy() || self.saving_busy() {
             return;
         }
@@ -1984,6 +2084,12 @@ impl TimegrapherApp {
         self.batch = None;
     }
 
+    /// Cancel the opening under way: nothing is opened, and the window no
+    /// longer says Opening (#1220).
+    pub(super) fn cancel_open(&mut self) {
+        self.stop();
+    }
+
     pub(super) fn error(&mut self, m: String) {
         applog::error(&m);
         self.message = Some((plain_error(&m), true));
@@ -2022,6 +2128,9 @@ impl TimegrapherApp {
     pub(super) fn poll(&mut self) {
         self.poll_for(FRAME_BUDGET);
         self.poll_wav_keep();
+        // Asks waiting on a save go ahead on the window's frame, never on
+        // the listening thread, which polls too.
+        self.run_after_save();
     }
 
     /// One block of a capture, or a break core's gap rule found before the
@@ -2455,6 +2564,9 @@ impl TimegrapherApp {
         }
         self.opened_positions = Some(self.positions_now());
         self.live = Some(live);
+        // The opened take's labels, not those drawn while it opened
+        // (Walter's HOLD on #1239).
+        self.gutter_fresh = true;
         self.rev.new_take();
         // Readings not readied with the engine are read in the
         // background by the next frame (#1014).
@@ -2556,7 +2668,7 @@ fn take_label(path: &Path, count: usize) -> String {
     }
 }
 
-/// A take opened by core's `take::open_entry`, for the window: its
+/// A take opened by core's `TakeContext::open`, for the window: its
 /// engine readied from its beats on what the window had when the opening
 /// started (`inputs`), with the readings over it, its clock and breaks,
 /// and for a take kept as its analysis alone, the Tick Tock profiles it
@@ -2661,13 +2773,14 @@ fn retune(
     }
 }
 
-/// Open the take `opening` ([`take_entry`]) with core's `take::open_entry`
-/// on a thread of its own, sending what it read to `tx`: `progress` holds
+/// Open the take `opening` ([`take_entry`]) with core's
+/// `TakeContext::open`, its masks kept as data for the window to cut, on a
+/// thread of its own, sending what it read to `tx`: `progress` holds
 /// the seconds of sound read (for a take kept as its analysis alone, its
 /// length `kept_s` once read) and setting `cancel` stops it, sending
 /// nothing. Its engine and readings are readied there too, on `inputs`.
 fn open_in_background(
-    opening: (PathBuf, Manifest, RecordingEntry),
+    opening: (PathBuf, Manifest),
     settings: timegrapher_core::take::EntrySettings,
     tx: std::sync::mpsc::Sender<Result<Option<Opened>, String>>,
     progress: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -2678,15 +2791,15 @@ fn open_in_background(
     use std::sync::atomic::Ordering::Relaxed;
     use timegrapher_core::take;
     std::thread::spawn(move || {
-        let (base, m, e) = opening;
+        let (base, m) = opening;
         // A cancel unwinds out of the analysis from its progress report
         // (resume_unwind runs no panic hook, so nothing is printed).
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            take::open_entry(
+            timegrapher_core::take_context::TakeContext::open(
                 &base,
                 &m,
-                &e,
-                &settings,
+                settings,
+                timegrapher_core::take_context::Masks::Kept,
                 take::usb,
                 |first| take::correction_for(&m, first, None, None),
                 |s, _| {
@@ -2702,9 +2815,9 @@ fn open_in_background(
                 if let Some(s) = kept_s {
                     progress.store(s.to_bits(), Relaxed);
                 }
-                let _ = tx.send(r.map(|o| {
+                let _ = tx.send(r.map(|(o, log)| {
                     let clock = TimegrapherApp::rate_clock(&o.clock);
-                    let live = ready_engine(o.log, &inputs, &o.breaks, clock);
+                    let live = ready_engine(log, &inputs, &o.breaks, clock);
                     let trend = live.trend(inputs.average_s);
                     Some(Opened {
                         live,
@@ -2714,7 +2827,7 @@ fn open_in_background(
                         clock_source: o.clock_source,
                         breaks: o.breaks,
                         unlisted: o.unlisted,
-                        profiles: o.kept.map(|k| k.profiles),
+                        profiles: o.profiles,
                     })
                 }));
             }

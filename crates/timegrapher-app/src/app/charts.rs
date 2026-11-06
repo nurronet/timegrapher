@@ -63,7 +63,7 @@ impl TimegrapherApp {
         );
         let average = self.average_s;
         let (series, unit, decimals) = chart_lines(reading, &self.trend, average, pal);
-        let (mut plot, grid) = chart_plot(reading);
+        let (mut plot, grid) = chart_plot(reading, theme::time_gutter(ui.ctx()));
         // Scale to hold every point of the lines: the whole take.
         let all: Vec<[f64; 2]> = series.iter().flat_map(|s| s.pts.iter().copied()).collect();
         let y_range = data_range(&all);
@@ -271,7 +271,7 @@ fn chart_lines(
 /// pans time, Cmd or Ctrl with the wheel or a pinch zooms it, and the
 /// scale fits the lines on its own. Its grid, with a zero line on the
 /// rate's (0 s/d).
-fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
+fn chart_plot(reading: SeriesKind, gutter: f32) -> (Plot<'static>, Grid) {
     // Short charts still get a label at the top and the bottom: the
     // labels are painted below, in small text, so they fit closer than
     // the plot's own.
@@ -299,7 +299,7 @@ fn chart_plot(reading: SeriesKind) -> (Plot<'static>, Grid) {
             .allow_boxed_zoom(false))
         .custom_x_axes(vec![egui_plot::AxisHints::new_x()
             .formatter(|m, r| chart_time_label(m.value, m.step_size, r))])
-        .y_axis_min_width(GUTTER)
+        .y_axis_min_width(gutter)
         .y_axis_formatter(|_, _| String::new())
         // The values at the pointer are shown for every line at once
         // (below), instead of only when the pointer is on a line.

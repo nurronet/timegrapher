@@ -1524,10 +1524,6 @@ fn sync_containers(tiles: &mut Tiles<Pane>) {
     }
 }
 
-/// Width of the time panes' left axis, the strip's (lying across) and the
-/// charts' alike, so their time axes line up when stacked.
-const GUTTER: f32 = 76.0;
-
 /// Shares labelled up the probability plot, percent, as on probability
 /// paper.
 const PROBABILITY_MARKS: [(f64, &str); 11] = [
@@ -1887,6 +1883,9 @@ pub struct TimegrapherApp {
     /// The Watches view: the watch picked (its id), the list's search,
     /// order, and the details form.
     watch_open: Option<String>,
+    /// A take started or opened: the time panes' gutter fits its labels
+    /// afresh (Hugh on #1239).
+    gutter_fresh: bool,
     /// The pane shows Unsorted's takes instead of the list.
     unsorted_open: bool,
     /// The list shown over the watch picked, or Unsorted, by ‹ All
@@ -2295,6 +2294,8 @@ pub struct TimegrapherApp {
     /// Quitting once the save that ends a take recording into its folder
     /// is written.
     close_after_save: bool,
+    /// What was asked while a take's save into its folder was written.
+    after_save: Vec<take_io::AfterSave>,
     /// Kept as its analysis alone: the 2 s profiles in its sound's place.
     no_sound: Option<Vec<analysis_take::StretchProfiles>>,
     /// Where this session's analysis was last kept without its sound, and
@@ -2616,6 +2617,7 @@ impl TimegrapherApp {
             watch_search_focus: false,
             new_watch_on_mic: false,
             watch_open: None,
+            gutter_fresh: false,
             unsorted_open: false,
             list_for: None,
             quick_defaults: false,
@@ -2743,6 +2745,7 @@ impl TimegrapherApp {
             saving: None,
             stream_wait: None,
             close_after_save: false,
+            after_save: Vec::new(),
             no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
@@ -3675,13 +3678,14 @@ fn paint_y_labels(ui: &egui::Ui, t: &egui_plot::PlotTransform, unit: &str) {
     for m in marks {
         let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
         let y = t.position_from_point_y(m.value);
-        painter.text(
+        let drawn = painter.text(
             egui::pos2(frame.left() - 6.0, y),
             egui::Align2::RIGHT_CENTER,
             format!("{v}{unit}"),
             font.clone(),
             color,
         );
+        theme::note_gutter_label(ui.ctx(), drawn);
     }
 }
 
@@ -3729,27 +3733,38 @@ fn reading_clock(
     }
 }
 
-/// What core opens to read the take at `path` whole, as `analyze --trend`
-/// reads it (core's `take::whole_entry`): with its session file `manifest`
-/// and that file's entries for the recording, one entry on the clock log
-/// the entries name, or core's error where they name two. The entry leaves
-/// its masks to the window, which keeps them open to change.
+/// What core opens to read the take at `path` (core's `TakeContext::open`,
+/// as `series` and `long` open a take): its folder and its session file
+/// `manifest` with only that file's entries for the recording, each
+/// spelling the recording as the one opened. With no session file, one
+/// entry naming the recording. Core's error where it can't read the take
+/// whole, as where the entries name two clock logs.
 fn take_entry(
     path: &Path,
     manifest: Option<&(Manifest, Vec<RecordingEntry>)>,
-) -> Result<(PathBuf, Manifest, RecordingEntry), String> {
+) -> Result<(PathBuf, Manifest), String> {
     // Its entries may spell the recording differently ("./a.wav"); core reads the one opened.
-    let opened = timegrapher_core::take::whole_entry(path, None)?.2.file;
-    let mut listed = manifest.map(|(m, e)| Manifest {
-        recordings: e.clone(),
-        ..m.clone()
-    });
-    for e in listed.iter_mut().flat_map(|m| m.recordings.iter_mut()) {
-        e.file.clone_from(&opened);
-    }
-    let (base, m, mut entry) = timegrapher_core::take::whole_entry(path, listed.as_ref())?;
-    entry.masked.clear();
-    Ok((base, m, entry))
+    let (base, _, opened) = timegrapher_core::take::whole_entry(path, None)?;
+    let m = match manifest {
+        Some((m, e)) => Manifest {
+            recordings: e
+                .iter()
+                .map(|e| RecordingEntry {
+                    file: opened.file.clone(),
+                    ..e.clone()
+                })
+                .collect(),
+            ..m.clone()
+        },
+        None => Manifest {
+            recordings: vec![opened],
+            ..Manifest::default()
+        },
+    };
+    // A take core can't read whole (entries on two clock logs) is
+    // refused here, before the window starts reading it.
+    timegrapher_core::take::whole_take(&m)?;
+    Ok((base, m))
 }
 
 /// Where a bug report starts: the repository's bug form.
@@ -4074,6 +4089,9 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
+        if std::mem::take(&mut self.gutter_fresh) {
+            theme::reset_time_gutter(ctx);
+        }
         crate::pump::timed("charts' readings", || self.take_reads_shown(ctx));
         // A test set up against another watch than the one picked now.
         self.find_full_wind();
@@ -4180,7 +4198,7 @@ impl TimegrapherApp {
             self.stop_listening();
             self.close_after_save = true;
         }
-        if self.close_after_save && self.saving.is_none() {
+        if self.closes_after_save() {
             self.close_after_save = false;
             self.may_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -4212,6 +4230,7 @@ impl TimegrapherApp {
 impl eframe::App for TimegrapherApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         crate::frame_built();
+        let was_working = self.repaint_every().is_some();
         // One settling for every change of position: the pane's Settle.
         self.session.set_settle_s(self.guided_settle_s);
         if std::mem::take(&mut self.listen_pending) && !self.running() {
@@ -4281,16 +4300,8 @@ impl eframe::App for TimegrapherApp {
             ctx.request_repaint();
         }
 
-        if self.running() || self.batch.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(40));
-        } else if self.sound_job.is_some()
-            || self.scope_job.is_some()
-            || self.steady_job.is_some()
-            || self.saving.is_some()
-        {
-            // Show the profile when it's worked out, without waiting for
-            // the pointer to move.
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        if let Some(every) = self.draw_next(was_working) {
+            ctx.request_repaint_after(every);
         }
     }
 
@@ -4313,7 +4324,9 @@ impl eframe::App for TimegrapherApp {
         // A save being written finishes first: quitting part way would
         // leave half a take, and the sound it copies is let go below.
         self.wait_for_save();
-        if streamed && self.kept_take() {
+        // Asks waiting on it are let go, but a Stop's save is made below.
+        let asked = !std::mem::take(&mut self.after_save).is_empty();
+        if (streamed || asked) && self.kept_take() {
             self.save_again();
             self.wait_for_save();
         }

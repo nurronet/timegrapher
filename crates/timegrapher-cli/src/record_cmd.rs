@@ -534,15 +534,14 @@ fn reserve_results(
     ending: power_reserve::Ending,
 ) -> Result<power_reserve::Results, String> {
     use power_reserve::Results;
-    // Opened as every command opens a take (`take::open_entry` on its own
-    // session file): its beats, clock log and breaks. A take with no
-    // session file is read as its sound alone.
+    // Opened as every command opens a take (core's `TakeContext::open` on
+    // its own session file): its beats, clock log and breaks. A take with
+    // no session file is read as its sound alone.
     let manifest = dir.join(MANIFEST);
-    let listed = match manifest.is_file() {
-        true => Some(crate::session_cmd::load_manifest_file(&manifest)?.0),
-        false => None,
+    let m = match manifest.is_file() {
+        true => crate::session_cmd::load_manifest_file(&manifest)?.0,
+        false => Manifest::default(),
     };
-    let (base, m, entry) = take::whole_entry(dir, listed.as_ref())?;
     let given = take::Given {
         bph,
         lift_deg: None,
@@ -552,17 +551,17 @@ fn reserve_results(
         card_clock: false,
         settle_s: None,
     };
-    let opened = take::open_entry(
-        &base,
+    let (ctx, log) = timegrapher_core::take_context::TakeContext::open(
+        dir,
         &m,
-        &entry,
-        &settings,
+        settings,
+        timegrapher_core::take_context::Masks::Cut,
         take::usb,
         |first| take::correction_for(&m, first, None, None),
         |_, _| {},
     )
     .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let (log, clock, breaks) = (opened.log, opened.clock, opened.breaks);
+    let (clock, breaks) = (ctx.clock, ctx.breaks);
     let beat_s = power_reserve::beat_s(Some(log.bph));
     let heard = power_reserve::heard(&log.beats, beat_s);
     let mut r = Results::of(&heard, ending, started, pos.common(), true, |s| {
@@ -824,6 +823,10 @@ fn check(dir: &Path, set: &Settings) -> Result<Check, String> {
         card_clock: false,
         settle_s: set.settle_s,
     };
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the check reads the recording just saved as session reads one entry: take::measure_opened and the peak level need the opened entry"
+    )]
     let opened = take::open_entry(
         dir,
         &m,
