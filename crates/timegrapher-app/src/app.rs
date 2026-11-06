@@ -453,11 +453,7 @@ fn kept_sounds(scratch: &Path) -> Vec<KeptSound> {
                         format!("{} UTC", at.replace(':', "."))
                     })
                 });
-            let streamed_to =
-                std::fs::read_to_string(dir.join(timegrapher_core::recorder::STREAMED_TO))
-                    .ok()
-                    .map(|t| PathBuf::from(t.trim()))
-                    .filter(|t| t.is_dir());
+            let streamed_to = take_io::streamed_to(&dir);
             Some(KeptSound {
                 started,
                 duration_s: about.as_ref().and_then(|a| a["duration_s"].as_f64()),

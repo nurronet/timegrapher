@@ -837,8 +837,11 @@ impl TimegrapherApp {
             ui.label(RichText::new("Delete the unsaved sound?").font(theme::semibold(15.0)));
             ui.add_space(4.0);
             // A copy of a take recording into its folder: the take keeps
-            // all but its last few seconds.
-            let copy = dir.join(timegrapher_core::recorder::STREAMED_TO).is_file();
+            // all but its last few seconds. One rule, the notice's.
+            let copy = self
+                .kept
+                .iter()
+                .any(|k| k.dir == dir && k.streamed_to.is_some());
             ui.label(if copy {
                 "Its take keeps all of it but the last few seconds, which can't be got back."
             } else {

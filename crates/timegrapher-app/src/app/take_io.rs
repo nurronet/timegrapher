@@ -2515,6 +2515,20 @@ fn recordings_info(
 /// strip, and each entry's window there, one per entry (#1154). None for
 /// a lone file, a folder of one, one core can't lay out, or one with an
 /// entry for the whole folder, which reads over the take whole as before.
+/// The take kept sound in `dir` was recording into as it went, which
+/// holds all of it but its last few seconds. A take moved or deleted
+/// since leaves this the only copy, kept as sound never saved, and the
+/// note goes so a move takes none with it.
+pub(super) fn streamed_to(dir: &Path) -> Option<PathBuf> {
+    let note = dir.join(timegrapher_core::recorder::STREAMED_TO);
+    let take = PathBuf::from(std::fs::read_to_string(&note).ok()?.trim());
+    if take.is_dir() {
+        return Some(take);
+    }
+    let _ = std::fs::remove_file(&note);
+    None
+}
+
 pub(super) fn folder_layout(
     path: &Path,
     m: &Manifest,

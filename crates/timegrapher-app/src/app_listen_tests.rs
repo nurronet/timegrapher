@@ -446,6 +446,17 @@ fn a_kept_quick_listen_records_into_its_take() {
 /// A watch's own take records into its folder as it goes, from its first
 /// [`STREAM_EVERY_S`] of sound, so a crash costs only seconds; a quit adds
 /// the last of it with no question.
+/// What the delete dialog for the first kept sound says.
+fn delete_says(ctx: &egui::Context, app: &mut TimegrapherApp) -> Vec<(String, egui::Pos2)> {
+    app.kept_delete_ask = Some(app.kept[0].dir.clone());
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        drawn = drawn_at(&ctx.run(egui::RawInput::default(), |ctx| app.kept_delete_dialog(ctx)));
+    }
+    app.kept_delete_ask = None;
+    drawn
+}
+
 #[test]
 fn a_watchs_take_records_into_its_folder_as_it_goes() {
     let base = std::env::temp_dir().join(format!("tg-app-stream-watch-{}", std::process::id()));
@@ -530,6 +541,23 @@ fn a_watchs_take_records_into_its_folder_as_it_goes() {
     assert!(
         !drawn.iter().any(|t| t.0.contains("wasn't saved")),
         "{drawn:?}"
+    );
+    let said = delete_says(&ctx, &mut app);
+    assert!(
+        said.iter().any(|t| t.0.starts_with("Its take keeps")),
+        "{said:?}"
+    );
+    // Vernon's HOLD: with the take gone, the copy is the only one, and
+    // everything says so; the note goes, so a move takes none with it.
+    std::fs::remove_dir_all(&take).unwrap();
+    app.kept = kept_sounds(&left);
+    assert_eq!(app.kept[0].streamed_to, None);
+    assert!(!copy.join(note).exists());
+    let said = delete_says(&ctx, &mut app);
+    assert!(
+        said.iter()
+            .any(|t| t.0.contains("never saved anywhere else")),
+        "{said:?}"
     );
     app.capture = None;
     let _ = std::fs::remove_dir_all(&base);
