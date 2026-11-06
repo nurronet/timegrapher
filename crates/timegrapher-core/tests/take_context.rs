@@ -342,6 +342,42 @@ fn a_takes_reading_breaks_cut_at_changes_of_position_and_settling() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A restart in the same position (the watch put back as it was, after
+/// handling) is a change: a whole-take reading is cut where it begins as
+/// well as where its settling ends, so none runs from before the handling
+/// into the settling after it.
+#[test]
+fn a_restart_in_the_same_position_cuts_where_it_begins() {
+    let dir = synthetic_take("restart");
+    let m: Manifest = toml::from_str(
+        "bph = 28800\n\
+         [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\nend_s = 50.0\n\
+         [[recording]]\nfile = \"b.wav\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let (ctx, _) = TakeContext::open(
+        &dir,
+        &m,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    // a.wav is read to 50 s; b.wav starts at 60 s and settles for core's
+    // 20 s, so the restart begins at 50 s and settles to 80 s.
+    let (stretches, settles) = ctx.positions(&m);
+    let starts: Vec<f64> = stretches.iter().map(|s| s.0).collect();
+    assert_eq!(starts, [0.0, 50.0]);
+    assert_eq!(settles, [(0.0, 20.0), (50.0, 80.0)]);
+    let at: Vec<f64> = ctx.reading_breaks(&m).iter().map(|b| b.audio_s).collect();
+    for t in [20.0, 50.0, 80.0] {
+        assert!(at.contains(&t), "{t} in {at:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The stretches of the synthetic take (a.wav 60 s, b.wav 61 s, c.wav
 /// 62 s) that `series` and `long` read for the session file `toml`.
 /// Stretches read and holes, take seconds.

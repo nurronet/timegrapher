@@ -418,22 +418,23 @@ impl TakeContext {
         read
     }
 
+    /// The take's changes of position and the settling before each, in
+    /// take seconds ([`take::positions_of`] over [`Self::listed_positions`]):
+    /// what `m` (the session file the context was opened from) lists, an
+    /// entry carrying on the one before it no change.
+    pub fn positions(&self, m: &Manifest) -> take::Positions<Position> {
+        take::positions_of(self.listed_positions(m).into_iter())
+    }
+
     /// The take's breaks with a cut, of no gap, wherever its readings are
-    /// cut and no break already is ([`take::reading_cuts`]): each change
-    /// of position after the first and the end of each settling, from the
-    /// positions `m` (the session file the context was opened from)
-    /// lists. What a reading over the whole take, such as a long take's
-    /// hours, is cut by, as the app cuts the take it opens.
+    /// cut and no break already is ([`take::reading_cuts`]): each change of
+    /// position after the first ([`Self::positions`], a restart in the same
+    /// position included, as the watch was handled there) and the end of
+    /// each settling. What a reading over the whole take, such as a long
+    /// take's hours, is cut by, as the app cuts the take it opens.
     pub fn reading_breaks(&self, m: &Manifest) -> Vec<Break> {
-        let (stretches, settles) = take::positions_of(self.listed_positions(m).into_iter());
-        // An entry in the position the one before it was in (the next file
-        // of a take split into files) is no change of position.
-        let changes: Vec<f64> = stretches
-            .iter()
-            .enumerate()
-            .filter(|&(i, s)| i == 0 || stretches[i - 1].1 != s.1)
-            .map(|(_, s)| s.0)
-            .collect();
+        let (stretches, settles) = self.positions(m);
+        let changes: Vec<f64> = stretches.iter().map(|s| s.0).collect();
         breaks::with_jumps(
             self.breaks.clone(),
             &take::reading_cuts(&self.breaks, &changes, &settles),
