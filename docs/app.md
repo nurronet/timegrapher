@@ -351,7 +351,10 @@ and **Started**, the minute it started in this computer's time (none when
 its session.json says; offered from when its file was last written, less its
 length). They are written into its session files, keeping the rest of a
 session.toml as it was, comments too; a recording with no session file gets
-one, as a take recorded here would have, named by when it started.
+one, as a take recorded here would have, named by when it started. A
+**New Watch…** made there starts with the recording's calibre, beat rate and
+lift angle, from its files or as given in the question (a lift angle left
+at the default is not given), so the watch and its take agree.
 
 Opening a recording, by **Open Recording…** or **Open Folder…** in the File menu,
 a take's **Open** in the Watches view, or the command line, analyses it whole,
