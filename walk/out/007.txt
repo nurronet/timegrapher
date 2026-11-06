@@ -1,0 +1,11 @@
+app: head running
+took 18.3 s
+$ dir /s /b "%USERPROFILE%\Timegrapher Data" & dir /s /b %APPDATA%\timegrapher
+C:\Users\runneradmin\Timegrapher Data\.cache.json
+C:\Users\runneradmin\Timegrapher Data\.library.lock
+C:\Users\runneradmin\Timegrapher Data\library.toml
+C:\Users\runneradmin\AppData\Roaming\timegrapher\data
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs
+C:\Users\runneradmin\AppData\Roaming\timegrapher\data\app.ron
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log
+
