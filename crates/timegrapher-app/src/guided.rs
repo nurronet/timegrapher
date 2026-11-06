@@ -333,19 +333,17 @@ impl Test {
         if self.paused.is_some() {
             return Phase::Paused;
         }
-        let (settle, measure) = (self.settle_s, self.measure_s);
         let start = *self.start.get_or_insert(now);
         self.began.get_or_insert(start);
-        let t = now - start;
-        if t < settle {
-            return Phase::Settling(settle - t);
+        let (from, to) = self.window(start);
+        if now < from {
+            return Phase::Settling(from - now);
         }
-        if t < settle + measure {
-            return Phase::Measuring(t - settle);
+        if now < to {
+            return Phase::Measuring(now - from);
         }
         if self.spans.len() <= self.step {
-            let from = start + settle;
-            self.spans.push((self.position(), from, from + measure));
+            self.spans.push((self.position(), from, to));
         }
         Phase::Turn
     }
@@ -446,9 +444,8 @@ impl Test {
         if now <= start {
             return out;
         }
-        let settled = start + self.settle_s;
+        let (settled, end) = self.window(start);
         out.push((start, now.min(settled), SETTLING));
-        let end = settled + self.measure_s;
         if given_up && now > settled {
             out.push((settled, now, NOT_USED));
         } else if now > end {
@@ -483,12 +480,16 @@ impl Test {
     pub fn measured(&self, now: f64) -> Vec<(f64, f64)> {
         let mut out: Vec<(f64, f64)> = self.spans.iter().map(|&(_, a, b)| (a, b)).collect();
         if let (Some(s), None, true) = (self.start, &self.readings, self.spans.len() <= self.step) {
-            let from = s + self.settle_s;
-            if now > from {
-                out.push((from, now.min(from + self.measure_s)));
-            }
+            let (from, to) = self.window(s);
+            out.extend((now > from).then(|| (from, now.min(to))));
         }
         out
+    }
+
+    /// What a position started at `start` measures, as core places a session entry's.
+    fn window(&self, start: f64) -> (f64, f64) {
+        let (settle, measure) = (Some(self.settle_s), Some(self.measure_s));
+        timegrapher_core::take::measured(start, f64::INFINITY, settle, measure)
     }
 
     #[cfg(test)]

@@ -3,6 +3,7 @@
 //! hour's part can be converted beside a running recording.
 
 use crate::audio::AudioError;
+use crate::recorder::{stored_int, stored_sample, STORED_BITS};
 use flacenc::component::{BitRepr, Frame, FrameHeader, FrameOffset, Stream};
 use flacenc::error::Verify;
 use flacenc::source::{Context, Fill, FrameBuf};
@@ -181,11 +182,14 @@ pub fn kept_name(p: &Path) -> PathBuf {
     }
 }
 
-/// Encode the integer WAV `wav` as the FLAC file `flac`, a block at a
-/// time, then check that it decodes to exactly the WAV's samples. The
-/// FLAC is written under a temporary name and takes its own only once it
-/// checks, so a FLAC at `flac` is always a whole, checked one. The WAV is
-/// left as it is. Returns the frames converted.
+/// Encode the WAV `wav` as the FLAC file `flac`, a block at a time, then
+/// check that it decodes to exactly the samples it was given. Sound of
+/// 16 bits or fewer keeps as it is; wider integer or floating-point sound
+/// keeps at [`STORED_BITS`] (#1176), each sample rounded by the one rule
+/// the check rounds it by again ([`kept_samples`]). The FLAC is written
+/// under a temporary name and takes its own only once it checks, so a
+/// FLAC at `flac` is always a whole, checked one. The WAV is left as it
+/// is. Returns the frames converted.
 pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
     encode_wav_file(&File::open(wav).map_err(AudioError::Io)?, flac)
 }
@@ -193,17 +197,14 @@ pub fn encode_wav(wav: &Path, flac: &Path) -> Result<u64, AudioError> {
 /// [`encode_wav`] from a WAV already open, read from its start: a file
 /// held open is read whole even when its name is deleted meanwhile.
 pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
-    let mut reader = wav_reader(wav)?;
+    let reader = wav_reader(wav)?;
     let spec = reader.spec();
-    if spec.sample_format != hound::SampleFormat::Int {
-        return Err(AudioError::Unsupported("floating-point WAV".into()));
-    }
     let format = Format {
         sample_rate: spec.sample_rate,
         channels: spec.channels,
-        bits_per_sample: spec.bits_per_sample,
+        bits_per_sample: kept_bits(spec),
     };
-    let mut samples = reader.samples::<i32>();
+    let mut samples = kept_samples(reader);
     // The FLAC keeps the WAV's time: when the sound was written, which
     // readers check the order of a take's hours by.
     let written = wav.metadata().and_then(|m| m.modified()).ok();
@@ -213,12 +214,46 @@ pub fn encode_wav_file(wav: &File, flac: &Path) -> Result<u64, AudioError> {
         written,
         |buf, most| {
             for s in samples.by_ref().take(most) {
-                buf.push(s.map_err(AudioError::Wav)?);
+                buf.push(s?);
             }
             Ok(())
         },
         |part| same_samples_file(wav, part),
     )
+}
+
+/// The bits a WAV of `spec` keeps at as FLAC: its own up to
+/// [`STORED_BITS`], [`STORED_BITS`] for anything wider or floating-point.
+fn kept_bits(spec: hound::WavSpec) -> u16 {
+    match spec.sample_format {
+        hound::SampleFormat::Int => spec.bits_per_sample.min(STORED_BITS),
+        hound::SampleFormat::Float => STORED_BITS,
+    }
+}
+
+/// A WAV's samples as they are kept ([`kept_bits`]): integers by
+/// [`stored_int`], floating-point by [`stored_sample`]. The encoder and
+/// its check both read a WAV through this, so a FLAC checks only when
+/// every sample is exactly what this rule makes of the WAV's.
+fn kept_samples<'a, R: std::io::Read + 'a>(
+    reader: hound::WavReader<R>,
+) -> Box<dyn Iterator<Item = Result<i32, AudioError>> + 'a> {
+    let spec = reader.spec();
+    match spec.sample_format {
+        hound::SampleFormat::Int => {
+            let bits = spec.bits_per_sample;
+            Box::new(
+                reader
+                    .into_samples::<i32>()
+                    .map(move |s| s.map(|x| stored_int(x, bits)).map_err(AudioError::Wav)),
+            )
+        }
+        hound::SampleFormat::Float => Box::new(
+            reader
+                .into_samples::<f32>()
+                .map(|s| s.map(stored_sample).map_err(AudioError::Wav)),
+        ),
+    }
 }
 
 /// Write the FLAC `flac` from the samples `next` hands over ([`encode`])
@@ -395,27 +430,27 @@ pub fn keep_as_flac(wav: &Path) -> Result<PathBuf, AudioError> {
     Ok(flac)
 }
 
-/// Whether the integer WAV `wav` and the FLAC `flac` hold the same
-/// samples, in the same format, read side by side a sample at a time.
+/// Whether the FLAC `flac` holds exactly the samples the WAV `wav` is
+/// kept as ([`kept_samples`]), in the same format, read side by side a
+/// sample at a time.
 pub fn same_samples(wav: &Path, flac: &Path) -> Result<bool, AudioError> {
     same_samples_file(&File::open(wav).map_err(AudioError::Io)?, flac)
 }
 
 /// [`same_samples`] for a WAV already open, read from its start.
 pub fn same_samples_file(wav: &File, flac: &Path) -> Result<bool, AudioError> {
-    let mut w = wav_reader(wav)?;
+    let w = wav_reader(wav)?;
     let mut f = claxon::FlacReader::open(flac).map_err(AudioError::Flac)?;
     let (ws, fs) = (w.spec(), f.streaminfo());
-    if ws.sample_format != hound::SampleFormat::Int
-        || ws.sample_rate != fs.sample_rate
+    if ws.sample_rate != fs.sample_rate
         || u32::from(ws.channels) != fs.channels
-        || u32::from(ws.bits_per_sample) != fs.bits_per_sample
+        || u32::from(kept_bits(ws)) != fs.bits_per_sample
     {
         return Ok(false);
     }
     let mut back = f.samples();
-    for s in w.samples::<i32>() {
-        let s = s.map_err(AudioError::Wav)?;
+    for s in kept_samples(w) {
+        let s = s?;
         let Some(v) = back.next() else {
             return Ok(false);
         };
@@ -478,6 +513,13 @@ mod tests {
         samples
     }
 
+    /// `bits`-bit WAV samples as a FLAC keeps them, and the bits it
+    /// keeps them at: as they are up to 16 bits, rounded to 16 above.
+    fn kept(samples: &[i32], bits: u16) -> (Vec<i32>, u16) {
+        let k = samples.iter().map(|&x| stored_int(x, bits)).collect();
+        (k, bits.min(16))
+    }
+
     /// The bytes flacenc writes for `samples` encoding them whole, with
     /// the block sizes a fixed-block stream names.
     pub(super) fn whole_stream(samples: &[i32], channels: u16, bits: u16) -> Vec<u8> {
@@ -515,18 +557,20 @@ mod tests {
             let info = r.streaminfo();
             // FLAC writes a length of 0 as "unknown".
             assert_eq!(info.samples, (frames > 0).then_some(frames as u64));
+            // 24-bit sound keeps at 16 bits, each sample rounded (#1176).
+            let (kept, kept_bits) = kept(&samples, bits);
             assert_eq!(
                 (info.channels, info.bits_per_sample),
-                (channels as u32, bits as u32)
+                (channels as u32, kept_bits as u32)
             );
             let back: Vec<i32> = r.samples().map(Result::unwrap).collect();
-            assert_eq!(back, samples, "{frames} {channels} {bits}");
+            assert_eq!(back, kept, "{frames} {channels} {bits}");
             // Byte for byte what flacenc writes holding the whole sound in
             // memory: the same frames, the same stream info and MD5.
             if frames > 0 {
                 assert_eq!(
                     std::fs::read(&f).unwrap(),
-                    whole_stream(&samples, channels, bits)
+                    whole_stream(&kept, channels, kept_bits)
                 );
             }
         }
@@ -554,7 +598,7 @@ mod tests {
             let mut r = claxon::FlacReader::open(&f).unwrap();
             assert_eq!(r.streaminfo().sample_rate, rate);
             let back: Vec<i32> = r.samples().map(Result::unwrap).collect();
-            assert_eq!(back, samples, "{rate}");
+            assert_eq!(back, kept(&samples, bits).0, "{rate}");
             // Each frame's header names the rate as the stream info does.
             assert_eq!(header_rates(&std::fs::read(&f).unwrap()), vec![rate; 3]);
         }
@@ -673,6 +717,93 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Wide integer and floating-point WAVs, as another program exports
+    /// them, are kept as 16-bit FLAC (#1176): each sample exactly what
+    /// [`stored_int`] or [`stored_sample`] makes of the WAV's, the WAV
+    /// deleted only once that checks, the FLAC dated as the WAV was.
+    /// Sound from a 16-bit microphone in a wider file keeps exactly.
+    #[test]
+    fn wide_and_floating_point_wavs_are_kept_as_16_bit_flac() {
+        let dir = scratch("wide");
+        let then =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_761_600_000);
+        let date = |w: &Path| {
+            let f = std::fs::File::options().write(true).open(w).unwrap();
+            f.set_modified(then).unwrap();
+        };
+        let back = |f: &Path| -> Vec<i32> {
+            let mut r = claxon::FlacReader::open(f).unwrap();
+            assert_eq!(r.streaminfo().bits_per_sample, 16);
+            r.samples().map(Result::unwrap).collect()
+        };
+        // 24- and 32-bit integers, every sample different and both
+        // ends of the range.
+        for bits in [24, 32] {
+            let w = dir.join(format!("int-{bits}.wav"));
+            let samples = wav(&w, 9_000, 2, bits);
+            date(&w);
+            let f = keep_as_flac(&w).unwrap();
+            assert!(!w.exists());
+            assert_eq!(std::fs::metadata(&f).unwrap().modified().unwrap(), then);
+            assert_eq!(back(&f), kept(&samples, bits).0, "{bits}");
+        }
+        // Floating point: full scale, past it, tiny, a half step, and
+        // not a number.
+        let w = dir.join("float.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut floats = vec![0.0f32, 1.0, -1.0, 1.5, -2.0, 1e-9, 0.5 / 32_767.0, f32::NAN];
+        floats.extend((0..9_000).map(|i| ((i as f32) * 0.01).sin() * 0.9));
+        let mut out = hound::WavWriter::create(&w, spec).unwrap();
+        for &x in &floats {
+            out.write_sample(x).unwrap();
+        }
+        out.finalize().unwrap();
+        let f = keep_as_flac(&w).unwrap();
+        let want: Vec<i32> = floats.iter().map(|&x| stored_sample(x)).collect();
+        assert_eq!(&want[..8], &[0, 32_767, -32_767, 32_767, -32_767, 0, 1, 0]);
+        assert_eq!(back(&f), want);
+        // 16-bit sound in a 24-bit file keeps exactly.
+        let w = dir.join("padded.wav");
+        let spec = hound::WavSpec {
+            sample_format: hound::SampleFormat::Int,
+            bits_per_sample: 24,
+            ..spec
+        };
+        let sixteen: Vec<i32> = (0..9_000).map(|i| (i * 7919 % 65_536) - 32_768).collect();
+        let mut out = hound::WavWriter::create(&w, spec).unwrap();
+        for &x in &sixteen {
+            out.write_sample(x << 8).unwrap();
+        }
+        out.finalize().unwrap();
+        assert_eq!(back(&keep_as_flac(&w).unwrap()), sixteen);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The check of a kept wide WAV is exact: a FLAC one step off in one
+    /// sample does not check against it.
+    #[test]
+    fn a_kept_wide_wav_checks_only_sample_for_sample() {
+        let dir = scratch("wide-differ");
+        let w = dir.join("a.wav");
+        let samples = wav(&w, 5_000, 1, 24);
+        let mut k = kept(&samples, 24).0;
+        let f = dir.join("good.flac");
+        std::fs::write(&f, whole_stream(&k, 1, 16)).unwrap();
+        assert!(same_samples(&w, &f).unwrap());
+        k[2_500] += if k[2_500] < 0 { 1 } else { -1 };
+        std::fs::write(&f, whole_stream(&k, 1, 16)).unwrap();
+        assert!(!same_samples(&w, &f).unwrap());
+        // Nor does the WAV's own depth, unrounded.
+        std::fs::write(&f, whole_stream(&samples, 1, 24)).unwrap();
+        assert!(!same_samples(&w, &f).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn a_flac_keeps_the_time_its_wav_was_written() {
         let dir = scratch("mtime");
@@ -692,15 +823,15 @@ mod tests {
     }
 
     /// Loud 24-bit sound that flacenc codes in far more than its plain
-    /// samples (a 12:53 take came out 40 GB; flacenc's Rice size estimate
-    /// wraps for big residuals): a full-scale square wave of 34 samples,
-    /// one 4096-sample block of which flacenc alone writes in about a GB,
-    /// a clipped sine, and uniform noise of ±2^22. Every block comes out
-    /// no bigger than plain, so the FLAC is no bigger than its samples
-    /// plain with the stream's and each block's headers (about its WAV's
-    /// size at worst), and it holds the same samples.
+    /// samples at 24 bits (a 12:53 take came out 40 GB; flacenc's Rice
+    /// size estimate wraps for big residuals): a full-scale square wave of
+    /// 34 samples, one 4096-sample block of which flacenc alone writes in
+    /// about a GB, a clipped sine, and uniform noise of ±2^22. Its WAV is
+    /// kept at 16 bits (#1176), every block no bigger than plain 16-bit
+    /// samples, so the FLAC is no bigger than those with the stream's and
+    /// each block's headers, and it holds the samples rounded.
     #[test]
-    fn loud_24_bit_sound_is_never_kept_bigger_than_plain() {
+    fn a_loud_24_bit_wav_is_kept_at_16_bits_never_bigger_than_plain() {
         let dir = scratch("loud");
         let w = dir.join("audio-001.wav");
         let spec = hound::WavSpec {
@@ -732,7 +863,7 @@ mod tests {
         let f = dir.join("audio-001.flac");
         assert_eq!(encode_wav(&w, &f).unwrap(), 3 * 4096);
         let size = |p: &Path| std::fs::metadata(p).unwrap().len();
-        let most = 42 + 3 * (4096 * 3 + 16 + 8 + 2);
+        let most = 42 + 3 * (4096 * 2 + 16 + 8 + 2);
         assert!(size(&f) <= most, "{} > {most}", size(&f));
         assert!(same_samples(&w, &f).unwrap());
         assert!(!bloated(&f));
