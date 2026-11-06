@@ -1308,7 +1308,11 @@ impl Library {
             .iter()
             .find(|w| w.watch.id == id)
             .ok_or("That watch is no longer in your watches")?;
-        let empty = |d: PathBuf| fs::read_dir(d).map_or(true, |mut e| e.next().is_none());
+        // Only a folder not there is empty: one unreadable may hold anything.
+        let empty = |d: PathBuf| match fs::read_dir(d) {
+            Ok(mut e) => e.next().is_none(),
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
         if !empty(w.dir.join(TAKES)) || !empty(w.dir.join(PHOTOS)) {
             return Err(format!("\"{}\" has takes or photos in it", w.watch.name));
         }
@@ -2170,6 +2174,14 @@ mod tests {
         lib.remove_empty(&empty).unwrap();
         assert!(lib.find("Empty").is_none() && lib.find("Kept").is_some());
         assert!(lib.remove_empty(&empty).is_err(), "gone already");
+        // An unreadable takes folder (a file in its place) is not empty.
+        lib.add(&Watch::new("Unread")).unwrap();
+        let (unread, dir) = (id(&lib, "Unread"), lib.find("Unread").unwrap().dir.clone());
+        fs::remove_dir_all(dir.join(TAKES)).unwrap();
+        fs::write(dir.join(TAKES), "not a folder").unwrap();
+        let err = lib.remove_empty(&unread).unwrap_err();
+        assert!(err.contains("has takes or photos"), "{err}");
+        assert!(dir.join(TAKES).is_file(), "the folder is kept");
         fs::remove_dir_all(base).unwrap();
     }
 
