@@ -248,7 +248,7 @@ fn watches_prints_text_and_says_when_there_is_nothing_to_list() {
     .unwrap();
     let r = &doc["takes"][0]["reading"];
     let line = format!(
-        "2026-10-20 14.32 Dial Up: Dial Up · 10:00 · {:+.1} s/d · {:.0}° · {:.1} ms · ",
+        "2026-10-20 14.32 Dial Up: Dial Up · 10:00 · {:+.1} s/d · {:.0}° · {:.2} ms · ",
         r["rate_s_per_day"].as_f64().unwrap(),
         r["amplitude_deg"].as_f64().unwrap(),
         r["beat_error_ms"].as_f64().unwrap().abs()

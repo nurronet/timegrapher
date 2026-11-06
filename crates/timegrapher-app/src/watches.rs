@@ -1016,20 +1016,21 @@ pub fn take_cells(
             reading.and_then(|r| r.beat_error_ms),
         ]
     };
-    let figure = |v: Option<f64>, f: &dyn Fn(f64) -> String| {
+    let figure = |v: Option<String>| {
         if t.power_reserve.is_some() {
             "—".to_string()
         } else {
-            v.map_or_else(String::new, f)
+            v.map_or_else(String::new, |v| true_minus(&v))
         }
     };
+    let [rate, amp, be] = timegrapher_core::library::figure_texts(rate, amp, be);
     [
         started_words(t),
         position,
         length,
-        figure(rate, &|r| true_minus(&format!("{r:+.1}"))),
-        figure(amp, &|x| format!("{x:.0}")),
-        figure(be, &|b| format!("{:.1}", b.abs())),
+        figure(rate),
+        figure(amp),
+        figure(be),
         format!("{:.1}", t.bytes as f64 / 1e6),
     ]
 }
@@ -2227,7 +2228,7 @@ mod tests {
                 "30:00",
                 "+9.8",
                 "287",
-                "0.2",
+                "0.21",
                 "112.6"
             ]
             .map(String::from)
@@ -2262,7 +2263,7 @@ mod tests {
         // A Positions Test's are its Mean row.
         let cells = take_cells(&all, Some([Some(-2.25), Some(271.6), Some(-0.34)]), r);
         assert_eq!(cells[1], "Positions Test");
-        assert_eq!(cells[3..6], ["−2.2", "272", "0.3"].map(String::from));
+        assert_eq!(cells[3..6], ["−2.2", "272", "0.34"].map(String::from));
         assert_eq!(TAKE_HEADS.len(), 7);
     }
 
@@ -2610,7 +2611,7 @@ mod tests {
         let line = take_line(&t, false, r);
         assert!(line.starts_with("Dial Up, Crown Left · "), "{line}");
         assert!(
-            line.contains("+3.5 s/d · 281° · 0.4 ms · Analysis Only · Incomplete"),
+            line.contains("+3.5 s/d · 281° · 0.40 ms · Analysis Only · Incomplete"),
             "{line}"
         );
         // Until the reading is worked out, no figures.

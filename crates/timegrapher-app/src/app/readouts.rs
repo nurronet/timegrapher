@@ -880,13 +880,18 @@ impl TimegrapherApp {
             let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let mut hint = format!(
                 "Timed against the computer's clock over {} of listening, this input's \
-                 clock runs {:.1} ± {:.1} ppm {way}: {:+.1} seconds per day on every rate. \
+                 clock runs {} ppm {way}: {:+.1} seconds per day on every rate. \
                  Keep it to show the corrected rate as True Clock from now on; the command \
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
                 length_text(f.span_s),
-                f.ppm.abs(),
-                f.ppm_sd,
+                // Decimals follow the ± (#510 R8).
+                timegrapher_core::figure_text::figure_with_pm(
+                    f.ppm.abs(),
+                    Some(f.ppm_sd),
+                    timegrapher_core::figure_text::base_digits::CLOCK,
+                    false,
+                ),
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {
