@@ -1,0 +1,18 @@
+app: head running
+took 13.5 s
+$ del D:\w\lock.log
+
+$ start "" /b powershell -NoProfile -File D:\w\take\lock.ps1 -Path D:\w\take\session.toml -Delay 1.0 -Hold 1.2
+
+$ powershell -NoProfile -c "(Get-Date).ToString(\"HH:mm:ss.fff\")"
+17:26:02.409
+
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")" & findstr masked D:\w\take\session.toml & dir /b D:\w\take
+locked D:\w\take\session.toml at 17:25:58.929
+released at 17:26:00.160
+17:25:28.542
+masked = [[20.54825557499322, 23.878604604652622], [26.376366710913597, 28.874128705835762]]
+lock.ps1
+session.toml
+take.flac
+
