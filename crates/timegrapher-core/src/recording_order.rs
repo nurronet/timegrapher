@@ -12,6 +12,44 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Where the order `files` are joined in disagrees with when they were
+/// written: a file whose modification time is earlier than the one before
+/// it by more than that file's own length. Said so the order can be
+/// checked, not changed. None for a take's own segments, which its
+/// `session.json` lists in order ([`crate::breaks::are_take_segments`]):
+/// an hour kept as FLAC later is written after the hours that follow it.
+/// The app says it when it opens a folder, the command line as a note
+/// (#1203).
+pub fn order_warning(files: &[PathBuf]) -> Option<String> {
+    let segments: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+    if crate::breaks::are_take_segments(&segments) {
+        return None;
+    }
+    let when = |f: &PathBuf| std::fs::metadata(f).and_then(|m| m.modified()).ok();
+    let length = |f: &PathBuf| {
+        crate::audio::info(f)
+            .ok()
+            .and_then(|i| i.frames.map(|n| n as f64 / i.sample_rate.max(1) as f64))
+    };
+    for pair in files.windows(2) {
+        let (Some(a), Some(b)) = (when(&pair[0]), when(&pair[1])) else {
+            continue;
+        };
+        let Ok(back) = a.duration_since(b) else {
+            continue;
+        };
+        if back.as_secs_f64() > length(&pair[0]).unwrap_or(0.0) {
+            return Some(format!(
+                "{} was written before {}, which comes ahead of it: check the order the files \
+                 are joined in.",
+                file_name(&pair[1]),
+                file_name(&pair[0])
+            ));
+        }
+    }
+    None
+}
+
 /// One explicit path unchanged (a WAV kept as FLAC as its FLAC), or a
 /// folder's direct WAV/FLAC files.
 /// Existing files listed by the manifest come first, then unlisted files
@@ -255,5 +293,46 @@ mod tests {
         assert!(recordings_in(&folder.0, &[]).is_err());
         let explicit = folder.0.join("not-present.anything");
         assert_eq!(recordings_in(&explicit, &[]).unwrap(), [explicit]);
+    }
+    /// Files joined in another order than they were written are named, by
+    /// more than the earlier one's own length; a take's own segments,
+    /// listed in its `session.json`, are its order whatever their times
+    /// (#1203).
+    #[test]
+    fn files_written_out_of_their_joined_order_are_named() {
+        let dir = Folder::new();
+        let second = |name: &str| {
+            let a = crate::audio::Audio {
+                samples: vec![0.0; 8000],
+                sample_rate: 8000,
+            };
+            crate::audio::write_wav(&dir.0.join(name), &a).unwrap();
+        };
+        second("a.wav");
+        second("b.wav");
+        let files =
+            |names: &[&str]| -> Vec<PathBuf> { names.iter().map(|n| dir.0.join(n)).collect() };
+        assert_eq!(order_warning(&files(&["a.wav", "b.wav"])), None);
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(dir.0.join("b.wav"))
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
+        assert_eq!(
+            order_warning(&files(&["a.wav", "b.wav"])).as_deref(),
+            Some(
+                "b.wav was written before a.wav, which comes ahead of it: check the order the \
+                 files are joined in."
+            )
+        );
+        assert_eq!(order_warning(&files(&["b.wav", "a.wav"])), None);
+        std::fs::write(
+            dir.0.join("session.json"),
+            r#"{"segments":["a.wav","b.wav"]}"#,
+        )
+        .unwrap();
+        assert_eq!(order_warning(&files(&["a.wav", "b.wav"])), None);
     }
 }
