@@ -1511,7 +1511,7 @@ impl TimegrapherApp {
             .on_hover_text("Stop analysing this recording")
             .clicked()
         {
-            self.batch = None;
+            self.cancel_open();
         }
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
