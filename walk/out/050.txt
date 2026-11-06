@@ -1,0 +1,98 @@
+app: head running
+took 389.3 s
+$ del D:\w\lock.log
+
+$ powershell -NoProfile -c "Start-Process powershell -WindowStyle Hidden -ArgumentList ('-NoProfile -File D:\w\lock2.ps1 -Path D:\w\take\session.toml -Delay 0 -Hold 0.7')"
+
+$ echo t1 %time%
+t1 17:33:45.16
+
+$ echo t2 %time%
+t2 17:33:45.33
+
+$ type D:\w\lock.log & powershell -NoProfile -c "(Get-Item D:\w\take\session.toml).LastWriteTime.ToString(\"HH:mm:ss.fff\")" & findstr /c:"10.35" D:\w\take\session.toml | find /c "["
+
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.GuestAgent.Prime.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.GuestAgent.Telemetry.EventSource.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.RoleContainer.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.RoleContainer.IaaS.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.Security.CredentialsManagement.Package.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Microsoft.WindowsAzure.Storage.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/msvcp140.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/msvcp140_1.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/msvcp140_2.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/msvcp140_atomic_wait.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/msvcp140_codecvt_ids.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Newtonsoft.Json.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/Package.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/PackageInformation.txt
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/ProviderGuids.txt
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/RdCertificateFactory.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/RdCrypt.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/RemoveOldGuestagentInstallation.exe
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/rust_common.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/rust_utils.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/srmlib.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/System.Net.Http.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/System.Runtime.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/System.Spatial.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/TraceEvent.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/TransparentInstaller.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/TransparentInstaller.dll.config
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/TransparentInstallerWrapper.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/ucrtbase.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/vcamp140.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/vccorlib140.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/vcomp140.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/vcruntime140.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/vcruntime140_1.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/VMAgentDisabler.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WaAppAgent.exe
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WaAppAgent.exe.config
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WaSecAgentProv.exe
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureGATelemetryEvents.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureGuestAgent.exe
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureGuestAgent.exe.config
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureGuestAgentGateKeeper.exe
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureGuestAgentGateKeeper.exe.config
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureTelemetryService.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/WindowsAzureTelemetryServiceEvents.dll
+/c/WindowsAzure/GuestAgent_2.7.41491.1243_2026-11-03_123437/zip.baseline
+/c/WindowsAzure/Logs
+/c/WindowsAzure/Logs/AggregateStatus
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103172552890.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103174053981.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103175158490.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103182520530.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103184021656.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103185522776.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261103185550732.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261106170252723.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261106171753637.json
+/c/WindowsAzure/Logs/AggregateStatus/aggregatestatus_20261106173254519.json
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-12.34.41.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-13.43.08.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-13.50.03.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-14.33.07.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-15.09.53.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-16.40.47.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-17.51.41.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-18.24.54.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.03-18.55.48.log
+/c/WindowsAzure/Logs/MonitoringAgent.2026.11.06-17.02.28.log
+/c/WindowsAzure/Logs/MonitoringAgent.log
+/c/WindowsAzure/Logs/RuntimeEvents_000003.etl
+/c/WindowsAzure/Logs/TransparentInstaller.log
+/c/WindowsAzure/Logs/WaAppAgent.log
+/c/WindowsAzure/Logs/WaAppAgentSupplementary.log
+/c/WindowsAzure/Logs/WaAppAgent_000003.etl
+/c/WindowsAzure/Logs/WaSecAgent-startPoll.log
+/c/WindowsAzure/Logs/WaSecAgent-stopPoll.log
+/c/WindowsAzure/Logs/WindowsAzure-GuestAgent-Metrics_2026_11_6_17_37_45.etl
+/c/WindowsAzure/Logs/WindowsAzureGuestAgent.log
+/c/WindowsAzure/Logs/WindowsAzureRdAgent.log
+/c/WindowsAzure/SecAgent
+/c/WindowsAzure/SecAgent/WaSecAgentProv.exe
+find: '[': No such file or directory
+
