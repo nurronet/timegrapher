@@ -1,0 +1,1 @@
+[["click", 40, 142], ["wait", 3], ["shell", "powershell -NoProfile -c \"(Get-Item D:\\w\\take\\session.toml).LastWriteTime.ToString(\\\"HH:mm:ss.fff\\\")\" & findstr masked D:\\w\\take\\session.toml"]]
