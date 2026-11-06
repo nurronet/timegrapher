@@ -426,6 +426,15 @@ impl TakeContext {
         take::positions_of(self.listed_positions(m).into_iter())
     }
 
+    /// The take's settlings, in take seconds: from each change of position
+    /// (the first, the take's start, included) to where its reading starts,
+    /// as [`Self::positions`] gives them. What a reading over the whole take
+    /// leaves out as a mask ([`crate::session::with_holes`]), so none falls
+    /// where the watch was just handled (#1233).
+    pub fn holes(&self, m: &Manifest) -> Vec<(f64, f64)> {
+        self.positions(m).1
+    }
+
     /// The take's breaks with a cut, of no gap, wherever its readings are
     /// cut and no break already is ([`take::reading_cuts`]): each change of
     /// position after the first ([`Self::positions`], a restart in the same

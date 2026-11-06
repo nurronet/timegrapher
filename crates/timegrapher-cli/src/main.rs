@@ -1794,7 +1794,12 @@ fn write_trend(file: &Path, cfg: &AnalysisConfig, t: &TrendOut) -> Result<(), St
     };
     let mut live = LiveAnalyzer::from_log(log, live_cfg);
     live.set_breaks(take::reading_cuts(&ctx.breaks, &changes, &settles));
-    live.set_masked(&ctx.masked);
+    // The settlings are left out as a mask is, so no reading falls where
+    // the watch was just handled (#1233).
+    live.set_masked(&timegrapher_core::session::with_holes(
+        &ctx.masked,
+        &settles,
+    ));
     let clock = ctx.clock.as_ref().filter(|c| c.corrects());
     live.set_rate_clock(clock);
     let trend = live.trend(average_s);

@@ -423,6 +423,15 @@ pub fn window_in_mask(masked: &[(f64, f64)], w: &AmplitudeWindow) -> bool {
     masked.iter().any(|&(a, b)| w.start_s < b && w.end_s > a)
 }
 
+/// The stretches masked by hand, `masked`, with the `holes` (a take's
+/// settlings, or the time between its stretches) left out as a mask is:
+/// together, cleaned ([`masked_spans`]). What a reading over a whole take
+/// culls, so none falls in a settling (#1233).
+pub fn with_holes(masked: &[(f64, f64)], holes: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let pairs: Vec<[f64; 2]> = masked.iter().chain(holes).map(|&(a, b)| [a, b]).collect();
+    masked_spans(&pairs)
+}
+
 /// Leave the holes `holes` out of a log read in stretches, as a mask is:
 /// their beats and the windows reaching into them out of `log`
 /// ([`mask_log`]), the holes added to `masked` (the stretches masked by
@@ -438,9 +447,7 @@ pub fn leave_out(
 ) {
     if !holes.is_empty() {
         mask_log(log, holes);
-        masked.extend(holes);
-        let pairs: Vec<[f64; 2]> = masked.iter().map(|&(a, b)| [a, b]).collect();
-        *masked = masked_spans(&pairs);
+        *masked = with_holes(masked, holes);
     }
     breaks.extend(crate::clean::mask_breaks(masked));
     breaks.sort_by(|a, b| a.audio_s.total_cmp(&b.audio_s));

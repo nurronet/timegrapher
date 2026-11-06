@@ -378,6 +378,41 @@ fn a_restart_in_the_same_position_cuts_where_it_begins() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A take's holes are its settlings, the cut `positions_of` makes: the
+/// first from the take's start to its first reading, and each after that
+/// the time between two stretches read (#1233).
+#[test]
+fn a_takes_holes_are_the_gaps_its_stretches_leave() {
+    let dir = synthetic_take("holes");
+    let m: Manifest = toml::from_str(
+        "bph = 28800\n\
+         [[recording]]\nfile = \"a.wav\"\nposition = \"DU\"\n\
+         [[recording]]\nfile = \"b.wav\"\nposition = \"CU\"\n",
+    )
+    .unwrap();
+    let (ctx, _) = TakeContext::open(
+        &dir,
+        &m,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    let read = ctx.spans(&m).expect("two positions").read;
+    let mut gaps = vec![(0.0, read[0].0)];
+    gaps.extend(read.windows(2).map(|w| (w[0].1, w[1].0)));
+    assert_eq!(ctx.holes(&m), gaps);
+    assert_eq!(ctx.holes(&m), [(0.0, 20.0), (60.0, 80.0)]);
+    // Left out as a mask is, with the masks by hand, merged.
+    assert_eq!(
+        timegrapher_core::session::with_holes(&[(10.0, 30.0), (100.0, 101.0)], &ctx.holes(&m)),
+        [(0.0, 30.0), (60.0, 80.0), (100.0, 101.0)]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The stretches of the synthetic take (a.wav 60 s, b.wav 61 s, c.wav
 /// 62 s) that `series` and `long` read for the session file `toml`.
 /// Stretches read and holes, take seconds.

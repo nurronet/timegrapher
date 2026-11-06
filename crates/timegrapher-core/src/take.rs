@@ -945,6 +945,17 @@ pub struct MeasuredPart<'a> {
 }
 
 impl EntryRead {
+    /// The entry's settling, from the stretch it names to where its
+    /// reading starts: what a reading over the entry whole leaves out as a
+    /// mask, as [`crate::take_context::TakeContext::holes`] does for a
+    /// take (#1233). None when it settles for no time.
+    pub fn holes(&self) -> Vec<(f64, f64)> {
+        (self.settle_s > self.start_s)
+            .then_some((self.start_s, self.settle_s))
+            .into_iter()
+            .collect()
+    }
+
     /// The stretch this reading measured, from its settling to its end,
     /// cut as [`session::measure_masked`] cuts it.
     pub fn measured_part(&self) -> MeasuredPart<'_> {
