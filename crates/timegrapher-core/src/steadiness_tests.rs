@@ -1855,3 +1855,37 @@ fn a_cycle_on_timing_the_null_does_not_model_carries_the_misfit_caveat() {
     hold_to_null(&mut s, &r);
     assert_eq!((s.headline.clone(), s.caveats.clone()), before);
 }
+
+/// Flicker beat timing with a sharp cycle on it (8 s of every minute
+/// late), whose harmonics run far past the ones the search keeps: the
+/// misfit takes those harmonics out with the cycle, so it must still see
+/// the flicker beneath them and give the caveat (#1245).
+#[test]
+fn flicker_under_a_sharp_cycle_still_carries_the_misfit_caveat() {
+    let (step, n) = (0.25, 21600);
+    let mut z = crate::synth::Rng::new(37);
+    let taus = [1.0, 10.0, 100.0, 1000.0, 10000.0];
+    let mut x = [0.0f64; 5];
+    let y = (0..n)
+        .map(|i| {
+            let t = i as f64 * step;
+            let mut v = 0.0;
+            for (xi, tau) in x.iter_mut().zip(taus) {
+                let phi = (-step / tau).exp();
+                *xi = phi * *xi + (1.0 - phi * phi).sqrt() * z.normal();
+                v += *xi;
+            }
+            1e-4 * v + if t % 60.0 < 8.0 { 6e-4 } else { 0.0 }
+        })
+        .collect();
+    let r = longterm::analyse_timing(&grid(y, step), &LongConfig::default());
+    assert!(
+        r.components.iter().any(|c| (c.period_s - 60.0).abs() < 2.0),
+        "{:?}",
+        r.components.iter().map(|c| c.period_s).collect::<Vec<_>>()
+    );
+    let n = r.search.null;
+    assert!(n.calibrated, "{n:?}");
+    assert!(n.misfit.unwrap() > n.misfit_limit.unwrap(), "{n:?}");
+    assert!(longterm::timing_misfit(&r).is_some());
+}

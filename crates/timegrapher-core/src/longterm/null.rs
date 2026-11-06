@@ -369,6 +369,43 @@ pub struct TimingFit {
 /// with no walk, of the white floor alone; with no floor, of the walk
 /// alone.
 pub fn timing_fit(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) -> TimingFit {
+    timing_fit_culled(power, df, step_s, from, scale, &Cull::default())
+}
+
+/// The lines taken out of a take before its misfit is read, each a
+/// frequency in Hz, and how near a bin must be to one to be culled, in
+/// bins ([`timing_fit_culled`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Cull<'a> {
+    pub removed: &'a [f64],
+    pub thinned: &'a [f64],
+    pub half: f64,
+}
+
+/// [`timing_fit`] with the lines of cycles taken out culled, each a
+/// frequency in Hz. Taking a line out disturbs the bins at and beside it,
+/// which left in read as misfit. A band holding a bin within `half` bins
+/// of a line in `removed` (the harmonics the search kept) is left out
+/// whole, as the fresh-seed checks were passed with. Of a line in
+/// `thinned` (a sharp cycle's further harmonics) only those bins are left
+/// out of their band's median, and a band left with under half its bins
+/// is dropped: a sharp cycle's harmonics reach into most bands, and
+/// leaving those out whole hid flicker beneath it.
+pub fn timing_fit_culled(
+    power: &[f64],
+    df: f64,
+    step_s: f64,
+    from: usize,
+    scale: f64,
+    cull: &Cull,
+) -> TimingFit {
+    let Cull {
+        removed,
+        thinned,
+        half,
+    } = *cull;
+    let near =
+        |lines: &[f64], j: usize| lines.iter().any(|&f| (j as f64 * df - f).abs() < half * df);
     let u = |j: usize| {
         let s = (std::f64::consts::PI * j as f64 * df * step_s).sin();
         1.0 / (4.0 * s * s)
@@ -380,9 +417,14 @@ pub fn timing_fit(power: &[f64], df: f64, step_s: f64, from: usize, scale: f64) 
         let b = ((a as f64 * 2f64.powf(0.25)).ceil() as usize)
             .max(a + 4)
             .min(top);
-        let mut v: Vec<f64> = power[a..b].to_vec();
-        let mid = (a + b) / 2;
-        bands.push((u(mid), crate::dsp::median(&mut v) / std::f64::consts::LN_2));
+        let mut v: Vec<f64> = (a..b)
+            .filter(|&j| !near(thinned, j))
+            .map(|j| power[j])
+            .collect();
+        if !(a..b).any(|j| near(removed, j)) && 2 * v.len() >= b - a {
+            let mid = (a + b) / 2;
+            bands.push((u(mid), crate::dsp::median(&mut v) / std::f64::consts::LN_2));
+        }
         a = b;
     }
     let none = TimingFit {

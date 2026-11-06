@@ -457,11 +457,32 @@ fn x_scale(g: &Grid, detrend_w: Option<f64>) -> f64 {
 
 /// Timing's mix and misfit (None where too few bands) from the spectrum `sp` of `g`, read from well
 /// above the detrend's corner, where it takes no power.
-fn timing_fit_of(g: &Grid, sp: &Spectrum, detrend_w: Option<f64>) -> (f64, Option<f64>) {
+/// `removed` and `thinned`: the lines already taken out of `g`, Hz, as
+/// [`null::timing_fit_culled`] takes them.
+fn timing_fit_of(
+    g: &Grid,
+    sp: &Spectrum,
+    detrend_w: Option<f64>,
+    removed: &[f64],
+    thinned: &[f64],
+) -> (f64, Option<f64>) {
     let scale = x_scale(g, detrend_w);
     let from_x = if detrend_w.is_some() { 2.0 } else { 6.0 };
     let from = (from_x / (sp.df * scale)).ceil() as usize;
-    let f = null::timing_fit(&sp.power, sp.df, g.step, from, scale);
+    // Three independent frequencies either side of each line.
+    let half = 3.0 * sp.pad as f64;
+    let f = null::timing_fit_culled(
+        &sp.power,
+        sp.df,
+        g.step,
+        from,
+        scale,
+        &null::Cull {
+            removed,
+            thinned,
+            half,
+        },
+    );
     (f.mix, f.misfit.is_finite().then_some(f.misfit))
 }
 
@@ -476,7 +497,7 @@ fn null_for(
     let scale = x_scale(g, band.detrend_w);
     let (mix, misfit) = match band.model {
         NullModel::Readings => (sp.rho, None),
-        NullModel::Timing => timing_fit_of(g, sp, band.detrend_w),
+        NullModel::Timing => timing_fit_of(g, sp, band.detrend_w, &[], &[]),
     };
     let lev = match band.given {
         Some(l) => Some(l.clone()),
@@ -986,15 +1007,123 @@ fn analyse_as(
     let mut search = first.unwrap_or_else(Search::none);
     // The misfit is read once the cycles found are taken out, so that a
     // strong line, which lifts its bands, is not read as the noise's shape.
+    // Its limit is read at the mix fitted there too: the cycle's own line
+    // lifts the mix the search fitted.
     if model == NullModel::Timing && !components.is_empty() {
-        let w = detrend_window(g, cfg.detrend_s).map(|w| w as f64 * g.step);
-        search.null.misfit = timing_fit_of(&work, &spectrum(&work, w), w).1;
+        let (mix, misfit) = misfit_without(&detrended, &components, cfg);
+        search.null.misfit = misfit;
+        if given.is_none() && search.null.misfit_limit.is_some() {
+            search.null.misfit_limit =
+                null::levelling(model, span, g.step, mix).and_then(|l| l.misfit_p99);
+        }
     }
     SeriesReport {
         grid: g.clone(),
         detrended,
         search,
         components,
+    }
+}
+
+/// The timing mix and misfit of `detrended` with the cycles found taken
+/// out as least-squares sinusoids, and the bands at and beside those lines
+/// culled. The fold the search subtracts is a median over every phase
+/// bin, which on a short take adds its own noise at every harmonic up to
+/// the Nyquist frequency. Each cycle's kept harmonics are taken out, then
+/// any further harmonic whose line still stands past what noise gives
+/// once in [`EXTRA_LINE_P`]⁻¹ over the harmonics tried: a sharp cycle
+/// (a few seconds in each minute) has more harmonics than the search
+/// keeps, and left in they read as misfit.
+fn misfit_without(
+    detrended: &Grid,
+    components: &[Component],
+    cfg: &LongConfig,
+) -> (f64, Option<f64>) {
+    let mut rest = detrended.clone();
+    let mut removed = Vec::new();
+    let span = detrended.span();
+    let kept = |c: &Component| (c.harmonics as usize).min(((span / c.period_s) as usize).max(1));
+    for c in components {
+        for h in 1..=kept(c) {
+            removed.push(h as f64 / c.period_s);
+        }
+    }
+    for &f in &removed {
+        remove_sinusoid(&mut rest, f);
+    }
+    let w = detrend_window(detrended, cfg.detrend_s).map(|w| w as f64 * detrended.step);
+    let sp = spectrum(&rest, w);
+    let more = standing_harmonics(&sp, components, kept, detrended.step);
+    for &f in &more {
+        remove_sinusoid(&mut rest, f);
+    }
+    timing_fit_of(&rest, &spectrum(&rest, w), w, &removed, &more)
+}
+
+/// The family-wise chance that noise alone lifts one of a cycle's
+/// further harmonics past the bar [`standing_harmonics`] sets.
+const EXTRA_LINE_P: f64 = 0.01;
+
+/// The harmonics of each component past its `kept` ones, up to the
+/// Nyquist frequency, whose power in `sp` stands past the level noise
+/// passes with the chance [`EXTRA_LINE_P`] over all those tried: an
+/// exponential's tail over the mean, read as the median over ±16
+/// independent bins (the median of an exponential is its mean times ln 2).
+fn standing_harmonics(
+    sp: &Spectrum,
+    components: &[Component],
+    kept: impl Fn(&Component) -> usize,
+    step: f64,
+) -> Vec<f64> {
+    let span = 16 * sp.pad;
+    let nyquist = 0.5 / step;
+    let tried: Vec<f64> = components
+        .iter()
+        .flat_map(|c| {
+            let top = (nyquist * c.period_s) as usize;
+            (kept(c) + 1..=top).map(move |h| h as f64 / c.period_s)
+        })
+        .collect();
+    let bar = (tried.len().max(1) as f64 / EXTRA_LINE_P).ln();
+    tried
+        .into_iter()
+        .filter(|&f| {
+            let j = (f / sp.df).round() as usize;
+            let (a, b) = (j.saturating_sub(span), (j + span + 1).min(sp.power.len()));
+            if j >= sp.power.len() || b <= a {
+                return false;
+            }
+            let mut near = sp.power[a..b].to_vec();
+            near.sort_by(f64::total_cmp);
+            let mean = near[near.len() / 2] / std::f64::consts::LN_2;
+            sp.power[j] > bar * mean
+        })
+        .collect()
+}
+
+/// Takes the least-squares sinusoid at `freq` Hz out of `g`.
+fn remove_sinusoid(g: &mut Grid, freq: f64) {
+    let w = std::f64::consts::TAU * freq;
+    let (mut cc, mut ss, mut cs, mut yc, mut ys) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for (i, &y) in g.y.iter().enumerate() {
+        if y.is_finite() {
+            let (s, c) = (w * (g.time(i) - g.t0)).sin_cos();
+            cc += c * c;
+            ss += s * s;
+            cs += c * s;
+            yc += y * c;
+            ys += y * s;
+        }
+    }
+    let det = cc * ss - cs * cs;
+    if det.abs() < 1e-300 {
+        return;
+    }
+    let a = (yc * ss - ys * cs) / det;
+    let b = (ys * cc - yc * cs) / det;
+    for i in 0..g.y.len() {
+        let (s, c) = (w * (g.time(i) - g.t0)).sin_cos();
+        g.y[i] -= a * c + b * s;
     }
 }
 
