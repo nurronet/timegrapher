@@ -929,3 +929,27 @@ fn joined_readings_over_time_says_whose_time_it_is() {
         );
     }
 }
+
+/// Joined, Readings Over Time keeps its own span and width: neither the
+/// take's span nor the strip's width, which would line a clock of its
+/// own up with the take's (Trevor on #1256).
+#[test]
+fn joined_readings_over_time_keeps_its_own_span_and_width() {
+    let mut app = synthetic(60.0, 0.0);
+    let take = app.steady_opts(steady::View::Readings);
+    assert_eq!(take.take_span, app.take_span());
+    assert!(take.take_span.is_some() && take.joined_in.is_none());
+    app.brush = Some(Position::DialDown);
+    let end = app.latest_s();
+    app.paint_position(0.0, end);
+    let joined = app.steady_opts(steady::View::Readings);
+    assert_eq!((joined.take_span, joined.joined_in), (None, Some("DD")));
+    // Under the strip lying across, only the take's clock takes its width.
+    let ctx = themed();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        crate::theme::note_time_span(ctx, egui::Rangef::new(100.0, 900.0));
+        let left = 100.0 - crate::theme::time_gutter(ctx);
+        assert_eq!(steady::readings_width(ctx, left, take), Some(900.0 - left));
+        assert_eq!(steady::readings_width(ctx, left, joined), None);
+    });
+}

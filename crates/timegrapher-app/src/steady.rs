@@ -1118,15 +1118,20 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
 /// with the strip's (Walter on #1256), so the axis says whose time it is
 /// instead (Hugh).
 fn time_axis(mut plot: Plot<'static>, ui: &egui::Ui, opts: Opts) -> Plot<'static> {
-    let width =
-        theme::time_width(ui.ctx(), ui.cursor().left()).filter(|_| opts.take_span.is_some());
-    if let Some(w) = width {
+    if let Some(w) = readings_width(ui.ctx(), ui.cursor().left(), opts) {
         plot = plot.width(w.clamp(64.0, ui.available_width()));
     }
     if let Some(code) = opts.joined_in {
         plot = plot.x_axis_label(format!("Time in {code}"));
     }
     plot
+}
+
+/// The width that ends Readings Over Time's time area where the strip's
+/// ends, for a plot whose gutter starts at `left`: only on the take's own
+/// clock, never for a position's stretches joined end to end.
+pub fn readings_width(ctx: &egui::Context, left: f32, opts: Opts) -> Option<f32> {
+    theme::time_width(ctx, left).filter(|_| opts.take_span.is_some())
 }
 
 /// The period found: its dot on the scores, and its note.

@@ -269,15 +269,23 @@ impl TimegrapherApp {
             &status,
             view,
             &self.series_shown(view),
-            steady::Opts {
-                periods_db: self.periods_db,
-                fft_timing: self.fft_timing,
-                maps_db: self.maps_db.on(view),
-                wheels: self.show_wheels.on(view),
-                info: self.steady_info.on(view),
-                take_span: self.take_span().filter(|_| !joined),
-                joined_in: joined.then(|| self.position.code()),
-            },
+            self.steady_opts(view),
         );
+    }
+
+    /// How a steadiness pane draws `view`. On the take's own clock its
+    /// time is the take's span, the strip's; a position's stretches joined
+    /// end to end are on a clock of their own, named on the axis (#1256).
+    pub(super) fn steady_opts(&self, view: steady::View) -> steady::Opts {
+        let joined = !self.session.stretches().is_empty();
+        steady::Opts {
+            periods_db: self.periods_db,
+            fft_timing: self.fft_timing,
+            maps_db: self.maps_db.on(view),
+            wheels: self.show_wheels.on(view),
+            info: self.steady_info.on(view),
+            take_span: self.take_span().filter(|_| !joined),
+            joined_in: joined.then(|| self.position.code()),
+        }
     }
 }
