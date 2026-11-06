@@ -381,21 +381,9 @@ fn scratch_dir() -> PathBuf {
     if cfg!(test) {
         return std::env::temp_dir().join("timegrapher-unsaved");
     }
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    let base = if cfg!(target_os = "windows") {
-        env("LOCALAPPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library").join("Application Support"))
-    } else {
-        env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local").join("share")))
-    };
-    base.map_or_else(
+    timegrapher_core::user_dirs::app_dir(timegrapher_core::user_dirs::Kind::Data).map_or_else(
         || std::env::temp_dir().join("timegrapher-unsaved"),
-        |b| b.join("timegrapher").join("unsaved"),
+        |d| d.join("unsaved"),
     )
 }
 

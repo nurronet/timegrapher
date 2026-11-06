@@ -13,10 +13,7 @@ const ICON: &[u8] = include_bytes!("../../../packaging/icon.png");
 /// (`$XDG_DATA_HOME`, or `~/.local/share`), pointing at this executable,
 /// or at the AppImage it runs from. Returns the entry's path.
 pub fn install() -> std::io::Result<PathBuf> {
-    let data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+    let data = timegrapher_core::user_dirs::base(timegrapher_core::user_dirs::Kind::Data)
         .ok_or_else(|| std::io::Error::other("no home folder"))?;
     let running = std::env::current_exe()?;
     let exe = appimage(
