@@ -754,12 +754,8 @@ impl TimegrapherApp {
         if m.audio == Some(false) {
             return Err("its sound has already been removed".into());
         }
-        if m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".") {
-            return Err(format!(
-                "its {MANIFEST} lists each sound file by name, and only takes whose \
-                 {MANIFEST} names the whole folder, as the app writes it, can have their \
-                 sound removed"
-            ));
+        if let Some(why) = crate::watches::sound_kept_by_name(&m) {
+            return Err(why);
         }
         let files = recordings_in(take)?;
         let mut total_s = 0.0;
