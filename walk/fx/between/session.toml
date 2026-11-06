@@ -1,0 +1,23 @@
+watch = "Yacht-Master 42 replica, Dandong 3235 movement"
+calibre = "3235"
+bph = 28800
+lift = 55
+settle_s = 5.0
+notes = "Walter #1227: CU, CD, CU with a mask over the gap."
+
+[[recording]]
+file = "take.flac"
+position = "CU"
+end_s = 20.0
+
+[[recording]]
+file = "take.flac"
+position = "CD"
+start_s = 20.0
+end_s = 30.0
+
+[[recording]]
+file = "take.flac"
+position = "CU"
+start_s = 30.0
+masked = [[15.0, 40.0]]
