@@ -206,3 +206,34 @@ fn the_whole_takes_hover_says_its_sides_were_named_by_count() {
     );
     assert_eq!(cut_caveats_text(&[Caveat::ClockUnknown]), "");
 }
+
+/// The whole take reads the settled stretches of the position it is in
+/// together, as a Positions Test table reads a position's (core's
+/// `session::measure_together`): a mask over the time between two of them
+/// is masked time once, not again as the time between them.
+#[test]
+fn a_mask_between_two_stretches_counts_once_on_the_whole_take() {
+    let base = std::env::temp_dir().join(format!("tg-app-whole-mask-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(
+        base.join(timegrapher_core::take::MANIFEST),
+        "lift = 52.0\nsettle_s = 5.0\n\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"CU\"\nend_s = 20.0\n\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"CD\"\nstart_s = 20.0\nend_s = 30.0\n\n\
+         [[recording]]\nfile = \"take.wav\"\nposition = \"CU\"\nstart_s = 30.0\n\
+         masked = [[15.0, 40.0]]\n",
+    )
+    .unwrap();
+    let app = super::tests::opened_recording(&base, "take.wav", 60.0);
+    let _ = std::fs::remove_dir_all(&base);
+    let spans: Vec<(f64, f64)> = app
+        .current_spans()
+        .into_iter()
+        .map(|(a, b)| (a, b.min(60.0)))
+        .collect();
+    assert_eq!(spans, [(5.0, 20.0), (35.0, 60.0)]);
+    let w = app.whole_take().expect("whole take");
+    // 15 s to 40 s: the 15 s between the stretches is in it.
+    assert!((w.m.masked_s - 25.0).abs() < 1e-9, "{}", w.m.masked_s);
+}
