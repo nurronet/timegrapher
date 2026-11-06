@@ -1326,14 +1326,8 @@ impl TimegrapherApp {
         // What the take masked out; its seconds are the strip's, each
         // entry's moved to where its file starts.
         let offset = |i: usize| layout.map_or(0.0, |w| w[i].offset_s);
-        let masked: Vec<[f64; 2]> = entries
-            .iter()
-            .enumerate()
-            .flat_map(|(i, e)| {
-                let off = offset(i);
-                e.masked.iter().map(move |s| [s[0] + off, s[1] + off])
-            })
-            .collect();
+        let masked =
+            timegrapher_core::take_context::masks_in_take(entries, (0..entries.len()).map(offset));
         self.put_masked(timegrapher_core::session::masked_spans(&masked));
         self.opened_masks = Some(self.masked.clone());
         // Each entry read once the watch has settled, from core's window
