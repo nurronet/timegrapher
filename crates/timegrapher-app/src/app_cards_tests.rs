@@ -1050,6 +1050,41 @@ fn keys_one_to_six_pick_the_position() {
     }
 }
 
+/// Walter's walk of #1194: with New Watch open and no field typed in,
+/// keys 1 to 6 change nothing behind the dialog.
+#[test]
+fn keys_one_to_six_wait_behind_a_dialog() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let ctx = themed();
+    app.watch_form = Some(crate::watches::Form {
+        watch: timegrapher_core::library::Watch::new("Test"),
+        new: true,
+        error: None,
+    });
+    let start = app.position;
+    assert_ne!(start, Position::ALL[2]);
+    let frame = |app: &mut TimegrapherApp, input| {
+        let _ = ctx.run(input, |ctx| {
+            app.panels(ctx);
+            app.watch_form_dialog(ctx);
+        });
+    };
+    frame(&mut app, screen());
+    frame(&mut app, screen());
+    frame(&mut app, key_frame(egui::Key::Num3, egui::Modifiers::NONE));
+    assert!(app.watch_form.is_some(), "the dialog stays open");
+    assert_eq!(
+        app.position, start,
+        "a key moved the watch behind the dialog"
+    );
+    // Closed, the key works again.
+    app.watch_form = None;
+    frame(&mut app, screen());
+    frame(&mut app, screen());
+    frame(&mut app, key_frame(egui::Key::Num3, egui::Modifiers::NONE));
+    assert_eq!(app.position, Position::ALL[2]);
+}
+
 /// A key press, alone or with modifiers held, for one frame.
 fn key_frame(key: egui::Key, modifiers: egui::Modifiers) -> egui::RawInput {
     let press = |pressed| egui::Event::Key {

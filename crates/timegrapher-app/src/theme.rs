@@ -2358,8 +2358,19 @@ impl MenuSearch {
         if field.changed() || cleared {
             highlight = Some(0);
         }
+        // The caret goes to the field, and stays asked for until it gets
+        // there: on a dialog's press egui may hold the menu's layer under
+        // the dialog for a frame, and a focus asked for then is lost.
+        let want = id.with("want focus");
         if refocus {
-            field.request_focus();
+            ui.data_mut(|d| d.insert_temp(want, true));
+        }
+        if ui.data(|d| d.get_temp::<bool>(want)).unwrap_or(false) {
+            if field.has_focus() {
+                ui.data_mut(|d| d.remove::<bool>(want));
+            } else {
+                field.request_focus();
+            }
         }
         // With the search empty, the current item is lit if it is listed,
         // and otherwise nothing, so Enter never picks what wasn't chosen.
@@ -2410,5 +2421,18 @@ impl MenuSearch {
     pub fn finish(self, ui: &Ui) {
         let highlight = self.highlight.map(|h| h.min(self.items.saturating_sub(1)));
         ui.data_mut(|d| d.insert_temp(self.id, highlight));
+    }
+}
+
+/// Keep every open menu and pop-up above any dialog. egui lifts a dialog
+/// to the top on each press inside it, so a menu that opens on that same
+/// press, from a dialog shown a second time, can land behind it. Called
+/// once a frame, after every dialog is drawn.
+pub fn popups_above_dialogs(ctx: &egui::Context) {
+    let shown = ctx.memory(|m| m.areas().visible_layer_ids());
+    for l in shown {
+        if l.order == egui::Order::Foreground && egui::Popup::is_id_open(ctx, l.id) {
+            ctx.move_to_top(l);
+        }
     }
 }
