@@ -1616,6 +1616,7 @@ mod tests {
             live.sides_known_at(live.duration_s()),
             "{case}: sides never checked"
         );
+        super::sound_tests::sample_sides_agree(&live, &case);
     }
 
     #[test]

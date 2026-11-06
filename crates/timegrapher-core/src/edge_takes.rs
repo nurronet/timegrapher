@@ -435,7 +435,7 @@ fn with_usb_lines(mut samples: Vec<f32>, ppm: f64) -> Vec<f32> {
 }
 
 /// The stand's noise and no watch, at the level `generate` adds it.
-fn silence(duration_s: f64, seed: u64) -> Vec<f32> {
+pub(crate) fn silence(duration_s: f64, seed: u64) -> Vec<f32> {
     let rms = synth::noise_rms(SynthConfig::default().snr_db) * synth::SCALE;
     let mut rng = Rng::new(seed);
     (0..(duration_s * FS as f64) as usize)
