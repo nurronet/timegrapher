@@ -493,8 +493,9 @@ impl TimegrapherApp {
                         (
                             false,
                             "Just Open It",
-                            "Open the recording where it is. It is not added to your watches: \
-                         Save, on the Listen card, keeps it in a watch later.",
+                            "Open the recording where it is. It is not added to your watches, \
+                         and no watch stays picked: Save, on the Listen card, keeps it in a \
+                         watch later.",
                         ),
                     ],
                 );
@@ -558,6 +559,12 @@ impl TimegrapherApp {
     pub(super) fn answer_open_ask(&mut self, mut a: OpenAsk, need: OpenNeed) {
         if !a.add {
             self.keep_back = None;
+            // Not one of a watch's takes, so no watch stays picked: the
+            // bar, the cards and Watches say so alike, and the next
+            // Listen is a Quick Listen (Hugh).
+            self.watch_open = None;
+            self.unsorted_open = false;
+            self.mic_setup = Some(WatchSetup::default());
             return self.open_recording(&a.path, true);
         }
         match self.add_opened(&a, need) {
