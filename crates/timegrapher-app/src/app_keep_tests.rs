@@ -2161,6 +2161,11 @@ fn an_open_guesses_the_start_from_the_files_time_less_its_length() {
         parse_local_minute(&guess.format("%Y-%m-%d %H:%M").to_string()),
         parse_local_minute("2026-10-22 14:29")
     );
+    // Of several files, the first started the take.
+    let later = dir.join("later.wav");
+    timegrapher_core::audio::write_wav(&later, &audio).unwrap();
+    let two = [wav.clone(), later];
+    assert_eq!(started_guess(&two), Some(guess));
     assert!(parse_local_minute("2026-10-22").is_none());
     assert!(parse_local_minute("22 Oct 2026 14:30").is_none());
     assert!(started_guess(&[]).is_none());
