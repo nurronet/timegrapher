@@ -86,6 +86,9 @@ test("the STFT and Wavelet Maps draw each series' map or say why not", () => {
   assert.ok(drawn.includes("<span>Amplitude Swing (°)</span><span>0.000</span>") && drawn.includes("<span>4.0 and above</span>"), drawn);
   assert.equal(context.mapKeyTitle({ series: "rate", unit: "ms", unit_text: " ms" }), "Timing Swing (ms)");
   assert.equal(context.mapKeyTitle({ series: "beat_error", unit: "ms", unit_text: " ms" }), "Beat Error Swing (ms)");
+  // The readout's size, the unit as core writes it: degrees with no gap (#1428).
+  assert.equal(context.mapSize({ unit_text: "°" }, 3.1), "3.1°");
+  assert.equal(context.mapSize({ unit_text: " ms" }, 0.12), "0.12 ms");
   assert.ok(drawn.includes(">4th Wheel<"), "named by its short name");
   assert.equal(context.mapPaints.length, 1);
   assert.ok(context.steadyPlot({ series: "amplitude" }, "wavelet", doc).includes("needs a longer stretch of unbroken readings"));

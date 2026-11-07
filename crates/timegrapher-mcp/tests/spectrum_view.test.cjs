@@ -112,3 +112,11 @@ test("FFT labels at the existing size boundaries stay unchanged", () => {
     assert.ok(context.last.beside[0].text.endsWith(": " + text + " ms"), context.last.beside[0].text);
   }
 });
+
+test("an amplitude spectrum's tallest line is labelled in degrees with no gap, as core writes it (#1428)", () => {
+  context.fftTiming = true;
+  const sp = { series: "amplitude", unit: "deg", unit_text: "°", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2] };
+  context.steadyPlot({ series: "amplitude" }, "spectrum", { spectra: [sp], config: { rate_reading_s: 10 } });
+  const label = context.last.beside[0].text;
+  assert.ok(/: 5(\.0+)?°$/.test(label), label);
+});
