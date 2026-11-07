@@ -1279,6 +1279,73 @@ fn a_moved_takes_lift_becomes_known_from_its_watch() {
     assert!(!super::watches_pane::settings_of(&mut doc, &w, &cal));
 }
 
+/// Picking another watch in the Watches list with a take on show: the
+/// take is put away, as Unsorted Takes and the Watch line do, so the
+/// Bench never names a watch the take isn't in; picking its own watch
+/// keeps it, and so does one with marks not yet saved (#1303).
+#[test]
+fn picking_another_watch_puts_the_take_on_show_away() {
+    let base = std::env::temp_dir().join(format!("tg-app-pick-away-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let pepsi = lib.add(&library::Watch::new("Pepsi")).unwrap();
+    lib.add(&library::Watch::new("Daytona")).unwrap();
+    let id = |name: &str| lib.find(name).unwrap().watch.id.clone();
+    let (pepsi_id, daytona_id) = (id("Pepsi"), id("Daytona"));
+    drop(lib);
+    let take = pepsi.join(library::TAKES).join("2026-10-20 10.00 Dial Up");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "watch = \"Pepsi\"\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let open = |app: &mut TimegrapherApp| {
+        app.pick_watch(&pepsi_id);
+        app.take_action(Some(watches::TakeAction::Open(take.clone())));
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+            app.poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    };
+    // Its own watch: it stays.
+    open(&mut app);
+    app.pick_watch(&pepsi_id);
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    // Another: it is put away, and the Bench names the one picked.
+    app.pick_watch(&daytona_id);
+    assert!(app.take_on_show().is_none() && app.live.is_none());
+    assert_eq!(app.watch, "Daytona");
+    assert!(
+        app.status_words().contains("Daytona"),
+        "{}",
+        app.status_words()
+    );
+    // With its marks not yet saved, it stays, as a new take would ask.
+    open(&mut app);
+    app.brush = Some(Position::DialDown);
+    app.paint_position(0.0, 5.0);
+    assert!(app.needs_save_confirmation());
+    app.pick_watch(&daytona_id);
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// A take with no session.toml, filed under a watch: it moves without an
 /// error, and no session.toml is made for it (#1283).
 #[test]

@@ -931,6 +931,18 @@ impl TimegrapherApp {
             self.info_msg("Stop listening before picking another watch.".into());
             return;
         }
+        // A take on show from another watch or Unsorted Takes, its marks
+        // all saved, is put away, as Unsorted Takes and the Watch line do:
+        // the Bench's card and the status line name the watch picked, so
+        // never over a take that isn't in it (#1303).
+        let elsewhere = self.take_on_show().is_some_and(|t| {
+            let of = match &self.library {
+                Ok(Some(l)) => l.watch_of(&t).map(|e| e.watch.id.clone()),
+                _ => None,
+            };
+            of.as_deref() != Some(id)
+        });
+        let put_away = elsewhere && !self.needs_save_confirmation();
         self.watch_open = Some(id.to_string());
         self.unsorted_open = false;
         // The watch picked shows, not the list left over from before.
@@ -940,6 +952,9 @@ impl TimegrapherApp {
             self.watch_open = None;
             return;
         };
+        if put_away {
+            self.new_session();
+        }
         // Readings on show keep the settings they were measured with; the
         // watch's apply to its next take.
         if self.live.is_some() {
