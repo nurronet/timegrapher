@@ -902,6 +902,35 @@ fn parse_profiles(raw: &[u8]) -> Result<Vec<StretchProfiles>, String> {
     Ok(out)
 }
 
+/// Write every file under `dir`, and `dir` and its folders' entries, to
+/// the disk: a crash or power cut after this can't leave one empty.
+fn sync_tree(dir: &Path) -> io::Result<()> {
+    for e in fs::read_dir(dir)? {
+        let e = e?;
+        let kind = e.file_type()?;
+        if kind.is_dir() {
+            sync_tree(&e.path())?;
+        } else if kind.is_file() {
+            // Opened for writing, as Windows flushes no file opened to read.
+            fs::OpenOptions::new()
+                .write(true)
+                .open(e.path())?
+                .sync_all()?;
+        }
+    }
+    sync_folder(dir)
+}
+
+/// Write `dir`'s entries to the disk. Windows has no folder to sync; its
+/// renames and new files are written through by the file system.
+fn sync_folder(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
+}
+
 /// Keep the take whose sound is in `source` (its folder: `session.toml`,
 /// `session.json`, `clock.csv` and the sound) as its analysis alone in a
 /// new folder `dest`: every file but the sound copied, `session.toml`
@@ -950,7 +979,11 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
         if back.log.beats.len() != stored.log.beats.len() {
             return Err(invalid("the analysis didn't read back as written".into()));
         }
-        crate::recorder::rename_settled(&staged, dest)
+        // On the disk before it goes into place, and its new name after,
+        // since the caller may delete the take's sound next (#1336).
+        sync_tree(&staged)?;
+        crate::recorder::rename_settled(&staged, dest)?;
+        sync_folder(parent)
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&staged);
@@ -1186,6 +1219,23 @@ mod tests {
             .to_string_lossy()
             .starts_with(".timegrapher")));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// What a save writes is synced, every file and folder, before it
+    /// goes into place (#1336). No test can cut the power; this checks the
+    /// walk reaches a nested file, and that a sync that fails is an error,
+    /// so the save fails and the caller keeps the take.
+    #[test]
+    fn a_save_is_on_the_disk_before_it_goes_into_place() {
+        let dir = scratch("sync");
+        fs::create_dir_all(dir.join("a/b")).unwrap();
+        fs::write(dir.join("a/b/c.txt"), b"kept").unwrap();
+        fs::write(dir.join("top.txt"), b"").unwrap();
+        sync_tree(&dir).unwrap();
+        assert_eq!(fs::read(dir.join("a/b/c.txt")).unwrap(), b"kept");
+        fs::remove_dir_all(&dir).unwrap();
+        let err = sync_tree(&dir).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
     }
 
     /// A header from a later layout says so, rather than misreading it.
