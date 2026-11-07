@@ -590,3 +590,138 @@ fn masks_land_at_their_recordings_offset() {
         [[1.0, 2.0], [600.5, 601.5], [603.0, 604.0]]
     );
 }
+
+/// The take in `base` kept as its analysis alone in `kept`, as Keep
+/// Analysis Only keeps it: measured from all its sound, its session file
+/// marked `audio = false`, and its sound left behind.
+fn keep_analysis(base: &Path, kept: &Path) -> Manifest {
+    let text = std::fs::read_to_string(base.join("session.toml")).unwrap();
+    let m: Manifest = toml::from_str(&text).unwrap();
+    let sounds = take::sound_files(&[base.to_path_buf()]).unwrap();
+    let files: Vec<&Path> = sounds.iter().map(PathBuf::as_path).collect();
+    let span_s: f64 = sounds
+        .iter()
+        .map(|f| {
+            let i = timegrapher_core::audio::info(f).unwrap();
+            i.frames.unwrap() as f64 / i.sample_rate as f64
+        })
+        .sum();
+    let cfg = take::stream_settings(&m, None, take::Given::default());
+    let shapes = timegrapher_core::analysis_take::shape_stretches(&m, span_s);
+    let software = serde_json::json!({"name": "timegrapher", "version": "test"});
+    let stored =
+        timegrapher_core::analysis_take::measure(&files, &cfg, &shapes, software, |_| {}).unwrap();
+    let _ = std::fs::remove_dir_all(kept);
+    let manifest = format!("audio = false\n{text}");
+    timegrapher_core::analysis_take::save(
+        kept,
+        &[("session.toml".to_string(), manifest.clone().into_bytes())],
+        &stored,
+    )
+    .unwrap();
+    toml::from_str(&manifest).unwrap()
+}
+
+/// A take kept as its analysis alone is laid out as its sound was: each
+/// entry at the take's start, over the length kept, its window the one the
+/// sound gave it; no files, and its kept profiles. An entry beside them
+/// naming one of the files it was made from can't be placed any more.
+fn kept_is_laid_out_as_its_sound_was(base: &Path, kept: &Path) {
+    let m = manifest(base);
+    let mk = keep_analysis(base, kept);
+    let (_, sound) = entry_layout(base, &m, None).unwrap();
+    let (files, entries) = entry_layout(kept, &mk, None).unwrap();
+    assert!(files.is_empty());
+    assert_eq!(entries.len(), sound.len());
+    for (k, s) in entries.iter().zip(&sound) {
+        assert_eq!(
+            (k.entry, k.position, k.offset_s, &k.window),
+            (s.entry, s.position, s.offset_s, &s.window),
+            "{}",
+            base.display()
+        );
+        assert!(k.parts.is_empty());
+    }
+    let (ctx, log) = TakeContext::open(
+        kept,
+        &mk,
+        settings(None),
+        Masks::Cut,
+        |_| Ok(None),
+        |_| Ok(None),
+        |_, _| {},
+    )
+    .unwrap();
+    assert!(ctx.files.is_empty());
+    assert_eq!(ctx.entries, entries);
+    assert!(ctx.profiles.is_some_and(|p| !p.is_empty()));
+    assert!(!log.beats.is_empty());
+    let mut named = mk.clone();
+    let mut e = named.recordings[0].clone();
+    e.file = "a.wav".into();
+    named.recordings.push(e);
+    for e in [
+        entry_layout(kept, &named, None).unwrap_err(),
+        TakeContext::open(
+            kept,
+            &named,
+            settings(None),
+            Masks::Cut,
+            |_| Ok(None),
+            |_| Ok(None),
+            |_, _| {},
+        )
+        .err()
+        .unwrap(),
+    ] {
+        assert!(
+            e.contains("a.wav: the take is kept as its analysis alone"),
+            "{e}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(kept);
+}
+
+#[test]
+fn a_take_kept_as_its_analysis_is_laid_out_as_its_sound_was() {
+    let dir = synthetic_take("keep");
+    // Two entries over the whole take, as a kept take's entries read it.
+    std::fs::write(
+        dir.join("session.toml"),
+        "bph = 28800\n\
+         [[recording]]\nfile = \".\"\nposition = \"DU\"\nsettle_s = 10\nend_s = 90\n\
+         [[recording]]\nfile = \".\"\nposition = \"DD\"\nstart_s = 90\nsettle_s = 5\n",
+    )
+    .unwrap();
+    kept_is_laid_out_as_its_sound_was(&dir, &dir.with_extension("kept"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The corpus's takes whose entries read the whole take, kept as their
+/// analysis alone.
+#[test]
+fn the_corpus_takes_kept_as_their_analysis_are_laid_out_as_their_sound_was() {
+    let Some(corpus) = std::env::var_os("TIMEGRAPHER_CORPUS").map(PathBuf::from) else {
+        eprintln!("SKIP: set TIMEGRAPHER_CORPUS to keep the corpus's takes as their analysis");
+        return;
+    };
+    let base = corpus.join("takes").join("daytona4130_DU_30min");
+    let out = std::env::temp_dir().join(format!("tg-take-context-kept-{}", std::process::id()));
+    kept_is_laid_out_as_its_sound_was(&base, &out);
+}
+
+/// A take whose recordings were made at different sample rates has no one
+/// timeline, and says which file differs.
+#[test]
+fn recordings_at_another_sample_rate_are_refused() {
+    let dir = synthetic_take("rate");
+    let mut b = timegrapher_core::audio::load(&dir.join("b.wav")).unwrap();
+    b.sample_rate = 44_100;
+    timegrapher_core::audio::write_wav(&dir.join("b.wav"), &b).unwrap();
+    let e = entry_layout(&dir, &manifest(&dir), None).unwrap_err();
+    assert!(
+        e.contains("b.wav: recorded at 44100 Hz, unlike the take's other recordings"),
+        "{e}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
