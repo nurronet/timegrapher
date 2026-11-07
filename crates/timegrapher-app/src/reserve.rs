@@ -541,20 +541,14 @@ fn part_hour_hover(h: &power_reserve::Hour) -> Option<(String, bool)> {
 /// span, none with no chart.
 fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<egui::Rangef>) {
     let Some(x) = plot_x else {
-        dim_key(
-            ui,
-            hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
-        );
+        hour_key(ui, hours);
         hour_grid(ui, hours);
         return;
     };
     // The plots' span across, from here down.
     let below = egui::Rect::from_x_y_ranges(x, ui.available_rect_before_wrap().y_range());
     ui.scope_builder(egui::UiBuilder::new().max_rect(below), |ui| {
-        dim_key(
-            ui,
-            hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
-        );
+        hour_key(ui, hours);
         egui::ScrollArea::horizontal()
             .id_salt("reserve hours across")
             // egui shows a scroll area's content a clip margin past its
@@ -586,6 +580,55 @@ pub fn beat_error_dimmed(source: Option<BeatErrorSource>) -> bool {
 pub fn dim_key(ui: &mut egui::Ui, any_dimmed: bool) {
     if any_dimmed {
         ui.label(RichText::new(dim_key!()).color(theme::pal(ui).text_secondary));
+    }
+}
+
+/// What a grey amplitude in the Power Reserve table means.
+pub const THIN_AMPLITUDE_KEY: &str =
+    "Grey amplitudes: read from few of the hour's windows; the hover says how many.";
+
+/// The hour's amplitude caveat, when its amplitude stands on under 60% of
+/// its windows (core's coverage caveat, #1429): the cell is dimmed and
+/// the caveat is its hover.
+fn thin_amplitude(h: &power_reserve::Hour) -> Option<String> {
+    h.amplitude_deg?;
+    h.caveats
+        .iter()
+        .find(|c| {
+            matches!(
+                c,
+                timegrapher_core::measure::Caveat::ReadingWindows {
+                    reading: timegrapher_core::confidence::Figure::Amplitude,
+                    ..
+                }
+            )
+        })
+        .and_then(|c| c.long(None))
+}
+
+/// The Power Reserve table's key, one line, naming each kind of grey cell
+/// its rows hold; none when no cell is grey.
+fn hour_key_text(hours: &[power_reserve::Hour]) -> Option<String> {
+    let parts: Vec<&str> = [
+        (
+            hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
+            dim_key!(),
+        ),
+        (
+            hours.iter().any(|h| thin_amplitude(h).is_some()),
+            THIN_AMPLITUDE_KEY,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(on, t)| on.then_some(t))
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+/// The Power Reserve table's key over it, when a cell is grey.
+fn hour_key(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
+    if let Some(t) = hour_key_text(hours) {
+        ui.label(RichText::new(t).color(theme::pal(ui).text_secondary));
     }
 }
 
@@ -659,9 +702,12 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                 plain(cell(h.rate_s_per_day, |v| {
                     true_minus(&figure(v, None, base_digits::RATE, true))
                 })),
-                plain(cell(h.amplitude_deg, |v| {
-                    figure(v, None, base_digits::AMPLITUDE, false)
-                })),
+                (
+                    cell(h.amplitude_deg, |v| {
+                        figure(v, None, base_digits::AMPLITUDE, false)
+                    }),
+                    thin_amplitude(h).map(|w| (w, true)),
+                ),
                 (
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
@@ -724,8 +770,9 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
             ui.end_row();
             for row in &rows {
                 for (c, (text, source)) in row.iter().enumerate() {
-                    // A beat error not from the unlock dimmed, and every
-                    // beat error's source in words.
+                    // A beat error not from the unlock and a thin
+                    // amplitude dimmed, and every beat error's source in
+                    // words.
                     let colour = if source.as_ref().is_some_and(|s| s.1) {
                         pal.text_secondary
                     } else {
@@ -739,8 +786,8 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                 ui.end_row();
             }
         });
-    let key = hours.iter().any(|h| beat_error_dimmed(h.beat_error_source));
-    pin_titles(ui, &titles, key, grid.response.rect, rows.len());
+    let key = hour_key_text(hours);
+    pin_titles(ui, &titles, key.as_deref(), grid.response.rect, rows.len());
 }
 
 /// One title's cell, `w` wide: its name, and its unit on its own line
@@ -788,18 +835,24 @@ fn title(
 /// figure keeps its unit in sight (Walter's walk of #1055). The band under
 /// them reaches down to the first row that shows whole, so no row shows
 /// cut, and they sit at its foot, tight over that row as in their own
-/// place. The pinned titles keep their hovers, and with `key` (a beat
-/// error dimmed) the dimming's key is pinned above them, as it sits above
-/// the table (Walter's walks of #1084 and #1097). `table` is the whole
-/// table, titles and `rows` rows of hours.
-fn pin_titles(ui: &mut egui::Ui, titles: &[Title], key: bool, table: egui::Rect, rows: usize) {
+/// place. The pinned titles keep their hovers, and the dimming's `key`,
+/// when a cell is grey, is pinned above them, as it sits above the table
+/// (Walter's walks of #1084 and #1097). `table` is the whole table,
+/// titles and `rows` rows of hours.
+fn pin_titles(
+    ui: &mut egui::Ui,
+    titles: &[Title],
+    key: Option<&str>,
+    table: egui::Rect,
+    rows: usize,
+) {
     let top = ui.clip_rect().top();
     let Some(head) = titles.iter().map(|t| t.cell).reduce(|a, b| a.union(b)) else {
         return;
     };
     let row_h = ui.spacing().interact_size.y;
     // The key's line above the titles, when there is one.
-    let above = if key { row_h + GRID_GAP } else { 0.0 };
+    let above = if key.is_some() { row_h + GRID_GAP } else { 0.0 };
     // The first hour's row, and from one hour's top to the next's, the
     // gap between included.
     let first_row = head.bottom() + GRID_GAP;
@@ -828,11 +881,11 @@ fn pin_titles(ui: &mut egui::Ui, titles: &[Title], key: bool, table: egui::Rect,
         pal.card,
     );
     let font = egui::TextStyle::Body.resolve(ui.style());
-    if key {
+    if let Some(key) = key {
         painter.text(
             egui::pos2(table.left(), titles_top - above),
             egui::Align2::LEFT_TOP,
-            dim_key!(),
+            key,
             font.clone(),
             pal.text_secondary,
         );
@@ -1301,6 +1354,72 @@ mod tests {
         assert_eq!(colour(key), vec![Some(ink.1)], "{cells:?}");
         let y = |text: &str| cells.iter().find(|c| c.0 == text).map(|c| c.2);
         assert!(y(key) < y("Hours"), "{cells:?}");
+    }
+
+    /// An hour whose amplitude stands on under 60% of its windows (core's
+    /// coverage caveat, #1429): its amplitude alone is grey, the key says
+    /// what grey amplitudes are, and its hover is core's caveat.
+    #[test]
+    fn a_thin_amplitude_is_grey_and_keyed() {
+        use timegrapher_core::confidence::Figure;
+        use timegrapher_core::measure::Caveat;
+        use timegrapher_core::session::BeatErrorSource;
+        let mut t = finished_run(3);
+        let thin = Caveat::ReadingWindows {
+            reading: Figure::Amplitude,
+            windows_used: 400,
+            windows_in_span: 1800,
+        };
+        if let Some(r) = t.results.as_mut() {
+            for h in &mut r.hours {
+                h.beat_error_source = Some(BeatErrorSource::Unlock);
+            }
+            r.hours[2].amplitude_deg = Some(262.0);
+            r.hours[2].caveats = vec![thin];
+        }
+        let r = t.results.as_ref().unwrap();
+        assert_eq!(thin_amplitude(&r.hours[0]), None);
+        assert_eq!(thin_amplitude(&r.hours[2]), thin.long(None));
+        assert_eq!(hour_key_text(&r.hours).as_deref(), Some(THIN_AMPLITUDE_KEY));
+        // No amplitude, nothing grey.
+        let mut none = r.hours[2].clone();
+        none.amplitude_deg = None;
+        assert_eq!(thin_amplitude(&none), None);
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let mut ink = (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
+        let mut cells = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ink = (theme::pal(ui).text, theme::pal(ui).text_secondary);
+                    pane(ui, Some(&t), None, "Position", "Pepsi", true);
+                });
+            });
+            cells = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(s) => Some((
+                        s.galley.text().to_string(),
+                        s.galley.job.sections.first().map(|f| f.format.color),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+        }
+        let colour =
+            |text: &str| -> Vec<_> { cells.iter().filter(|c| c.0 == text).map(|c| c.1).collect() };
+        assert_eq!(colour("262"), vec![Some(ink.1)], "{cells:?}");
+        assert_eq!(colour("281"), vec![Some(ink.0); 2], "{cells:?}");
+        assert_eq!(colour(THIN_AMPLITUDE_KEY), vec![Some(ink.1)], "{cells:?}");
     }
 
     /// An hour whose times can't belong to a real hour shows a dash in

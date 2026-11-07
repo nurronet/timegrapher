@@ -473,6 +473,13 @@ fn fit_take(
     let residuals =
         timing::residuals_pieces(beats, &cuts).unwrap_or_else(|| vec![f64::NAN; beats.len()]);
     let part = crate::session::window_part_s(amplitude_windows);
+    // Too few windows give no window figure, as in `session` (#1429).
+    let in_take: Vec<&AmplitudeWindow> = clear
+        .iter()
+        .filter(|w| crate::session::window_in(w, from_s, duration))
+        .collect();
+    let cells = crate::session::window_cells(&holes, duration, part, from_s, duration);
+    let figures = crate::session::floor_figures(figures, &in_take, cells);
     let rate_windows = holes.windows(
         beats,
         bph,

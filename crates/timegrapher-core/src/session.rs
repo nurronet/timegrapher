@@ -522,6 +522,42 @@ pub fn window_figures(wins: &[&AmplitudeWindow], turned: bool) -> WindowFigures 
     }
 }
 
+/// The 2 s cells of the take's one tiling on true time (#636), from 0 to
+/// `duration_t`, that a stretch from `from_t` to `to_t` (true time) takes
+/// in by the rule its windows are taken in by (middle inside, half-open)
+/// and that are clear of every hole: with nothing culled, every one holds
+/// a window. The nominal count each window figure's coverage is read
+/// against.
+pub fn window_cells(holes: &Cuts, duration_t: f64, part: f64, from_t: f64, to_t: f64) -> usize {
+    crate::clean::nominal_windows(0.0, duration_t, part, part)
+        .filter(|&(a, b)| window_span_in(a, b, from_t, to_t))
+        .filter(|&(a, b)| holes.clear(a, b))
+        .count()
+}
+
+/// `figures` with each one withheld that too few of the stretch's
+/// windows `wins` give, against its `cells` nominal windows
+/// ([`crate::confidence::too_few_windows`], #1429).
+pub fn floor_figures(
+    figures: WindowFigures,
+    wins: &[&AmplitudeWindow],
+    cells: usize,
+) -> WindowFigures {
+    let keep = |v: Option<f64>, f: fn(&AmplitudeWindow) -> bool| {
+        v.filter(|_| {
+            !crate::confidence::too_few_windows(wins.iter().filter(|w| f(w)).count(), cells)
+        })
+    };
+    WindowFigures {
+        amplitude_deg: keep(figures.amplitude_deg, |w| w.mean().is_some()),
+        amplitude_even_deg: keep(figures.amplitude_even_deg, |w| w.even_deg.is_some()),
+        amplitude_odd_deg: keep(figures.amplitude_odd_deg, |w| w.odd_deg.is_some()),
+        beat_error_unlock_ms: keep(figures.beat_error_unlock_ms, |w| {
+            w.beat_error_unlock_ms.is_some()
+        }),
+    }
+}
+
 /// A stretch's timing fit and window figures, as every reading of a
 /// stretch takes them: saved (`session`), whole (`analyze`) and live
 /// (#512, one engine reads a stretch).
@@ -809,6 +845,8 @@ pub fn measure_masked(
         turned,
         figures,
     } = stretch_fits(&beats, Some(log.bph), &cuts, &amp);
+    let cells = window_cells(&holes, holes.true_time(log.duration_s), part, from_t, to_t);
+    let figures = floor_figures(figures, &amp, cells);
     let amps: Vec<f64> = amp.iter().filter_map(|w| w.mean()).collect();
     // On true time, as the rate samples are, so a pause is a hole in the
     // two-state blocks.
@@ -898,8 +936,8 @@ pub fn measure_masked(
         rate_window_median_s_per_day: median_of(rates.iter().copied()),
         rate_p05: percentile(&rates, 0.05),
         rate_p95: percentile(&rates, 0.95),
-        amplitude_p05: percentile(&amps, 0.05),
-        amplitude_p95: percentile(&amps, 0.95),
+        amplitude_p05: figures.amplitude_deg.and(percentile(&amps, 0.05)),
+        amplitude_p95: figures.amplitude_deg.and(percentile(&amps, 0.95)),
         coverage: Default::default(),
         amplitude_windows: amp.len(),
         unlock_coverage: (!amp.is_empty()).then(|| {
@@ -2285,16 +2323,13 @@ fn reading_coverage(
         .filter(|&(a, b)| holes.clear(a, b))
         .count()
     });
-    let part = window_part_s(&log.amplitude_windows);
-    // The cells of the take's one tiling on true time (#636) that the
-    // stretch takes in by the rule its windows are taken in by (middle
-    // inside, half-open) and that are clear of every hole: with nothing
-    // culled, every one holds a window.
-    let (from_t, to_t) = (holes.true_time(from), holes.true_time(to));
-    let amp_total = crate::clean::nominal_windows(0.0, holes.true_time(log.duration_s), part, part)
-        .filter(|&(a, b)| window_span_in(a, b, from_t, to_t))
-        .filter(|&(a, b)| holes.clear(a, b))
-        .count();
+    let amp_total = window_cells(
+        holes,
+        holes.true_time(log.duration_s),
+        window_part_s(&log.amplitude_windows),
+        holes.true_time(from),
+        holes.true_time(to),
+    );
     FigureCoverage {
         rate: Coverage {
             windows_used: rate.len(),
@@ -2350,6 +2385,103 @@ mod reading_coverage_tests {
             w.odd_deg = None;
             w.beat_error_unlock_ms = None;
         }
+    }
+
+    /// [`log`] laid end to end `times` times, beats and windows alike.
+    fn long_log(times: usize) -> BeatLog {
+        let one = log();
+        let span = 60.0;
+        let n = one.beats.len() as i64;
+        let mut long = one.clone();
+        long.beats.clear();
+        long.amplitude_windows.clear();
+        for k in 0..times {
+            let dt = k as f64 * span;
+            long.beats.extend(one.beats.iter().map(|b| Beat {
+                time: b.time + dt,
+                index: b.index + k as i64 * n,
+                ..*b
+            }));
+            long.amplitude_windows
+                .extend(one.amplitude_windows.iter().map(|w| AmplitudeWindow {
+                    start_s: w.start_s + dt,
+                    end_s: w.end_s + dt,
+                    ..w.clone()
+                }));
+        }
+        long.duration_s = span * times as f64;
+        long
+    }
+
+    fn amplitude_caveat(m: &Measurement) -> Option<(usize, usize)> {
+        m.caveats.iter().find_map(|c| match c {
+            crate::measure::Caveat::ReadingWindows {
+                reading: crate::confidence::Figure::Amplitude,
+                windows_used,
+                windows_in_span,
+            } => Some((*windows_used, *windows_in_span)),
+            _ => None,
+        })
+    }
+
+    /// Power Reserve's last hour of the YM42 65 h take (#1429): 2 stray
+    /// windows of an hour's 1,800 give no amplitude and no unlock beat
+    /// error, and the reading still says how many windows it had.
+    #[test]
+    fn two_windows_of_an_hour_give_no_amplitude() {
+        let mut log = long_log(60);
+        thin(&mut log, 2);
+        let m = measure(&log, None, 0.0, 3600.0);
+        assert_eq!(m.coverage.amplitude.windows_in_span, 1800);
+        assert_eq!(m.amplitude_deg, None);
+        assert_eq!(m.amplitude_even_deg, None);
+        assert_eq!(m.amplitude_odd_deg, None);
+        assert_eq!(m.amplitude_p05, None);
+        assert_eq!(m.beat_error_unlock_ms, None);
+        assert_ne!(m.beat_error_source, Some(BeatErrorSource::Unlock));
+        assert_eq!(amplitude_caveat(&m), Some((2, 1800)));
+    }
+
+    /// The share floor: under 10% of the hour's 1,800 windows (180) no
+    /// amplitude; at 10% it stands, with its coverage caveat.
+    #[test]
+    fn an_hour_reads_its_amplitude_from_a_tenth_of_its_windows() {
+        for (keep, read) in [(179, false), (180, true)] {
+            let mut log = long_log(60);
+            thin(&mut log, keep);
+            let m = measure(&log, None, 0.0, 3600.0);
+            assert_eq!(m.amplitude_deg.is_some(), read, "{keep} windows");
+            assert_eq!(m.beat_error_unlock_ms.is_some(), read, "{keep} windows");
+            assert_eq!(amplitude_caveat(&m), Some((keep, 1800)));
+        }
+    }
+
+    /// In a minute's 30 windows, 10% is 3: 2 give no amplitude, 3 do.
+    #[test]
+    fn a_minute_reads_its_amplitude_from_three_windows() {
+        for (keep, read) in [(2, false), (3, true)] {
+            let mut log = log();
+            thin(&mut log, keep);
+            let m = measure(&log, None, 0.0, 60.0);
+            assert_eq!(m.amplitude_deg.is_some(), read, "{keep} windows");
+        }
+    }
+
+    /// `analyze` takes the same floor (#1429).
+    #[test]
+    fn floor_figures_withholds_each_figure_on_its_own_count() {
+        let log = log();
+        let mut wins: Vec<AmplitudeWindow> = log.amplitude_windows.clone();
+        // Tock read in 2 windows of 30, Tick in all.
+        for w in wins.iter_mut().skip(2) {
+            w.odd_deg = None;
+        }
+        let refs: Vec<&AmplitudeWindow> = wins.iter().collect();
+        let f = floor_figures(window_figures(&refs, false), &refs, 30);
+        assert_eq!(f.amplitude_odd_deg, None);
+        assert_eq!(f.amplitude_deg, None);
+        assert_eq!(f.amplitude_even_deg, Some(270.0));
+        assert!(f.beat_error_unlock_ms.is_some());
     }
 
     #[test]
