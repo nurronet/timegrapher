@@ -1,0 +1,1 @@
+[["shell", "powershell -NoProfile -c \"Select-String -Path $env:APPDATA\\timegrapher\\logs\\timegrapher.log -Pattern ERROR,WARN,panic | Select-Object -Last 8\""]]
