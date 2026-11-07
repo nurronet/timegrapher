@@ -41,9 +41,9 @@ written have no link.
 
 **Tests and History**
 
-19. Isochronism
-20. Positions Test
-21. Power Reserve Test
+19. [Isochronism](19-isochronism.md): the rate at each amplitude, as the curve or the walk
+20. [Positions Test](20-positions-test.md): the six positions, guided, and full wind against 24 hours
+21. [Power Reserve Test](21-power-reserve-test.md): how long a full wind lasts, hour by hour
 22. The Watches View
 23. Takes and Sound Files
 24. Settings and Calibres
@@ -61,11 +61,11 @@ you.
 - [M5. Beat Error](m5-beat-error.md)
 - [M6. Averaging, Windows and Cuts](m6-averaging-windows-and-cuts.md)
 - [M7. The ± and Correlated Readings](m7-the-plus-minus.md)
-- M8. Positions Test Figures
+- [M8. Positions Test Figures](m8-positions-test-figures.md)
 - [M9. Steadiness Statistics](m9-steadiness-statistics.md)
 - [M10. Finding Cycles](m10-finding-cycles.md)
 - [M11. Time and Frequency Maps](m11-time-and-frequency-maps.md)
-- M12. Isochronism and Rate against Amplitude
+- [M12. Isochronism and Rate against Amplitude](m12-isochronism-and-rate-against-amplitude.md)
 
 **Beyond the App**
 

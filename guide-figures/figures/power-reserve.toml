@@ -1,0 +1,26 @@
+# Chapter 21, Power Reserve Test: a whole 7 h 28 min take of a
+# Dandong 3285 (the corpus id at this pin still says 3235), fully wound at
+# the start, opened in one position.
+output = "power-reserve.png"
+
+actions = [["sleep", 420]]
+
+marks = [[1, 330, 520], [2, 432, 522], [3, 514, 522], [4, 591, 522], [5, 660, 522], [6, 1030, 572], [7, 1240, 650], [8, 1240, 790], [9, 480, 920]]
+
+layout = ["column", [0.22, "Strip"], [0.78, "PowerReserve"]]
+
+[data]
+corpus = "pepsi3235_DU_7h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac"]
+start = 0
+seconds = 26904
+
+[data.session]
+watch = "Dandong 3285"
+calibre = "Dandong 3285"
+bph = 28800
+lift = 55
+position = "DU"
+
+[window]
+size = [1800, 1000]

@@ -149,5 +149,5 @@ steady 2-hour takes, the family names nothing on 192 takes in 200.
 
 ---
 
-Previous: [M7. The ± and Correlated Readings](m7-the-plus-minus.md) ·
+Previous: [M8. Positions Test Figures](m8-positions-test-figures.md) ·
 Next: [M10. Finding Cycles](m10-finding-cycles.md)

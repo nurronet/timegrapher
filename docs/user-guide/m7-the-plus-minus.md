@@ -102,4 +102,4 @@ model, its sources and the tests behind it.
 ---
 
 Previous: [M6. Averaging, Windows and Cuts](m6-averaging-windows-and-cuts.md) ·
-[Contents](README.md)
+Next: [M8. Positions Test Figures](m8-positions-test-figures.md)

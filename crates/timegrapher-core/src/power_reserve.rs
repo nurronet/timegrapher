@@ -48,6 +48,9 @@ pub enum Ending {
     /// A take that wasn't a Power Reserve Test ended while the watch
     /// still ran ([`from_long_take`]).
     TakeEnded,
+    /// The recording failed (a full disk, say) while the watch still ran:
+    /// the run is at least as long as heard, never a stop of the watch.
+    RecordingFailed,
 }
 
 impl Ending {
@@ -64,6 +67,7 @@ impl Ending {
                 limit_text()
             ),
             Ending::TakeEnded => "The take ended while the watch still ran".to_string(),
+            Ending::RecordingFailed => "The recording failed while the watch still ran".to_string(),
         }
     }
 }
@@ -420,11 +424,13 @@ pub fn from_long_take(
 }
 
 /// A run time in words ([`run_text`] of `run_s`), "at least" for a long
-/// take that ended before the watch stopped: "41 h 12 min", "at least
-/// 65 h 03 min".
+/// take that ended before the watch stopped, or a run whose recording
+/// failed: "41 h 12 min", "at least 65 h 03 min".
 pub fn run_words(run_s: f64, ending: Ending, source: Source) -> String {
     let run = run_text(run_s);
-    if source == Source::LongTake && ending == Ending::TakeEnded {
+    if (source == Source::LongTake && ending == Ending::TakeEnded)
+        || ending == Ending::RecordingFailed
+    {
         format!("at least {run}")
     } else {
         run
@@ -551,6 +557,23 @@ mod tests {
             "Reached the 80 h limit while the watch still ran"
         );
         assert_eq!(limit_text(), "80 h");
+        assert_eq!(
+            Ending::RecordingFailed.text(),
+            "The recording failed while the watch still ran"
+        );
+    }
+
+    /// A run whose recording failed is at least as long as heard, and its
+    /// file names how it ended (#1380).
+    #[test]
+    fn a_run_whose_recording_failed_reads_at_least() {
+        assert_eq!(
+            sentence(7260.0, Ending::RecordingFailed, Source::Test, "DU"),
+            "Power reserve at least 2 h 01 min in DU. The recording failed while the watch \
+             still ran."
+        );
+        let v: serde_json::Value = serde_json::to_value(Ending::RecordingFailed).unwrap();
+        assert_eq!(v, "recording_failed");
     }
 
     fn beats(from: f64, to: f64, step: f64, quality: f32) -> Vec<Beat> {
