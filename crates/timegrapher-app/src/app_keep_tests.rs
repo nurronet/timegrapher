@@ -1576,6 +1576,22 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
         app.live.as_mut().unwrap().push(samples);
     }
     app.masked = vec![(30.0, 32.0)];
+    // A calibre with its own escape teeth: the kept analysis is read with
+    // them, as the take is opened (#1324).
+    app.cal
+        .user
+        .custom
+        .push(timegrapher_core::calibre_store::CustomCalibre {
+            name: "Test 21".into(),
+            maker: None,
+            aliases: Vec::new(),
+            bph: Some(28800),
+            lift_angle_deg: None,
+            escape_teeth: Some(21),
+            wheels: Vec::new(),
+            notes: None,
+        });
+    app.calibre = "Test 21".into();
     assert!(app.can_save_analysis());
     app.start_analysis_save(&base.join("kept"));
     assert!(app.analysis_save_busy(), "nothing else while it reads");
@@ -1594,6 +1610,8 @@ fn a_session_kept_as_its_analysis_opens_as_the_sound_does() {
     );
     assert!(analysis_take::is_analysis_only(&kept));
     assert!(recordings_in(&kept).is_err(), "no sound in it");
+    let header = analysis_take::read(&kept).unwrap().header;
+    assert_eq!(header.settings["escape_teeth"], 21);
     let m: Manifest =
         toml::from_str(&std::fs::read_to_string(kept.join(MANIFEST)).unwrap()).unwrap();
     assert_eq!(m.audio, Some(false));
@@ -2281,6 +2299,85 @@ fn keep_analysis_only_keeps_subfolders_and_the_calibres_settings() {
     assert!(kept > 0, "no amplitude window kept");
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Sound left at the top of a take beside its FLAC is the same sound and
+/// goes with it, and sound in a subfolder, which isn't the take's own,
+/// is refused before anything changes: no sound is ever kept with an
+/// analysis (#1323, Norm).
+#[test]
+fn keep_analysis_only_keeps_no_sound() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-sound-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let watch = lib.add(&library::Watch::new("Explorer")).unwrap();
+    drop(lib);
+    let take = watch.join(library::TAKES).join("2026-11-07 06.00 Dial Up");
+    std::fs::create_dir_all(take.join("parts")).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    let wav = take.join("take_part01-001.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let nested = take.join("parts/audio-001.wav");
+    timegrapher_core::audio::write_wav(&nested, &audio).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root));
+    let keep = |app: &mut TimegrapherApp| {
+        app.start_take_keep(take.clone());
+        let t = Instant::now();
+        while app.take_keep.is_some() && t.elapsed().as_secs() < 120 {
+            app.poll_take_keep();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    keep(&mut app);
+    assert!(
+        format!("{:?}", app.message).contains("audio-001.wav"),
+        "{:?}",
+        app.message
+    );
+    assert!(wav.exists() && nested.exists() && !analysis_take::is_analysis_only(&take));
+    // The subfolder's sound moved out; the top WAV kept as FLAC, the WAV
+    // left beside it.
+    std::fs::remove_dir_all(take.join("parts")).unwrap();
+    let flac = timegrapher_core::flac::flac_path(&wav);
+    timegrapher_core::flac::encode_wav(&wav, &flac).unwrap();
+    keep(&mut app);
+    assert!(analysis_take::is_analysis_only(&take), "{:?}", app.message);
+    assert!(!wav.exists() && !flac.exists());
+    let left: Vec<_> = walk(&take)
+        .into_iter()
+        .filter(|p| timegrapher_core::take::is_sound(p))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Every file under `dir`, subfolders too.
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// A take holding anything Keep Analysis Only can't keep, such as a

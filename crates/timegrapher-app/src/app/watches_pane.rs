@@ -796,7 +796,7 @@ impl TimegrapherApp {
             .map_err(|e| format!("{}: {e}", file.display()))?;
         doc.insert("audio", toml_edit::value(false));
         let mut companions = vec![(MANIFEST.to_string(), doc.to_string().into_bytes())];
-        keep_companions(take, take, &files, &mut companions)?;
+        keep_companions(take, take, &mut companions)?;
         let cfg = self.keep_config(&m);
         let shapes = timegrapher_core::analysis_take::shape_stretches(&m, total_s);
         Ok((files, total_s, companions, cfg, shapes))
@@ -1462,13 +1462,13 @@ pub(super) fn settings_of(
 
 /// Every file of take `take` under `dir` that Keep Analysis Only keeps
 /// beside its analysis, by its path in the take, subfolders too: all but
-/// its sound `files` and its session file, which is written anew (#1323).
-/// Anything that is neither a file nor a folder, such as a link, is
-/// refused, so nothing in the take is lost unseen.
+/// its sound and its session file, which is written anew (#1323). The
+/// sound at its top goes, a WAV left beside its FLAC too, so no sound is
+/// kept; sound in a subfolder, or anything that is neither a file nor a
+/// folder, such as a link, is refused, so nothing is lost unseen.
 fn keep_companions(
     take: &Path,
     dir: &Path,
-    files: &[PathBuf],
     out: &mut Vec<(String, Vec<u8>)>,
 ) -> Result<(), String> {
     for e in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
@@ -1477,13 +1477,18 @@ fn keep_companions(
         let rel = path.strip_prefix(take).map_err(|e| e.to_string())?;
         let name = rel.to_string_lossy().into_owned();
         let kind = e.file_type().map_err(|err| format!("{name}: {err}"))?;
+        let sound = timegrapher_core::take::is_sound(&path);
         if kind.is_dir() {
-            keep_companions(take, &path, files, out)?;
+            keep_companions(take, &path, out)?;
         } else if !kind.is_file() {
             return Err(format!(
                 "{name} is not a file or a folder, so it can't be kept with the analysis"
             ));
-        } else if !(name == MANIFEST || dir == take && files.contains(&path)) {
+        } else if sound && dir != take {
+            return Err(format!(
+                "{name} is sound in a folder of the take, which isn't the take's own sound"
+            ));
+        } else if !(sound || name == MANIFEST) {
             let bytes = std::fs::read(&path).map_err(|err| format!("{name}: {err}"))?;
             // Stored with `/` between folders on every system.
             let parts: Vec<_> = rel.iter().map(|p| p.to_string_lossy()).collect();
