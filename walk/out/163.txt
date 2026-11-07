@@ -1,0 +1,20 @@
+app: head running
+took 32.6 s
+$ mkdir D:\r D:\w & xcopy /E /I /Y channel\walk\fx D:\r & xcopy /E /I /Y channel\walk\fx\save1253 D:\w\save
+channel\walk\fx\between\session.toml
+channel\walk\fx\between\take.flac
+channel\walk\fx\roam\session.toml
+channel\walk\fx\roam\take.flac
+channel\walk\fx\save1253\lock.ps1
+channel\walk\fx\save1253\lock2.ps1
+channel\walk\fx\save1253\lock3.ps1
+channel\walk\fx\save1253\session.toml
+channel\walk\fx\save1253\take.flac
+9 File(s) copied
+channel\walk\fx\save1253\lock.ps1
+channel\walk\fx\save1253\lock2.ps1
+channel\walk\fx\save1253\lock3.ps1
+channel\walk\fx\save1253\session.toml
+channel\walk\fx\save1253\take.flac
+5 File(s) copied
+
