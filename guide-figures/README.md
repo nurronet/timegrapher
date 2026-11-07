@@ -32,6 +32,8 @@ Each figure is a TOML file:
   Each `[[watch.take]]` is a whole corpus take (`corpus`), its sound
   linked from `.cache/audio`, in a take folder named `folder`
   ("2026-10-08 11.31 Dial Up", its start read as UTC), at `position`.
+  The sound is hard-linked, so a step that rewrote a sound file in place
+  would change the cached corpus file too; replace a file, never edit it.
 - `[window]`: `size` in points, on a 1920x1080 screen.
 - `[settings]`: the app's settings, over the base ones: light, the strip
   across, the microphone already set up, no listening at launch, Keep

@@ -36,8 +36,9 @@ the Save menu. Beyond it:
 
 **Sound not yet saved** waits in a folder of the app's own, which the
 system doesn't clear. If the app is stopped without asking (a crash, a
-logout, a shutdown) with more than 5 s of a test's unsaved sound, the
-next start shows **Unsaved Sound Found…** in the status bar:
+logout, a shutdown), a test's unsaved sound is offered at the next
+start (after a logout or shutdown, only if over 5 s): the status bar
+shows **Unsaved Sound Found…**:
 
 | Button | What it does |
 | --- | --- |
@@ -73,8 +74,10 @@ it is kept as FLAC. Two ways keep the readings without it:
 
 - **Keep Analysis Only…**, in a take's menu, reads the take once more,
   writes its analysis beside it, checks it reads back, and only then
-  deletes the sound. It asks first, giving the take's size and its
-  sound's.
+  deletes the sound, keeping every other file in the take. It asks
+  first, giving the take's size and its sound's. It is greyed out for a
+  take whose `session.toml` lists its sound files by name, and refused
+  for one with sound in a subfolder or a linked file.
 - **Save Analysis Only…**, in the File menu, for a microphone session
   once listening has stopped: writes a new folder, named with
   `_analysis` on the end, holding the readings and no sound. The sound
@@ -118,8 +121,9 @@ minutes to read; the window shows the hours done and the time left.
 
 **Opening again is fast:** the beats found are kept in the system's
 cache folder, so a take opens again in seconds. The copy is used only
-for the same files, the same settings and the same build, and then it
-is exact; anything else reads the sound again.
+for the same files (each one's name, length, time and samples taken
+through it), the same settings and the same build; anything else reads
+the sound again.
 
 ## What Is in a Take
 
@@ -135,7 +139,10 @@ used only one (`2026-10-20 14.32 Dial Up`):
 | `positions-test.json` | Only after a Positions Test at full wind: its results, for the test 24 hours later (chapter 20). |
 
 At start-up the app keeps as FLAC any hour of a saved take still in WAV,
-in the background ("Keeping saved takes as FLAC: 2 of 5").
+in the background ("Keeping saved takes as FLAC: 2 of 5"). An hour an
+older version saved at 24 bits, or as floating point, is rounded to 16
+bits as it is kept, as every take is now; the readings don't change. A
+few unusual sample rates stay WAV.
 
 **The Watches folder** holds every watch and take:
 
