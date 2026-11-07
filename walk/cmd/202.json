@@ -1,0 +1,1 @@
+[["key", "escape"], ["wait", 1], ["key", "ctrl", "1"], ["wait", 2], ["move", 1888, 88], ["wait", 1], ["click", 1888, 88], ["wait", 2], ["move", 900, 800], ["wait", 1], ["move", 901, 801], ["wait", 1], ["move", 902, 802], ["wait", 1]]
