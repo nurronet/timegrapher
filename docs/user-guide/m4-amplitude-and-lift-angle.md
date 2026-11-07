@@ -85,8 +85,8 @@ say which.
 
 - **Without the right lift angle, the true amplitude.** Every amplitude is
   in proportion to the lift angle: 52° used for a 55° movement reads every
-  amplitude about 5% low. With no calibre set, the app uses 52° and says
-  **Default**.
+  amplitude about 5% low. With no calibre set, the app uses 52°, and Lift's
+  hover on the Calibre card says it is the default.
 - **Through a poor unlock.** The amplitude rests on timing a quiet sound.
   A 1 ms error in the unlock-to-drop time moves it a lot: at 28,800 bph and
   52°, 8.0 ms reads 259°, and 7.0 ms reads 296°. A muffled holder, clipping

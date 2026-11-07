@@ -33,7 +33,7 @@ There are two figures, timed from two sounds.
   its drop, so this is the beat error timed from the drop.
 
 **Which is shown:** the unlock's, where the unlock was found; else the
-drop's, with the chip **Beat Error from the Drop**.
+drop's, with the chip **Beat Error From the Drop**.
 
 **Which side is Tick:** the sound can't tell which pallet stone is which.
 Each take starts positive: the side that comes late over the first few

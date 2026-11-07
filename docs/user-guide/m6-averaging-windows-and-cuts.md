@@ -81,7 +81,7 @@ gives no rate: a few seconds of beats give a rate several s/d out.
 
 - **A knock or lost sound,** as a jump the readings skip.
 - **A reading resting on little,** from its chips: **6 s of Beats**,
-  **540 of 600 Beats**, **Read from 4 of 15 Windows**.
+  **540 of 600 Beats**, **Amplitude Read From 4 of 15 Windows**.
 
 ## What It Can't Tell You
 

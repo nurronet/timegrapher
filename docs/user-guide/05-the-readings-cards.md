@@ -71,8 +71,8 @@ The amplitude is worked out from the time the balance takes to pass
 through the lift angle. A lift angle 3° too small reads every amplitude
 about 5% low.
 
-- With no calibre or lift angle set, the app uses **52°** and says
-  **Default** beside Lift.
+- With no calibre or lift angle set, the app uses **52°**, and Lift's
+  hover says it is the default.
 - Treat an amplitude on the default as rough until you set the calibre.
 - [M4, Amplitude and Lift Angle](m4-amplitude-and-lift-angle.md) has
   the formula.
@@ -88,8 +88,8 @@ or noisy take. A wrong beat rate gives readings far out, or none.
 | Mark | Part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
 | 6 | **Listen** / **Stop** | Starts a Quick Listen take, or with a watch picked, a Listen take of that watch. It becomes **Stop** while listening. | To start and stop measuring. There is no pause: Listen again starts a new take. |
-| 7 | **Save** | The Save menu: Unsorted Takes, Keep in a Watch, Save in a Folder…. Hidden for a watch's own take, which saves itself. | See [Stop and Save](02-your-first-take.md#stop-and-save). |
-| 8 | Length and state | The take's length, and Listening, Stopped, Opened or Not Started. | To see how much has been heard. |
+| 7 | **Save** | The Save menu: Unsorted Takes, Keep in a Watch, Save in a Folder…. Hidden while a watch's take records into it, and for a test, set up or running. | See [Stop and Save](02-your-first-take.md#stop-and-save). |
+| 8 | Length and state | The take's length, and its state: Not Started, Ready (a test set up, waiting for Start Test), Listening, Stopped, Opening or Opened. | To see how much has been heard. |
 | 9 | **Average Over** | How many seconds of beats each reading covers: 2, 4, 10, 20, 30 or 60 s. 10 s unless changed. | See [Choosing Average Over](#choosing-average-over). |
 
 ### Choosing Average Over
@@ -174,8 +174,8 @@ the first and how many more ("12 s of Beats +1").
 | **1 Break** | The reading's stretch holds a break in listening, such as the computer sleeping. | Nothing; the reading is fitted either side. |
 | **6.8 s Masked** | Masked time in the stretch. | Nothing; it was left out by hand. |
 | **Sides Named by Count** (Beat Error) | On an opened take, Tick and Tock were named across a break by counting beats, not by their sound. | Treat the beat error's sign across that break with care. |
-| **Beat Error from the Drop** | The unlock wasn't found, so the beat error is timed from the drop. | Raise the level, or improve the contact, so the quiet unlock is heard. |
-| **Amplitude Read from 4 of 15 Windows** | Under 60% of the short readings in the stretch could be used. | Treat the figure as resting on less than its span. |
+| **Beat Error From the Drop** | The unlock wasn't found, so the beat error is timed from the drop. | Raise the level, or improve the contact, so the quiet unlock is heard. |
+| **Amplitude Read From 4 of 15 Windows** | Under 60% of the short readings in the stretch could be used. | Treat the figure as resting on less than its span. |
 | **First 12 s Left Out** | Noise before the watch was heard is left out of a whole take's reading. | Nothing. |
 
 ### No Regular Beat Found
@@ -203,7 +203,8 @@ On a narrow window the cards also take smaller forms by themselves:
 - **Listen** gives the length beside its caption, and Average Over as
   **Avg 10 s**.
 - **Calibre** keeps its pop-up and Lift. On the narrowest windows, the
-  beat rate moves into the Calibre menu.
+  beat rate moves into the Calibre pop-up's menu, or for a watch whose
+  calibre isn't in the table, into the Watch line's menu.
 
 ---
 
