@@ -41,8 +41,9 @@ turn at A = Ā − c₁ ÷ (2 c₂)       shown when inside the middle 80%
 ```
 
 **The slope.** A straight line through every pair, by least squares,
-after leaving out a rate reading over 6 short-term σ from the running
-median, as the Steadiness views do. But
+after leaving out any rate or amplitude reading over 6σ from its
+5-minute running median (none when more than 3% would go), as the
+Steadiness views do. But
 the amplitude readings are noisy, and noise in the quantity along the
 bottom always pulls a fitted slope towards 0. The slope is corrected for
 it (errors in variables, Fuller 1987):
