@@ -121,4 +121,4 @@ against the brightest, over at most 300 to 1 (about −50 dB).
 ---
 
 Previous: [M10. Finding Cycles](m10-finding-cycles.md) ·
-[Contents](README.md)
+Next: [M12. Isochronism and Rate against Amplitude](m12-isochronism-and-rate-against-amplitude.md)

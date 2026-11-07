@@ -80,4 +80,4 @@ M11 explains the method and its trade-offs.
 ---
 
 Previous: [STFT Map](17-stft-map.md) ·
-[Contents](README.md)
+Next: [Isochronism](19-isochronism.md)
