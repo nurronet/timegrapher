@@ -817,6 +817,8 @@ fn a_new_test_starts_from_the_strip_as_it_was_before_the_open() {
             None => app.start_microphone(),
         }
         let case = format!("{kind:?} {start:?}, by hand {width:?} {span:?}");
+        // The take's pair is gone: a later test has nothing stale to restore.
+        assert!(app.live_strip.is_none(), "{case}");
         assert_eq!(
             (app.strip.span_s, app.strip.half_width_ms, app.strip_fit),
             (span.unwrap_or(30.0), width.unwrap_or(10.0), fit),
