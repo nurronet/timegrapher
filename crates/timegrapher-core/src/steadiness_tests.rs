@@ -321,7 +321,7 @@ fn an_amplitude_line_is_judged_against_the_2_s_windows() {
     // The search's line is named, and the lead says nothing of cycles.
     assert!(
         s.headline.ends_with(
-            "; no level change or trend detected. The amplitude's period search also finds 20.0 s (0.80° peak to peak)."
+            "; no level change, trend or correlation between readings detected. The amplitude's period search also finds 20.0 s (0.80° peak to peak)."
         ),
         "{}",
         s.headline
@@ -1888,4 +1888,251 @@ fn flicker_under_a_sharp_cycle_still_carries_the_misfit_caveat() {
     assert!(n.calibrated, "{n:?}");
     assert!(n.misfit.unwrap() > n.misfit_limit.unwrap(), "{n:?}");
     assert!(longterm::timing_misfit(&r).is_some());
+}
+
+/// A white take of `n` readings `step` apart for
+/// [`fresh_white_takes_hold_the_ljung_box`], with gaps of shape `kind`
+/// placed at random: 0 none, 1 scattered single readings (10%), 2 one gap
+/// (20%), 3 three blocks (15% in all), 4 one gap (25%), 5 scattered single
+/// readings (15%).
+fn white_take(seed: u64, step: f64, n: usize, kind: u8) -> Grid {
+    let mut z = crate::synth::Rng::new(seed);
+    let mut present = vec![true; n];
+    let mut at = |z: &mut crate::synth::Rng, len: usize| {
+        let start = (z.next_f64() * (n - len) as f64) as usize;
+        present[start..start + len]
+            .iter_mut()
+            .for_each(|p| *p = false);
+    };
+    match kind {
+        1 => (0..n / 10).for_each(|_| at(&mut z, 1)),
+        2 => at(&mut z, n / 5),
+        3 => (0..3).for_each(|_| at(&mut z, n * 15 / 300)),
+        4 => at(&mut z, n / 4),
+        5 => (0..n * 15 / 100).for_each(|_| at(&mut z, 1)),
+        _ => {}
+    }
+    let y = present
+        .iter()
+        .map(|&p| {
+            let v = z.normal();
+            if p {
+                v
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    grid(y, step)
+}
+
+/// Fresh-seed check of the Ljung–Box test against its white null (#1199):
+/// white takes of 10 s (and 2 s) readings, and at n 180 and 360 three gap
+/// shapes placed at random in each take (scattered single readings, 10%;
+/// one gap, 20%; three blocks, 15% in all), each read against the table's
+/// null for its present readings, n 150 and 500 between the table's
+/// points, takes of 10 and 15 min under the quadratic detrend (with and
+/// without gaps), one of 8 h, and gapped takes over 20 min with under
+/// 20 min present (25 min with one 25% gap, 22 min with 15% scattered),
+/// which read the median the grid got; counts at p 0.05, 0.01 and 0.004 against each
+/// one's upper 99% bound. LB_TAG picks new seeds, LB_ROW one row.
+/// Power is [`the_white_null_costs_little_power`].
+#[test]
+#[ignore]
+fn fresh_white_takes_hold_the_ljung_box() {
+    let cfg = Config::default();
+    let env = |k: &str, d: u64| {
+        std::env::var(k)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(d)
+    };
+    let (tag, draws) = (env("LB_TAG", 1), env("LB_DRAWS", 4000));
+    let row: Option<usize> = std::env::var("LB_ROW").ok().and_then(|v| v.parse().ok());
+    let bound = |e: f64| e + 2.58 * (e * (1.0 - e / draws as f64)).sqrt();
+    let rows = [
+        (10.0, 120usize, 0u8),
+        (10.0, 180, 0),
+        (10.0, 360, 0),
+        (10.0, 720, 0),
+        (2.0, 900, 0),
+        (10.0, 150, 0),
+        (10.0, 500, 0),
+        (10.0, 180, 1),
+        (10.0, 180, 2),
+        (10.0, 180, 3),
+        (10.0, 360, 1),
+        (10.0, 360, 2),
+        (10.0, 360, 3),
+        (10.0, 90, 0),
+        (10.0, 60, 0),
+        (2.0, 300, 0),
+        (10.0, 90, 3),
+        (10.0, 2880, 0),
+        (10.0, 150, 4),
+        (10.0, 132, 5),
+    ];
+    for (i, &(step, n, kind)) in rows.iter().enumerate() {
+        if row.is_some_and(|r| r != i) {
+            continue;
+        }
+        let mut c = [0usize; 3];
+        for d in 0..draws {
+            let g = white_take(tag * 1_000_003 + d, step, n, kind);
+            let p = detrended_autocorrelation(&g, true, &cfg).p_value;
+            for (j, lvl) in [0.05, 0.01, 0.004].iter().enumerate() {
+                c[j] += usize::from(p < *lvl);
+            }
+        }
+        let over = [0.05, 0.01, 0.004]
+            .iter()
+            .zip(c)
+            .any(|(l, k)| k as f64 > bound(l * draws as f64));
+        let shape = [
+            "none",
+            "scattered 10%",
+            "one 20%",
+            "three blocks 15%",
+            "one 25%",
+            "scattered 15%",
+        ][kind as usize];
+        eprintln!(
+            "LB row {i} step {step} n {n} gaps {shape}: {c:?} of {draws} (bounds {:.0} {:.0} {:.0}){}",
+            bound(0.05 * draws as f64),
+            bound(0.01 * draws as f64),
+            bound(0.004 * draws as f64),
+            if over { " OVER" } else { "" }
+        );
+    }
+}
+
+/// What holding the Ljung–Box test to its white null costs in power: AR(1)
+/// readings over 30 min named at p 0.01, the plain χ² against the null
+/// (#1199). LB_TAG picks new seeds.
+#[test]
+#[ignore]
+fn the_white_null_costs_little_power() {
+    let cfg = Config::default();
+    let env = |k: &str, d: u64| {
+        std::env::var(k)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(d)
+    };
+    let (tag, draws) = (env("LB_TAG", 1), env("LB_DRAWS", 4000));
+    let take = |seed: u64, rho: f64| {
+        let mut z = crate::synth::Rng::new(seed);
+        let mut x = 0.0;
+        let y = (0..180)
+            .map(|_| {
+                x = rho * x + (1.0 - rho * rho).sqrt() * z.normal();
+                x
+            })
+            .collect();
+        grid(y, 10.0)
+    };
+    for rho in [0.1, 0.2] {
+        let (mut plain, mut held) = (0usize, 0usize);
+        for d in 0..draws {
+            let g = take(tag * 7_000_001 + d, rho);
+            let dt = crate::longterm::detrend(&g, crate::longterm::DETREND_S);
+            plain += usize::from(autocorrelation_less(&dt.y, 10.0, None, &cfg).p_value < 0.01);
+            held += usize::from(detrended_autocorrelation(&g, true, &cfg).p_value < 0.01);
+        }
+        eprintln!("LB power rho {rho} n 180: plain {plain} held {held} of {draws} at p 0.01");
+    }
+}
+
+/// Writes `data/white-null.json`, the white nulls the Ljung–Box test is
+/// held to (#1199): gap-free white readings at each point, fixed seeds.
+/// `cargo test --release -p timegrapher-core --lib write_white_null_table -- --ignored --nocapture`.
+#[test]
+#[ignore = "writes the table; run by hand"]
+fn write_white_null_table() {
+    use super::white::{
+        draw_point, Table, DRAW_BUDGET, MAX_DRAWS, MIN_DRAWS, TABLE_LAGS, TABLE_LB_LAGS,
+    };
+    let logs = |from: f64, to: f64, per_decade: f64| -> Vec<usize> {
+        let k = ((to / from).log10() * per_decade).ceil() as usize;
+        let mut v: Vec<usize> = (0..=k)
+            .map(|i| (from * (to / from).powf(i as f64 / k as f64)).round() as usize)
+            .collect();
+        v.dedup();
+        v
+    };
+    // Quadratic: under 20 min, by n (1 s readings reach 1,199).
+    let mut jobs: Vec<(usize, f64)> = logs(30.0, 1199.0, 24.0)
+        .into_iter()
+        .map(|n| (n, 1.0))
+        .collect();
+    // Running median: by window, the take 4 to 8 windows long (a quarter of
+    // the take to 2 h, then 30 min of up to 4 h).
+    for w in logs(5.0, 1800.0, 12.0) {
+        for ratio in [4.0, 5.0, 6.0, 7.0, 8.0] {
+            jobs.push(((ratio * w as f64).round() as usize, 1800.0 / w as f64));
+        }
+    }
+    let seed = |n: usize, step: f64| (n as u64) << 20 ^ step.to_bits().rotate_left(7) ^ 0x1199;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|sc| {
+        for _ in 0..4 {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(&(n, step)) = jobs.get(i) else { break };
+                let p = draw_point(n, step, seed(n, step));
+                eprintln!(
+                    "point n {n} window {} draws {} skew {:.3}",
+                    p.window, p.draws, p.null.q_skew
+                );
+                done.lock().unwrap().push(p);
+            });
+        }
+    });
+    let mut points = done.into_inner().unwrap();
+    points.sort_by_key(|p| (p.window, p.n));
+    let (quadratic, median) = points.into_iter().partition(|p| p.window == 0);
+    let t = Table {
+        note: format!("Generated by write_white_null_table (steadiness_tests.rs), fixed seeds. White gap-free readings, detrended as a take is (longterm::detrend with DETREND_S): a quadratic under 20 min, by readings; else a running median, by its window (5 to 1,800 readings) and the take's length over it (4 to 8). {DRAW_BUDGET} readings drawn a point ({MIN_DRAWS} to {MAX_DRAWS} series). Each point: the mean correlation at lags 1 to {TABLE_LAGS} (or a third of the take), and the mean, variance and skew of Ljung-Box Q over {TABLE_LB_LAGS} lags once that bias is off (#1199)."),
+        lb_lags: TABLE_LB_LAGS,
+        quadratic,
+        median,
+    };
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/data/white-null.json");
+    std::fs::write(path, serde_json::to_string(&t).unwrap()).unwrap();
+}
+
+/// The white-null table covers the pane's takes and holds a short one, in
+/// the default run (the full check is [`fresh_white_takes_hold_the_ljung_box`]):
+/// 10 s readings from 20 min to 4 h and past are covered, another number of
+/// lags is not, and 1,000 white takes of 30 min stay under the upper 99%
+/// bound at p 0.05 and 0.01 (#1199).
+#[test]
+fn the_white_null_table_holds_a_short_take() {
+    for n in [120, 150, 180, 360, 720, 1440, 5000] {
+        assert!(white::white_null(n, n, 10.0, 10).is_some(), "{n}");
+    }
+    assert!(white::white_null(180, 180, 10.0, 5).is_none());
+    // A 25 min take with 120 present reads the running median its grid got,
+    // not the quadratic of a 20 min take.
+    let (gapped, short) = (
+        white::white_null(120, 150, 10.0, 10).unwrap(),
+        white::white_null(120, 120, 10.0, 10).unwrap(),
+    );
+    assert!((gapped.bias[1] - short.bias[1]).abs() > 1e-3);
+    let null = white::white_null(180, 180, 10.0, 10).unwrap();
+    assert!(
+        null.bias[1] < -0.01 && null.bias[1] > -0.03,
+        "{}",
+        null.bias[1]
+    );
+    let cfg = Config::default();
+    let mut c = [0usize; 2];
+    for d in 0..1000 {
+        let p =
+            detrended_autocorrelation(&white_take(77_000 + d, 10.0, 180, 0), true, &cfg).p_value;
+        c[0] += usize::from(p < 0.05);
+        c[1] += usize::from(p < 0.01);
+    }
+    assert!(c[0] <= 68 && c[1] <= 18, "{c:?} of 1000");
 }

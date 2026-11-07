@@ -32,7 +32,7 @@ pub(super) fn refined_candidates(
     fine: Option<&Grid>,
     cfg: &Config,
 ) -> (Grid, Vec<(f64, CycleSource, f64)>) {
-    let fine_ac = fine.map(|f| detrended_autocorrelation(f, cfg));
+    let fine_ac = fine.map(|f| detrended_autocorrelation(f, false, cfg));
     let ac = fine_ac.as_ref().or(s.autocorrelation.as_ref());
     let g = fine.unwrap_or(g);
     let d = longterm::detrend(g, longterm::DETREND_S);
