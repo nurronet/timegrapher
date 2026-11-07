@@ -238,7 +238,7 @@ pub const PROFILE: &[&str] = &[
      or ring for its time; on a short plot, sound names \
      show on hover.",
     "Each plot's top-left gives its side's facts, at the same place on both. Hover it for \
-     all five when it shows fewer. The dashed line is the noise floor.",
+     all four when it shows fewer. The dashed line is the noise floor.",
     "dB Scale shows the level in decibels below the loudest point, so the quiet unlock \
      shows. Time From: Shared puts Tick and Tock on one clock, the drops a beat error \
      apart; Own Drop puts both drops at 0 ms.",
@@ -373,7 +373,8 @@ pub static HISTOGRAMS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
             "Values: Readings counts each reading, averaged over Average Over as on the charts \
      and the strip, so states lasting longer than that stand out clearly. 2 s counts \
      each {STRETCH_S:.0} seconds of beats, the finest the app measures amplitude and beat error: it \
-     catches quicker changes, with more scatter. Rate always counts readings."
+     catches quicker changes, with more scatter. For the rate, 2 s is the rate over each \
+     {STRETCH_S:.0} seconds of beats."
         ),
         format!(
             "The scale leaves out the most extreme {}% at each end, so a few stray readings \
