@@ -63,7 +63,8 @@ The words in the Info panel can be selected and copied.
   readings. The amplitude and the beat error are measured in 2 s windows;
   the windows inside each rate reading make one reading, their median.
   Cycles in the amplitude and the beat error are looked for in the 2 s
-  windows, so a cycle there can be as short as 6 s.
+  windows, so the Cycle and Autocorrelation views can show one as short
+  as 6 s; the period search starts at 16 s (chapter 11).
 - **No reading over part of its span.** A reading short of a window, or
   touching a cut or a mask, is left out, not averaged over what is left.
 - **The beat error is the one from the unlock.** Where its sign turns
