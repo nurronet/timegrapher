@@ -875,3 +875,41 @@ fn a_file_dialog_lets_listening_carry_on_while_it_is_open() {
     assert!(app.into_inner().unwrap().message.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A session file is put in place whole: the new text replaces the old
+/// with nothing left beside it, and a write that can't land says where
+/// and leaves nothing behind either (#1286).
+#[test]
+fn a_session_file_is_put_in_place_whole() {
+    let dir = std::env::temp_dir().join(format!("tg-app-replacing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let names = || {
+        let mut n: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let file = dir.join(MANIFEST);
+    std::fs::write(&file, "watch = \"Pepsi\"\n").unwrap();
+    write_replacing(&file, "watch = \"Daytona\"\n").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "watch = \"Daytona\"\n"
+    );
+    assert_eq!(names(), [MANIFEST]);
+    // A folder with a file in it where the file goes: the rename fails.
+    let blocked = dir.join("blocked");
+    std::fs::create_dir_all(&blocked).unwrap();
+    std::fs::write(blocked.join("inside"), "kept").unwrap();
+    let err = write_replacing(&blocked, "text").unwrap_err();
+    assert!(err.contains("blocked"), "{err}");
+    assert_eq!(names(), ["blocked", MANIFEST]);
+    assert_eq!(
+        std::fs::read_to_string(blocked.join("inside")).unwrap(),
+        "kept"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

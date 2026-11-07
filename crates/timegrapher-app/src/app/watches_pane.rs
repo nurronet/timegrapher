@@ -466,14 +466,29 @@ impl TimegrapherApp {
         match moved {
             Ok(to) => {
                 self.take_moved(take, &to);
-                let name = self
+                let watch = self
                     .library
                     .as_ref()
                     .ok()
                     .and_then(|l| l.as_ref())
                     .and_then(|l| l.watch_of(&to))
-                    .map(|w| w.watch.name.clone())
-                    .unwrap_or_default();
+                    .map(|w| w.watch.clone());
+                let name = watch.as_ref().map(|w| w.name.clone()).unwrap_or_default();
+                let read_again = match watch.map(|w| file_take_under(&to, &w, &self.cal)) {
+                    Some(Err(e)) => {
+                        return self.error(format!(
+                            "\"{}\" is in {name} now, but its session file still says what \
+                             it was recorded with: {e}",
+                            file_name(&to)
+                        ))
+                    }
+                    Some(Ok(changed)) => changed,
+                    None => false,
+                };
+                // The take on show is read again with its new watch's settings.
+                if read_again && self.take_on_show().as_deref() == Some(to.as_path()) {
+                    self.open_recording(&to, false);
+                }
                 if filed {
                     self.info_msg(format!("Filed \"{}\" under {name}.", file_name(&to)));
                 } else {
@@ -916,6 +931,23 @@ impl TimegrapherApp {
             self.info_msg("Stop listening before picking another watch.".into());
             return;
         }
+        // A take on show from another watch or Unsorted Takes is put away,
+        // as Unsorted Takes and the Watch line do: the Bench's card and the
+        // status line name the watch picked, so never over a take that
+        // isn't in it (#1303). With marks not yet saved, they are asked
+        // about first, as the Watch line asks, and until then the card
+        // still names the take's own watch (Hugh).
+        let elsewhere = self.take_on_show().is_some_and(|t| {
+            let of = match &self.library {
+                Ok(Some(l)) => l.watch_of(&t).map(|e| e.watch.id.clone()),
+                _ => None,
+            };
+            of.as_deref() != Some(id)
+        });
+        if elsewhere && self.needs_save_confirmation() {
+            self.confirm = Some(Confirm::PickWatch(Some(id.to_string())));
+            return;
+        }
         self.watch_open = Some(id.to_string());
         self.unsorted_open = false;
         // The watch picked shows, not the list left over from before.
@@ -925,6 +957,9 @@ impl TimegrapherApp {
             self.watch_open = None;
             return;
         };
+        if elsewhere {
+            self.new_session();
+        }
         // Readings on show keep the settings they were measured with; the
         // watch's apply to its next take.
         if self.live.is_some() {
@@ -1359,4 +1394,85 @@ impl TimegrapherApp {
             }
         }
     }
+}
+
+/// Write into the session.toml of the take at `take`, moved into the
+/// watch `w`, what it is read with from now on (#1283, Peter's call):
+/// the watch's name, and the calibre, lift angle and beat rate the watch
+/// has set (the calibre's own where the table gives them, as a new take of
+/// it starts with), each in place of the take's. What the watch leaves
+/// unset stays as recorded, and so does the rest of the file, comments too.
+/// A take kept as its analysis alone keeps what it was measured with: its
+/// sound is gone, so it can't be read again. A take with no session.toml
+/// has nothing to change. Whether a setting changed, so the take is read
+/// again.
+fn file_take_under(
+    take: &Path,
+    w: &library::Watch,
+    cal: &crate::calibre_ui::Calibres,
+) -> Result<bool, String> {
+    let file = take.join(MANIFEST);
+    let text = match timegrapher_core::recorder::read_settled(&file) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("{}: {e}", file.display())),
+    };
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
+    if !w.name.is_empty() {
+        doc["watch"] = toml_edit::value(w.name.as_str());
+    }
+    let mut changed = false;
+    if !timegrapher_core::analysis_take::is_analysis_only(take) {
+        changed = settings_of(&mut doc, w, cal);
+    }
+    if doc.to_string() != text {
+        write_replacing(&file, &doc.to_string())?;
+    }
+    Ok(changed)
+}
+
+/// [`file_take_under`]'s settings: the watch's calibre (with its own
+/// wheels), lift angle and beat rate, where it has them, put into `doc`.
+/// Whether any differed from the take's.
+pub(super) fn settings_of(
+    doc: &mut toml_edit::DocumentMut,
+    w: &library::Watch,
+    cal: &crate::calibre_ui::Calibres,
+) -> bool {
+    let number = |doc: &toml_edit::DocumentMut, key: &str| {
+        doc.get(key)
+            .and_then(|i| i.as_float().or(i.as_integer().map(|n| n as f64)))
+    };
+    let mut changed = false;
+    if let Some(c) = w.calibre.as_deref().filter(|c| !c.is_empty()) {
+        if doc.get("calibre").and_then(|i| i.as_str()) != Some(c) {
+            doc["calibre"] = toml_edit::value(c);
+            doc.remove("wheels");
+            if let Some(wheels) = cal.custom_wheels(c).filter(|w| !w.is_empty()) {
+                let mut t = toml_edit::Table::new();
+                for (n, p) in wheels {
+                    t.insert(&n, toml_edit::value(p));
+                }
+                doc["wheels"] = toml_edit::Item::Table(t);
+            }
+            changed = true;
+        }
+    }
+    if let Some(l) = cal.watch_lift(w) {
+        let known = doc.get("lift_known").and_then(|i| i.as_bool());
+        if number(doc, "lift") != Some(l) || known == Some(false) {
+            doc["lift"] = toml_edit::value(l);
+            doc["lift_known"] = toml_edit::value(true);
+            changed = true;
+        }
+    }
+    if let Some(b) = cal.watch_bph(w) {
+        if number(doc, "bph") != Some(f64::from(b)) {
+            doc["bph"] = toml_edit::value(i64::from(b));
+            changed = true;
+        }
+    }
+    changed
 }

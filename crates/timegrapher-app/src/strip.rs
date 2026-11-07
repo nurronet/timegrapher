@@ -129,8 +129,9 @@ type Scale = (f64, f64, f64);
 /// for them on its scale.
 type Range = ((f64, f64), (f64, f64));
 
-/// How tall an overlay's axis row above an upright strip is, points.
-const SCALE_ROW: f32 = 21.0;
+/// How tall an overlay's axis row above an upright strip is, points: two
+/// lines, its short name over its unit and numbers (#1278).
+const SCALE_ROW: f32 = 36.0;
 
 /// An overlay axis's tick, points.
 const TICK: f32 = 4.0;
@@ -1108,9 +1109,11 @@ fn strip_rects(
             outer.max - Vec2::new(4.0 + cols.iter().sum::<f32>(), row_h + 2.0),
         )
     } else {
+        // Two lines under the plot: the ms numbers, and "Late" and
+        // "Early" on their own line under the end ones (#1278).
         Rect::from_min_max(
             outer.min + Vec2::new(36.0, row_h + SCALE_ROW * overlays as f32 + 4.0),
-            outer.max - Vec2::new(8.0 + lane_h, row_h + 2.0),
+            outer.max - Vec2::new(8.0 + lane_h, 2.0 * row_h + 2.0),
         )
     };
     let lane = if view.horizontal {
@@ -1506,10 +1509,12 @@ impl Frame<'_> {
                 Align2::RIGHT_BOTTOM,
             )
         } else {
+            // On the line under the numbers, never run into the end ones.
+            let y = r.bottom() + 2.0 + self.row_h;
             (
-                Pos2::new(r.right(), r.bottom() + 2.0),
+                Pos2::new(r.right(), y),
                 Align2::RIGHT_TOP,
-                Pos2::new(r.left(), r.bottom() + 2.0),
+                Pos2::new(r.left(), y),
                 Align2::LEFT_TOP,
             )
         };
@@ -1862,21 +1867,30 @@ impl Frame<'_> {
         }
     }
 
-    /// An overlay's axis in row `i` above the strip: its name and unit at
-    /// the left, the numbers over their ticks, the line under them.
+    /// An overlay's axis in row `i` above the strip: its short name at the
+    /// left with its unit on the line under it, as every axis writes them
+    /// (#1052, #1278), the numbers over their ticks on the unit's line, the
+    /// line under them.
     fn scale_across(&self, i: usize, o: &Overlay, s: Scale) {
         let (painter, r, font) = (&self.painter, self.g.r, &self.font);
         let top = self.outer.top() + 3.0 + self.row_h + SCALE_ROW * i as f32;
         let y = top + SCALE_ROW - 2.0;
         let (line, ink) = (Stroke::new(1.0_f32, o.color), self.pal.axis_ink(o.color));
-        let name = format!("{} {}", o.short, unit_line(o));
-        let named = painter.text(
+        let short = painter.text(
             Pos2::new(r.left(), top),
             Align2::LEFT_TOP,
-            name,
+            o.short,
             font.clone(),
             ink,
         );
+        let unit = painter.text(
+            Pos2::new(r.left(), short.bottom()),
+            Align2::LEFT_TOP,
+            unit_line(o),
+            font.clone(),
+            ink,
+        );
+        let named = short.union(unit);
         painter.line_segment([Pos2::new(r.left(), y), Pos2::new(r.right(), y)], line);
         // The near end's number would sit under the name, so it is left
         // out; the row's hover gives both ends.
@@ -1905,8 +1919,10 @@ impl Frame<'_> {
             painter.line_segment([Pos2::new(x, y), Pos2::new(x, y - TICK)], line);
             let words = axis_number(v, s.2);
             let galley = painter.layout_no_wrap(words, font.clone(), ink);
-            let at =
-                Rect::from_center_size(Pos2::new(x, top + galley.size().y / 2.0), galley.size());
+            let at = Rect::from_center_size(
+                Pos2::new(x, unit.top() + galley.size().y / 2.0),
+                galley.size(),
+            );
             // The far end's number ends at the strip's end.
             let at = at.translate(Vec2::new((r.right() - at.right()).min(0.0), 0.0));
             // Clear of the name and the number before it.

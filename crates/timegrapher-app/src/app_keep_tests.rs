@@ -957,7 +957,12 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let root = base.join("Timegrapher Data");
     let mut lib = library::Library::create(&root).unwrap();
     let a = lib.add(&library::Watch::new("Pepsi")).unwrap();
-    lib.add(&library::Watch::new("Daytona")).unwrap();
+    // Daytona has its own lift and beat rate: a take kept as its analysis
+    // alone, moved there, keeps those it was measured with (#1283).
+    let mut daytona = library::Watch::new("Daytona");
+    daytona.lift = Some(49.0);
+    daytona.bph = Some(21600);
+    lib.add(&daytona).unwrap();
     drop(lib);
     // A take with its sound, as the app saves one.
     let take_at = |dir: &Path| {
@@ -974,7 +979,7 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
         timegrapher_core::audio::write_wav(&dir.join("take_part01-001.wav"), &audio).unwrap();
         std::fs::write(
             dir.join(MANIFEST),
-            "# kept as written\nbph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\n\
+            "# kept as written\nwatch = \"Pepsi\"\nbph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\n\
              position = \"DU\"\n",
         )
         .unwrap();
@@ -1071,6 +1076,17 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
         "{}",
         app.status_words()
     );
+    // Its session file names Daytona too, and, its sound gone, keeps the
+    // lift and beat rate it was measured with (#1283).
+    let toml = std::fs::read_to_string(d.join(MANIFEST)).unwrap();
+    assert!(
+        toml.contains("watch = \"Daytona\"")
+            && !toml.contains("Pepsi")
+            && toml.contains("# kept as written")
+            && toml.contains("bph = 28800")
+            && toml.contains("lift = 52"),
+        "{toml}"
+    );
     app.answer_take_ask(watches::Ask::Delete {
         take: d.clone(),
         bytes: 0,
@@ -1149,6 +1165,261 @@ fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
         "{}",
         app.status_words()
     );
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take moved to a watch takes the calibre, lift angle and beat rate
+/// that watch has set, the calibre's own where the table gives them, and
+/// is read again with them when it is on show; what the watch leaves
+/// unset stays as recorded (#1283, Peter's call).
+#[test]
+fn a_moved_take_takes_its_new_watchs_settings() {
+    let base = std::env::temp_dir().join(format!("tg-app-move-settings-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let pepsi = lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let mut eta = library::Watch::new("Explorer");
+    eta.calibre = Some("ETA 2824-2".into());
+    lib.add(&eta).unwrap();
+    let mut own = library::Watch::new("Own");
+    own.lift = Some(49.0);
+    own.bph = Some(21600);
+    lib.add(&own).unwrap();
+    let id = |name: &str| lib.find(name).unwrap().watch.id.clone();
+    let (eta_id, own_id) = (id("Explorer"), id("Own"));
+    drop(lib);
+    let take = pepsi.join(library::TAKES).join("2026-10-20 10.00 Dial Up");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "# kept as written\nwatch = \"Pepsi\"\ncalibre = \"Old\"\nbph = 28800\nlift = 52\n\
+         lift_known = false\n\n[wheels]\nthird = 450.0\n\n[[recording]]\nfile = \".\"\n\
+         position = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let open = |app: &mut TimegrapherApp| {
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+            app.poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    app.take_action(Some(watches::TakeAction::Open(take.clone())));
+    open(&mut app);
+    assert_eq!(app.lift_deg, 52.0);
+
+    // Into a watch of a calibre the table knows: its lift and beat rate.
+    app.take_readings.wait();
+    app.move_take(&take, &eta_id);
+    let at = root
+        .join("Explorer")
+        .join(library::TAKES)
+        .join(file_name(&take));
+    let (lift, bph) = (
+        app.cal.lift("ETA 2824-2").unwrap(),
+        app.cal.bph("ETA 2824-2").unwrap(),
+    );
+    let m: Manifest = toml::from_str(&std::fs::read_to_string(at.join(MANIFEST)).unwrap()).unwrap();
+    assert_eq!(m.watch.as_deref(), Some("Explorer"));
+    assert_eq!(m.calibre.as_deref(), Some("ETA 2824-2"));
+    assert_eq!(
+        (m.lift, m.lift_known, m.bph),
+        (Some(lift), Some(true), Some(bph))
+    );
+    assert!(m.wheels.is_empty(), "the old calibre's wheels go with it");
+    assert!(std::fs::read_to_string(at.join(MANIFEST))
+        .unwrap()
+        .contains("# kept as written"));
+    // On show, it is read again with them.
+    assert!(app.batch.is_some(), "read again");
+    open(&mut app);
+    assert_eq!(app.take_on_show().as_ref(), Some(&at));
+    assert_eq!(app.lift_deg, lift);
+
+    // Into a watch of its own lift and beat rate and no calibre: those
+    // two, and the calibre stays.
+    app.take_readings.wait();
+    app.move_take(&at, &own_id);
+    let at = root.join("Own").join(library::TAKES).join(file_name(&take));
+    let m: Manifest = toml::from_str(&std::fs::read_to_string(at.join(MANIFEST)).unwrap()).unwrap();
+    assert_eq!(m.watch.as_deref(), Some("Own"));
+    assert_eq!(m.calibre.as_deref(), Some("ETA 2824-2"));
+    assert_eq!((m.lift, m.bph), (Some(49.0), Some(21600)));
+    open(&mut app);
+    assert_eq!(app.lift_deg, 49.0);
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take whose lift its session file says wasn't known, moved to a
+/// watch of that same lift: the lift is the watch's now, so known, and
+/// the take is read again (#1283).
+#[test]
+fn a_moved_takes_lift_becomes_known_from_its_watch() {
+    let cal = crate::calibre_ui::Calibres::open(None);
+    let mut w = library::Watch::new("Own");
+    w.lift = Some(52.0);
+    let mut doc: toml_edit::DocumentMut = "lift = 52\nlift_known = false\n".parse().unwrap();
+    assert!(super::watches_pane::settings_of(&mut doc, &w, &cal));
+    assert_eq!(doc.get("lift_known").and_then(|i| i.as_bool()), Some(true));
+    // Already so: nothing changes, and nothing is read again.
+    assert!(!super::watches_pane::settings_of(&mut doc, &w, &cal));
+}
+
+/// Picking another watch in the Watches list with a take on show: the
+/// take is put away, as Unsorted Takes and the Watch line do, so the
+/// Bench never names a watch the take isn't in; picking its own watch
+/// keeps it, and marks not yet saved are asked about first (#1303).
+#[test]
+fn picking_another_watch_puts_the_take_on_show_away() {
+    let base = std::env::temp_dir().join(format!("tg-app-pick-away-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let pepsi = lib.add(&library::Watch::new("Pepsi")).unwrap();
+    lib.add(&library::Watch::new("Daytona")).unwrap();
+    let id = |name: &str| lib.find(name).unwrap().watch.id.clone();
+    let (pepsi_id, daytona_id) = (id("Pepsi"), id("Daytona"));
+    drop(lib);
+    let take = pepsi.join(library::TAKES).join("2026-10-20 10.00 Dial Up");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "watch = \"Pepsi\"\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let open = |app: &mut TimegrapherApp| {
+        app.pick_watch(&pepsi_id);
+        app.take_action(Some(watches::TakeAction::Open(take.clone())));
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+            app.poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    };
+    // Its own watch: it stays.
+    open(&mut app);
+    app.pick_watch(&pepsi_id);
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    // Another: it is put away, and the Bench names the one picked.
+    app.pick_watch(&daytona_id);
+    assert!(app.take_on_show().is_none() && app.live.is_none());
+    assert_eq!(app.watch, "Daytona");
+    assert!(
+        app.status_words().contains("Daytona"),
+        "{}",
+        app.status_words()
+    );
+    // With its marks not yet saved, they are asked about first, as the
+    // Watch line asks; until then the take and its own watch stay named.
+    open(&mut app);
+    app.brush = Some(Position::DialDown);
+    app.paint_position(0.0, 5.0);
+    assert!(app.needs_save_confirmation());
+    // Its own watch: nothing to ask, and it stays.
+    app.pick_watch(&pepsi_id);
+    assert!(app.confirm.is_none());
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    app.pick_watch(&daytona_id);
+    assert!(matches!(&app.confirm, Some(Confirm::PickWatch(Some(i))) if *i == daytona_id));
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi_id.as_str()));
+    assert!(
+        app.status_words().contains("Pepsi") && !app.status_words().contains("Daytona"),
+        "{}",
+        app.status_words()
+    );
+    // Don't Save: it goes, and Daytona is picked.
+    app.confirm = None;
+    app.line_pick(Some(daytona_id.clone()), true);
+    assert!(app.take_on_show().is_none());
+    assert_eq!(app.watch, "Daytona");
+
+    // A take from Unsorted Takes, in no watch: picking one puts it away too.
+    let unsorted = root
+        .join(library::UNSORTED)
+        .join(library::TAKES)
+        .join("2026-10-21 10.00 Dial Up");
+    std::fs::create_dir_all(&unsorted).unwrap();
+    for f in ["take_part01-001.wav", MANIFEST] {
+        std::fs::copy(take.join(f), unsorted.join(f)).unwrap();
+    }
+    app.use_library(Some(root.clone()));
+    app.pick_unsorted();
+    app.take_action(Some(watches::TakeAction::Open(unsorted.clone())));
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.take_on_show().as_ref(), Some(&unsorted));
+    app.pick_watch(&pepsi_id);
+    assert!(app.take_on_show().is_none());
+    assert_eq!(app.watch, "Pepsi");
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take with no session.toml, filed under a watch: it moves without an
+/// error, and no session.toml is made for it (#1283).
+#[test]
+fn a_take_with_no_session_toml_is_filed_without_one() {
+    let base = std::env::temp_dir().join(format!("tg-app-file-bare-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let take = lib.unsorted_dir().unwrap().join("2026-10-20 10.00 Dial Up");
+    drop(lib);
+    std::fs::create_dir_all(&take).unwrap();
+    std::fs::write(
+        take.join("session.json"),
+        r#"{"started_utc":"2026-10-20T17:00:00Z","duration_s":40.0}"#,
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.take_readings.wait();
+    app.move_take(&take, &pepsi);
+    let filed = root
+        .join("Pepsi")
+        .join(library::TAKES)
+        .join(file_name(&take));
+    assert!(filed.join("session.json").is_file() && !take.exists());
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|(m, error)| !error && m.contains("Filed")),
+        "{:?}",
+        app.message
+    );
+    assert!(!filed.join(MANIFEST).exists());
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -1853,4 +2124,62 @@ fn a_new_watch_for_a_recording_that_cant_be_added_is_taken_back() {
         app.poll();
     }
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Open's question guesses when a recording started from when its file
+/// was last written, less its length, to the minute in this computer's
+/// time; the minute typed back reads as that time. A minute that isn't
+/// one reads as nothing, and no files give no guess.
+#[test]
+fn an_open_guesses_the_start_from_the_files_time_less_its_length() {
+    let dir = std::env::temp_dir().join(format!("tg-app-started-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let wav = dir.join("take.wav");
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 90.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let ended = parse_local_minute(" 2026-10-22 14:31 ").expect("a minute");
+    std::fs::File::options()
+        .write(true)
+        .open(&wav)
+        .unwrap()
+        .set_modified(ended)
+        .unwrap();
+    let guess = started_guess(std::slice::from_ref(&wav)).expect("guessed");
+    assert_eq!(
+        guess.format("%Y-%m-%d %H:%M:%S").to_string(),
+        "2026-10-22 14:29:30"
+    );
+    assert_eq!(
+        parse_local_minute(&guess.format("%Y-%m-%d %H:%M").to_string()),
+        parse_local_minute("2026-10-22 14:29")
+    );
+    assert!(parse_local_minute("2026-10-22").is_none());
+    assert!(parse_local_minute("22 Oct 2026 14:30").is_none());
+    assert!(started_guess(&[]).is_none());
+    assert!(started_guess(&[dir.join("gone.wav")]).is_none());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A take's size on its row counts every file in its folder, in folders
+/// inside it too; a folder that can't be read counts as nothing.
+#[test]
+fn a_takes_size_counts_every_file_inside_it() {
+    let dir = std::env::temp_dir().join(format!("tg-app-folder-size-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("inner").join("deeper")).unwrap();
+    std::fs::write(dir.join("a"), [0u8; 10]).unwrap();
+    std::fs::write(dir.join("inner").join("b"), [0u8; 200]).unwrap();
+    std::fs::write(dir.join("inner").join("deeper").join("c"), [0u8; 3000]).unwrap();
+    assert_eq!(folder_size(&dir), 3210);
+    assert_eq!(folder_size(&dir.join("inner")), 3200);
+    assert_eq!(folder_size(&dir.join("missing")), 0);
+    std::fs::remove_dir_all(dir).unwrap();
 }

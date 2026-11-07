@@ -776,6 +776,9 @@ struct Summary<'a> {
     beats_found: usize,
     clean_fraction: f64,
     clock: &'a Option<ClockFit>,
+    /// The take's pauses and jumps, as `LongReport` gives them (#1297).
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    breaks: &'a [timegrapher_core::breaks::Break],
     overall: &'a Option<timing::TimingFit>,
     beat_error_unlock_ms: Option<f64>,
     rate_p05: Option<f64>,
@@ -838,6 +841,7 @@ impl<'a> From<&'a LongReport> for Summary<'a> {
             beats_found: r.beats_found,
             clean_fraction: r.clean_fraction,
             clock: &r.clock,
+            breaks: &r.breaks,
             overall: &r.overall,
             beat_error_unlock_ms: r.beat_error_unlock_ms,
             rate_p05: r.rate_p05,
@@ -1617,6 +1621,48 @@ mod take_tests {
         );
         // No time counted for it: the stretch reads its 100 s.
         assert!((r.log.duration_s - (120.0 - take::SETTLE_S)).abs() < 0.01);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `--json` and `summary.json` give the take's breaks, as the report
+    /// has them (#1297): a pause the take lists, with no clock log to
+    /// doubt it, is a break with its gap.
+    #[test]
+    fn the_summary_gives_the_takes_breaks() {
+        let dir = take(
+            "summary-breaks",
+            "[[recording]]\nfile = \"take.wav\"\nposition = \"DU\"\n",
+        );
+        fs::remove_file(dir.join("clock.csv")).unwrap();
+        fs::write(
+            dir.join(take::RECORD),
+            r#"{"breaks": [{"audio_s": 70.0, "gap_s": 30.0}]}"#,
+        )
+        .unwrap();
+        let out = dir.join("out");
+        run(
+            std::slice::from_ref(&dir),
+            ClockArgs {
+                log: None,
+                device: None,
+                card_ppm: None,
+            },
+            &StreamConfig::default(),
+            None,
+            Train {
+                calibre: None,
+                escape_teeth: None,
+            },
+            &[],
+            Some(out.clone()),
+            false,
+        )
+        .unwrap();
+        let summary: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(out.join("summary.json")).unwrap()).unwrap();
+        let breaks = summary["breaks"].as_array().expect("breaks given");
+        assert_eq!(breaks.len(), 1, "{breaks:?}");
+        assert_eq!(breaks[0]["gap_s"], 30.0, "{breaks:?}");
         let _ = fs::remove_dir_all(&dir);
     }
 }

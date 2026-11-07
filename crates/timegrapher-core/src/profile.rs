@@ -171,6 +171,10 @@ fn side_snippets<'a>(
         .collect()
 }
 
+/// The fewest beats of a side an averaged profile is made from
+/// ([`from_snippets`]); with fewer there is none.
+pub const PROFILE_MIN_BEATS: usize = 3;
+
 /// Samples in one beat's window: `PRE_S` before the beat to `POST_S` after.
 pub fn template_len(fs: f64) -> usize {
     (PRE_S * fs).round() as usize + (POST_S * fs).round() as usize
@@ -201,7 +205,7 @@ pub fn from_snippets(
 ) -> Option<TickProfile> {
     let len = template_len(fs);
     let snips: Vec<&[f32]> = snips.iter().copied().filter(|w| w.len() == len).collect();
-    if snips.len() < 3 {
+    if snips.len() < PROFILE_MIN_BEATS {
         return None;
     }
     let mut col = vec![0.0f32; snips.len()];
