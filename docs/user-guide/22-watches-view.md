@@ -21,8 +21,7 @@ type in. The picture holds two watches and one unsorted take.
 | Mark | Part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
 | 1 | **New Watch…** | Opens the New Watch form (below). | To start a watch's history. |
-| 2 | Search | Finds watches by name, calibre, notes or an added field. A line under the list says how many it shows while something is typed, "1 of 4 watches", and the
-words found are in blue. | To find one watch among many. |
+| 2 | Search | Finds watches by name, calibre, notes or an added field. A line under the list says how many it shows while something is typed, "1 of 4 watches", and the words found are in blue. | To find one watch among many. |
 | 3 | **Sort** | By **Name**, **Last Take** or **Size**. | Last Take for the watches on the bench now; Size to find what fills the disk. |
 | 4 | **List Shows** | What the line under each name gives: the calibre, or one of the fields added to the watches, such as Customer. Kept between runs. | To see whose watch each one is at a glance. |
 | 5 | **Unsorted Takes** | Always first: the Quick Listen takes kept but not yet filed under a watch. Picking it goes back to Quick Listen (no watch, no calibre, 52°). | To file takes made before the watch was added. |
