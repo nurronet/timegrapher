@@ -1138,6 +1138,7 @@ fn the_strip_width_reads_as_typed_or_as_shown() {
     assert_eq!(parse_width(" ±250 ms "), Some(250.0));
     assert_eq!(parse_width("±250 MS"), Some(250.0));
     assert_eq!(parse_width("±2 s"), Some(2000.0));
+    assert_eq!(parse_width(" ±2 s "), Some(2000.0));
     assert_eq!(parse_width("2S"), Some(2000.0));
     assert_eq!(parse_width("1,5 s"), Some(1500.0));
     assert_eq!(parse_width("wide"), None);
