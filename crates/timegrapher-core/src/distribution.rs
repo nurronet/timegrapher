@@ -198,8 +198,10 @@ impl Distribution {
         if let Some(p) = only {
             line += &format!(" · {p} only");
         }
-        if self.below + self.above > 0 {
-            line += &format!(" · {} outliers off the scale", self.below + self.above);
+        let off = self.below + self.above;
+        if off > 0 {
+            let s = if off == 1 { "" } else { "s" };
+            line += &format!(" · {off} outlier{s} off the scale");
         }
         if self.peaks.len() > 1 {
             let at: Vec<String> = self.peaks.iter().map(|&x| f(x)).collect();
@@ -371,6 +373,14 @@ mod tests {
         assert!((d.peaks[1] - 250.0).abs() <= 2.0 * d.bin_width, "{d:?}");
         assert!(d.summary.contains(" · 2 peaks, at "), "{}", d.summary);
         assert!(d.summary.contains("outliers off the scale"));
+        // One outlier is said as one.
+        let one = Distribution {
+            below: 1,
+            above: 0,
+            ..d.clone()
+        };
+        let said = one.line(AMPLITUDE, "", None);
+        assert!(said.contains(" · 1 outlier off the scale"), "{said}");
         // 2001 values resolve 0.1% to 99.9%; 20 values only 5% to 95%.
         assert_eq!(d.quantiles.len(), SHARES.len());
         let few = distribution(&y[..20], AMPLITUDE, "readings", 10.0).unwrap();
