@@ -362,7 +362,12 @@ pub fn compute_with(
 /// (each with why the headline leaves it out, if it does), and the
 /// period when found.
 fn stats_line(c: &SeriesCheck) -> String {
-    let u = c.unit;
+    // Degrees as the sentences write them, "272.10°"; other units after a
+    // space, "0.20 ms".
+    let (sp, u) = match c.unit {
+        "deg" => ("", "°"),
+        u => (" ", u),
+    };
     // A true minus sign, as in the readings.
     let n = |v: f64| true_minus(&format!("{v:.2}"));
     let signed = |v: f64| true_minus(&format!("{v:+.2}"));
@@ -374,13 +379,13 @@ fn stats_line(c: &SeriesCheck) -> String {
         ));
     }
     if let Some(m) = c.median {
-        parts.push(format!("median {} {u}", n(m)));
+        parts.push(format!("median {}{sp}{u}", n(m)));
     }
     if let Some(sd) = c.sd {
-        parts.push(format!("SD {} {u}", n(sd)));
+        parts.push(format!("SD {}{sp}{u}", n(sd)));
     }
     if let Some(st) = c.short_term_sd {
-        parts.push(format!("±{} {u} reading to reading", n(st)));
+        parts.push(format!("±{}{sp}{u} reading to reading", n(st)));
     }
     if let Some(a) = &c.autocorrelation {
         let lag1 = a.lag_s.iter().zip(&a.r).find(|(l, _)| **l > 0.0);
@@ -395,7 +400,7 @@ fn stats_line(c: &SeriesCheck) -> String {
     let why = |n: &Option<String>| n.as_ref().map_or(String::new(), |n| format!(", {n}"));
     if let Some(t) = &c.trend {
         parts.push(format!(
-            "trend {} {u}/h{}",
+            "trend {}{sp}{u}/h{}",
             signed(t.per_hour),
             why(&t.note)
         ));
