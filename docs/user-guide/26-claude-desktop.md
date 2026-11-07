@@ -83,9 +83,10 @@ draws them:
 | A positions test | Each position's readings and the figures that sum them up, with no pass or fail. |
 | The Tick and Tock | Their profiles with the unlock and drop. |
 | Recording | A **Live** view while it records: the readings, the last 30 seconds of the strip and the readings over time, about once a second, then what the check found. |
-| Steadiness | The app's Steadiness views, with each one's headline and statistics. |
+| Steadiness | The app's Steadiness views, with each one's headline and statistics, then the Isochronism walk and the readings' distributions. |
 
-Each lists what limits the readings under **What Limits These Readings**.
+One recording, a positions test, Recording and Steadiness list what limits
+the readings, when anything does, under **What Limits These Readings**.
 Chat apps without charts get the same figures as text.
 
 ## What It Never Does
