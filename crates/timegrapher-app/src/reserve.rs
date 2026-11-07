@@ -16,6 +16,7 @@ use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use timegrapher_core::beats::Beat;
 use timegrapher_core::chart_scale::axis_number;
+use timegrapher_core::confidence::Figure;
 use timegrapher_core::figure_text::{base_digits, figure, fixed_text, true_minus};
 use timegrapher_core::library::length_text;
 use timegrapher_core::power_reserve::{self, Ending, Heard, Results};
@@ -583,27 +584,38 @@ pub fn dim_key(ui: &mut egui::Ui, any_dimmed: bool) {
     }
 }
 
-/// What a grey amplitude in the Power Reserve table means.
-pub const THIN_AMPLITUDE_KEY: &str =
-    "Grey amplitudes: read from few of the hour's windows; the hover says how many.";
+/// What a grey amplitude or beat error read from few windows in the Power
+/// Reserve table means.
+pub const THIN_KEY: &str =
+    "Grey amplitudes and beat errors: read from few of the hour's windows; the hover says how many.";
 
-/// The hour's amplitude caveat, when its amplitude stands on under 60% of
-/// its windows (core's coverage caveat, #1429): the cell is dimmed and
-/// the caveat is its hover.
-fn thin_amplitude(h: &power_reserve::Hour) -> Option<String> {
-    h.amplitude_deg?;
+/// The hour's coverage caveat for `figure`, when the figure is shown and
+/// stands on under 60% of its windows (core's caveat, #1429, #1439): the
+/// cell is dimmed and the caveat is in its hover. Amplitude and beat error
+/// alike, one rule.
+fn thin(h: &power_reserve::Hour, figure: Figure) -> Option<String> {
+    match figure {
+        Figure::Amplitude => h.amplitude_deg?,
+        Figure::BeatError => h.beat_error_ms?,
+        Figure::Rate => h.rate_s_per_day?,
+    };
     h.caveats
         .iter()
         .find(|c| {
             matches!(
                 c,
-                timegrapher_core::measure::Caveat::ReadingWindows {
-                    reading: timegrapher_core::confidence::Figure::Amplitude,
-                    ..
-                }
+                timegrapher_core::measure::Caveat::ReadingWindows { reading, .. }
+                    if *reading == figure
             )
         })
         .and_then(|c| c.long(None))
+}
+
+/// Whether any of the hour's amplitude or beat error is thin ([`thin`]).
+fn any_thin(h: &power_reserve::Hour) -> bool {
+    [Figure::Amplitude, Figure::BeatError]
+        .into_iter()
+        .any(|f| thin(h, f).is_some())
 }
 
 /// The Power Reserve table's key, one line, naming each kind of grey cell
@@ -614,10 +626,7 @@ fn hour_key_text(hours: &[power_reserve::Hour]) -> Option<String> {
             hours.iter().any(|h| beat_error_dimmed(h.beat_error_source)),
             dim_key!(),
         ),
-        (
-            hours.iter().any(|h| thin_amplitude(h).is_some()),
-            THIN_AMPLITUDE_KEY,
-        ),
+        (hours.iter().any(any_thin), THIN_KEY),
     ]
     .into_iter()
     .filter_map(|(on, t)| on.then_some(t))
@@ -706,13 +715,18 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     cell(h.amplitude_deg, |v| {
                         figure(v, None, base_digits::AMPLITUDE, false)
                     }),
-                    thin_amplitude(h).map(|w| (w, true)),
+                    thin(h, Figure::Amplitude).map(|w| (w, true)),
                 ),
                 (
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
                     }),
-                    Some((beat_error_source_label(src).into(), beat_error_dimmed(src))),
+                    // Its source in words, and its coverage caveat
+                    // when thin (#1439).
+                    Some(match thin(h, Figure::BeatError) {
+                        Some(w) => (format!("{}. {w}", beat_error_source_label(src)), true),
+                        None => (beat_error_source_label(src).into(), beat_error_dimmed(src)),
+                    }),
                 ),
                 // A dash says why in its hover (Walter's walk of #1084).
                 (
@@ -1356,35 +1370,45 @@ mod tests {
         assert!(y(key) < y("Hours"), "{cells:?}");
     }
 
-    /// An hour whose amplitude stands on under 60% of its windows (core's
-    /// coverage caveat, #1429): its amplitude alone is grey, the key says
-    /// what grey amplitudes are, and its hover is core's caveat.
+    /// An hour whose amplitude and beat error stand on under 60% of
+    /// their windows (core's coverage caveats, #1429, #1439): those two
+    /// alone are grey, the key says what grey means, and each hover is
+    /// core's caveat (the beat error's after its source).
     #[test]
-    fn a_thin_amplitude_is_grey_and_keyed() {
+    fn thin_figures_are_grey_and_keyed() {
         use timegrapher_core::confidence::Figure;
         use timegrapher_core::measure::Caveat;
         use timegrapher_core::session::BeatErrorSource;
         let mut t = finished_run(3);
-        let thin = Caveat::ReadingWindows {
-            reading: Figure::Amplitude,
-            windows_used: 400,
+        let caveat = |reading, windows_used| Caveat::ReadingWindows {
+            reading,
+            windows_used,
             windows_in_span: 1800,
         };
+        let (amp, be) = (
+            caveat(Figure::Amplitude, 400),
+            caveat(Figure::BeatError, 445),
+        );
         if let Some(r) = t.results.as_mut() {
             for h in &mut r.hours {
                 h.beat_error_source = Some(BeatErrorSource::Unlock);
             }
             r.hours[2].amplitude_deg = Some(262.0);
-            r.hours[2].caveats = vec![thin];
+            r.hours[2].beat_error_ms = Some(5.93);
+            r.hours[2].caveats = vec![amp, be];
         }
         let r = t.results.as_ref().unwrap();
-        assert_eq!(thin_amplitude(&r.hours[0]), None);
-        assert_eq!(thin_amplitude(&r.hours[2]), thin.long(None));
-        assert_eq!(hour_key_text(&r.hours).as_deref(), Some(THIN_AMPLITUDE_KEY));
-        // No amplitude, nothing grey.
+        assert_eq!(thin(&r.hours[0], Figure::Amplitude), None);
+        assert_eq!(thin(&r.hours[0], Figure::BeatError), None);
+        assert_eq!(thin(&r.hours[2], Figure::Amplitude), amp.long(None));
+        assert_eq!(thin(&r.hours[2], Figure::BeatError), be.long(None));
+        assert_eq!(hour_key_text(&r.hours).as_deref(), Some(THIN_KEY));
+        // No figure, nothing grey.
         let mut none = r.hours[2].clone();
         none.amplitude_deg = None;
-        assert_eq!(thin_amplitude(&none), None);
+        none.beat_error_ms = None;
+        assert_eq!(thin(&none, Figure::Amplitude), None);
+        assert_eq!(thin(&none, Figure::BeatError), None);
         let ctx = egui::Context::default();
         theme::install(&ctx);
         let mut ink = (egui::Color32::TRANSPARENT, egui::Color32::TRANSPARENT);
@@ -1419,7 +1443,9 @@ mod tests {
             |text: &str| -> Vec<_> { cells.iter().filter(|c| c.0 == text).map(|c| c.1).collect() };
         assert_eq!(colour("262"), vec![Some(ink.1)], "{cells:?}");
         assert_eq!(colour("281"), vec![Some(ink.0); 2], "{cells:?}");
-        assert_eq!(colour(THIN_AMPLITUDE_KEY), vec![Some(ink.1)], "{cells:?}");
+        assert_eq!(colour("5.93"), vec![Some(ink.1)], "{cells:?}");
+        assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
+        assert_eq!(colour(THIN_KEY), vec![Some(ink.1)], "{cells:?}");
     }
 
     /// An hour whose times can't belong to a real hour shows a dash in
