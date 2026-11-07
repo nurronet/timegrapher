@@ -28,11 +28,11 @@ written have no link.
 
 **Steadiness**
 
-9. Steadiness: What It Is For, the Toolbar and Info
-10. Readings Over Time
-11. Periods
-12. Cycle
-13. Autocorrelation
+9. [Steadiness: What It Is For, the Toolbar and Info](09-steadiness.md): the nine views, the Info panel, what the tests read and how sure they are
+10. [Readings Over Time](10-readings-over-time.md): every reading in order, its levels and two states
+11. [Periods](11-periods.md): what the readings repeat at, matched to the wheels
+12. [Cycle](12-cycle.md): one repeat's shape and size
+13. [Autocorrelation](13-autocorrelation.md): whether each reading follows the last
 14. Allan Deviation
 15. CUSUM and Change Points
 16. FFT
