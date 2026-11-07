@@ -29,9 +29,9 @@ click outside closes it. The Microphone page is in chapter 3.
 
 | Mark | Part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
-| 1 | **Location** | Where the Watches folder is (`Timegrapher Data` in your home folder unless you chose another), with **Show in File Manager**. | To back it up or look inside (chapter 23). |
+| 1 | **Location** | Where the Watches folder is (`Timegrapher Data` in your home folder unless you chose another), with **Show in File Manager** (**Show in Finder** on a Mac, **Show in Explorer** on Windows). | To back it up or look inside (chapter 23). |
 | 2 | What it holds | How many watches and takes, and their size. | To see how much space the takes use. |
-| 3 | **Move Watches…** | Moves the whole folder to one you pick, after asking. Onto another disk it is copied, checked, and only then removed. | To move the takes to a larger disk. |
+| 3 | **Move Watches…** | Moves the whole folder into one you pick, after asking. Onto another disk it is copied, checked, and only then removed. It is refused while takes are still being kept as FLAC. | To move the takes to a larger disk. |
 | 4 | **Choose Another…** | Uses a Watches folder elsewhere, or starts a new one in an empty folder; nothing is moved. **Use the Default** then goes back. | A folder kept in sync with another computer, or a second bench. |
 
 Only one copy of the app at a time can change the watches: a second
@@ -67,7 +67,9 @@ over and send; nothing is sent from the app. A custom calibre also has
 **Delete Calibre**.
 
 **A custom calibre** starts with no wheels, since nothing about an
-obscure movement is assumed. Typing its beat rate fills in the balance's
+obscure movement is assumed. Its Name, Maker, Beat Rate and Lift Angle
+can be changed in its details; the lift angle is kept between 10° and
+90°. Typing its beat rate fills in the balance's
 period, two beats: 7200 ÷ bph seconds, 0.25 s at 28,800 bph.
 
 **The short list** starts as the list's common and modern calibres.
@@ -83,8 +85,10 @@ it; repair or move the file, then start the app again.
 
 Chapter 5 gives the Calibre menu. A pick fills in the calibre's lift
 angle, where the list gives one, and names the cycles Steadiness finds
-after its own wheels. If the watch beats at another rate than the
-calibre, a line under the menu says so. The pick belongs to the watch on
+after its own wheels. In Quick Listen it also sets the beat rate to the
+calibre's, and **Not Set** goes back to Auto; a watch picked keeps its
+own beat rate. If the watch beats at another rate than the calibre, a
+chip on the Calibre card says so, such as "Dandong 3235 is 28800 bph". The pick belongs to the watch on
 the stand and isn't kept between runs; a watch in the Watches view keeps
 its own.
 

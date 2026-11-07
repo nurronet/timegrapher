@@ -12,7 +12,7 @@ month's, is how you see whether a change held. Taking a watch from
 here also gives each new take that watch's calibre, lift angle and beat
 rate, so you don't set them again each time.
 
-**Watches**, at the left of the top row beside **Bench**, opens the
+**Watches**, in the top row's **Bench | Watches** switch, opens the
 view. **Watches > Find in Watches…** opens it with the search ready to
 type in. The picture holds two watches and one unsorted take.
 
@@ -21,13 +21,14 @@ type in. The picture holds two watches and one unsorted take.
 | Mark | Part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
 | 1 | **New Watch…** | Opens the New Watch form (below). | To start a watch's history. |
-| 2 | Search | Finds watches by name, calibre, notes or an added field. A line under the list says how many it shows, "1 of 4 watches", and the words found are in blue. | To find one watch among many. |
+| 2 | Search | Finds watches by name, calibre, notes or an added field. A line under the list says how many it shows while something is typed, "1 of 4 watches", and the
+words found are in blue. | To find one watch among many. |
 | 3 | **Sort** | By **Name**, **Last Take** or **Size**. | Last Take for the watches on the bench now; Size to find what fills the disk. |
 | 4 | **List Shows** | What the line under each name gives: the calibre, or one of the fields added to the watches, such as Customer. Kept between runs. | To see whose watch each one is at a glance. |
 | 5 | **Unsorted Takes** | Always first: the Quick Listen takes kept but not yet filed under a watch. Picking it goes back to Quick Listen (no watch, no calibre, 52°). | To file takes made before the watch was added. |
-| 6 | A watch's row | Its first photo or its initial, its name, its calibre, how many takes and the date of the last, and the space they use from 1 MB. The row picked is shaded. | Pick a watch to see its takes. |
+| 6 | A watch's row | Its first photo or its initial (when any watch in the list has a photo), its name, its calibre, how many takes and the date of the last, and the space they use from 1 MB. The row picked is shaded. | Pick a watch to see its takes. |
 
-In a window under 900 points wide the list and the watch take turns:
+With the view under 900 points wide the list and the watch take turns:
 picking a watch shows it, and **‹ All Watches** goes back. While a watch's
 take is listening on the Bench, picking another watch is refused until
 it stops.
@@ -39,7 +40,7 @@ it stops.
 | 7 | The header | The name; under it the calibre, beat rate, lift angle and added fields. | To check the settings its takes will start with. |
 | 8 | **Edit…** | The same form as New Watch, filled in. | To change a detail, add a field, or set the calibre. |
 | 9 | **Add Photos…** | Copies the photos picked into the watch (JPEG, PNG, TIFF or HEIC), each kept as it is. | The dial, the movement or a part, as it came in. |
-| 10 | **New Take** | **Listen**, **Positions Test** or **Power Reserve Test**. Each goes to the Bench, starts on the microphone, and saves into this watch when it stops. Greyed out while a take runs on the Bench. | To add to the watch's history. |
+| 10 | **New Take** | **Listen**, **Positions Test** or **Power Reserve Test**. Each goes to the Bench and saves into this watch when it stops. Listen starts on the microphone at once; a test is set up and waits for **Start Test** on the Listen card. Greyed out while a take runs on the Bench. | To add to the watch's history. |
 | 11 | **Takes**, **Open** and **…** | How many takes; Open and the take menu act on the take picked. | Open takes it to the Bench, read whole. |
 | 12 | A take | Click to pick it; double-click to open it. **Analysis Only**, **Incomplete** or **On Show** follows the date when it is one. | |
 | 13 | The columns | **Started**, **Position** (DU; DU, CU; All 6; or Positions Test or Power Reserve), **Length**, **Rate** (s/d), **Amplitude** (°), **Beat Error** (ms, as a size) and **Size** (MB). | To compare takes without opening each one. |
@@ -73,7 +74,8 @@ four days, before its service: the rate ranges from +16.5 s/d dial up to
 | 6 | **Add Field** | Adds a suggested field (such as Customer) or one of your own: text, a date, a number or money. Only these can be removed. | To keep what your work needs, and to show it in List Shows. |
 | 7 | **Add Watch** | Adds it. **Cancel** leaves the form. | |
 
-A watch is kept or deleted; there is no hiding one.
+The app has no way to delete or hide a watch; only takes and photos
+can be deleted.
 
 ## A Take's Menu
 
@@ -89,6 +91,7 @@ Right-clicking a take, or **…** over the table, opens its menu. Chapter
 
 A take moved or filed takes the new watch's name, calibre, lift angle
 and beat rate, where the watch sets them, and is read again with them.
+A take kept as its analysis alone takes only the new watch's name.
 
 ## What to Look For
 
