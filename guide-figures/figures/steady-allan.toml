@@ -1,0 +1,21 @@
+# Chapter 14, Allan Deviation: the whole 30-minute take opened, the rate in the
+# Steadiness view.
+output = "steady-allan.png"
+
+actions = [["sleep", 75]]
+
+marks = [[1, 1150, 765], [2, 1280, 925], [3, 1500, 790, 1442, 818], [4, 1520, 976], [5, 250, 1004]]
+
+layout = ["column", [0.35, "Strip"], [0.65, "SteadyAllan"]]
+
+[data]
+corpus = "dd3235_DU_30min"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac"]
+start = 0
+seconds = 1800
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]

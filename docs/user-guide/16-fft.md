@@ -1,0 +1,95 @@
+# 16. FFT
+
+![FFT of the rate over a 30-minute take, marks 1 to 6](images/steady-fft.png)
+
+**What it shows:** the **amplitude spectrum** of each series: how big a
+regular swing the readings hold at each period, in the series' own unit.
+Both axes are logarithmic. It is the view a commercial timegrapher's FFT
+gives.
+
+**Why you'd use it:** to see the size of every period's swing side by
+side, the strong ones and the weak ones, on one axis. Periods (chapter 11)
+says which periods the readings repeat at, beyond doubt; the FFT says how
+big each one is, whether or not it passes a test. When you know what you
+are looking for (a wheel you have just worked on, a swing you saw on
+another timegrapher), this is where you read its size.
+
+| Mark | Part | What it does or shows |
+| --- | --- | --- |
+| 1 | **Timing** | For the rate: draws the spectrum of the beat timing itself, in ms, at every period, in place of the swing in rate readings. |
+| 2 | **Wheel Periods** | Marks the calibre's wheels' periods. On at first; this pane only. |
+| 3 | The input line | How much of the series the spectrum was read from: "FFT input: 7113 of 7120 grid samples available", and how missing samples were handled. |
+| 4 | The tallest peak | The highest point above both its neighbours, with its period and size: "tallest peak at 30 s: 3.2 s/d peak to peak". |
+| 5 | Twice a turn | A fainter dotted line marked ×2, at half a wheel's period. |
+| 6 | A wheel's period | A bold dotted line, named above the plot. |
+
+## What the Sizes Mean
+
+| Series | Size | Periods drawn |
+| --- | --- | --- |
+| Rate | The swing peak to peak that a sine at that period makes in **10 s rate readings**, in s/d. | From 20 s, twice a reading, up. |
+| Rate, with **Timing** | The size of the sine in the **beat timing**, in ms: half its peak to peak. | From 1 s up. |
+| Amplitude | The size of the sine, in degrees: half its peak to peak. | From 8 s up. |
+| Beat Error | The size of the sine, in ms: half its peak to peak. | From 8 s up. |
+
+Each spectrum reaches up to half the take.
+
+**Why the rate has two:** a swing in the timing of the beats is a swing in
+the rate, but a 10 s reading averages most of a fast one away. The
+default shows what the rate readings themselves would show. **Timing**
+shows the swing as the beats have it, including periods far faster than
+a reading, such as the escape wheel's 5 s.
+
+**In the picture,** the tallest peak is at 30 s, 3.2 s/d peak to peak:
+twice a turn of the fourth wheel, or the second harmonic of its once a
+minute (chapter 11). The fourth wheel's minute itself stands at about
+1.5 s/d. The escape wheel's 5 s is under the 20 s the rate readings can
+show, so it is in the Timing spectrum only.
+
+## How It Is Worked Out
+
+- **On the series the period search reads** (chapter 11): on the watch's
+  own clock, the rate from the beat timing, the amplitude and beat error
+  from their 2 s windows, with the slow change taken off by the same
+  30-minute running median.
+- **A sine fitted at each period,** to the samples present, each weighted
+  by a Hann window over the whole take, less their weighted mean. With
+  every sample present this is the ordinary windowed FFT; with some
+  missing it is the **Lomb–Scargle** periodogram, so nothing is filled
+  in and a line keeps its size as samples go missing.
+- **The rate's swing in readings:** a timing sine of size *a* ms at period
+  *P* swings the rate by 2 · *a* · 2π/*P* · 86.4 s/d peak to peak, of which a
+  10 s reading keeps 3(sin *x* − *x* cos *x*)/*x*³, with *x* = π · 10/*P*.
+  M11 explains both.
+- **The tallest peak** is a point higher than both its neighbours, so a
+  spectrum still climbing at the long end, as the rate's slow wander
+  makes it, labels its own peak and not the end.
+
+## What to Look For
+
+| What you see | What it can mean |
+| --- | --- |
+| A peak at a wheel's period | A swing once per turn of that wheel. |
+| A peak at a wheel's ×2 | Twice a turn: what an off-centre wheel can give. |
+| Peaks at a half, a third, a quarter of a wheel's period | A sharp disturbance once a turn, spread over its harmonics. |
+| A spectrum rising towards long periods | Slow wander or drift. |
+| A spectrum flat across | Noise with no period standing out. |
+
+## What It Can't Tell You
+
+- **Whether a peak is real.** Every spectrum has peaks; noise makes them
+  too. Whether the readings repeat at a period is the period search's
+  call, with its dashed line (chapter 11).
+- **When.** The FFT reads the whole take at once. A swing that came and
+  went shows smaller than it was. The two maps show when (chapters 17
+  and 18).
+- **The cause.** A peak at a wheel's period says the readings swing with
+  that wheel's turn, not what is wrong with it.
+
+The input line counts samples on the spectrum's grid, not beats heard: a
+complete grid doesn't mean every beat was clean.
+
+---
+
+Previous: [CUSUM and Change Points](15-cusum-and-change-points.md) ·
+Next: [STFT Map](17-stft-map.md)
