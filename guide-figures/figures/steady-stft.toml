@@ -2,7 +2,7 @@
 # dial up, the pane alone with the readings hidden.
 output = "steady-stft.png"
 
-actions = [["sleep", 150]]
+actions = [["sleep", 150], ["click", 133, 90], ["sleep", 3], ["hover", 751, 690], ["sleep", 2]]
 
 marks = []
 

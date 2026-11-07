@@ -4,7 +4,8 @@ output = "steady-cusum.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 the CUSUM, 2 the dashed lines, 3 the largest excursion's note.
+marks = [[1, 1000, 270], [2, 1000, 712], [3, 475, 274]]
 
 layout = "SteadyCusum"
 

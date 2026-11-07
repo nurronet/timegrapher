@@ -1,6 +1,6 @@
 # 16. FFT (Fast Fourier Transform)
 
-![FFT of the rate over a 30-minute take, marks 1 to 6](images/steady-fft.png)
+![FFT of the rate over the first 12 hours of a run-down, marks 1 to 6](images/steady-fft.png)
 
 **What it shows:** the **amplitude spectrum** of each series, worked out
 by the **Fast Fourier Transform** (FFT), the standard way to split a
@@ -20,8 +20,8 @@ another timegrapher), this is where you read its size.
 | --- | --- | --- |
 | 1 | **Timing** | For the rate: draws the spectrum of the beat timing itself, in ms, at every period, in place of the swing in rate readings. Off at first, and greyed while Rate is off. |
 | 2 | **Wheel Periods** | Marks the calibre's wheels' periods. On at first; this pane only. With no calibre picked, or none of its wheels known, it marks one minute and one hour in grey instead. |
-| 3 | The input line | How much of the series the spectrum was read from: "FFT input: 7113 of 7120 grid samples available", and how missing samples were handled. |
-| 4 | The tallest peak | The highest point above both its neighbours, with its period and size: "tallest peak at 30 s: 3.2 s/d peak to peak". |
+| 3 | The input line | How much of the series the spectrum was read from: "FFT input: 172584 of 172717 grid samples available", and how missing samples were handled. |
+| 4 | The tallest peak | The highest point above both its neighbours, with its period and size: "tallest peak at 4 min: 5.3 s/d peak to peak". |
 | 5 | Twice a turn | A fainter dotted line marked ×2, at half a wheel's period. |
 | 6 | A wheel's period | A bold dotted line, named above the plot. |
 
@@ -42,10 +42,17 @@ default shows what the rate readings themselves would show. **Timing**
 shows the swing as the beats have it, including periods far faster than
 a reading, such as the escape wheel's 5 s.
 
-**In the picture,** the tallest peak is at 30 s, 3.2 s/d peak to peak:
-twice a turn of the fourth wheel, or the second harmonic of its once a
-minute (chapter 11). The fourth wheel's minute itself stands at about
-1.5 s/d. The escape wheel's 5 s is under the 20 s the rate readings can
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8. Most of the spectrum lies between about 0.3 and 1 s/d:
+the readings' random scatter, spread over every period. Standing clear
+of it, each on its dotted line, are the fourth wheel's minute and its
+half minute, each about 3 s/d peak to peak, and the tallest peak, at
+4 minutes, 5.3 s/d: the cycle that Cycle (chapter 12) folds, which
+matches no wheel of the calibre. Twelve hours of readings place each
+period finely, so a line is narrow and sits exactly where it is; the
+neighbouring spikes of 1 to 3 s/d are what a take this long resolves of
+the scatter, and Periods (chapter 11) says which of them are beyond
+doubt. The escape wheel's 5 s is under the 20 s the rate readings can
 show, so it is in the Timing spectrum only.
 
 ## How It Is Worked Out

@@ -4,7 +4,8 @@ output = "steady-autocorrelation.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 lag 0, 2 the band, 3 a lag outside the band, 4 the Ljung–Box p-value.
+marks = [[1, 185, 380], [2, 550, 830], [3, 1700, 708], [4, 1678, 208]]
 
 layout = "SteadyAutocorrelation"
 

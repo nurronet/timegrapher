@@ -4,7 +4,11 @@ output = "steady-periods.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 the series switches, left of the pane; 2 dB Scale, 3 Wheel Periods,
+# 4 Export, above them; 5 the strongest line, 6 the 1% line, 7 a wheel's
+# period, 8 half a wheel's period, 9 another line.
+marks = [[1, 28, 157], [2, 190, 129], [3, 224, 129], [4, 258, 129], [5, 262, 262],
+         [6, 1650, 830], [7, 798, 223], [8, 667, 223], [9, 1003, 850]]
 
 layout = "SteadyPeriods"
 

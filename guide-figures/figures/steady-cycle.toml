@@ -4,7 +4,9 @@ output = "steady-cycle.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 what it is folded at, 2 the swing note, 3 a box, 4 the median line,
+# 5 a reading.
+marks = [[1, 445, 202], [2, 445, 230], [3, 817, 850], [4, 913, 708], [5, 645, 422]]
 
 layout = "SteadyCycle"
 

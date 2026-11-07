@@ -4,7 +4,9 @@ output = "steady-allan.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 the curve, 2 the dashed line, 3 least scatter, 4 the dashed line's
+# label, 5 the averaging time.
+marks = [[1, 722, 285], [2, 810, 565], [3, 1255, 425], [4, 1550, 967], [5, 245, 1003]]
 
 layout = "SteadyAllan"
 

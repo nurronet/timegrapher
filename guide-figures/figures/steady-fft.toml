@@ -4,7 +4,9 @@ output = "steady-fft.png"
 
 actions = [["sleep", 150]]
 
-marks = []
+# 1 Timing, 2 Wheel Periods, above them; 3 the input line, 4 the tallest
+# peak, 5 half a wheel's period, 6 a wheel's period.
+marks = [[1, 195, 129], [2, 229, 129], [3, 1095, 214], [4, 1040, 277], [5, 165, 242], [6, 470, 242]]
 
 layout = "SteadyFft"
 
