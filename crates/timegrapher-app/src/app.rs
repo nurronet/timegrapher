@@ -2841,7 +2841,7 @@ impl TimegrapherApp {
     fn follow_fit(&mut self) {
         if self.strip_fit {
             self.strip_end = None;
-            self.strip.set_span(self.latest_s());
+            self.strip.set_span(self.strip_end_s());
         }
     }
 

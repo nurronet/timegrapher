@@ -15,8 +15,11 @@ fn fit_shows_the_whole_session() {
     app.fit_strip();
     assert!(app.strip_fit);
     assert_eq!(app.strip_end, None);
-    assert!((app.strip.span_s - app.latest_s()).abs() < 1e-9);
-    assert!(app.latest_s() > 35.0);
+    // The whole session: to the take's end, its newest reading or beat,
+    // as the charts under the strip end (#1256).
+    let end = app.take_span().unwrap().1;
+    assert!((app.strip.span_s - end).abs() < 1e-9);
+    assert!(end >= app.latest_s() && app.latest_s() > 35.0);
 }
 
 /// Painting on a take opened lights Save, whose menu offers Save
