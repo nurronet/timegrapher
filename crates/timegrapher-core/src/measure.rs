@@ -92,10 +92,12 @@ pub fn no_watch_reason(
 
 /// [`beat_sound_found`] for a stretch whose beats run from `first_s` to
 /// `last_s`, from `snippets`: its clean beats whose envelope windows are
-/// kept, each at its time with whether it is a Tick. `None` when the kept
-/// ones span less than half the stretch (a long take keeps its first
-/// minute's windows alone, [`crate::stream::SNIPPETS_KEPT_S`]), so a
-/// stretch is not judged on a small part of it.
+/// kept, each at its time with whether it is a Tick: the take's one
+/// sample of beat sound ([`crate::sound_sample`]), spread evenly over the
+/// whole take. `None` when the kept ones in the stretch span less than
+/// half of it, so a stretch is not judged on a small part of it, or when
+/// neither side has the [`crate::profile::PROFILE_MIN_BEATS`] an
+/// averaged profile needs.
 pub fn stretch_beat_sound(
     snippets: &[(f64, bool, &[f32])],
     first_s: f64,
@@ -285,6 +287,12 @@ pub enum Caveat {
         mix: f64,
         span_s: f64,
     },
+    /// The rate's period search named a cycle on beat timing that is not
+    /// the random walk plus white jitter its simulated null draws: its
+    /// band powers sit `misfit` (rms of log10) from the fitted model,
+    /// past `limit`, the 99th percentile over the null's own takes
+    /// (#1218, #1219).
+    TimingModelMisfit { misfit: f64, limit: f64 },
 }
 
 impl Caveat {
@@ -345,6 +353,7 @@ impl Caveat {
             Caveat::PeriodSearchUncalibrated { .. } => {
                 "cycle search not calibrated here".to_string()
             }
+            Caveat::TimingModelMisfit { .. } => "timing noise not the simulated kind".to_string(),
         })
     }
 
@@ -448,10 +457,9 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
-            Caveat::PeriodMayBeNoise { rho, span_s } => may_be_noise_text(*rho, *span_s),
-            Caveat::PeriodSearchUncalibrated { model, mix, span_s } => {
-                uncalibrated_text(*model, *mix, *span_s)
-            }
+            Caveat::PeriodMayBeNoise { .. }
+            | Caveat::PeriodSearchUncalibrated { .. }
+            | Caveat::TimingModelMisfit { .. } => period_search_text(self),
         })
     }
 
@@ -509,6 +517,7 @@ impl Caveat {
             Caveat::ReadingWindows { .. } => 17,
             Caveat::PeriodMayBeNoise { .. } => 19,
             Caveat::PeriodSearchUncalibrated { .. } => 19,
+            Caveat::TimingModelMisfit { .. } => 19,
         }
     }
 }
@@ -524,6 +533,18 @@ impl From<crate::clock::SourcesDisagree> for Caveat {
     }
 }
 
+/// A period-search caveat as a sentence.
+fn period_search_text(c: &Caveat) -> String {
+    match *c {
+        Caveat::PeriodMayBeNoise { rho, span_s } => may_be_noise_text(rho, span_s),
+        Caveat::PeriodSearchUncalibrated { model, mix, span_s } => {
+            uncalibrated_text(model, mix, span_s)
+        }
+        Caveat::TimingModelMisfit { misfit, limit } => misfit_text(misfit, limit),
+        _ => unreachable!("not a period-search caveat"),
+    }
+}
+
 /// [`Caveat::PeriodMayBeNoise`] as a sentence.
 fn may_be_noise_text(rho: f64, span_s: f64) -> String {
     use crate::longterm::{MEASURED_CROSSING_IN, SHORT_CORRELATED_CROSSING_IN};
@@ -532,6 +553,16 @@ fn may_be_noise_text(rho: f64, span_s: f64) -> String {
          the next, over {:.0} min), the period search names a cycle in noise alone about 1 \
          time in {SHORT_CORRELATED_CROSSING_IN}, not 1 in {MEASURED_CROSSING_IN}: this cycle may be noise.",
         span_s / 60.0
+    )
+}
+
+/// [`Caveat::TimingModelMisfit`] as a sentence.
+fn misfit_text(misfit: f64, limit: f64) -> String {
+    format!(
+        "The beat timing's noise is not the wander plus jitter the period search was \
+         checked against: its spectrum sits {misfit:.2} decades from that shape, where \
+         99 in 100 simulated takes sit within {limit:.2}. How often it names a cycle in \
+         this noise alone is not known: this cycle may be noise."
     )
 }
 

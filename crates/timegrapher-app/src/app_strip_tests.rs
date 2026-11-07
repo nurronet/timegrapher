@@ -87,8 +87,8 @@ fn fit_follows_the_take_until_the_strip_is_zoomed_or_panned() {
     // As if the session had grown since the last frame.
     app.strip.set_span(10.0);
     app.follow_fit();
-    assert!((app.strip.span_s - app.latest_s()).abs() < 1e-9);
-    let end = app.latest_s();
+    let end = app.take_span().unwrap().1;
+    assert!((app.strip.span_s - end).abs() < 1e-9);
     app.apply_strip_input(
         StripInput {
             width_factor: 2.0,
@@ -358,9 +358,10 @@ fn the_sound_panes_follow_the_strips_newest_edge() {
     assert_eq!(beats_shown(&mut app), newest);
 }
 
-/// In an upright strip each overlay's axis is a row above it whose near
-/// end's number would sit under the axis's name: the number is left out,
-/// and hovering the row gives the scale end to end.
+/// In an upright strip each overlay's axis is a row above it, its short
+/// name over its unit (#1278), whose near end's number would sit under the
+/// unit: the number is left out, and hovering the row gives the scale end
+/// to end.
 #[test]
 fn hovering_an_overlay_axis_row_gives_its_range() {
     let ctx = themed();
@@ -374,27 +375,166 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
             events,
             ..Default::default()
         };
-        let out = ctx.run(input, |ctx| {
+        ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
-        });
-        super::tests::painted_text(&out)
+        })
     };
     for _ in 0..3 {
         pass(&mut app, Vec::new());
     }
-    let drawn = pass(&mut app, Vec::new());
-    // The first switch in the settings is Amplitude.
-    assert!(drawn.contains("Amp. (°)"), "{drawn}");
+    let out = pass(&mut app, Vec::new());
+    let drawn = super::tests::painted_text(&out);
+    // The first switch in the settings is Amplitude: its short name, and
+    // its unit on the line under it, never "Amp. (°)" on one line.
+    let at = |words: &str| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text() == words => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+    };
+    let name = at("Amp.").unwrap_or_else(|| panic!("{drawn}"));
+    let unit = at("(°)").unwrap_or_else(|| panic!("{drawn}"));
+    assert!(unit.top() >= name.bottom() - 1.0, "{name:?} {unit:?}");
+    assert!((unit.left() - name.left()).abs() < 0.5, "one column");
+    assert!(!drawn.contains("Amp. (°)"), "{drawn}");
     assert!(!drawn.contains("Amplitude: "), "no hover yet: {drawn}");
     // The row: under the key's line, across the middle of the strip.
     let over = egui::pos2(450.0, 30.0);
     pass(&mut app, vec![egui::Event::PointerMoved(over)]);
-    let hovered = pass(&mut app, Vec::new());
+    let hovered = super::tests::painted_text(&pass(&mut app, Vec::new()));
     let line = hovered
         .lines()
         .find(|l| l.starts_with("Amplitude: "))
         .unwrap_or_else(|| panic!("{hovered}"));
     assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
+}
+
+/// Upright with two overlays on, each axis row is two lines: its short
+/// name, then its unit with the numbers on the unit's line and none on
+/// the name's; and the first row's unit ends above the second row's name
+/// (#1278).
+#[test]
+fn upright_overlay_rows_put_their_numbers_on_the_units_line() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, true, false];
+    app.strip.horizontal = false;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        }));
+    }
+    let out = out.unwrap();
+    let texts: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                egui::Rect::from_min_size(t.pos, t.galley.size()),
+            )),
+            _ => None,
+        })
+        .collect();
+    // Each row: a unit "(…)" and the name in the same column just over it.
+    let mut rows: Vec<(egui::Rect, egui::Rect)> = texts
+        .iter()
+        .filter(|t| t.0.starts_with('(') && t.0.ends_with(')'))
+        .filter_map(|(_, unit)| {
+            texts
+                .iter()
+                .find(|(_, n)| {
+                    (n.left() - unit.left()).abs() < 0.5 && (n.bottom() - unit.top()).abs() < 1.0
+                })
+                .map(|(_, name)| (*name, *unit))
+        })
+        .collect();
+    rows.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+    assert_eq!(rows.len(), 2, "{texts:?}");
+    for (name, unit) in &rows {
+        let on = |line: &egui::Rect| {
+            texts
+                .iter()
+                .filter(|(_, r)| {
+                    r.left() > name.right() && (r.center().y - line.center().y).abs() < 1.0
+                })
+                .count()
+        };
+        assert!(on(unit) > 0, "numbers on the unit's line: {texts:?}");
+        assert_eq!(on(name), 0, "none on the name's line: {texts:?}");
+    }
+    assert!(rows[0].1.bottom() <= rows[1].0.top() + 0.5, "{rows:?}");
+}
+
+/// Upright, "Late" and "Early" sit on a line of their own under the ms
+/// numbers, clear of the end ones (#1278: never "Late −60" or "+60Early").
+#[test]
+fn an_upright_strips_early_and_late_stand_clear_of_its_numbers() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.strip.horizontal = false;
+    for width in [460.0, 900.0] {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(width, 500.0));
+        let mut out = None;
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            out = Some(ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+            }));
+        }
+        let out = out.unwrap();
+        let texts: Vec<(String, egui::Rect)> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    egui::Rect::from_min_size(t.pos, t.galley.size()),
+                )),
+                _ => None,
+            })
+            .collect();
+        let at = |w: &str| {
+            texts
+                .iter()
+                .find(|t| t.0 == w)
+                .unwrap_or_else(|| panic!("{w}: {texts:?}"))
+                .1
+        };
+        // The ms numbers: signed, or 0, under the plot.
+        let numbers: Vec<egui::Rect> = texts
+            .iter()
+            .filter(|t| t.0 == "0" || t.0.starts_with('+') || t.0.starts_with('−'))
+            .map(|t| t.1)
+            .filter(|r| r.top() > at("Late").top() - 30.0)
+            .collect();
+        assert!(!numbers.is_empty(), "{texts:?}");
+        for word in ["Late", "Early"] {
+            let w = at(word);
+            // Inside the pane, never cut off at its foot.
+            assert!(w.bottom() <= screen.bottom(), "{word} {w:?} in {screen:?}");
+            for n in &numbers {
+                assert!(w.top() >= n.bottom() - 1.0, "{word} {w:?} under {n:?}");
+            }
+            for (other, r) in texts.iter().filter(|t| t.0 != word) {
+                assert!(
+                    !w.expand(2.0).intersects(*r),
+                    "{word} {w:?} runs into {other} {r:?}"
+                );
+            }
+        }
+    }
 }
 
 /// Lying across, an overlay's axis is a column right of the strip under
@@ -569,4 +709,44 @@ fn masked_beats_are_faint_under_the_hatching() {
         .expect("the hatching");
     let last_masked = *masked.last().unwrap();
     assert!(last_masked < first_line && last_masked < first_full);
+}
+
+/// The take's span ends at its newest beat or its newest reading, whichever
+/// is later, with none before there is either; with Fit on, the strip's
+/// newest edge is that end and never past it (#1256).
+#[test]
+fn the_takes_span_ends_at_its_newest_beat_or_reading() {
+    let empty = TimegrapherApp::with_devices(Vec::new(), None);
+    assert_eq!(empty.take_span(), None);
+    let mut app = synthetic(40.0, 0.0);
+    let beat = app.latest_s();
+    assert!(beat > 30.0, "{beat}");
+    let reading = |t| TrendPoint {
+        t,
+        rate_s_per_day: Some(1.0),
+        amplitude_deg: Some(280.0),
+        amplitude_even_deg: None,
+        amplitude_odd_deg: None,
+        beat_error_unlock_ms: None,
+        beat_error_ms: None,
+        rate_error_s_per_day: None,
+        amplitude_error_deg: None,
+        beat_error_unlock_error_ms: None,
+        heard: true,
+    };
+    app.trend = vec![reading(beat - 10.0)];
+    assert_eq!(app.take_span(), Some((0.0, beat)));
+    app.trend = vec![reading(beat - 10.0), reading(beat + 5.0)];
+    assert_eq!(app.take_span(), Some((0.0, beat + 5.0)));
+
+    app.strip_fit = true;
+    app.strip_end = None;
+    assert_eq!(app.strip_end_s(), beat + 5.0);
+    app.strip_end = Some(1e9);
+    assert_eq!(app.strip_end_s(), beat + 5.0);
+    app.strip_end = Some(12.0);
+    assert_eq!(app.strip_end_s(), 12.0);
+    app.strip_fit = false;
+    app.strip_end = None;
+    assert_eq!(app.strip_end_s(), beat);
 }

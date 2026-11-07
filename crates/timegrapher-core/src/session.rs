@@ -2269,7 +2269,7 @@ fn reading_coverage(
     use crate::confidence::{Coverage, FigureCoverage};
     let rate_total = beats.first().map_or(0, |b| {
         crate::clean::nominal_windows(
-            b.time,
+            crate::clean::lay_from(b.time, holes.true_time(from), RATE_WINDOW_STEP_S),
             holes.true_time(to),
             RATE_WINDOW_S,
             RATE_WINDOW_STEP_S,
@@ -2278,9 +2278,14 @@ fn reading_coverage(
         .count()
     });
     let part = window_part_s(&log.amplitude_windows);
-    let amp_total = crate::clean::nominal_windows(0.0, log.duration_s, part, part)
-        .filter(|&(a, b)| window_span_in(a, b, from, to))
-        .filter(|&(a, b)| holes.clear(holes.true_time(a), holes.true_time(b)))
+    // The cells of the take's one tiling on true time (#636) that the
+    // stretch takes in by the rule its windows are taken in by (middle
+    // inside, half-open) and that are clear of every hole: with nothing
+    // culled, every one holds a window.
+    let (from_t, to_t) = (holes.true_time(from), holes.true_time(to));
+    let amp_total = crate::clean::nominal_windows(0.0, holes.true_time(log.duration_s), part, part)
+        .filter(|&(a, b)| window_span_in(a, b, from_t, to_t))
+        .filter(|&(a, b)| holes.clear(a, b))
         .count();
     FigureCoverage {
         rate: Coverage {
@@ -2381,6 +2386,50 @@ mod reading_coverage_tests {
             .caveats
             .iter()
             .any(|c| matches!(c, crate::measure::Caveat::ReadingWindows { .. })));
+    }
+
+    /// A stretch whose first beat falls just after a tiling point lays its
+    /// rate windows from that point, and counts its span from it too, so
+    /// none is used that the span does not hold (#636).
+    #[test]
+    fn rate_coverage_counts_the_windows_laid_from_the_stretchs_start() {
+        let mut log = log();
+        for b in &mut log.beats {
+            b.time += 0.3;
+        }
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.coverage.rate.windows_used, 11);
+        assert_eq!(m.coverage.rate.windows_in_span, 11);
+    }
+
+    /// The cells a stretch takes in are counted on true time (#636): on a
+    /// sound card well off true time, its ends read on the audio's own
+    /// clock would take in another number of cells.
+    #[test]
+    fn coverage_counts_cells_on_true_time() {
+        let log = log();
+        let k = 1.0 + 0.005;
+        let pairs: Vec<(f64, f64)> = (0..=6)
+            .map(|i| {
+                let t = i as f64 * 10.0;
+                (t, 1.79e9 + t * k)
+            })
+            .collect();
+        let clock = ClockFit::new(&pairs).unwrap();
+        let map = crate::longrun::true_time(Some(&clock), &[]);
+        let (from, to) = (map(10.0), map(40.9));
+        let cells = |a: f64, b: f64| {
+            (0..40)
+                .filter(|c| (a..b).contains(&(2.0 * *c as f64 + 1.0)))
+                .count()
+        };
+        assert_ne!(
+            cells(from, to),
+            cells(10.0, 40.0),
+            "the test needs ends that differ"
+        );
+        let m = measure(&log, Some(&clock), 10.0, 40.9);
+        assert_eq!(m.coverage.amplitude.windows_in_span, cells(from, to));
     }
 
     #[test]

@@ -355,8 +355,13 @@ impl<'a> Cuts<'a> {
             .collect()
     }
 
-    /// Fits over whole bins of `len` seconds, one every `step` seconds
-    /// from the first beat at or after `from` up to `to` (true time). A
+    /// Fits over whole bins of `len` seconds, one every `step` seconds on
+    /// the take's one tiling ([`nominal_windows`]), laid from the
+    /// stretch's start `from` up to `to` (true time): the first from the
+    /// tiling point at or after `from`, as a window snaps forward from its
+    /// stretch's start, not from the stretch's first beat (#636). The
+    /// tiling points before the one at or before the first beat hold no
+    /// beat and are skipped. A
     /// bin is fitted on the beats from its start up to its end when it is
     /// [`whole`](Self::whole) with parts of `part` seconds, so none spans
     /// a hole or a dropout, and none needs a beat at or past its end.
@@ -376,7 +381,7 @@ impl<'a> Cuts<'a> {
         let Some(first) = beats.get(beats.partition_point(|x| x.time < from)) else {
             return out;
         };
-        for (s, _) in nominal_windows(first.time, to, len, step) {
+        for (s, _) in nominal_windows(lay_from(first.time, from, step), to, len, step) {
             if self.whole(beats, s, s + len, part) {
                 let lo = beats.partition_point(|x| x.time < s);
                 let hi = beats.partition_point(|x| x.time < s + len);
@@ -390,6 +395,14 @@ impl<'a> Cuts<'a> {
             }
         }
         out
+    }
+
+    /// The cell of `cell` seconds of the take's one tiling on true time
+    /// (cells laid from its first sample, #636) that the window `w`
+    /// belongs to: the one its middle lies in, half-open, as
+    /// [`Self::window_in`] takes a window into a stretch.
+    pub fn cell_of(&self, w: &AmplitudeWindow, cell: f64) -> i64 {
+        (self.window_middle(w) / cell).floor() as i64
     }
 
     /// A window's middle on true time: where it sits for every rule that
@@ -424,6 +437,19 @@ impl<'a> Cuts<'a> {
     }
 }
 
+/// Where [`Cuts::windows`] lays its windows of `step` seconds from, in a
+/// stretch from `from` whose first beat is at `first`: the tiling point
+/// at or before that beat, never before `from` ([`nominal_windows`]
+/// then snaps it forward onto the tiling), as a window snaps forward
+/// from its stretch's start, not from its first beat (#636).
+pub fn lay_from(first: f64, from: f64, step: f64) -> f64 {
+    if step > 0.0 && step.is_finite() {
+        ((first / step).floor() * step).max(from)
+    } else {
+        first
+    }
+}
+
 /// The cuts masked stretches make (audio seconds), for a reading that
 /// takes its cuts as breaks: a break of no width at each end, sorted. The
 /// stretches' beats are left out as well ([`crate::session::mask_log`]),
@@ -455,15 +481,32 @@ pub fn covered(beats: &[Beat], start: f64, end: f64, part: f64) -> bool {
     })
 }
 
-/// The nominal grid shared by window fits and their coverage denominator.
-/// A missing fit does not remove its nominal window from this grid.
+/// The first time at or after `t` that is a whole number of `step`s from
+/// the take's first sample (true time 0): where the one tiling (#636)
+/// starts a window. Never before `t`, so a window snapped onto it never
+/// reaches back into settling or a cut.
+pub fn on_tiling(t: f64, step: f64) -> f64 {
+    if step > 0.0 && step.is_finite() && t.is_finite() {
+        (t / step).ceil() * step
+    } else {
+        t
+    }
+}
+
+/// The nominal grid shared by window fits and their coverage denominator:
+/// windows of `len` seconds, one every `step`, each starting on a whole
+/// number of steps from the take's first sample (true time 0, #636), the
+/// first at or after `from`, the last ending by `to`. So a 10 s reading
+/// is five 2 s cells of the one tiling, and readings from any surface
+/// line up. A missing fit does not remove its nominal window from this
+/// grid.
 pub fn nominal_windows(
     from: f64,
     to: f64,
     len: f64,
     step: f64,
 ) -> impl Iterator<Item = (f64, f64)> {
-    let mut start = from;
+    let mut start = on_tiling(from, step);
     std::iter::from_fn(move || {
         if !start.is_finite()
             || !to.is_finite()
@@ -875,6 +918,26 @@ mod tests {
         assert_eq!(h.kind, HoleKind::ClockStep);
         assert!(!cuts.clear(h.start_s - 5.0, h.end_s + 5.0));
         assert!(cuts.clear(h.end_s, h.end_s + 10.0));
+    }
+
+    /// A stretch starting at 12.3 s, just after a cut, whose first beat
+    /// lies past it: the tiling point before that beat (10 s) is before
+    /// the stretch's start, so the first window starts on the next one,
+    /// never before the stretch (#636), though beats before it would cover
+    /// a window from 10 s.
+    #[test]
+    fn no_window_starts_before_its_stretch() {
+        let beats: Vec<Beat> = (0..480)
+            .map(|i| Beat {
+                index: i,
+                time: i as f64 * 0.125,
+                quality: 1.0,
+            })
+            .collect();
+        let w = Cuts::none().windows(&beats, 28800, 12.3, 60.0, 10.0, 5.0, 2.0);
+        assert_eq!(w.first().map(|w| w.start_s), Some(15.0));
+        assert_eq!(lay_from(12.375, 12.3, 5.0), 12.3);
+        assert_eq!(lay_from(12.375, 0.0, 5.0), 10.0);
     }
 
     #[test]
