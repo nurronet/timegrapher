@@ -563,3 +563,7 @@ impl TimegrapherApp {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../app_menus_tests.rs"]
+mod tests;
