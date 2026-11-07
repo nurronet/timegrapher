@@ -1,0 +1,28 @@
+# Chapter 7, The Tick Tock Profile: an opened take, the profile given the
+# larger share of the window.
+output = "profile.png"
+
+# 1 Layout, 2 dB Scale, 3 Edges, 4 Sounds, 5 Time From, 6 Export,
+# 7 the facts, 8 an edge, 9 Drop and Peak, 10 a sound, 11 the band,
+# 12 the noise floor.
+marks = [[1, 82, 637], [2, 116, 637], [3, 164, 637], [4, 198, 637],
+         [5, 246, 637], [6, 294, 637], [7, 310, 700], [8, 805, 657],
+         [9, 1290, 643], [10, 1010, 805], [11, 1400, 722], [12, 1800, 775]]
+
+layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Sound", "Scope"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true

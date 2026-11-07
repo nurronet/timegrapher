@@ -32,6 +32,8 @@ Each figure is a TOML file:
   Awake and the update check off.
 - `marks`: numbered marks drawn on the finished picture, each
   `[number, x, y]` in its pixels, for the text under it to cite.
+  `[number, x, y, tx, ty]` adds a thin line from the mark to `(tx, ty)`,
+  for a control too crowded to put the mark beside.
 - `actions`: steps before the picture: `["click", x, y]` (in the window,
   below its title bar), `["drag", x1, y1, x2, y2]`, `["hover", x, y]` (the
   pointer left there, to show a hover), `["key", "ctrl+o"]`, `["type", "text"]`,

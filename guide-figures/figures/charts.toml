@@ -1,0 +1,28 @@
+# Chapter 8, Charts and Distributions: the Charts pane in front, on five
+# minutes of an opened take, the Amplitude and Beat Error charts turned on.
+output = "charts.png"
+
+actions = [["sleep", 25], ["click", 61, 546], ["click", 93, 546], ["sleep", 2]]
+
+# 1 the reading switches, 2 Fit, 3 Export, 4 the Amplitude key, 5 the Beat
+# Error key.
+marks = [[1, 96, 637], [2, 190, 637], [3, 238, 637], [4, 1488, 780], [5, 1575, 914]]
+
+layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Charts", "Sound", "Scope"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 300
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
+

@@ -132,7 +132,7 @@ Rest the pointer on a figure to see what stands behind it.
 
 | Card | The hover adds |
 | --- | --- |
-| **Rate** | The sound card's clock (M3). **Listening,** with a correction kept for the input, the big figure stays on the card's clock and the hover adds the corrected rate, labelled **True Clock**. **On an opened take** with its own clock (a clock log, USB lines, or a correction saved with it), the big figure is already corrected, and the hover says by how much and from what, as in the picture. Then the beats the readings are fitted to ("79 beats in 10 s"), and the **jitter**. |
+| **Rate** | The sound card's clock (M3). **Listening,** with a correction kept for the input, the big figure stays on the card's clock and the hover adds the corrected rate, labelled **True Clock**. **On an opened take** with its own clock (USB lines, a clock log that measured the card well enough, or a correction saved with it), the big figure is already corrected, and the hover says by how much and from what, as in the picture. Then the beats the readings are fitted to ("79 beats in 10 s"), and the **jitter**. |
 | **Amplitude** | The amplitude of the Ticks and of the Tocks, apart. |
 | **Beat Error** | The beat error timed from the drop, beside the big figure's, timed from the unlock. |
 
@@ -211,4 +211,5 @@ On a narrow window the cards also take smaller forms by themselves:
 
 ---
 
-Previous: [The Window](04-the-window.md)
+Previous: [The Window](04-the-window.md) ·
+Next: [The Paper Strip](06-paper-strip.md)

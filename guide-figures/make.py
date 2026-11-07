@@ -344,10 +344,15 @@ def mark(out, fig):
 def draw_marks(out, marks):
     """Numbered marks, each [number, x, y] in the finished picture's pixels:
     a near-black disc with a white ring and a white number, apart from
-    every colour the app gives meaning to."""
+    every colour the app gives meaning to. [number, x, y, tx, ty] also
+    draws a thin line from the mark to (tx, ty), for a part too crowded
+    to put the mark beside."""
     r = 13
     args = ["convert", out, "-font", "DejaVu-Sans-Bold", "-pointsize", "16"]
-    for n, x, y in marks:
+    for n, x, y, *to in marks:
+        if to:
+            args += ["-stroke", "#1c1c1e", "-strokewidth", "2", "-fill", "none",
+                     "-draw", f"line {x},{y} {to[0]},{to[1]}"]
         args += ["-fill", "#1c1c1e", "-stroke", "white", "-strokewidth", "2",
                  "-draw", f"circle {x},{y} {x + r},{y}",
                  "-fill", "white", "-stroke", "none", "-gravity", "NorthWest",
@@ -545,6 +550,12 @@ def stop_player(env):
             pass
 
 
+def app_window(env):
+    """The app's window id, waiting until it is shown."""
+    return subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],
+                          env=env, capture_output=True, text=True).stdout.split()[0]
+
+
 def act(step, env):
     """One step before the picture: ["click", x, y] (in the window),
     ["drag", x1, y1, x2, y2], ["hover", x, y] (the pointer left there, for a
@@ -555,8 +566,7 @@ def act(step, env):
     if kind == "sleep":
         time.sleep(step[1])
     elif kind == "click":
-        win = subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],
-                             env=env, capture_output=True, text=True).stdout.split()[0]
+        win = app_window(env)
         # Relative to the app's own window, below its title bar.
         # Hover first, then press and release, as a hand would: egui acts
         # on what is under the pointer as of the frame before.
@@ -566,13 +576,11 @@ def act(step, env):
         time.sleep(0.5)
         subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
     elif kind == "hover":
-        win = subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],
-                             env=env, capture_output=True, text=True).stdout.split()[0]
+        win = app_window(env)
         subprocess.run(["xdotool", "mousemove", "--window", win, str(step[1]), str(step[2])], env=env)
     elif kind == "drag":
         # ["drag", x1, y1, x2, y2]: press, move in steps as a hand would, release.
-        win = subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],
-                             env=env, capture_output=True, text=True).stdout.split()[0]
+        win = app_window(env)
         x1, y1, x2, y2 = step[1:5]
         subprocess.run(["xdotool", "mousemove", "--window", win, str(x1), str(y1)], env=env)
         time.sleep(0.5)

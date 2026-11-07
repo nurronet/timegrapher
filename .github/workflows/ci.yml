@@ -321,12 +321,14 @@ jobs:
         run: |
           python3 .github/ci/cut_corpus.py corpus "$RUNNER_TEMP/corpus-cut" --files 3
           echo "TIMEGRAPHER_CORPUS=$RUNNER_TEMP/corpus-cut" >> "$GITHUB_ENV"
+      # wheel_lines and take_context also read corpus takes, and skip
+      # without the corpus, so they run here where it is whole (#1362).
       - name: Required real-recording analyze/session equivalence
         if: matrix.check == 'engine' && steps.changes.outputs.full != 'false'
         timeout-minutes: 10
         run: |
           set -o pipefail
-          cargo test --locked --release -p timegrapher-core --test equivalence -- --nocapture 2>&1 | tee equivalence.txt
+          cargo test --locked --release -p timegrapher-core --test equivalence --test wheel_lines --test take_context -- --nocapture 2>&1 | tee equivalence.txt
       # #514: each take opened as the app opens it reads what
       # `timegrapher session` reads, to the bit.
       - name: ALSA headers for the app

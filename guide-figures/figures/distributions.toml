@@ -1,0 +1,32 @@
+# Chapter 8, Charts and Distributions: the Distributions pane in front, on five
+# minutes of an opened take, the Rate plot alone (the pane opens so).
+output = "distributions.png"
+
+actions = [["sleep", 25]]
+
+# The toolbar's marks sit in the plot, each with a line up to its control:
+# under it is the summary line.
+# 1 the reading switches, 2 Show, 3 Values, 4 Export, 5 the summary line,
+# 6 the dashed line, 7 the percent scale, 8 a reading.
+marks = [[1, 150, 705, 112, 624], [2, 215, 705, 190, 624], [3, 280, 705, 224, 624],
+         [4, 345, 705, 258, 624], [5, 712, 643],
+         [6, 1500, 712], [7, 140, 828], [8, 380, 955]]
+
+layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Distributions", "Sound", "Scope"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 300
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
+
