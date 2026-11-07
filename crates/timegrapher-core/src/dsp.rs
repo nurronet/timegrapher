@@ -139,9 +139,9 @@ pub fn moving_average(x: &[f32], w: usize) -> Vec<f32> {
 /// (samples past the end of `x` count as zero). FFT overlap-save.
 ///
 /// Never panics. A template that is not all finite numbers matches
-/// nothing, all zeros: one built from no beats is NaN throughout, as a
-/// take too short for a single beat's window gives (#1207). A sample of
-/// `x` that is not a finite number counts as zero.
+/// nothing, all zeros (#1207). Templates from no beats are None at their
+/// source now ([`crate::beats::median_window`], #1210); this stays as the
+/// backstop. A sample of `x` that is not a finite number counts as zero.
 #[allow(clippy::needless_range_loop)]
 pub fn correlate(x: &[f32], template: &[f32]) -> Vec<f32> {
     let m = template.len();

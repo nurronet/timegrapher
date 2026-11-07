@@ -510,8 +510,9 @@ pub fn no_regular_beat_text(jitter_us: Option<f64>, fraction: Option<f64>) -> St
     }
 }
 
-/// Median of the windows around the given beat times (sample by sample).
-pub fn median_template(env: &[f32], fs: f64, times: &[f64]) -> Vec<f32> {
+/// Median of the windows around the given beat times (sample by sample),
+/// or None when no beat's window fits in the sound ([`median_window`]).
+pub fn median_template(env: &[f32], fs: f64, times: &[f64]) -> Option<Vec<f32>> {
     median_window(env, fs, times, PRE_S, POST_S)
 }
 
@@ -522,13 +523,13 @@ pub fn median_template(env: &[f32], fs: f64, times: &[f64]) -> Vec<f32> {
 pub const TEMPLATE_TRIM: f64 = 0.25;
 
 /// Trimmed mean (see [`TEMPLATE_TRIM`]) of the windows from `PRE_S` before
-/// to `POST_S` after each time.
-pub fn trimmed_template(env: &[f32], fs: f64, times: &[f64]) -> Vec<f32> {
+/// to `POST_S` after each time, or None when no window fits.
+pub fn trimmed_template(env: &[f32], fs: f64, times: &[f64]) -> Option<Vec<f32>> {
     trimmed_template_from(env, fs, times, PRE_S)
 }
 
 /// [`trimmed_template`] from `pre_s` before each time.
-pub fn trimmed_template_from(env: &[f32], fs: f64, times: &[f64], pre_s: f64) -> Vec<f32> {
+pub fn trimmed_template_from(env: &[f32], fs: f64, times: &[f64], pre_s: f64) -> Option<Vec<f32>> {
     window_stat(env, fs, times, pre_s, POST_S, |c| {
         crate::dsp::trimmed_mean_f32(c, TEMPLATE_TRIM)
     })
@@ -537,14 +538,21 @@ pub fn trimmed_template_from(env: &[f32], fs: f64, times: &[f64], pre_s: f64) ->
 /// Median of the windows from `pre_s` before to `post_s` after each time,
 /// taken per sample as the upper of the two middle values
 /// ([`upper_median_f32`]). Windows that run off either end of the envelope
-/// are left out.
+/// are left out, and with none left there is no template: None, not a
+/// template of NaN (#1210).
 ///
 /// Not the mean of the two middle values (#839): on the seeded stand noise
 /// that would read all four known false watches as `no_watch`, but a brief
 /// watch after a stand noise would then read as a watch over the whole
 /// file, which `a_watch_heard_briefly_after_the_stand_noise_is_no_watch_live_or_saved`
 /// keeps as no watch. That trade-off is #844's to settle.
-pub fn median_window(env: &[f32], fs: f64, times: &[f64], pre_s: f64, post_s: f64) -> Vec<f32> {
+pub fn median_window(
+    env: &[f32],
+    fs: f64,
+    times: &[f64],
+    pre_s: f64,
+    post_s: f64,
+) -> Option<Vec<f32>> {
     window_stat(env, fs, times, pre_s, post_s, upper_median_f32)
 }
 
@@ -555,7 +563,7 @@ fn window_stat(
     pre_s: f64,
     post_s: f64,
     stat: impl Fn(&mut [f32]) -> f32,
-) -> Vec<f32> {
+) -> Option<Vec<f32>> {
     let pre = (pre_s * fs).round() as usize;
     let post = (post_s * fs).round() as usize;
     let len = pre + post;
@@ -566,15 +574,19 @@ fn window_stat(
             (c >= 0 && c as usize + len <= env.len()).then_some(c as usize)
         })
         .collect();
+    if starts.is_empty() {
+        return None;
+    }
     let mut col = vec![0.0f32; starts.len()];
-    (0..len)
+    let window = (0..len)
         .map(|k| {
             for (c, &s) in col.iter_mut().zip(&starts) {
                 *c = env[s + k];
             }
             stat(&mut col)
         })
-        .collect()
+        .collect();
+    Some(window)
 }
 
 /// Find every beat in an envelope.
@@ -616,14 +628,19 @@ pub fn detect_levelled(env: &[f32], fs: f64, bph: u32) -> (Vec<Beat>, Vec<f32>, 
         let step = (times.len() / 1000).max(1);
         let times: Vec<f64> = times.into_iter().step_by(step).collect();
         let drop = if times.len() >= 3 {
-            let wide = median_window(env, fs, &times, PRE_S, PRE_S);
-            drop_offset(&wide, fs, origin).unwrap_or(0.0)
+            median_window(env, fs, &times, PRE_S, PRE_S)
+                .and_then(|wide| drop_offset(&wide, fs, origin))
+                .unwrap_or(0.0)
         } else {
             0.0
         };
         sample.extend(times.iter().map(|t| t + drop));
     }
-    let template = median_template(env, fs, &sample);
+    // Sound too short for a beat's window has no template, so no beats:
+    // an empty template, never one of NaN (#1210).
+    let Some(template) = median_template(env, fs, &sample) else {
+        return (Vec::new(), Vec::new(), None);
+    };
     let (beats, level) = detect_after(env, fs, bph, &template, None);
     // Pass 2 lines the beats up more closely than the maxima did, so a
     // template rebuilt from its beats is sharper for the final pass.
@@ -637,7 +654,9 @@ pub fn detect_levelled(env: &[f32], fs: f64, bph: u32) -> (Vec<Beat>, Vec<f32>, 
     if sample.len() < 10 {
         return (beats, template, level);
     }
-    let template = median_template(env, fs, &sample);
+    let Some(template) = median_template(env, fs, &sample) else {
+        return (beats, template, level);
+    };
     let (beats, level) = detect_after(env, fs, bph, &template, None);
     (beats, template, level)
 }
@@ -1497,6 +1516,29 @@ fn pearson(a: &[f32], b: &[f32]) -> f64 {
 mod tests {
     use super::*;
 
+    /// Where no beat's window fits in the sound, or there are no beats,
+    /// there is no template: None, not a template of NaN, and `detect`
+    /// finds no beats with an empty template (#1210).
+    #[test]
+    fn no_window_that_fits_gives_no_template() {
+        let fs = 8000.0;
+        let short = vec![0.5f32; ((PRE_S + POST_S) * fs) as usize - 1];
+        let at = [PRE_S];
+        assert_eq!(median_template(&short, fs, &at), None);
+        assert_eq!(median_window(&short, fs, &at, PRE_S, PRE_S), None);
+        assert_eq!(trimmed_template(&short, fs, &at), None);
+        assert_eq!(trimmed_template_from(&short, fs, &at, PRE_S), None);
+        let long = vec![0.5f32; 8000];
+        assert_eq!(median_template(&long, fs, &[]), None);
+        let one = median_template(&long, fs, &[0.5]).expect("one window fits");
+        assert_eq!(one.len(), ((PRE_S + POST_S) * fs).round() as usize);
+        assert!(one.iter().all(|v| v.is_finite()));
+        for env in [short, vec![0.0f32; 1]] {
+            let (beats, template) = detect(&env, fs, 28_800);
+            assert!(beats.is_empty() && template.is_empty(), "{}", env.len());
+        }
+    }
+
     /// Sound with no beat energy at any rate guesses no rate of its own:
     /// every rate scores 0 in digital silence, and the fastest (72,000)
     /// must not win on that (#476).
@@ -2151,7 +2193,7 @@ mod tests {
                 .map(|b| b.time)
                 .collect();
             assert_eq!(good.len(), beats);
-            median_template(&x, 8000.0, &good) == template
+            median_template(&x, 8000.0, &good) == Some(template)
         };
         assert!(rebuilt(10));
         assert!(!rebuilt(9));
