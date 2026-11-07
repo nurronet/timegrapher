@@ -459,7 +459,7 @@ pub fn title(k: SeriesKind) -> &'static str {
 
 /// A value in a series' units for an axis or a note.
 fn value_text(k: SeriesKind, v: f64, step: f64) -> String {
-    let v = timegrapher_core::chart_scale::axis_number(v, step);
+    let v = true_minus(&timegrapher_core::chart_scale::axis_number(v, step));
     match k {
         SeriesKind::Rate => format!("{v} s/d"),
         SeriesKind::Amplitude => format!("{v}°"),
@@ -2098,7 +2098,7 @@ fn mark_label(
 
 /// A plain number for a linear axis, with no "-0.0".
 fn plain(v: f64, step: f64) -> String {
-    timegrapher_core::chart_scale::axis_number(v, step)
+    true_minus(&timegrapher_core::chart_scale::axis_number(v, step))
 }
 
 /// A number in a series' units to about three figures.

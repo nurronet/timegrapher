@@ -1005,3 +1005,52 @@ fn the_distributions_line_gives_negative_figures_a_true_minus() {
     assert!(line.contains(" to \u{2212}"), "{line}");
     assert!(!line.contains(" -"), "{line}");
 }
+
+/// A watch running slow puts the Charts' rate scale and the
+/// Distributions' axis below zero, and every number there carries a true
+/// minus, not a hyphen (#1402).
+#[test]
+fn negative_axis_numbers_carry_a_true_minus() {
+    let spread = |t: f64| 0.7 * (((t / 10.0) as usize * 7) % 30) as f64 / 29.0;
+    let mut app = synthetic_varying(300.0, -12.0, spread);
+    app.hist_readings = true;
+    app.update_dist_readings(None);
+    let ctx = themed();
+    fn texts(shape: &egui::Shape, into: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => into.push(t.galley.text().to_string()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, into)),
+            _ => {}
+        }
+    }
+    type Pane = fn(&mut TimegrapherApp, &mut egui::Ui);
+    let panes: [(&str, Pane); 2] = [
+        ("Charts", |app, ui| app.charts_pane(ui)),
+        ("Distributions", |app, ui| {
+            app.histogram(ui, SeriesKind::Rate)
+        }),
+    ];
+    for (name, pane) in panes {
+        let mut all = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(900.0, 400.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| pane(&mut app, ui));
+            });
+            all.clear();
+            out.shapes.iter().for_each(|c| texts(&c.shape, &mut all));
+        }
+        let minus = all.iter().filter(|t| t.starts_with('\u{2212}')).count();
+        assert!(minus >= 2, "{name}: {all:?}");
+        let hyphen = all
+            .iter()
+            .find(|t| t.starts_with('-') && t[1..].starts_with(|c: char| c.is_ascii_digit()));
+        assert!(hyphen.is_none(), "{name}: {hyphen:?} in {all:?}");
+    }
+}

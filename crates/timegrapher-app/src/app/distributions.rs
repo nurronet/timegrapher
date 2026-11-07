@@ -175,7 +175,9 @@ impl TimegrapherApp {
             .show_x(false)
             .show_y(false)
             .x_axis_formatter(move |m, r| {
-                let v = timegrapher_core::chart_scale::axis_number(m.value, m.step_size);
+                let v = timegrapher_core::figure_text::true_minus(
+                    &timegrapher_core::chart_scale::axis_number(m.value, m.step_size),
+                );
                 theme::clear_of_ends(format!("{v}{unit_owned}"), m.value, r, plot_w)
             })
             .y_axis_min_width(SIDE_AXIS_W)

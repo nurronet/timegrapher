@@ -1011,7 +1011,9 @@ fn one_chart(
             )
         })
         // Never "-0 s/d" on the zero line.
-        .y_axis_formatter(move |m, _| format!("{}{unit}", axis_number(m.value, m.step_size)))
+        .y_axis_formatter(move |m, _| {
+            true_minus(&format!("{}{unit}", axis_number(m.value, m.step_size)))
+        })
         .show(ui, |p| {
             grid.draw(p, pal);
             p.line(

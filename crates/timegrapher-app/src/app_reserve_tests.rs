@@ -73,6 +73,20 @@ fn a_long_runs_two_charts_show_whole_in_a_small_window() {
             .count();
         assert!(w < 1000.0 || rate_labels >= 2, "{w}: {shown:?}");
         assert!(!shown.iter().any(|t| t.starts_with("-0")), "{w}: {shown:?}");
+        // The rate falls below zero: its scale's negative values carry a
+        // true minus, never a hyphen (#1402).
+        assert!(
+            shown
+                .iter()
+                .any(|t| t.starts_with('\u{2212}') && t.ends_with(" s/d")),
+            "{w}: {shown:?}"
+        );
+        assert!(
+            !shown
+                .iter()
+                .any(|t| t.starts_with('-') && t[1..].starts_with(|c: char| c.is_ascii_digit())),
+            "{w}: {shown:?}"
+        );
     }
 }
 
@@ -108,8 +122,9 @@ fn axis_labels(shown: &[String], unit: &str) -> usize {
     shown
         .iter()
         .filter(|t| {
+            // A screen's minus is the true one (#1402).
             t.strip_suffix(unit)
-                .is_some_and(|v| v.parse::<i32>().is_ok())
+                .is_some_and(|v| v.replace('\u{2212}', "-").parse::<i32>().is_ok())
         })
         .count()
 }
