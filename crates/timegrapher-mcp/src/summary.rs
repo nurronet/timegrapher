@@ -350,17 +350,14 @@ fn series(doc: &Value) -> Option<String> {
         let Some(h) = s["headline"].as_str() else {
             continue;
         };
-        let unit = match s["unit"].as_str().unwrap_or("") {
-            "deg" => "°",
-            u => u,
-        };
+        let (gap, unit) =
+            timegrapher_core::steadiness::unit_after(s["unit"].as_str().unwrap_or(""));
         let mut facts = Vec::new();
         if let (Some(n), Some(step)) = (s["readings"].as_u64(), s["step_s"].as_f64()) {
             facts.push(format!("{n} readings of {step:.0} s"));
         }
         let mut say = |key: &str, what: &str| {
             if let Some(v) = s[key].as_f64() {
-                let gap = if unit == "°" { "" } else { " " };
                 facts.push(format!("{what} {v:.2}{gap}{unit}"));
             }
         };
