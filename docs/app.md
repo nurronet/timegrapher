@@ -618,7 +618,7 @@ has **New Test**, which sets a test up on a clear Bench and starts
 nothing (sound not saved is asked about first, and a Quick Listen still
 listening stops once asked): the pane shows, the Position card reads Dial
 Up, where the test begins, and the status bar says "Positions Test ·
-Ready, not started". **Start Test** on the Listen card then starts it;
+… · Ready" (the Listen card says Ready beside Start Test). **Start Test** on the Listen card then starts it;
 **Cancel Test**, in New Test's place, leaves the Bench as it was. For a
 watch, **Wind** picks **Full Wind** (just after winding) or **24 Hours
 After**, set against a full-wind test picked each time in **Compare

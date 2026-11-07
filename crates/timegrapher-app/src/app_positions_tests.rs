@@ -625,7 +625,7 @@ fn a_new_positions_test_waits_ready_on_the_bench() {
     assert_eq!(app.position, Position::DialUp);
     let words = app.status_words();
     assert!(
-        words.contains("Positions Test") && words.contains("Ready, not started"),
+        words.contains("Positions Test") && words.ends_with(" · Ready"),
         "{words}"
     );
     // With no watch, nothing holds Start Test back.
