@@ -22,7 +22,22 @@ pub struct Redactor {
 impl Redactor {
     /// For the computer this runs on, from its environment.
     pub fn from_env() -> Self {
-        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        Self::from_vars(
+            |k| std::env::var(k).ok(),
+            || std::fs::read_to_string("/etc/hostname").ok(),
+        )
+    }
+
+    /// From the environment variables `var` gives (an empty one counts as
+    /// unset), on Linux and macOS or on Windows: the home folder from
+    /// `HOME` or `USERPROFILE`, the user name from `USER` or `USERNAME`,
+    /// and the host name from `HOSTNAME` or `COMPUTERNAME`, else from
+    /// `hostname_file`, the text of `/etc/hostname`.
+    fn from_vars(
+        var: impl Fn(&str) -> Option<String>,
+        hostname_file: impl FnOnce() -> Option<String>,
+    ) -> Self {
+        let var = |k: &str| var(k).filter(|v| !v.is_empty());
         let home = var("HOME").or_else(|| var("USERPROFILE"));
         let mut homes = Vec::new();
         if let Some(h) = home {
@@ -34,8 +49,7 @@ impl Redactor {
             homes.push(h);
         }
         let host = var("HOSTNAME").or_else(|| var("COMPUTERNAME")).or_else(|| {
-            std::fs::read_to_string("/etc/hostname")
-                .ok()
+            hostname_file()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         });
@@ -191,5 +205,98 @@ mod tests {
         );
         // A one-letter name is never taken out.
         assert_eq!(replace_word("a b", "a", "<user>").1, 0);
+    }
+
+    /// A lookup of these variables, as an environment would give them.
+    fn vars(set: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let set: Vec<(String, String)> = set
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |k| set.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn linux_and_mac_names_come_from_their_variables() {
+        let r = Redactor::from_vars(
+            vars(&[
+                ("HOME", "/home/ann/"),
+                ("USERPROFILE", "/elsewhere"),
+                ("USER", "ann"),
+                ("USERNAME", "other"),
+                ("HOSTNAME", "bench"),
+            ]),
+            || panic!("the host name is in HOSTNAME"),
+        );
+        // The trailing slash goes, so a path keeps its own after `~`.
+        assert_eq!(r.home, ["/home/ann"]);
+        assert_eq!(r.user.as_deref(), Some("ann"));
+        assert_eq!(r.host.as_deref(), Some("bench"));
+        assert_eq!(r.counts, [0; 3]);
+    }
+
+    #[test]
+    fn windows_names_come_from_their_variables() {
+        let mut r = Redactor::from_vars(
+            vars(&[
+                ("HOME", ""),
+                ("USERPROFILE", "C:\\Users\\Ann\\"),
+                ("USER", ""),
+                ("USERNAME", "Ann"),
+                ("COMPUTERNAME", "BENCH-PC"),
+            ]),
+            || None,
+        );
+        // As written, and with each backslash doubled as JSON writes it.
+        assert_eq!(r.home, ["C:\\\\Users\\\\Ann", "C:\\Users\\Ann"]);
+        assert_eq!(r.user.as_deref(), Some("Ann"));
+        assert_eq!(r.host.as_deref(), Some("BENCH-PC"));
+        let j = serde_json::to_string(&json!({"log": "C:\\Users\\Ann\\x.wav"})).unwrap();
+        assert_eq!(
+            r.apply(&format!("{j} C:\\Users\\Ann\\y.wav on BENCH-PC")),
+            r#"{"log":"~\\x.wav"} ~\y.wav on <host>"#
+        );
+        assert_eq!(
+            r.summary(),
+            json!({"home_folder": 2, "user_name": 0, "host_name": 1})
+        );
+    }
+
+    #[test]
+    fn the_host_name_falls_back_to_its_file() {
+        let host = |file: Option<&str>| {
+            let file = file.map(str::to_string);
+            Redactor::from_vars(vars(&[("HOSTNAME", "")]), || file).host
+        };
+        assert_eq!(host(Some("bench\n")).as_deref(), Some("bench"));
+        assert_eq!(host(Some(" \n")), None);
+        assert_eq!(host(None), None);
+        // With nothing set, nothing is taken out.
+        let mut r = Redactor::from_vars(vars(&[]), || None);
+        assert!(r.home.is_empty() && r.user.is_none());
+        assert_eq!(r.apply("/home/ann on bench"), "/home/ann on bench");
+    }
+
+    #[test]
+    fn the_logs_kept_are_this_weeks_files_that_match() {
+        let dir = std::env::temp_dir().join(format!("tg-redact-logs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("b.log")).unwrap();
+        let write = |name: &str, age_days: u64| {
+            let f = std::fs::File::create(dir.join(name)).unwrap();
+            let t = SystemTime::now() - Duration::from_secs(age_days * 86400);
+            f.set_modified(t).unwrap();
+        };
+        write("c.log", 0);
+        write("a.log", 6);
+        write("old.log", 8);
+        write("notes.txt", 0);
+        let kept = recent_files(&dir, |n| n.ends_with(".log"));
+        // Sorted by name; not the folder named like a log, the week-old
+        // file, or the one the filter turns away.
+        assert_eq!(kept, [dir.join("a.log"), dir.join("c.log")]);
+        std::fs::remove_dir_all(&dir).unwrap();
+        // A folder that isn't there has no logs.
+        assert!(recent_files(&dir, |_| true).is_empty());
     }
 }
