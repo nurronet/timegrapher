@@ -92,10 +92,12 @@ pub fn no_watch_reason(
 
 /// [`beat_sound_found`] for a stretch whose beats run from `first_s` to
 /// `last_s`, from `snippets`: its clean beats whose envelope windows are
-/// kept, each at its time with whether it is a Tick. `None` when the kept
-/// ones span less than half the stretch (a long take keeps its first
-/// minute's windows alone, [`crate::stream::SNIPPETS_KEPT_S`]), so a
-/// stretch is not judged on a small part of it.
+/// kept, each at its time with whether it is a Tick: the take's one
+/// sample of beat sound ([`crate::sound_sample`]), spread evenly over the
+/// whole take. `None` when the kept ones in the stretch span less than
+/// half of it, so a stretch is not judged on a small part of it, or when
+/// neither side has the [`crate::profile::PROFILE_MIN_BEATS`] an
+/// averaged profile needs.
 pub fn stretch_beat_sound(
     snippets: &[(f64, bool, &[f32])],
     first_s: f64,

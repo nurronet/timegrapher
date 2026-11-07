@@ -32,8 +32,11 @@ Along the very top, the menu bar. **File**: Open Recording… (Ctrl+O, or
 Cmd+O on a Mac), Open Folder…, Save… or Save Again (Ctrl+S), Save As…
 (Ctrl+Shift+S), Save Analysis Only…, New Session and Quit (Ctrl+Q).
 **Edit**: Remove All Masks… (asks first), Settings… (Ctrl+, or Cmd+, on a Mac). **View**: **Bench** (Ctrl+1)
-and **Watches** (Ctrl+2), then a tick for the readings and for each pane,
-and Reset Panes (dimmed in Watches, as the panes are the Bench's).
+and **Watches** (Ctrl+2); then ticks for **Readings**, **Compact
+Readings** (below), the Paper Strip, the Tick Tock Profile and the Scope,
+an **Analysis** submenu with a tick for each Analysis pane, ticks for
+the Positions Test and the Power Reserve Test, and Reset Panes. All but
+Bench and Watches are dimmed in Watches, as the panes are the Bench's.
 **Watches**: **New Watch…**, **Find in Watches…**, which shows the
 Watches view's list with its search ready to type in. Going back to
 Quick Listen is **No Watch (Quick Listen)** on the Calibre card's title
@@ -121,6 +124,15 @@ Not Started). The status bar no longer gives the length. Under them
 **Average Over** and its pop-up ("10 s"), the time the readings are
 fitted over. **Rate**, **Amplitude** and **Beat Error** have no
 controls: each is its figure.
+
+**Compact Readings** (View > Compact Readings, or the pin at the right
+end of the readings) folds the six cards into a strip 44 points tall
+across the top: the position, the watch, ▶ with the take's length and
+state, and the three figures. Clicking the strip opens the full cards
+over the panes, so nothing under them moves; they close when the pointer
+leaves them, or on Esc. The pin stays where it is either way: lit, it
+keeps the cards open in the layout, as they are with Compact Readings
+off.
 
 **Calibre** says which watch is on the microphone, and holds what the
 readings are worked out for, in one place. Its title is the **Watch
@@ -212,8 +224,9 @@ is kept, its sound goes without a question when you quit, start another
 take or open a recording, and is not kept for the next start to offer
 back. Starting a take of a watch ends Quick Listen.
 
-**The Watches view** fills the window below the switch, with its
-toolbar on the switch's row. From 900 points wide, the list of watches
+**The Watches view** fills the window below the switch's row, which
+holds only the menus, the switch and the gear; the view's toolbar is its
+own row at the top of the view. From 900 points wide, the list of watches
 is a 280-point column at the left and the watch picked sits beside it,
 its side growing to about 1100 points and no wider, so each figure stays
 near its date; only the watch's side scrolls. Narrower, one shows at a
@@ -231,12 +244,12 @@ found in each row's name and the line under it is in the accent blue.
 Picking a watch while a Quick Listen is listening asks about its unsaved
 sound first, as the Watch line does, then stops the listening and picks
 the watch; while a watch's take is listening, picking another is
-refused until it stops. Its toolbar has a search (a loupe; in the
-name, calibre, notes and fields), **Sort** by Name, Last Take or Size,
-**List Shows**, and **New Watch…** (a watch and a plus). In a narrow window, Sort and List Shows fold
+refused until it stops. Its toolbar has, left to right, **New Watch…**
+(a watch and a plus), a search (a loupe; in the name, calibre, notes and
+fields), **Sort** by Name, Last Take or Size, and **List Shows**. In a narrow window, Sort and List Shows fold
 into the "…" menu first; New Watch… and the search always stay
-in the row. The Watches folder's location, and Show in Finder for it, are
-in Settings. Clicking **Unsorted Takes** goes back to Quick Listen: no
+in the row. The Watches folder's location, and Show in Finder (Explorer on
+Windows, File Manager on Linux) for it, are in Settings. Clicking **Unsorted Takes** goes back to Quick Listen: no
 watch, no calibre, the default lift angle and the beat rate found from
 the beats (a watch's take on show is put away first; other readings on
 show keep the settings they were measured with, and these apply from
@@ -292,7 +305,8 @@ under it its calibre, beat rate, lift angle and added fields, with
 - **Details**: the fields added to the watch and its notes.
 - **Photos**: a strip of thumbnails (clicking one opens it in the
   computer's own viewer; right-clicking offers **Open**, **Show in
-  Finder** and **Delete…**, asking first; one that can't be read shows
+  Finder** (Show in Explorer on Windows, Show in File Manager on Linux)
+  and **Delete…**, asking first; one that can't be read shows
   its name and "Can't be shown" instead).
 
 Right-clicking a take, or **…**, offers **Open**,

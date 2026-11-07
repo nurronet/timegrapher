@@ -67,19 +67,13 @@ pub struct BeatLog {
     /// after [`crate::breaks::renumber`] the breaks it returns.
     #[serde(skip)]
     pub by_count: Vec<f64>,
-    /// Each clean beat's envelope window ([`crate::profile::snippet`]) with
-    /// the beat's time, for the beats in the first [`SNIPPETS_KEPT_S`] of
-    /// audio, so that a stretch there too short for its timing to be
-    /// assessed can be looked at by its sound ([`BeatLog::beat_sound`]).
+    /// Clean beats' envelope windows ([`crate::profile::snippet`]) with
+    /// each beat's time, sampled evenly across the whole take within a
+    /// fixed budget ([`crate::sound_sample`]), so that a stretch anywhere
+    /// in it can be looked at by its sound ([`BeatLog::beat_sound`]).
     #[serde(skip)]
     pub snippets: Vec<(f64, Vec<f32>)>,
 }
-
-/// Seconds of audio, from the start, whose beats keep their envelope
-/// windows in [`BeatLog::snippets`]: enough for a reading after a settling
-/// time, few enough to cost little memory (about 2.6 MB at 28,800 bph and
-/// 48 kHz).
-pub const SNIPPETS_KEPT_S: f64 = 60.0;
 
 impl BeatLog {
     /// Leave out everything before `from_s` (audio seconds): the beats, the
@@ -154,7 +148,7 @@ struct State {
     swaps: Vec<(usize, f64)>,
     clipped_beats: Vec<f64>,
     clipped_samples: usize,
-    snippets: Vec<(f64, Vec<f32>)>,
+    snippets: crate::sound_sample::SoundSample<Vec<f32>>,
 }
 
 impl State {
@@ -227,8 +221,8 @@ impl State {
             }
             self.beats.push(Beat { time: t, ..b });
             if let Some(w) = profile::snippet(env, fs, b.time) {
-                if t < SNIPPETS_KEPT_S && b.is_good() {
-                    self.snippets.push((t, w.to_vec()));
+                if b.is_good() {
+                    self.snippets.push(t, w.to_vec());
                 }
                 self.sides.beat(t, b.index, b.quality, w);
             }
@@ -783,7 +777,7 @@ impl State {
             swaps: Vec::new(),
             clipped_beats: Vec::new(),
             clipped_samples: 0,
-            snippets: Vec::new(),
+            snippets: Default::default(),
         }
     }
 
@@ -805,7 +799,7 @@ impl State {
             by_count: crate::breaks::by_count(self.jumps.iter().copied(), self.sides.sided()),
             jumps: self.jumps,
             sided: self.sides.sided().to_vec(),
-            snippets: self.snippets,
+            snippets: self.snippets.into_items(),
         }
     }
 }
@@ -962,11 +956,12 @@ mod tests {
         }));
     }
 
-    /// The envelope windows kept are the good beats' in the first
-    /// SNIPPETS_KEPT_S: none for the faint beats of a quiet stretch
-    /// (−20 dB, 20 to 30 s), and none after.
+    /// The envelope windows kept are the good beats', over the whole take:
+    /// none for the faint beats of a quiet stretch (−20 dB, 20 to 30 s),
+    /// and the beats after the first minute too, within the sample's
+    /// budget.
     #[test]
-    fn snippets_are_the_good_beats_of_the_first_minute() {
+    fn snippets_are_the_good_beats_of_the_whole_take() {
         let mut a = generate(
             &SynthConfig {
                 duration_s: 70.0,
@@ -985,17 +980,15 @@ mod tests {
         let good: Vec<f64> = log
             .beats
             .iter()
-            .filter(|b| b.is_good() && b.time < SNIPPETS_KEPT_S)
+            .filter(|b| b.is_good())
             .map(|b| b.time)
             .collect();
-        assert!(log
-            .beats
-            .iter()
-            .any(|b| !b.is_good() && b.time < SNIPPETS_KEPT_S));
-        assert!(log.beats.iter().any(|b| b.time >= SNIPPETS_KEPT_S));
+        assert!(log.beats.iter().any(|b| !b.is_good()));
         let kept: Vec<f64> = log.snippets.iter().map(|s| s.0).collect();
+        assert!(kept.iter().any(|&t| t >= 65.0), "the end is kept");
+        let budget = crate::sound_sample::SOUND_SAMPLE_BEATS;
         assert!(
-            kept.len() + 2 >= good.len(),
+            (budget / 2..=budget).contains(&kept.len()) && good.len() > budget,
             "{} of {}",
             kept.len(),
             good.len()
