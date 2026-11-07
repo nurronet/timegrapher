@@ -169,11 +169,7 @@ impl TimegrapherApp {
         }
         // A take's fitted view is for the take: listening goes back to the
         // strip as it was.
-        if matches!(self.live_strip, Some((_, fitted)) if fitted == self.strip) {
-            self.strip_fit = self.live_fit;
-        }
-        self.strip = self.live_view();
-        self.live_strip = None;
+        self.restore_live_strip();
         let clocks = match clockstore::ClockStore::load() {
             Ok(s) => s,
             Err(e) => return self.error(format!("Can't load the input's clock correction: {e}")),
@@ -512,6 +508,7 @@ impl TimegrapherApp {
         self.session.discard_recording();
         self.session.clear();
         self.live = None;
+        self.restore_live_strip();
         self.put_masked(Vec::new());
         self.opened_masks = None;
         self.opened_positions = None;
