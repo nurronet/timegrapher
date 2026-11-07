@@ -138,11 +138,10 @@ pub(super) fn grid(
     let in_span = |w: &crate::amplitude::AmplitudeWindow| {
         span.is_none_or(|(from, to)| cuts.window_in(w, from, to))
     };
-    let selected = crate::session::select_beat_errors(
+    let selected = crate::session::select_window_beat_errors(
         cuts.amplitude_windows(&log.amplitude_windows)
             .into_iter()
-            .filter(|w| in_span(w))
-            .map(|w| crate::session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)),
+            .filter(|w| in_span(w)),
     );
     let turned = crate::longrun::beat_error_turns(log, clock, breaks);
     let grid = windows_grid(log, clock, breaks, &|w| {
@@ -215,6 +214,16 @@ mod tests {
         );
         assert!(g.y[..5].iter().all(|&v| v == 0.4));
         assert!(g.y[5..].iter().all(|v| v.is_nan()));
+        // The steadiness figures count the amplitude's windows, and say so.
+        assert!(matches!(
+            selected.caveats().as_slice(),
+            [crate::measure::Caveat::BeatErrorSourceReadings {
+                used: 5,
+                readings: 10,
+                counted: crate::measure::Counted::Windows,
+                ..
+            }]
+        ));
         let (g, selected) = grid(&log, None, &[], Some((10.0, 20.0)));
         assert_eq!(selected.beat_error_source, Some(BeatErrorSource::Drop));
         assert!(g.y[5..].iter().all(|&v| v == 8.0));

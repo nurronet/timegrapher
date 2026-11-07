@@ -219,7 +219,8 @@ fn isochronism_never_subtracts_different_beat_error_sources() {
         [Caveat::BeatErrorSourceReadings {
             source: BeatErrorSource::Unlock,
             used: 1,
-            readings: 2
+            readings: 2,
+            counted: timegrapher_core::measure::Counted::Readings,
         }]
     ));
 }

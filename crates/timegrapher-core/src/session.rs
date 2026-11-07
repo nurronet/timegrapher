@@ -665,7 +665,9 @@ pub fn lead_s(
 
 #[path = "beat_error_aggregate.rs"]
 mod beat_error_aggregate;
-pub use beat_error_aggregate::{select_beat_errors, BeatErrorSelection, BeatErrorSources};
+pub use beat_error_aggregate::{
+    select_beat_errors, select_window_beat_errors, BeatErrorSelection, BeatErrorSources,
+};
 
 /// The event used for a reading's selected beat error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

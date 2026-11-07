@@ -181,6 +181,28 @@ pub enum NoWatchReason {
     NoBeatSound,
 }
 
+/// What a [`Caveat::BeatErrorSourceReadings`] counted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Counted {
+    /// Readings, such as a session's position readings.
+    #[default]
+    Readings,
+    /// The amplitude's windows, [`crate::distribution::STRETCH_S`] long by default
+    /// (`AnalysisConfig::amplitude_window_s`).
+    Windows,
+}
+
+impl Counted {
+    /// The plural name of what was counted, with its length where it has one.
+    pub fn plural(self) -> String {
+        match self {
+            Counted::Readings => "readings".to_string(),
+            Counted::Windows => format!("{:.0} s windows", crate::distribution::STRETCH_S),
+        }
+    }
+}
+
 /// Something that limits how far a measurement can be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -252,6 +274,9 @@ pub enum Caveat {
         source: crate::session::BeatErrorSource,
         used: usize,
         readings: usize,
+        /// What `used` and `readings` count; older reports counted readings.
+        #[serde(default)]
+        counted: Counted,
     },
     /// A figure was read from fewer than the required share of its kept windows.
     ReadingWindows {
@@ -313,7 +338,11 @@ impl Caveat {
                 source,
                 used,
                 readings,
-            } => format!("beat error from the {source} in {used} of {readings} readings"),
+                counted,
+            } => format!(
+                "beat error from the {source} in {used} of {readings} {}",
+                counted.plural()
+            ),
             Caveat::BeatErrorUnknownSource { readings } => {
                 format!("{readings} beat-error readings with no recorded source left out")
             }
@@ -366,8 +395,8 @@ impl Caveat {
             Caveat::NoWatch { .. } => return None,
             Caveat::ReadingWindows { reading, windows_used, windows_in_span } =>
                 format!("The {reading} was read from {windows_used} of {windows_in_span} windows in the kept time."),
-            Caveat::BeatErrorSourceReadings { source, used, readings } =>
-                format!("The beat error uses the {source} in {used} of {readings} readings; readings from the other event were left out."),
+            Caveat::BeatErrorSourceReadings { source, used, readings, counted } =>
+                format!("The beat error uses the {source} in {used} of {readings} {c}; {c} from the other event were left out.", c = counted.plural()),
             Caveat::BeatErrorUnknownSource { readings } =>
                 format!("The beat-error aggregate leaves out {readings} reading{} whose source was not recorded.", plural(*readings)),
             Caveat::BeatErrorFromDrop => {
@@ -1149,7 +1178,7 @@ mod tests {
 
     /// Caveats beside their few words and their sentence, as the app, CLI
     /// and MCP show them.
-    const WORDED: [(Caveat, &str, &str); 24] = [
+    const WORDED: [(Caveat, &str, &str); 25] = [
         (
             Caveat::ReadingWindows {
                 reading: confidence::Figure::Amplitude,
@@ -1164,10 +1193,22 @@ mod tests {
                 source: crate::session::BeatErrorSource::Unlock,
                 used: 5,
                 readings: 7,
+                counted: Counted::Readings,
             },
             "beat error from the unlock in 5 of 7 readings",
             "The beat error uses the unlock in 5 of 7 readings; readings from the other \
              event were left out.",
+        ),
+        (
+            Caveat::BeatErrorSourceReadings {
+                source: crate::session::BeatErrorSource::Unlock,
+                used: 123,
+                readings: 140,
+                counted: Counted::Windows,
+            },
+            "beat error from the unlock in 123 of 140 2 s windows",
+            "The beat error uses the unlock in 123 of 140 2 s windows; 2 s windows from the \
+             other event were left out.",
         ),
         (
             Caveat::BeatErrorUnknownSource { readings: 1 },
@@ -1403,6 +1444,7 @@ mod tests {
                 source: crate::session::BeatErrorSource::Drop,
                 used: 5,
                 readings: 7,
+                counted: Counted::Readings,
             },
         ];
         let mut list = Vec::new();
