@@ -917,10 +917,9 @@ const NEW_TAKES: [(NewTake, &str, &str); 3] = [
         "Wind the watch fully and listen in one position until it stops, saved into the watch",
     ),
 ];
-const NEW_SESSION_HINT: &str = "Clear everything and start again with the next watch or \
-     position. Listening carries on into the new session, unless closing the kept sound \
-     fails. Unsaved sound is asked about first, except a Quick Listen's, which goes without \
-     a question.";
+const NEW_SESSION_HINT: &str = "Clear everything and start again with the next watch or position. \
+     Listening carries on into the new session, unless closing the kept sound fails. Unsaved \
+     sound is asked about first, except a Quick Listen's, which goes without a question.";
 const SAVE_HINT: &str = "Save the sound of this session so far, with its clock log and \
      settings, to analyse again later. With a watch picked in the Watches view, the take is \
      saved into that watch, named for when it started; after Quick Listen, into Unsorted. \
