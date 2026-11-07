@@ -840,13 +840,15 @@ impl Recorder {
             // the open audio file's header again: keep its start as it is
             // now.
             let mut head = Vec::new();
-            File::open(&source)?
+            let opened = File::open(&source)?;
+            (&opened)
                 .take(SNAPSHOT_HEAD.min(metadata.len()))
                 .read_to_end(&mut head)?;
             files.push(PendingFile {
                 source,
                 len: metadata.len(),
                 head,
+                opened: Some(opened),
                 held: None,
                 as_flac: false,
                 open_sound: false,
@@ -883,13 +885,15 @@ impl Recorder {
             let source = self.dir.join(name);
             let len = regular_file(&source)?.len();
             let mut head = Vec::new();
-            File::open(&source)?
+            let opened = File::open(&source)?;
+            (&opened)
                 .take(SNAPSHOT_HEAD.min(len))
                 .read_to_end(&mut head)?;
             return Ok(PendingFile {
                 source,
                 len,
                 head,
+                opened: Some(opened),
                 held: None,
                 as_flac: false,
                 open_sound: true,
@@ -907,6 +911,7 @@ impl Recorder {
             source,
             len,
             head: Vec::new(),
+            opened: None,
             held: Some(held),
             open_sound: false,
             grow_from: None,
@@ -1015,6 +1020,9 @@ struct PendingFile {
     /// Its first bytes then, copied instead of what is there by the time
     /// of the copy. Empty for a closed audio file.
     head: Vec<u8>,
+    /// The file `head` was read from, held open from the start of the save:
+    /// the open hour may be kept as FLAC, its WAV gone, before the copy (#1409).
+    opened: Option<File>,
     /// A closed audio file, held open from the start of the save; left
     /// alone when the copy already holds it whole.
     held: Option<File>,
@@ -1045,6 +1053,14 @@ impl PendingFile {
             (Some(held), true) => crate::flac::same_samples_file(held, there).unwrap_or(false),
             (Some(_), false) => len == self.len,
             (None, _) => false,
+        }
+    }
+
+    /// The file to copy from: held open since the save began, else by name.
+    fn reader(&self) -> io::Result<File> {
+        match &self.opened {
+            Some(f) => f.try_clone(),
+            None => File::open(&self.source),
         }
     }
 
@@ -1186,7 +1202,7 @@ fn grow_in_place(f: &PendingFile, from: u64, to: &Path) -> io::Result<bool> {
     if out.metadata()?.len() != from {
         return Ok(false);
     }
-    let mut source = File::open(&f.source)?;
+    let mut source = f.reader()?;
     source.seek(io::SeekFrom::Start(from))?;
     out.seek(io::SeekFrom::Start(from))?;
     let rest = f.len - from;
@@ -1211,7 +1227,7 @@ fn grow_in_place(f: &PendingFile, from: u64, to: &Path) -> io::Result<bool> {
 fn copy_as_it_was(f: &PendingFile, to: &Path) -> io::Result<()> {
     let mut out = File::create(to)?;
     out.write_all(&f.head)?;
-    let mut from = File::open(&f.source)?;
+    let mut from = f.reader()?;
     from.seek(io::SeekFrom::Start(f.head.len() as u64))?;
     let rest = f.len - f.head.len() as u64;
     let copied = io::copy(&mut from.take(rest), &mut out)?;
@@ -1921,6 +1937,32 @@ mod tests {
             fs::read(again.join("clock.csv")).unwrap(),
             fs::read(r.dir().join("clock.csv")).unwrap()
         );
+        drop(r);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A save begun while an hour is being written still copies it when a
+    /// pause keeps that hour as FLAC, its WAV gone, before the copy (#1409).
+    #[test]
+    fn a_save_copies_the_open_hour_though_it_is_kept_as_flac_before_the_copy() {
+        let (mut r, base) = save_fixture("open-hour-converted");
+        append_second(&mut r, 2);
+        let pending = r.begin_save(&base.join("saved"), "", None, &[]).unwrap();
+        for second in 3..=14 {
+            append_second(&mut r, second);
+        }
+        r.pause().unwrap();
+        let t = std::time::Instant::now();
+        while !r.converting.iter().all(|(_, job)| job.is_finished()) {
+            assert!(t.elapsed().as_secs() < 60, "the hour was not kept as FLAC");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!r.dir().join("audio-001.wav").exists());
+        assert!(r.dir().join("audio-001.flac").exists());
+        let copy = pending.write().unwrap();
+        r.note_saved(&copy);
+        let first = crate::audio::load(&copy.dir.join("audio-001.wav")).unwrap();
+        assert_eq!(first.samples.len(), 2 * 8000);
         drop(r);
         let _ = fs::remove_dir_all(&base);
     }
