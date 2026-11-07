@@ -1051,10 +1051,7 @@ fn misfit_without(
     let removed = distinct_lines(removed, span);
     let rest = without_lines(detrended, &removed);
     let more = standing_harmonics(&spectrum(&rest, w), components, kept, detrended.step);
-    let more: Vec<f64> = distinct_lines(more, span)
-        .into_iter()
-        .filter(|&f| removed.iter().all(|&r| (f - r).abs() * span >= 0.5))
-        .collect();
+    let more = extra_lines(more, &removed, span);
     let rest = if more.is_empty() {
         rest
     } else {
@@ -1070,6 +1067,16 @@ fn distinct_lines(mut lines: Vec<f64>, span: f64) -> Vec<f64> {
     lines.sort_by(f64::total_cmp);
     lines.dedup_by(|a, b| (*a - *b).abs() * span < 0.5);
     lines
+}
+
+/// The further lines `more`, Hz, kept distinct ([`distinct_lines`]) and
+/// less any within half a resolution of a line in `removed`: fitted twice,
+/// a line leaves the joint fit singular.
+fn extra_lines(more: Vec<f64>, removed: &[f64], span: f64) -> Vec<f64> {
+    distinct_lines(more, span)
+        .into_iter()
+        .filter(|&f| removed.iter().all(|&r| (f - r).abs() * span >= 0.5))
+        .collect()
 }
 
 /// `g` less the least-squares fit of sines at `lines`, Hz, fitted jointly
@@ -1393,6 +1400,94 @@ pub fn rate_rows(rows: &[Vec<f64>], period_s: f64) -> Vec<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lines within half a resolution merge before the joint fit: a 15 s
+    /// cycle's 4th harmonic and a 60 s cycle's 16th are one line; a line a
+    /// whole resolution off is not (#1299).
+    #[test]
+    fn lines_within_half_a_resolution_are_one() {
+        let span = 600.0;
+        assert_eq!(
+            distinct_lines(vec![4.0 / 15.0, 16.0 / 60.0, 0.1], span).len(),
+            2
+        );
+        let near = vec![0.2, 0.2 + 0.4 / span, 0.2 + 1.0 / span];
+        assert_eq!(distinct_lines(near, span), vec![0.2, 0.2 + 1.0 / span]);
+    }
+
+    /// A further harmonic on a line already taken out is not fitted twice;
+    /// one more than half a resolution off is (#1299).
+    #[test]
+    fn a_further_line_on_a_kept_one_is_dropped() {
+        let (span, kept) = (600.0, 16.0 / 60.0);
+        let more = extra_lines(vec![4.0 / 15.0, 0.5], &[kept + 0.1 / span], span);
+        assert_eq!(more, vec![0.5]);
+        assert_eq!(extra_lines(vec![kept + 0.6 / span], &[kept], span).len(), 1);
+    }
+
+    /// The bar a further harmonic must pass is the one noise passes once in
+    /// [`EXTRA_LINE_P`]⁻¹ over those tried: on a flat spectrum a line at 10
+    /// times the mean stands (the bar is ln(29/0.01), about 8), one at 6
+    /// times does not, and none stands without a line (#1299).
+    #[test]
+    fn a_further_harmonic_stands_past_its_bar() {
+        let tau = std::f64::consts::TAU;
+        let g = series(600, 1.0, |t| (tau * t / 60.0).sin(), 0.1, 13);
+        let c = Component {
+            period_s: 60.0,
+            harmonics: 1,
+            ..analyse(&g, &LongConfig::default()).components.remove(0)
+        };
+        let mean = 1.0 / std::f64::consts::LN_2;
+        let sp = |lines: &[(usize, f64)]| {
+            let mut power = vec![1.0; 400];
+            for &(h, x) in lines {
+                power[10 * h] = x * mean;
+            }
+            Spectrum {
+                df: 1.0 / 600.0,
+                pad: 1,
+                white: Vec::new(),
+                power,
+                rho: 0.0,
+            }
+        };
+        let kept = |c: &Component| c.harmonics as usize;
+        let cs = std::slice::from_ref(&c);
+        let found = standing_harmonics(&sp(&[(3, 10.0), (5, 6.0)]), cs, kept, 1.0);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!((found[0] - 3.0 / 60.0).abs() < 1e-12, "{found:?}");
+        assert!(standing_harmonics(&sp(&[]), cs, kept, 1.0).is_empty());
+    }
+
+    /// A timing take with a cycle reads its misfit limit at the mix fitted
+    /// once the cycle is out, not at the search's, which the cycle's line
+    /// shifts: here 1.4 searched, 4.1 with the cycle out, whose limits
+    /// differ (#1299).
+    #[test]
+    fn the_misfit_limit_is_read_at_the_residual_mix() {
+        let (step, n) = (0.25, 21600);
+        let mut z = crate::synth::Rng::new(37);
+        let (mut walk, cfg) = (0.0, LongConfig::default());
+        let y = (0..n)
+            .map(|i| {
+                walk += 5e-7 * z.normal();
+                let t = i as f64 * step;
+                walk + 1e-4 * z.normal() + if t % 60.0 < 8.0 { 6e-4 } else { 0.0 }
+            })
+            .collect();
+        let g = Grid { t0: 0.0, step, y };
+        let r = analyse_timing(&g, &cfg);
+        assert!(!r.components.is_empty());
+        let (mix, _) = misfit_without(&r.detrended, &r.components, &cfg);
+        let at = |m: f64| {
+            null::levelling(NullModel::Timing, g.span(), step, m).and_then(|l| l.misfit_p99)
+        };
+        let (searched, residual) = (at(r.search.null.mix), at(mix));
+        assert!(residual.is_some());
+        assert_ne!(searched, residual, "mixes {} and {mix}", r.search.null.mix);
+        assert_eq!(r.search.null.misfit_limit, residual);
+    }
 
     /// Thinning averages the finite cells of near-equal chunks, leaves an
     /// empty chunk empty, and leaves a small raster as it is (#512).
