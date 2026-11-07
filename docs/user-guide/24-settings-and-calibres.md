@@ -103,4 +103,4 @@ its own.
 ---
 
 Previous: [Takes and Sound Files](23-takes-and-sound-files.md) ·
-[Contents](README.md)
+Next: [The Command Line](25-command-line.md)

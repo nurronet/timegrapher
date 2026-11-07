@@ -26,8 +26,8 @@ Settings…** (**Timegrapher > Settings…** on a Mac), or **Ctrl+,**
 | 7 | **Done** | Closes Settings. So do Escape and a click outside. | |
 
 - **Automatic Gain** appears here too, for an input whose automatic gain
-  the app can switch. It isn't in this picture: the virtual microphone
-  used for it has none.
+  the app can switch. Keep it off: see [Automatic Gain](#automatic-gain).
+  It isn't in this picture: the virtual microphone used for it has none.
 - In this picture **Input Level** reads "Not adjustable here", for the
   same reason.
 
@@ -80,20 +80,54 @@ flat.
 
 ### Automatic Gain
 
-**What it is:** the microphone turning its own gain up and down as the
-sound changes.
+**Keep automatic gain off, wherever it is offered.** The app's switch
+says so too: "Keep this off."
 
-**Why it matters:** it changes the level between and during ticks, which
-moves the unlock and the drop.
+**What it is:** the microphone, or the computer, turning the gain up
+and down by itself to keep speech at an even loudness. It is made for
+voices, not for timing a watch.
 
-- The switch shows only for an input whose automatic gain the app can
-  reach. It is **off by default**, and kept for each input.
+**Why it must be off:** a timegrapher reads the shape of each tick, and
+automatic gain changes that shape from one tick to the next.
+
+- **Between ticks** it turns the gain up, so the background noise rises
+  through each gap. The quiet unlock, the first sound of the beat,
+  arrives at a high gain.
+- **On each tick** it turns the gain down, so the tick is squashed.
+- **Amplitude and beat error** are timed from the unlock and the drop
+  (chapter 1). When their loudness keeps changing, so can where the app
+  finds them, and both readings can move with the gain, not the watch.
+- **The level means little:** the Peak meter and the signal figure
+  measure a level that keeps being changed, so setting Input Level by
+  them doesn't hold.
+- **The rate** is the least affected, since it comes from the time
+  between many beats, but the rest of the take is not to be trusted.
+
+A cheap USB stand often arrives with automatic gain on and its level at
+the top. With it off, every tick is heard at the same gain, the one
+**Input Level** sets.
+
+**Where to turn it off:**
+
+- **In the app:** the **Automatic Gain** switch here. It shows only for
+  an input whose automatic gain the app can reach. It is **off by
+  default**, and kept for each input.
 - Each time the app opens the input, it sets the switch again. Some
   stands turn it back on each time they are plugged in.
 - If the microphone reports a different setting, the row says so.
-- The switch's absence doesn't prove the sound is unprocessed. Turn off
-  noise suppression and any "voice" processing in the system's settings
-  too.
+- **In the system:** on Windows, the input's Properties in the Sound
+  control panel can show an AGC tickbox, and some sound drivers add
+  their own; on Linux, the sound card's mixer can have an automatic gain
+  switch, which the app's switch sets where it can reach it. Turn off
+  noise suppression, echo cancelling and any "voice" or "enhancement"
+  processing there too.
+- **From the command line:** `timegrapher devices --agc-off` turns a USB
+  microphone's automatic gain off on a Mac or Windows (chapter 25).
+- The switch's absence doesn't prove the sound is unprocessed.
+
+**How to tell it is on:** `timegrapher doctor` reports when the
+background rises by more than 3 dB through the gap between ticks, the
+mark automatic gain leaves (below).
 
 ## The Signal Figure
 
