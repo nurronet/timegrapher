@@ -107,7 +107,7 @@ ticks are heard; it names the exact mixer setting to change (on Linux, the
 
 ### For AI agents
 
-Every command takes `--json` and prints one document on a versioned schema
+Every command but `synth` takes `--json` and prints one document on a versioned schema
 with the software version and the input it read. See
 [docs/agent-interface.md](docs/agent-interface.md). The
 [watchmaker skill](skills/watchmaker/SKILL.md) teaches an agent to run the
