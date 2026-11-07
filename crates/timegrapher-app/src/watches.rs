@@ -77,7 +77,7 @@ pub fn local_minute(utc: &str) -> Option<String> {
     let t = chrono::DateTime::parse_from_rfc3339(utc).ok()?;
     Some(
         t.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H.%M")
+            .format(timegrapher_core::library::TAKE_NAME_TIME)
             .to_string(),
     )
 }
@@ -917,17 +917,24 @@ pub fn new_take_buttons(
 }
 
 /// A take's start in its row: `22 Oct 2026 09:10`, in this computer's
-/// time zone; its folder's name when `session.json` doesn't say.
+/// time zone. A take copied in without its `session.json` (#1272) shows
+/// the start its folder's name gives (core's `named_start`, its recording
+/// computer's time), and a dash when neither says: never the name itself,
+/// which would put a second form in the column and its position beside
+/// the Position column's.
 pub fn started_words(t: &Take) -> String {
-    t.started_utc
+    const SHOWN: &str = "%-d %b %Y %H:%M";
+    if let Some(d) = t
+        .started_utc
         .as_deref()
         .and_then(|u| chrono::DateTime::parse_from_rfc3339(u).ok())
-        .map(|d| {
-            d.with_timezone(&chrono::Local)
-                .format("%-d %b %Y %H:%M")
-                .to_string()
-        })
-        .unwrap_or_else(|| t.name.clone())
+    {
+        return d.with_timezone(&chrono::Local).format(SHOWN).to_string();
+    }
+    t.named_start
+        .as_deref()
+        .and_then(|n| chrono::NaiveDateTime::parse_from_str(n, "%Y-%m-%dT%H:%M").ok())
+        .map_or_else(|| "—".into(), |d| d.format(SHOWN).to_string())
 }
 
 /// A Positions Test take's positions measured and its Mean row: rate,
@@ -1115,6 +1122,53 @@ pub fn takes_buttons(
     act
 }
 
+/// Why Keep Analysis Only can't remove a take's sound, from its session
+/// file `m` alone: one source for the menu, which offers it only when it
+/// can (#1279), and for the removal itself.
+pub fn sound_kept_by_name(m: &timegrapher_core::session::Manifest) -> Option<String> {
+    use timegrapher_core::take::MANIFEST;
+    (m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".")).then(|| {
+        format!(
+            "its {MANIFEST} lists each sound file by name, and only takes whose {MANIFEST} \
+             names the whole folder, as the app writes it, can have their sound removed"
+        )
+    })
+}
+
+/// Why the take `t` in `dir` isn't offered Keep Analysis Only, or none
+/// when it is: `changes` when the watches can be changed and this take's
+/// sound isn't being removed, `keeping` while another's is, and `why` the
+/// reason they can't be. Its session file is read only while its menu is
+/// open: one that lists each sound file by name is refused here, not after
+/// the person confirms (#1279).
+fn keep_refused(
+    t: &Take,
+    dir: &Path,
+    (changes, keeping): (bool, bool),
+    why: &str,
+) -> Option<String> {
+    if !t.audio {
+        Some("This take's sound has already been removed".into())
+    } else if t.incomplete {
+        Some("Files this take lists are missing".into())
+    } else if keeping {
+        Some("Another take's sound is being removed. Wait for it to finish.".into())
+    } else if let Some(b) = take_kept_by_name(dir) {
+        Some(b)
+    } else {
+        (!changes).then(|| why.to_string())
+    }
+}
+
+/// [`sound_kept_by_name`] for the take in `dir`, as a sentence for the
+/// menu: none when its session file can't be read (the removal then says
+/// why).
+fn take_kept_by_name(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join(timegrapher_core::take::MANIFEST)).ok()?;
+    let m = toml::from_str(&text).ok()?;
+    sound_kept_by_name(&m).map(|why| format!("The sound can't be removed: {why}."))
+}
+
 /// A take's menu, for its right click and the Takes row's "…".
 fn take_menu(
     ui: &mut egui::Ui,
@@ -1148,24 +1202,14 @@ fn take_menu(
         act = Some(TakeAction::Show(dir.clone()));
     }
     ui.separator();
+    let refused = keep_refused(t, &dir, (changes, cx.keeping.is_some()), why);
     if ui
-        .add_enabled(
-            changes && t.audio && !t.incomplete && cx.keeping.is_none(),
-            egui::Button::new("Keep Analysis Only…"),
-        )
+        .add_enabled(refused.is_none(), egui::Button::new("Keep Analysis Only…"))
         .on_hover_text(
             "Delete the take's sound to save space and keep its analysis. You are asked \
              first, and told what is lost.",
         )
-        .on_disabled_hover_text(if !t.audio {
-            "This take's sound has already been removed"
-        } else if t.incomplete {
-            "Files this take lists are missing"
-        } else if cx.keeping.is_some() {
-            "Another take's sound is being removed. Wait for it to finish."
-        } else {
-            why
-        })
+        .on_disabled_hover_text(refused.unwrap_or_default())
         .clicked()
     {
         act = Some(TakeAction::KeepAnalysis(dir.clone()));
@@ -1486,8 +1530,15 @@ fn take_hover(
         )),
         _ => {}
     }
+    // Where a start not recorded in the take comes from, or that it is
+    // unknown (#1272).
+    let start = match (&t.started_utc, &t.named_start) {
+        (Some(_), _) => "",
+        (None, Some(_)) => "\n\nStart time from the take folder's name.",
+        (None, None) => "\n\nStart time not recorded.",
+    };
     format!(
-        "{}{figures}\n\n{}",
+        "{}{start}{figures}\n\n{}",
         take_line(t, test, reading),
         if on_show {
             "This take is on show on the Bench. Right-click for more."
@@ -2053,6 +2104,53 @@ fn add_field(ui: &mut egui::Ui, w: &mut Watch) {
 mod tests {
     use super::*;
 
+    /// Keep Analysis Only is offered only for a take whose session file
+    /// names the whole folder, as the app writes it; one that lists each
+    /// sound file by name is told why up front, not after it confirms
+    /// (#1279).
+    #[test]
+    fn keep_analysis_only_is_offered_only_where_it_can_remove_the_sound() {
+        let dir = std::env::temp_dir().join(format!("tg-keep-offer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(timegrapher_core::take::MANIFEST);
+        std::fs::write(&file, "[[recording]]\nfile = '.'\nposition = 'DU'\n").unwrap();
+        assert_eq!(take_kept_by_name(&dir), None);
+        let whole = Take {
+            name: "t".into(),
+            bytes: 0,
+            audio: true,
+            incomplete: false,
+            started_utc: None,
+            named_start: None,
+            duration_s: None,
+            positions: Vec::new(),
+            at_end: None,
+            power_reserve: None,
+        };
+        assert_eq!(keep_refused(&whole, &dir, (true, false), "read only"), None);
+        assert_eq!(
+            keep_refused(&whole, &dir, (false, false), "read only").as_deref(),
+            Some("read only")
+        );
+        std::fs::write(
+            &file,
+            "[[recording]]\nfile = 'a.flac'\n\n[[recording]]\nfile = 'b.flac'\n",
+        )
+        .unwrap();
+        let why = take_kept_by_name(&dir).expect("refused up front");
+        assert!(why.starts_with("The sound can't be removed: its session.toml lists each"));
+        // The menu's item is refused with that reason.
+        assert_eq!(
+            keep_refused(&whole, &dir, (true, false), "read only"),
+            Some(why)
+        );
+        // No session file: the menu doesn't guess; the removal says why.
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(take_kept_by_name(&dir), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// New Take's captions are whole under their buttons in an 800 point
     /// window, where the watch's side is narrowest.
     #[test]
@@ -2199,6 +2297,7 @@ mod tests {
             audio: false,
             incomplete: false,
             started_utc: None,
+            named_start: timegrapher_core::library::named_start("2026-10-22 09.10"),
             duration_s: Some(1800.0),
             positions: vec!["DU".into()],
             at_end: Some(timegrapher_core::library::AtEnd {
@@ -2220,10 +2319,12 @@ mod tests {
             watch_heard: true,
         };
         let r = Some(&reading);
+        // No session.json says when it started: read from a folder named
+        // as the app names a take, else a dash, never the name (#1272).
         assert_eq!(
             take_cells(&t, None, r),
             [
-                "2026-10-22 09.10",
+                "22 Oct 2026 09:10",
                 "DU",
                 "30:00",
                 "+9.8",
@@ -2233,6 +2334,15 @@ mod tests {
             ]
             .map(String::from)
         );
+        let named = |name: &str| {
+            started_words(&Take {
+                name: name.into(),
+                named_start: timegrapher_core::library::named_start(name),
+                ..t.clone()
+            })
+        };
+        assert_eq!(named("2026-11-06 18.30 Dial Up"), "6 Nov 2026 18:30");
+        assert_eq!(named("ym42 copied"), "—");
         // Until its reading is worked out the figures are blank, never
         // the ones the app showed when it saved the take.
         assert_eq!(
@@ -2277,6 +2387,7 @@ mod tests {
             audio: true,
             incomplete: false,
             started_utc: None,
+            named_start: None,
             duration_s: Some(116.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2299,12 +2410,14 @@ mod tests {
         reason = "over the limit before it was set; split it (architecture guide, section 12)"
     )]
     fn a_narrow_takes_table_keeps_its_size_column() {
+        // Written in this computer's time zone: 26, 27 or 28 Oct.
         let take = |name: &str, audio: bool| Take {
             name: name.into(),
             bytes: 1_400_000,
             audio,
             incomplete: false,
-            started_utc: None,
+            started_utc: Some("2026-10-27T12:30:00Z".into()),
+            named_start: None,
             duration_s: Some(60.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2381,7 +2494,7 @@ mod tests {
         assert!(wide.iter().any(|t| t.0 == "Analysis Only"), "{wide:?}");
         assert!(
             wide.iter()
-                .filter(|t| t.0.starts_with("2026-10-27"))
+                .filter(|t| t.0.split(' ').nth(1) == Some("Oct"))
                 .count()
                 == 2,
             "{wide:?}"
@@ -2407,15 +2520,18 @@ mod tests {
         }
         assert!(!texts.iter().any(|t| t.0.contains('(')), "{texts:?}");
         assert!(find("1.4").right() <= w, "{texts:?}");
-        let dates: Vec<_> = texts.iter().filter(|t| t.0.starts_with("202")).collect();
-        assert_eq!(dates.len(), 2, "{texts:?}");
-        assert!(dates.iter().all(|d| d.0.ends_with('…')), "{dates:?}");
         // The date and its tags end before the Position column starts.
         let position = texts
             .iter()
             .filter(|t| t.0 == "DU")
             .map(|t| t.1.left())
             .fold(f32::INFINITY, f32::min);
+        let dates: Vec<_> = texts
+            .iter()
+            .filter(|t| t.1.left() < position && t.0.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        assert_eq!(dates.len(), 2, "{texts:?}");
+        assert!(dates.iter().all(|d| d.0.ends_with('…')), "{dates:?}");
         assert!(
             texts
                 .iter()
@@ -2524,6 +2640,7 @@ mod tests {
             audio: true,
             incomplete: false,
             started_utc: Some("2026-10-26T19:00:00Z".into()),
+            named_start: None,
             duration_s: Some(153.0),
             positions: vec!["DU".into()],
             at_end: None,
@@ -2592,6 +2709,7 @@ mod tests {
             audio: false,
             incomplete: true,
             started_utc: Some("2026-10-20T21:32:00Z".into()),
+            named_start: None,
             duration_s: Some(120.0),
             positions: vec!["DU".into(), "CL".into()],
             at_end: None,
@@ -2685,6 +2803,7 @@ mod tests {
                 audio: false,
                 incomplete: false,
                 started_utc: None,
+                named_start: None,
                 duration_s: None,
                 positions: vec!["DU".into(), "DD".into(), "CU".into()],
                 at_end: None,

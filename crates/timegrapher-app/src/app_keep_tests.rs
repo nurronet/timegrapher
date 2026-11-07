@@ -1062,6 +1062,15 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let d = root.join("Daytona").join(library::TAKES).join(&name);
     assert!(d.is_dir() && !take.exists());
     assert_eq!(Path::new(&app.opened_path), d);
+    // On show, it is Daytona's now: the Bench's card and the status line
+    // name it (#1280).
+    assert_eq!(app.watch_open.as_deref(), Some(daytona_id.as_str()));
+    assert_eq!(app.watch, "Daytona");
+    assert!(
+        app.status_words().contains("· Daytona ·"),
+        "{}",
+        app.status_words()
+    );
     app.answer_take_ask(watches::Ask::Delete {
         take: d.clone(),
         bytes: 0,
@@ -1086,6 +1095,60 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     assert!(added.join("take_part01-001.wav").is_file() && !outside.exists());
     assert_eq!(Path::new(&app.opened_path), added);
     assert_eq!(app.addable_take(), None);
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The take on show, filed from Unsorted Takes under a watch: the Bench
+/// leaves Unsorted Takes for that watch and the status line names it
+/// (#1280).
+#[test]
+fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
+    let base = std::env::temp_dir().join(format!("tg-app-file-shown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let take = lib.unsorted_dir().unwrap().join("2026-10-20 10.00 Dial Up");
+    drop(lib);
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_unsorted();
+    app.take_action(Some(watches::TakeAction::Open(take.clone())));
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    assert!(app.unsorted_open && app.watch_open.is_none());
+
+    app.take_readings.wait();
+    app.move_take(&take, &pepsi);
+    assert!(!app.unsorted_open);
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi.as_str()));
+    assert_eq!(app.watch, "Pepsi");
+    assert!(
+        app.status_words().contains("· Pepsi ·"),
+        "{}",
+        app.status_words()
+    );
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }

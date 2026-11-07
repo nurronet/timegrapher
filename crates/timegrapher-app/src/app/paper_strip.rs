@@ -83,9 +83,24 @@ impl TimegrapherApp {
         self.strip.set_half_width(width);
     }
 
-    /// The time at the strip's newest edge.
+    /// The take's span on every stacked time pane's axis, the fitted
+    /// strip's, the charts' and Readings Over Time's: from its start to its
+    /// end or now, its newest beat or its newest reading, whichever is
+    /// later (a reading's time is its window's end). None before there is
+    /// any (Hugh, #1252).
+    pub(super) fn take_span(&self) -> Option<(f64, f64)> {
+        let end = self.trend.last().map_or(0.0, |p| p.t).max(self.latest_s());
+        (end > 0.0).then_some((0.0, end))
+    }
+
+    /// The time at the strip's newest edge: with Fit on, the take's end,
+    /// as the charts under it end (#1256).
     pub(super) fn strip_end_s(&self) -> f64 {
-        let latest = self.latest_s();
+        let latest = if self.strip_fit {
+            self.take_span().map_or(0.0, |(_, end)| end)
+        } else {
+            self.latest_s()
+        };
         self.strip_end.unwrap_or(latest).min(latest)
     }
 

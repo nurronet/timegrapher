@@ -10,8 +10,9 @@
 use crate::theme::{self, Icon};
 use eframe::egui::{self, RichText, Vec2};
 use std::path::Path;
+use timegrapher_core::clock::ppm_words;
 use timegrapher_core::clockstore::{ClockStore, DeviceClock};
-use timegrapher_core::figure_text::true_minus;
+use timegrapher_core::figure_text::{base_digits, pm_text, true_minus};
 use timegrapher_core::library::Library;
 use timegrapher_core::library::{length_text, size_text};
 
@@ -356,17 +357,6 @@ fn library_buttons(
     act
 }
 
-/// "12.3 ppm fast", "4.0 ppm slow", or "0.0 ppm" for a clock that keeps
-/// time as it reads.
-pub fn ppm_words(ppm: f64) -> String {
-    let size = format!("{:.1} ppm", ppm.abs());
-    if size == "0.0 ppm" {
-        size
-    } else {
-        format!("{size} {}", if ppm > 0.0 { "fast" } else { "slow" })
-    }
-}
-
 /// A rate error in s/d with its sign, "+1.06" or "−0.42", and "0.00" for
 /// one too small to show.
 pub fn sd_words(s_per_day: f64) -> String {
@@ -377,7 +367,7 @@ pub fn sd_words(s_per_day: f64) -> String {
 pub fn error_words(c: &DeviceClock) -> String {
     format!(
         "{}, {} s/d on every rate",
-        ppm_words(c.ppm),
+        ppm_words(c.ppm, c.ppm_sd),
         sd_words(c.rate_error_s_per_day())
     )
 }
@@ -537,9 +527,10 @@ fn kept_row(g: &mut theme::Group<'_>, c: &DeviceClock, current: Option<&str>) ->
     let hint = format!(
         "This input's clock runs {}{}: rates read on it are {} s/d off, and True Clock \
          takes that off. Measured {} UTC.",
-        ppm_words(c.ppm),
+        ppm_words(c.ppm, c.ppm_sd),
         c.ppm_sd
-            .map_or(String::new(), |sd| format!(", give or take {sd:.1} ppm")),
+            .and_then(|sd| pm_text(sd, base_digits::CLOCK))
+            .map_or(String::new(), |sd| format!(", give or take {sd} ppm")),
         sd_words(c.rate_error_s_per_day()),
         c.measured_utc,
     );
@@ -616,8 +607,9 @@ mod tests {
         assert_eq!(sd_words(0.004), "0.00");
         assert_eq!(sd_words(-0.42), "−0.42");
         assert_eq!(sd_words(1.06), "+1.06");
-        assert_eq!(ppm_words(-0.01), "0.0 ppm");
-        assert_eq!(ppm_words(12.3), "12.3 ppm fast");
-        assert_eq!(ppm_words(-12.3), "12.3 ppm slow");
+        assert_eq!(ppm_words(-0.01, None), "0.0 ppm");
+        assert_eq!(ppm_words(12.3, None), "12.3 ppm fast");
+        assert_eq!(ppm_words(-12.3, None), "12.3 ppm slow");
+        assert_eq!(ppm_words(-12.34, Some(0.05)), "12.34 ppm slow");
     }
 }

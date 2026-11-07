@@ -1016,6 +1016,9 @@ pub fn draw_strip(
         .map(|(o, s)| scale_column(ui, &font, o, *s))
         .collect();
     let (r, lane) = strip_rects(resp.rect, view, extras.gutter, &cols, row_h);
+    if view.horizontal {
+        crate::theme::note_time_span(ui.ctx(), r.x_range());
+    }
     let f = Frame {
         painter,
         outer: resp.rect,
@@ -1520,14 +1523,19 @@ impl Frame<'_> {
     }
 
     /// The labels of the time lines across the strip, at whole seconds,
-    /// minutes or hours about 90 points apart, on the time axis; and where
-    /// the lines fall along the strip, in points.
+    /// minutes or hours, on the time axis; and where the lines fall along
+    /// the strip, in points. Lines are far enough apart for their labels:
+    /// lying across, a label's width; down, a label's height, so a
+    /// short strip down still names each minute (#1268).
     fn paint_time_grid(&self) -> Vec<f32> {
         let (painter, g, r) = (&self.painter, &self.g, self.g.r);
         let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
         let along_px = if g.horizontal { r.width() } else { r.height() } as f64;
-        let want = g.span * 90.0 / along_px.max(1.0);
+        // The least room between two labelled lines, points: across, a
+        // label's width ("10:00:00"); down, its height with space each side.
+        let gap = if g.horizontal { 90.0 } else { 40.0 };
+        let want = g.span * gap / along_px.max(1.0);
         let tstep = crate::theme::TIME_STEPS
             .iter()
             .copied()
@@ -2395,6 +2403,53 @@ mod tests {
             assert!(got.iter().all(|i| i.unpaint_at.is_none()), "{p:?}");
             assert!(got.iter().any(|i| i.unmask_at.is_some()), "{p:?}");
         }
+    }
+
+    /// Down, a short strip still names each time line it draws: a 4 min
+    /// strip about 200 points tall labels every minute, not every other
+    /// (#1268). Across, labels stay a label's width apart.
+    #[test]
+    fn a_short_strip_down_labels_each_minute() {
+        let labels = |horizontal: bool, size: Vec2| {
+            let ctx = egui::Context::default();
+            let view = StripView {
+                half_width_ms: 10.0,
+                span_s: 240.0,
+                horizontal,
+            };
+            let extras = Extras {
+                gutter: 46.0,
+                ..Default::default()
+            };
+            let out = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0))),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        draw_strip(ui, &[], 0.125, None, 240.0, &view, &extras, size);
+                    });
+                },
+            );
+            let mut found: Vec<String> = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .filter(|t| ["1:00", "2:00", "3:00"].contains(&t.as_str()))
+                .collect();
+            found.sort();
+            found
+        };
+        assert_eq!(
+            labels(false, Vec2::new(460.0, 230.0)),
+            ["1:00", "2:00", "3:00"]
+        );
+        // Across, 400 points wide: two minutes apart, as before.
+        assert_eq!(labels(true, Vec2::new(400.0, 230.0)), ["2:00"]);
     }
 
     /// Lying across, the key is in the plot's top-left corner, Tick over
