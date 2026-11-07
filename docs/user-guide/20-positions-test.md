@@ -41,7 +41,8 @@ Settle and Each Position are kept between runs.
 1. Wind the watch and put it on the stand **Dial Up**, where the test
    begins.
 2. **New Test**, then **Start Test** on the Listen card. The status bar
-   reads "Positions Test · Dial Down (DD), 2 of 6" as it goes.
+   reads "Positions Test · No watch picked · DD, 2 of 6" as it goes,
+   with the watch's name when one is picked.
 3. The banner says which position it is in, and shows a bar while the
    watch settles and is measured.
 4. When it is done, the banner says which position to turn the watch to.
@@ -65,7 +66,7 @@ rows. Only the measured seconds in each position count.
 
 | Mark | Part | What it shows |
 | --- | --- | --- |
-| 9 | A position's row | Its name with both codes ("Crown Left (CL, 6H)"), its rate, its rate less the average of the positions measured (**From Average**), its amplitude and its beat error (as a size). The position under way reads "Settling", then "Measuring…", then its figures so far. |
+| 9 | A position's row | Its name with both codes ("Crown Left (CL, 6H)"), its rate, its rate less the average of the positions measured (**From Average**), its amplitude and its beat error (as a size). The position under way reads "Settling…", then "Measuring…", then its figures so far. |
 | 10 | **Average** | The mean rate, amplitude and beat error over the positions measured: X in M8. |
 | 11 | **Largest Difference** | The highest less the lowest of each: D for the rate. |
 | 12 | Vertical less horizontal | The mean of the crown positions less the mean of dial up and dial down, for rate and amplitude: DVH. |
@@ -116,7 +117,8 @@ once two positions have figures.
 4. **Start Test** runs the six again. The banner names the hours since
    the full-wind test began.
 
-The pane adds a **Full Wind against N Hours** table: each position's rate
+The pane adds a **Full Wind Against N Hours** table, such as "Full
+Wind Against 24.1 Hours": each position's rate
 and amplitude at full wind and now, and the change; the largest change in
 rate with crown right left out (**Im**); and the size of the change in the
 mean rate (**Ie**). M8 gives how each is worked out.

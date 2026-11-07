@@ -52,7 +52,7 @@ position's change *Δr = r(24 h) − r(full)*:
 
 ```text
 Im    = the Δr largest in size, crown right (12H) left out, signed
-Im*   = the same over all positions
+Im*   = the same over all positions             command line only
 Ie    = | X(24 h) − X(full) |, each X over the positions read in both
 ```
 
@@ -66,8 +66,9 @@ Ie    = | X(24 h) − X(full) |, each X over the positions read in both
 - **Vertical against horizontal, DVH:** in the horizontal positions the
   balance pivots rest on their ends; in the vertical ones on their sides,
   with more friction and a lower amplitude. DVH sums that split.
-- **Crown right left out of Im:** as NIHS 93-10 takes it; the app gives
-  Im* over all six as well.
+- **Crown right left out of Im:** as NIHS 93-10 takes it. The
+  Positions Test pane shows Im and Ie; the command line's `session` gives
+  Im* as well.
 - **The same positions in both states for Ie,** so a position measured
   only once can't move the change in X.
 

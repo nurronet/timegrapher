@@ -63,16 +63,19 @@ Analysis Only picked.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 6 | The result line | The run time in true time (through the sound card's measured clock), how it ended, and the position: "Ran 41 h 12 min · The watch stopped, in Dial Up (DU)". |
-| 7 | The rate | The rate against hours since the first beat, a point for each whole hour. |
+| 7 | The rate | The rate against hours since the first beat: a line through the middle of each hour, an ended run's last part hour included. |
 | 8 | The amplitude | The amplitude against the same hours. |
 | 9 | The hour table | Each hour: its rate (s/d), median amplitude (°), beat error (ms) from the unlock, and how much of the hour its whole 10 s readings cover (Read %). The last hour is as long as is left. |
 
-A beat error from the drop, where the unlock isn't found, is drawn dimmed,
-with a key over the table, and each beat error's hover names its source.
+A beat error from the drop, where the unlock isn't found, or whose source
+wasn't recorded, is drawn grey, with a key over the table ("Grey beat
+errors: from the drop, or source not recorded."), and each beat error's hover names its source.
 Scrolled down, the table's titles stay at the top.
 
 While a test runs, about once a minute the hour in progress is measured
-again, and it shows as a finished run's last would, "2 h + 26:28". The
+again, and it shows as a finished run's last would: a part hour labelled
+"2–2.4 h", its hover giving the exact time, "A part hour: 26:28 past
+2 h". The
 charts start from the first whole hour.
 
 ## From a Long Take
