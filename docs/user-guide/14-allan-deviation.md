@@ -15,7 +15,7 @@ the standard way clocks and oscillators are compared for stability (M9).
 
 | Mark | Part | What it shows |
 | --- | --- | --- |
-| 1 | The Allan deviation | The scatter of averages at each averaging time: 10 s, 20 s, 40 s and so on, doubling, while the take holds at least 3 independent pairs of averages that long. |
+| 1 | The Allan deviation | A dot for the scatter of averages at each averaging time, joined by a line: 10 s, 20 s, 40 s and so on, doubling, while the take holds at least 3 independent pairs of averages that long. |
 | 2 | The dashed line | What independent readings would give: the scatter at one reading divided by √(τ ÷ one reading). It falls by half for every fourfold longer average. |
 | 3 | Least scatter | The averaging time with the smallest scatter, and that scatter: the most repeatable average this take gives. Picked only among times with at least 8 independent pairs. |
 | 4 | The dashed line's label | "if the readings were independent", where the line ends. |

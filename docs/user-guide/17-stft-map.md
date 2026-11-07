@@ -17,16 +17,19 @@ from one row to the next. Use it to see whether a wheel's swing held
 through a take, grew as the mainspring ran down, or stopped after a
 knock.
 
-The picture is the first hour of a 7-hour take on another watch with the
-same calibre: the 30-minute take of chapters 9 to 16 is too short.
+The picture is the first hour of a 7-hour take on another watch, a
+Dandong 3285, whose wheel train is the 3235's: the 30-minute take of
+chapters 9 to 16 has no 20 minutes without a reading missing.
 
 ## The Toolbar
 
 | Mark | Control | What it does | Why you'd use it |
 | --- | --- | --- | --- |
 | 1 | **Rate**, **Amplitude**, **Beat Error** | Joined into one control: the map shows one series at a time, Rate first. The Wavelet Map shares the choice. | The map needs the pane's room. Switching between the two maps keeps the same series. |
-| 2 | **dB Scale** | Colours the sizes in decibels below the brightest, over the map's own range of up to 300 to 1, so the key reads from 0 dB down to about −50 dB at most. This map only. | A weak line beside a strong one still shows. |
+| 2 | **dB Scale** | Colours the sizes in decibels below the brightest, over the map's own range of up to 300 to 1, so the key reads from 0 dB down to about −50 dB at most. The key's title then ends "(dB)", and its top end gives the size 0 dB stands for. This map only. | A weak line beside a strong one still shows. |
 | 3 | **Wheel Periods** | Marks the calibre's wheels' periods across the map. On at first; this pane only. | To match a line to a wheel. |
+
+**Export…** and **Info** are as in every Steadiness view (chapter 9).
 
 ## The Map
 
@@ -36,7 +39,7 @@ same calibre: the 30-minute take of chapters 9 to 16 is too short.
 | 5 | A bright patch | A swing that comes and goes. Here at periods of about 3 to 7 minutes, in the windows centred from 25 to 35 minutes: the beat timing wandering slowly. |
 | 6 | An empty area | Not read. Each column is one 20-minute window, drawn 5 minutes wide at its middle; a window with any reading missing is left empty. Here a gap near 49 minutes empties every window that holds it. |
 | 7 | The key | What the colour measures and its unit: **Timing Swing (ms)** for the rate's map, **Amplitude Swing (°)**, **Beat Error Swing (ms)**. From 0 up to the size 99.5% of the cells read stay under, which the brightest colour shares with every size above it. |
-| 8 | A wheel's name | Short names in a lane right of the map, level with their lines: **4th Wheel**, **Esc Wheel**. The pointer on a wheel's line gives its full name and period, "Escape Wheel, 5 s". |
+| 8 | A wheel's name | Short names in a lane right of the map, level with their lines: **4th Wheel**, **Esc Wheel**. The pointer on a wheel's line gives its full name and period, "Escape Wheel: 5 s". |
 | 9 | A cell under the pointer | Its size with its unit, its period and its time: "Timing Swing 0.003 ms · period 4 s · at 20:00". |
 
 **The rate's map is of the beat timing,** in ms, not of the rate in s/d:

@@ -1,4 +1,5 @@
-# Chapter 17, STFT Map: the first hour of a 7-hour take opened, the rate in the
+# Chapter 17, STFT Map: the first hour of a 7-hour take (a Dandong 3285;
+# the corpus id at this pin still says 3235) opened, the rate in the
 # Steadiness view.
 output = "steady-stft.png"
 
@@ -15,8 +16,8 @@ start = 0
 seconds = 3600
 
 [data.session]
-watch = "Dandong 3235"
-calibre = "Dandong 3235"
+watch = "Dandong 3285"
+calibre = "Dandong 3285"
 bph = 28800
 lift = 55
 position = "DU"

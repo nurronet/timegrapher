@@ -70,8 +70,8 @@ p     = (1 − R²) ^ ((n_eff − 3) ÷ 2)
 *p* is its F test against a flat mean, on *n_eff* readings in place of
 *n*. Readings that follow each other wander far enough for a curve to fit
 a good share of them by chance; counting them as fewer allows for that.
-A **slide** is named when the trend explains at least 20% and *p* passes
-Holm's correction (below).
+A **slide** is named when the trend explains at least 20% and *p* is
+under 0.01 and passes Holm's correction (below).
 
 ## The CUSUM
 

@@ -24,7 +24,8 @@ fit    yᵢ ≈ c + a cos(2π tᵢ/P) + b sin(2π tᵢ/P), weighted by w(tᵢ)
 size   = √(a² + b²)
 ```
 
-With every sample present this is the ordinary Hann-windowed FFT. With
+With every sample present this closely matches the ordinary
+Hann-windowed FFT. With
 samples missing it is the weighted **Lomb–Scargle** periodogram (its sums
 read off transforms, as Press and Rybicki 1989): nothing is filled in,
 and a line keeps its size.

@@ -16,8 +16,8 @@ another timegrapher), this is where you read its size.
 
 | Mark | Part | What it does or shows |
 | --- | --- | --- |
-| 1 | **Timing** | For the rate: draws the spectrum of the beat timing itself, in ms, at every period, in place of the swing in rate readings. |
-| 2 | **Wheel Periods** | Marks the calibre's wheels' periods. On at first; this pane only. |
+| 1 | **Timing** | For the rate: draws the spectrum of the beat timing itself, in ms, at every period, in place of the swing in rate readings. Off at first, and greyed while Rate is off. |
+| 2 | **Wheel Periods** | Marks the calibre's wheels' periods. On at first; this pane only. With no calibre picked, or none of its wheels known, it marks one minute and one hour in grey instead. |
 | 3 | The input line | How much of the series the spectrum was read from: "FFT input: 7113 of 7120 grid samples available", and how missing samples were handled. |
 | 4 | The tallest peak | The highest point above both its neighbours, with its period and size: "tallest peak at 30 s: 3.2 s/d peak to peak". |
 | 5 | Twice a turn | A fainter dotted line marked ×2, at half a wheel's period. |

@@ -34,18 +34,21 @@ and its cycle is what Cycle folds (chapter 12).
    (a quadratic on a take under 20 minutes), so the mainspring running
    down isn't scored as a long cycle.
 
-4. **Score.** The power spectrum is divided by the shape that
-   correlated noise gives (AR(1), with ρ read from the series), and by
-   its local median, so that noise scores about 1 at every period. Each
-   trial period sums its first **1, 2, 4 or 8 harmonics**, and the best
-   sum is scored against what noise gives, allowing for the many periods
-   tried:
+4. **Score.** The spectrum is divided by the shape the series' own
+   noise gives (AR(1) at its ρ for readings; a random walk plus white
+   jitter for the beat timing) and by its local median, and each trial
+   period sums its first **1, 2, 4 or 8 harmonics**:
 
    ```text
    score(P, h) = Σₖ₌₁ʰ (normalised power at period P/k)
-   noise: a sum of h such powers follows a Gamma(h, 1) distribution
-   false-alarm chance = chance noise scores this high anywhere in the search
    ```
+
+   Each sum is scored against the spread the same steps give on
+   simulated noise of the take's length and step, and the best score
+   against how high the best score over the whole search runs on that
+   simulated noise: the false-alarm chance for the whole search. Under
+   0.0003, past what the simulation reaches, the text says "beyond the
+   simulated range".
 
 5. **Listed** when the false-alarm chance is under 1% across the whole
    search (the dashed line in Periods), the cycle explains at least 0.5%
@@ -109,12 +112,15 @@ and its cycle is what Cycle folds (chapter 12).
   carries.
 - **Long periods.** Periods over about 15 minutes, half the running median,
   are weakened by it. A barrel's turn of hours is beyond it.
-- **Periods under the shortest searched:** eight bins of the series, 2 s
-  for the rate's timing up to 12 hours, 16 s for the amplitude and beat
+- **Periods under the shortest searched:** 3 s for the rate's timing up
+  to 12 hours, 4 s from 12 to 48 hours and 32 s beyond (the longer of
+  3 s and eight bins of the series), and 16 s for the amplitude and beat
   error. A wheel faster than that can fold into slower cycles that
   aren't there.
-- **A guarantee.** The 1% is under a model of the noise. It is not a
-  calibrated false-alarm rate for every take.
+- **A guarantee.** The 1% is calibrated on simulated noise of those two
+  kinds. Noise of another kind (bursts, flicker) can pass or fail
+  differently; the timing-misfit caveat says when the beat timing
+  doesn't fit its model.
 
 The project's [long-run notes](../long-runs.md#how-the-search-works) give
 the search in full.
