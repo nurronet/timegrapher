@@ -882,6 +882,27 @@ fn time_panes_under_the_strip_put_a_late_time_at_one_place() {
     }
 }
 
+/// Readings Over Time ends at the take's end on its own clock; joined, at
+/// the end of what the tests read, even past the last window, and never
+/// short of that window (Trevor on #1256).
+#[test]
+fn readings_over_time_ends_where_its_clock_does() {
+    let app = synthetic(310.0, 20.0);
+    let log = steady::log_of(app.live.as_ref().unwrap()).unwrap();
+    let mut s = steady::compute(&log, None);
+    let joined = steady::Opts::default();
+    s.upto_s = 0.0;
+    let windows = steady::readings_end(&s, joined);
+    assert!(windows > 200.0, "{windows}");
+    s.upto_s = windows + 60.0;
+    assert_eq!(steady::readings_end(&s, joined), windows + 60.0);
+    let own = steady::Opts {
+        take_span: Some((0.0, 370.0)),
+        ..joined
+    };
+    assert_eq!(steady::readings_end(&s, own), 370.0);
+}
+
 /// With a position marked, Readings Over Time reads that position's
 /// stretches joined end to end, on a clock of their own: its axis says
 /// whose time it is, and none says so on the take's own (Hugh on #1256).
