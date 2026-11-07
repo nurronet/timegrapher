@@ -18,7 +18,7 @@ hairspring, the balance or the escapement, compare it with a take from
 before.
 
 The picture is a whole 7 h 28 min take of a Dandong 3285 in Dial Up,
-fully wound at the start, opened in the app The calibre card names Dandong 3235
+fully wound at the start, opened in the app. The calibre card names Dandong 3235
 because the app's calibre list files the 3285 under that entry, which has
 the same train.
 
