@@ -44,9 +44,9 @@ written have no link.
 19. [Isochronism](19-isochronism.md): the rate at each amplitude, as the curve or the walk
 20. [Positions Test](20-positions-test.md): the six positions, guided, and full wind against 24 hours
 21. [Power Reserve Test](21-power-reserve-test.md): how long a full wind lasts, hour by hour
-22. The Watches View
-23. Takes and Sound Files
-24. Settings and Calibres
+22. [The Watches View](22-watches-view.md): your watches, their details and every take
+23. [Takes and Sound Files](23-takes-and-sound-files.md): keeping, opening and what is in a take
+24. [Settings and Calibres](24-settings-and-calibres.md): General, the Watches folder, and Manage Calibres
 
 **How the Numbers Are Made**
 

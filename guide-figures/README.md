@@ -26,6 +26,14 @@ Each figure is a TOML file:
   `[data.stand]` naming a file for each position (the clip is Dial Up),
   or a clip of another take as `DD = { corpus = ..., file = ..., start = ..., seconds = ... }`.
   With no `[data]` the app opens on its welcome screen.
+- `[[watch]]`: a Watches folder for the app to open on, each watch with
+  `name`, `calibre`, `bph`, `lift`, `notes` and `[[watch.fields]]`
+  (`label`, `kind`, `value`); the name `Unsorted` is the Unsorted takes.
+  Each `[[watch.take]]` is a whole corpus take (`corpus`), its sound
+  linked from `.cache/audio`, in a take folder named `folder`
+  ("2026-10-08 11.31 Dial Up", its start read as UTC), at `position`.
+  The sound is hard-linked, so a step that rewrote a sound file in place
+  would change the cached corpus file too; replace a file, never edit it.
 - `[window]`: `size` in points, on a 1920x1080 screen.
 - `[settings]`: the app's settings, over the base ones: light, the strip
   across, the microphone already set up, no listening at launch, Keep
