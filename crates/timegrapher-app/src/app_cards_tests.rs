@@ -784,32 +784,43 @@ fn an_opened_take_fits_the_strip() {
 /// the take was on show stays as set.
 #[test]
 fn a_new_test_starts_from_the_strip_as_it_was_before_the_open() {
-    for (kind, by_hand) in [
-        (NewTake::Positions, false),
-        (NewTake::PowerReserve, false),
-        (NewTake::Positions, true),
-        (NewTake::Listen, false),
+    // How each case starts: a test, Take Setup's Listen, or the Listen
+    // button straight on the take; and what the person set by hand.
+    let (test, setup, listen) = (Some(true), Some(false), None);
+    for (kind, start, width, span) in [
+        (NewTake::Positions, test, None, None),
+        (NewTake::PowerReserve, test, None, None),
+        (NewTake::Positions, test, Some(250.0), None),
+        (NewTake::Positions, test, None, Some(60.0)),
+        (NewTake::Listen, setup, None, None),
+        (NewTake::Listen, listen, None, None),
     ] {
         let mut app = TimegrapherApp::with_devices(Vec::new(), None);
         app.strip.set_span(30.0);
         app.strip.set_half_width(10.0);
-        let fit = app.strip_fit;
+        let mut fit = app.strip_fit;
         app.show_log(gaining_log(1e-4), "gaining".into(), vec![], vec![]);
         assert!(app.strip.span_s > 119.0, "fitted to the take");
-        if by_hand {
-            app.strip.set_half_width(250.0);
+        if let Some(w) = width {
+            app.strip.set_half_width(w);
         }
-        if kind == NewTake::Listen {
-            app.take_setup();
-        } else {
-            app.new_take(kind, true);
-            assert_eq!(app.ready_test(), Some(kind));
+        if let Some(s) = span {
+            app.strip.set_span(s);
+            fit = app.strip_fit;
         }
-        let width = if by_hand { 250.0 } else { 10.0 };
+        match start {
+            Some(true) => {
+                app.new_take(kind, true);
+                assert_eq!(app.ready_test(), Some(kind));
+            }
+            Some(false) => app.take_setup(),
+            None => app.start_microphone(),
+        }
+        let case = format!("{kind:?} {start:?}, by hand {width:?} {span:?}");
         assert_eq!(
             (app.strip.span_s, app.strip.half_width_ms, app.strip_fit),
-            (30.0, width, fit),
-            "{kind:?}, by hand {by_hand}"
+            (span.unwrap_or(30.0), width.unwrap_or(10.0), fit),
+            "{case}"
         );
     }
 }
