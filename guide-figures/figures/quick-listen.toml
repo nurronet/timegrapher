@@ -1,0 +1,26 @@
+# Chapter 2, Your First Take: Quick Listen from the microphone, 40 s in,
+# with readings on the cards, the strip and the profile.
+output = "quick-listen.png"
+
+layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+
+# The watch on the stand, then Listen.
+actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 1]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 80
+mode = "microphone"
+
+[wait]
+exact = 40
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
+overlays = [false, false, false]

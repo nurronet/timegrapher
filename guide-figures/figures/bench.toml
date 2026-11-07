@@ -1,0 +1,29 @@
+# Chapter 4, The Window: the Bench with a take opened, as the app first
+# lays it out: the readings, the Paper Strip, and the Tick Tock Profile.
+output = "bench.png"
+
+# 1 menus, 2 Bench | Watches, 3 core pane icons, 4 Analysis, 5 Tests,
+# 6 Settings gear, 7 readings cards, 8 Compact Readings pin, 9 a pane's
+# tab, 10 its toolbar, 11 its "?", 12 the status bar.
+marks = [[1, 160, 62], [2, 362, 62], [3, 510, 62], [4, 790, 62], [5, 1018, 62],
+         [6, 1121, 86], [7, 52, 178], [8, 1817, 172], [9, 175, 270],
+         [10, 58, 305], [11, 1793, 300], [12, 870, 1051]]
+
+layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+# The take names the calibre "3235", which the catalogue reads as Rolex's.
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
