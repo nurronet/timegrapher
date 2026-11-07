@@ -222,12 +222,14 @@ impl State {
             self.beats.push(Beat { time: t, ..b });
             if let Some(w) = profile::snippet(env, fs, b.time) {
                 if b.is_good() {
-                    self.snippets.push(t, w.to_vec());
+                    self.snippets
+                        .push(t, b.index.rem_euclid(2) == 0, w.to_vec());
                 }
                 self.sides.beat(t, b.index, b.quality, w);
             }
             if let Some((j, beats::SideCall::Swapped)) = self.sides.settle() {
                 swap_sides_from(j, &mut self.beats, &mut []);
+                self.snippets.swap_sides_from(j);
                 // The windows of the chunks before this one, found
                 // elsewhere, are swapped when put together.
                 self.swaps.push((self.chunks - 1, j));

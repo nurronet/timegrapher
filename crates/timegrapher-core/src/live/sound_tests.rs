@@ -57,7 +57,7 @@ pub(super) fn sample_sides_agree(live: &LiveAnalyzer, case: &str) {
     for k in live.sample.items() {
         if let Some(b) = live.beats.iter().find(|b| b.time == k.0) {
             assert_eq!(
-                k.1 .0,
+                k.1,
                 b.index.rem_euclid(2) == 0,
                 "{case}: the side at {} s",
                 k.0
