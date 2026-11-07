@@ -176,7 +176,7 @@ pub struct LiveAnalyzer {
     /// The take's one sample of beat sound, spread evenly over everything
     /// heard ([`crate::sound_sample`]): each kept beat's time, even side
     /// and window. The watch verdict reads it, as a saved reading does.
-    sample: crate::sound_sample::SoundSample<(bool, Vec<f32>)>,
+    sample: crate::sound_sample::SoundSample<Vec<f32>>,
     snr: Option<f32>,
     /// Passes in a row with no signal.
     quiet_passes: u32,
@@ -271,7 +271,7 @@ impl LiveAnalyzer {
             while kept.next_if(|s| s.0 < b.time - 1e-9).is_some() {}
             if let Some(s) = kept.next_if(|s| (s.0 - b.time).abs() < 1e-9) {
                 let even = b.index.rem_euclid(2) == 0;
-                a.sample.push(s.0, (even, s.1.clone()));
+                a.sample.push(s.0, even, s.1.clone());
                 a.snippets.push_back((s.0, even, s.1));
             }
         }
@@ -353,7 +353,7 @@ impl LiveAnalyzer {
         self.sample
             .items()
             .iter()
-            .map(|s| (s.0, s.1 .1.clone()))
+            .map(|s| (s.0, s.2.clone()))
             .collect()
     }
 
@@ -491,9 +491,7 @@ impl LiveAnalyzer {
         for s in self.snippets.iter_mut().filter(|s| s.0 >= t) {
             s.1 = !s.1;
         }
-        for s in self.sample.items_mut().iter_mut().filter(|s| s.0 >= t) {
-            s.1 .0 = !s.1 .0;
-        }
+        self.sample.swap_sides_from(t);
         for w in self.amp.iter_mut().filter(|w| w.start_s >= t) {
             w.swap_sides();
         }
@@ -811,7 +809,7 @@ impl LiveAnalyzer {
                 if let Some(w) = profile::snippet(env, fs, b.time) {
                     let even = b.index.rem_euclid(2) == 0;
                     self.snippets.push_back((t, even, w.to_vec()));
-                    self.sample.push(t, (even, w.to_vec()));
+                    self.sample.push(t, even, w.to_vec());
                     self.sides.beat(t, b.index, b.quality, w);
                 }
             }
@@ -1158,7 +1156,7 @@ impl LiveAnalyzer {
                     .items()
                     .iter()
                     .filter(|s| s.0 >= first.time && s.0 <= last.time)
-                    .map(|s| (s.0, s.1 .0, s.1 .1.as_slice()))
+                    .map(|s| (s.0, s.1, s.2.as_slice()))
                     .collect();
                 measure::stretch_beat_sound(
                     &snips,

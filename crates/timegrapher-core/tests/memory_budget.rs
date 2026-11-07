@@ -134,7 +134,7 @@ fn run_at(rate: u32) -> (usize, String) {
         ("capture queue", QUEUE_BLOCKS * block * size_of::<f32>()),
         (
             "beat sound sample",
-            held(SOUND_SAMPLE_BEATS + 1) * size_of::<(f64, (bool, Vec<f32>))>()
+            held(SOUND_SAMPLE_BEATS + 1) * size_of::<(f64, bool, Vec<f32>)>()
                 + SOUND_SAMPLE_BEATS * window_bytes,
         ),
     ];
