@@ -17,7 +17,7 @@ The Windows and Linux zips each hold one folder,
 things beside a shortcut to Applications: the desktop app, a **Command Line** folder (the `timegrapher` command line tool and
 `timegrapher-mcp`, the [MCP server](mcp.md) for AI chat apps), a
 **Claude Desktop** folder with the extension (macOS and Windows), the
-**Documentation** as pages that open in a browser, and **Start Here.html**,
+**User Guide** as pages that open in a browser, and **Start Here.html**,
 which has the steps below for that system.
 
 The builds are **not signed** with an Apple or Microsoft developer

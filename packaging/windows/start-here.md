@@ -10,7 +10,7 @@ there. To remove it, delete the folder.
 | **Timegrapher.exe** | The desktop app |
 | **Command Line** | `timegrapher.exe`, the command line tool, and `timegrapher-mcp.exe`, the server that lets AI chat apps use it |
 | **Claude Desktop** | `Timegrapher.mcpb`, the Claude Desktop extension |
-| **Documentation** | The guides, as pages that open in your browser |
+| **User Guide** | The manual, as pages that open in your browser |
 | **LICENSE.txt** | The licence (GPL-3.0) |
 
 ## Open the App
@@ -35,11 +35,15 @@ Open a terminal in the **Command Line** folder and run
 
 Double-click **Claude Desktop\Timegrapher.mcpb**, or drag it into Claude
 Desktop's window, and choose **Install**. It holds both programs, so nothing
-else needs installing. See [the MCP server guide](../../docs/mcp.md).
+else needs installing. See [Claude Desktop](../../docs/user-guide/26-claude-desktop.md) in the User Guide.
 
-## Learn More
+## Read the User Guide
 
-- [Installing and updating](../../docs/install.md)
-- [The desktop app](../../docs/app.md)
-- [Read Me](../../README.md): what the software measures, and the command line
-- [All documentation](../../docs/index.md)
+The **User Guide** folder holds the manual, as pages that open in your
+browser without an internet connection.
+
+- [Contents](../../docs/user-guide/README.md): every button, pane and
+  function, what it does, and why you'd use it
+- [Your First Take](../../docs/user-guide/02-your-first-take.md): from
+  opening the app to a saved take
+- [Installing and updating](../../docs/install.md) (on GitHub)

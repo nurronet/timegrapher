@@ -16,7 +16,7 @@ Python tests, the three regress jobs skip their corpus and engine steps, and mcp
 runs as usual. If git fails, this exits with an error and the job fails.
 
 pages is true for a pull request, light or full, that changes a file the
-downloads carry as web pages (PAGE_FILES and PAGE_FOLDERS), so CI runs
+downloads render as web pages or link to (PAGE_FILES and PAGE_FOLDERS), so CI runs
 Release's render and link check of those pages. Release's own pull-request run
 covers packaging/. Everything but a pull request prints pages=false.
 """
@@ -34,7 +34,8 @@ MCP_DOCS = {
 }
 # Markdown here is compiled in (the skill) or read by packaging's tests.
 FULL_PREFIXES = ("skills/", "packaging/")
-# Files and folders packaging/docs_html.py renders into the downloads' pages.
+# Files and folders the downloads' pages are rendered from or link to
+# (packaging/docs_html.py): a change here re-runs the render and link check.
 PAGE_FILES = {"README.md", "LICENSE"}
 PAGE_FOLDERS = ("docs/", "skills/watchmaker/")
 

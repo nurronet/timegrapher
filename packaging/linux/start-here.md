@@ -8,7 +8,7 @@ or newer).
 |---|---|
 | **Timegrapher.AppImage** | The desktop app, in one file |
 | **Command Line** | `timegrapher`, the command line tool, and `timegrapher-mcp`, the server that lets AI chat apps use it |
-| **Documentation** | The guides, as pages that open in your browser |
+| **User Guide** | The manual, as pages that open in your browser |
 | **LICENSE.txt** | The licence (GPL-3.0) |
 
 ## Open the App
@@ -33,10 +33,13 @@ In a terminal in the **Command Line** folder, run `./timegrapher --help`.
 Keep `timegrapher-mcp` beside `timegrapher`: the server runs it. The
 AppImage carries the tool too: `./Timegrapher.AppImage cli --help`.
 
-## Learn More
+## Read the User Guide
 
-- [Installing and updating](../../docs/install.md)
-- [The desktop app](../../docs/app.md)
-- [The MCP server](../../docs/mcp.md), for AI chat apps
-- [Read Me](../../README.md): what the software measures, and the command line
-- [All documentation](../../docs/index.md)
+The **User Guide** folder holds the manual, as pages that open in your
+browser without an internet connection.
+
+- [Contents](../../docs/user-guide/README.md): every button, pane and
+  function, what it does, and why you'd use it
+- [Your First Take](../../docs/user-guide/02-your-first-take.md): from
+  opening the app to a saved take
+- [Installing and updating](../../docs/install.md) (on GitHub)

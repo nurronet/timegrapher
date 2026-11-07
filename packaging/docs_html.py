@@ -4,20 +4,19 @@
     python3 packaging/docs_html.py check FOLDER
 
 render writes OUT/Start Here.html (from packaging/PLATFORM/start-here.md),
-OUT/Documentation/ (README.md, docs/ apart from the calibre research
-evidence, and the watchmaker skill with its reference pages) and
+OUT/User Guide/ (docs/user-guide, its contents page as index.html) and
 OUT/LICENSE.txt, for the platform script to copy into the download's
-folder. Links between those files are rewritten to the pages beside them;
-links to anything else in the repository (source files, workflows) go to
-GitHub at COMMIT (default: HEAD), and links to files the repository lacks
-are left as written. Needs pandoc.
+folder. A download carries the user guide and nothing else from docs/:
+the reference, developer and research pages stay on GitHub. Links between
+the carried files are rewritten to the pages beside them; links to
+anything else in the repository go to GitHub at COMMIT (default: HEAD),
+and links to files the repository lacks are left as written. Needs pandoc.
 
 check fails when a page in FOLDER links to a file that is not there, and
 warns about a link to a heading that is not there.
 """
 
 import argparse
-import fnmatch
 import html
 import os
 import posixpath
@@ -32,13 +31,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # Set by GitHub Actions; the default is for local runs.
 REPO = os.environ.get("GITHUB_REPOSITORY") or "peterhudson/timegrapher"
 PLATFORMS = ("linux", "macos", "windows")
-INDEX = "docs/index.md"
-# Research evidence, the calibre train counts with their photographs (over
-# 200 MB), and the design guide for contributors stay on GitHub: links to
-# them from the download go there.
-ON_GITHUB = ("docs/*-train-wheel-counts.md", "docs/*-train-research.md",
-             "docs/assets/train-wheels/*", "docs/assets/seiko-miyota/*",
-             "docs/design/*")
+# The only part of docs/ a download carries, and its folder there.
+GUIDE = "docs/user-guide"
+GUIDE_OUT = "User Guide"
 
 STYLE = """
 :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff;
@@ -76,7 +71,7 @@ PAGE = """<!doctype html>
 </style>
 </head>
 <body>
-<nav><a href="{start}">Start Here</a><a href="{readme}">Read Me</a><a href="{docs}">All Documentation</a></nav>
+<nav><a href="{start}">Start Here</a><a href="{guide}">User Guide</a></nav>
 <main>
 {body}
 </main>
@@ -89,21 +84,17 @@ def outputs(platform):
     """Repository path -> path in the download folder, for every page and file."""
     out = {
         f"packaging/{platform}/start-here.md": "Start Here.html",
-        "README.md": "Documentation/README.html",
-        "skills/watchmaker/SKILL.md": "Documentation/watchmaker-skill.html",
         "LICENSE": "LICENSE.txt",
-        # Written by index_page, not rendered: the start pages link to it.
-        INDEX: "Documentation/index.html",
     }
-    for path in sorted((ROOT / "docs").rglob("*")):
-        rel = path.relative_to(ROOT).as_posix()
-        if path.is_file() and not any(fnmatch.fnmatch(rel, p) for p in ON_GITHUB):
-            dest = "Documentation/" + rel[len("docs/"):]
-            out[rel] = dest[:-3] + ".html" if dest.endswith(".md") else dest
-    # The skill's reference pages, which SKILL.md links to throughout.
-    for path in sorted((ROOT / "skills/watchmaker/references").glob("*.md")):
-        rel = path.relative_to(ROOT).as_posix()
-        out[rel] = f"Documentation/watchmaker-skill/{path.stem}.html"
+    for path in sorted((ROOT / GUIDE).rglob("*")):
+        if path.is_file():
+            rel = path.relative_to(ROOT).as_posix()
+            dest = GUIDE_OUT + rel[len(GUIDE):]
+            if rel == f"{GUIDE}/README.md":
+                dest = f"{GUIDE_OUT}/index.html"
+            elif dest.endswith(".md"):
+                dest = dest[:-3] + ".html"
+            out[rel] = dest
     return out
 
 
@@ -152,25 +143,8 @@ def render_page(source, dest, mapping, ref):
 
     return PAGE.format(
         title=title_of(fragment, posixpath.basename(source)), style=STYLE,
-        start=link("Start Here.html"), readme=link("Documentation/README.html"),
-        docs=link("Documentation/index.html"), body=fragment.strip())
-
-
-def index_page(mapping):
-    """Documentation/index.html: every page in the download, by title."""
-    rows = []
-    for source, dest in mapping.items():
-        if source != INDEX and dest.startswith("Documentation/") and dest.endswith(".html"):
-            text = (ROOT / source).read_text(encoding="utf-8")
-            match = re.search(r"^# (.+)$", text, re.M)
-            name = match.group(1).strip() if match else posixpath.basename(source)
-            rows.append((name.lower(), name, dest[len("Documentation/"):]))
-    items = "\n".join(f'<li><a href="{quote(d)}">{html.escape(n)}</a></li>'
-                      for _, n, d in sorted(rows))
-    return PAGE.format(
-        title="Documentation", style=STYLE, start="../Start%20Here.html",
-        readme="README.html", docs="index.html",
-        body=f"<h1>Documentation</h1>\n<ul>\n{items}\n</ul>")
+        start=link("Start Here.html"), guide=link(f"{GUIDE_OUT}/index.html"),
+        body=fragment.strip())
 
 
 def render(out, platform, ref):
@@ -179,8 +153,6 @@ def render(out, platform, ref):
         shutil.rmtree(out)
     mapping = outputs(platform)
     for source, dest in mapping.items():
-        if source == INDEX:
-            continue
         path = out / dest
         path.parent.mkdir(parents=True, exist_ok=True)
         if source.endswith(".md"):
@@ -188,8 +160,6 @@ def render(out, platform, ref):
                             newline="\n")
         else:
             shutil.copyfile(ROOT / source, path)
-    (out / "Documentation/index.html").write_text(index_page(mapping), encoding="utf-8",
-                                                  newline="\n")
 
 
 def check(folder):
