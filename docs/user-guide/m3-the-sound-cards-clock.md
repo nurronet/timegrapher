@@ -50,9 +50,10 @@ has, in this order:
   clock,** the clock other timegraphers and `timegrapher analyze` read
   on, so figures can be compared with theirs. The corrected rate is in
   the hover, as **True Clock**.
-- **On an opened take with its own clock,** from a clock log, USB lines
-  or a correction saved with it, the big figure is corrected, and the
-  hover says by how much and from what source.
+- **On an opened take with its own clock,** from USB lines, a clock log
+  that measured the card well enough, or a correction saved with it, the
+  big figure is corrected, and the hover says by how much and from what
+  source.
 
 ## When You'd Use It
 
