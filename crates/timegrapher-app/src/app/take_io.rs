@@ -1188,10 +1188,9 @@ impl TimegrapherApp {
             };
         let files = r.segment_paths();
         let dest = parent.join(name);
-        let mut cfg = StreamConfig::default();
-        cfg.analysis.bph = self.bph;
-        cfg.analysis.amplitude.lift_deg = self.lift_deg;
-        cfg.analysis.lift_known = self.lift_known();
+        // Read as the take on show is read: its beat rate and lift, and
+        // the escape teeth core gives its session file and calibre (#1324).
+        let cfg = self.entry_settings(&manifest).stream;
         let shapes = timegrapher_core::analysis_take::shape_stretches(&manifest, total_s);
         let software = report::software();
         let (tx, rx) = std::sync::mpsc::channel();
