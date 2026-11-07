@@ -1028,10 +1028,37 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let banded = steady_views::banded(&drawn);
     let range = steady_views::readings_range(g);
     let grid = value_grid(k);
+    // A time pane: the shared gutter and the take's whole time, from its
+    // start to its end, so the strip's and the charts' times line up over
+    // it (Hugh, #1252). Each value label is noted in the gutter, which is
+    // as wide as the widest the time panes draw.
+    let gutter = theme::time_gutter(ui.ctx());
+    let ctx = ui.ctx().clone();
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let end = readings_end(s, r.opts);
+    let plot_w = plot_w + 64.0 - f64::from(gutter);
     let mut plot = grid
         .on(base)
+        .y_axis_min_width(gutter)
+        .include_x(0.0)
+        .include_x(end)
+        .set_margin_fraction(egui::Vec2::new(0.0, 0.05))
         .x_axis_formatter(clear_of_edge(plot_w, length_text))
-        .y_axis_formatter(move |m, _| value_text(k, m.value, m.step_size));
+        .y_axis_formatter(move |m, _| {
+            let text = value_text(k, m.value, m.step_size);
+            let w = ctx.fonts_mut(|f| {
+                f.layout_no_wrap(text.clone(), font.clone(), Color32::WHITE)
+                    .size()
+                    .x
+            });
+            // egui_plot's 4 pt either side of a value label.
+            theme::note_gutter_label(
+                &ctx,
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w + 8.0, 1.0)),
+            );
+            text
+        });
+    plot = time_axis(plot, ui, r.opts);
     if let Some((lo, hi)) = range {
         plot = plot.default_y_bounds(lo, hi);
     }
@@ -1075,6 +1102,44 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
         (ui, f32::NEG_INFINITY),
         pal,
     );
+}
+
+/// Readings Over Time's time axis against the strip's: ending where the
+/// strip above does only on the take's own clock. One position's
+/// stretches joined end to end are on another, which no width lines up
+/// with the strip's (Walter on #1256), so the axis says whose time it is
+/// instead (Hugh).
+fn time_axis(mut plot: Plot<'static>, ui: &egui::Ui, opts: Opts) -> Plot<'static> {
+    if let Some(w) = readings_width(ui.ctx(), ui.cursor().left(), opts) {
+        plot = plot.width(w.clamp(64.0, ui.available_width()));
+    }
+    if let Some(code) = opts.joined_in {
+        plot = plot.x_axis_label(format!("Time in {code}"));
+    }
+    plot
+}
+
+/// Where Readings Over Time's time ends: the take's end, the strip's and
+/// the charts' (Walter on #1256); else, for a position's stretches joined
+/// end to end, what the tests read of them, and never short of the last
+/// window.
+pub fn readings_end(s: &Steadiness, opts: Opts) -> f64 {
+    opts.take_span.map_or_else(
+        || {
+            s.grids
+                .iter()
+                .map(|g| g.t0 + g.y.len() as f64 * g.step)
+                .fold(s.upto_s, f64::max)
+        },
+        |(_, t1)| t1,
+    )
+}
+
+/// The width that ends Readings Over Time's time area where the strip's
+/// ends, for a plot whose gutter starts at `left`: only on the take's own
+/// clock, never for a position's stretches joined end to end.
+pub fn readings_width(ctx: &egui::Context, left: f32, opts: Opts) -> Option<f32> {
+    theme::time_width(ctx, left).filter(|_| opts.take_span.is_some())
 }
 
 /// The period found: its dot on the scores, and its note.
@@ -1721,6 +1786,14 @@ pub struct Opts {
     pub wheels: bool,
     /// The Info panel, beside the plots: each pane opens its own.
     pub info: bool,
+    /// The take's span when the readings are on its own clock, as the
+    /// strip's and the charts' are, not one position's stretches joined
+    /// end to end: Readings Over Time then fits it, as they do (#1252).
+    pub take_span: Option<(f64, f64)>,
+    /// The short name of the position whose stretches are joined end to
+    /// end, when they are: Readings Over Time's time is then time in it,
+    /// and its axis says so ("Time in DD", Hugh on #1256).
+    pub joined_in: Option<&'static str>,
 }
 
 /// What Wheel Periods does, for its hint.
