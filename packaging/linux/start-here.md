@@ -43,8 +43,9 @@ browser without an internet connection.
   function, what it does, and why you'd use it
 - [Your First Take](../../docs/user-guide/02-your-first-take.md): from
   opening the app to a saved take
-- [Installing and updating](../../docs/install.md)
 
-The **Reference** folder also holds [the MCP server](../../docs/mcp.md), for
-AI chat apps, and [the agent interface](../../docs/agent-interface.md), the
-command line's JSON.
+The **Reference** folder holds three more pages:
+
+- [Installing and updating](../../docs/install.md)
+- [The MCP server](../../docs/mcp.md), for AI chat apps
+- [The agent interface](../../docs/agent-interface.md): the command line's JSON
