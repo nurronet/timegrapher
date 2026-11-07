@@ -1429,6 +1429,10 @@ pub fn rate_rows(rows: &[Vec<f64>], period_s: f64) -> Vec<Vec<f64>> {
 }
 
 #[cfg(test)]
+#[path = "longterm/pin_tests.rs"]
+mod pin_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
