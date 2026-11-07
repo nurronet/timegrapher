@@ -101,7 +101,7 @@ impl TimegrapherApp {
 
     /// What the question before throwing away unsaved sound says will be
     /// lost: the files' fault, the unsaved masks, or the sound and settings.
-    fn confirm_text(&self, fault: Option<&str>, masks: bool, metadata: bool) -> String {
+    pub(super) fn confirm_text(&self, fault: Option<&str>, masks: bool, metadata: bool) -> String {
         let unsaved = length_text(self.unsaved_s());
         if let Some(fault) = fault {
             fault.to_string()
@@ -920,7 +920,7 @@ impl TimegrapherApp {
 }
 
 /// The question before throwing away unsaved sound, for what was asked.
-fn confirm_title(what: &Confirm) -> &'static str {
+pub(super) fn confirm_title(what: &Confirm) -> &'static str {
     match what {
         Confirm::NewSession => "Start a new session?",
         Confirm::NewTake(_) | Confirm::ReserveStart => "Start a new take without saving?",
