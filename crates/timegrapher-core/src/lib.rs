@@ -54,6 +54,7 @@ pub mod redact;
 pub mod scenarios;
 pub mod session;
 pub mod shape;
+pub mod sound_sample;
 pub mod spectrum;
 pub mod steadiness;
 pub mod steady_views;

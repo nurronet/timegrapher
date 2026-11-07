@@ -173,6 +173,10 @@ pub struct LiveAnalyzer {
     /// Each settled beat's envelope window for the profiles: time, even
     /// side, samples. Oldest first.
     snippets: VecDeque<(f64, bool, Vec<f32>)>,
+    /// The take's one sample of beat sound, spread evenly over everything
+    /// heard ([`crate::sound_sample`]): each kept beat's time, even side
+    /// and window. The watch verdict reads it, as a saved reading does.
+    sample: crate::sound_sample::SoundSample<(bool, Vec<f32>)>,
     snr: Option<f32>,
     /// Passes in a row with no signal.
     quiet_passes: u32,
@@ -236,6 +240,7 @@ impl LiveAnalyzer {
             next_amp_s: None,
             profiles: [None, None],
             snippets: VecDeque::new(),
+            sample: Default::default(),
             sides: beats::SideCheck::default(),
             snr: None,
             quiet_passes: 0,
@@ -259,13 +264,15 @@ impl LiveAnalyzer {
         a.settled_to = log.duration_s;
         a.bph = Some(log.bph);
         a.logged_bph = Some(log.bph);
-        // The clean beats' sound the log kept, each with its side, for the
-        // check on a stretch under 10 s.
+        // The clean beats' sound the log kept, each with its side: the
+        // verdict's sample, and the profiles' recent span.
         let mut kept = log.snippets.into_iter().peekable();
         for b in &log.beats {
             while kept.next_if(|s| s.0 < b.time - 1e-9).is_some() {}
             if let Some(s) = kept.next_if(|s| (s.0 - b.time).abs() < 1e-9) {
-                a.snippets.push_back((s.0, b.index.rem_euclid(2) == 0, s.1));
+                let even = b.index.rem_euclid(2) == 0;
+                a.sample.push(s.0, (even, s.1.clone()));
+                a.snippets.push_back((s.0, even, s.1));
             }
         }
         a.beats = log.beats;
@@ -339,6 +346,17 @@ impl LiveAnalyzer {
         &self.amp
     }
 
+    /// The take's sample of beat sound ([`crate::sound_sample`]), oldest
+    /// first, as a log keeps it ([`BeatLog::snippets`]), so a reading of
+    /// the log judges a stretch's beat sound as this card does.
+    pub fn snippets(&self) -> Vec<(f64, Vec<f32>)> {
+        self.sample
+            .items()
+            .iter()
+            .map(|s| (s.0, s.1 .1.clone()))
+            .collect()
+    }
+
     /// Where Tick's and Tock's unlock sat, ms from the beat time, in the
     /// latest amplitude window to end by `t` seconds that read it (or the
     /// first after, before any has): the guide for a profile of the sound
@@ -368,6 +386,7 @@ impl LiveAnalyzer {
         self.next_amp_s = None;
         self.profiles = [None, None];
         self.snippets.clear();
+        self.sample.clear();
         self.settled_to = self.duration_s();
         self.quiet_passes = 0;
         self.candidates.clear();
@@ -453,6 +472,7 @@ impl LiveAnalyzer {
     fn check_sides_from(&mut self, t: f64) {
         if let Some((a, b)) = self.sides.jump(t) {
             self.snippets.retain(|s| !(a <= s.0 && s.0 < b));
+            self.sample.retain(|s| !(a <= s.0 && s.0 < b));
         }
     }
 
@@ -470,6 +490,9 @@ impl LiveAnalyzer {
         }
         for s in self.snippets.iter_mut().filter(|s| s.0 >= t) {
             s.1 = !s.1;
+        }
+        for s in self.sample.items_mut().iter_mut().filter(|s| s.0 >= t) {
+            s.1 .0 = !s.1 .0;
         }
         for w in self.amp.iter_mut().filter(|w| w.start_s >= t) {
             w.swap_sides();
@@ -788,6 +811,7 @@ impl LiveAnalyzer {
                 if let Some(w) = profile::snippet(env, fs, b.time) {
                     let even = b.index.rem_euclid(2) == 0;
                     self.snippets.push_back((t, even, w.to_vec()));
+                    self.sample.push(t, (even, w.to_vec()));
                     self.sides.beat(t, b.index, b.quality, w);
                 }
             }
@@ -1098,14 +1122,16 @@ impl LiveAnalyzer {
         // the windows skip it but still look back past it. The sound heard
         // before a regular beat was found counts by its peaks (the
         // candidates), as a saved reading logs them. It looks back at
-        // least SCATTER_LOOKBACK_S, so a 10 s average holds a whole window.
+        // least SCATTER_LOOKBACK_S, so a 10 s average holds a whole window,
+        // from the tiling point at or before that (#636), as session's
+        // windows lie on the same tiling: so the sound before a jump in
+        // the beats gets its own whole window.
         // Within that of a break, before a window can be whole, regularity
         // is not assessed; past it, no whole window is noise.
         let heard_since = self.heard_cuts().stretch_from(end_s).max(0.0);
-        let scatter_from = window_from
-            .min(end_s - SCATTER_LOOKBACK_S)
-            .max(heard_since)
-            .max(0.0);
+        let step = crate::measure::RATE_WINDOW_STEP_S;
+        let look_back = ((end_s - SCATTER_LOOKBACK_S) / step).floor() * step;
+        let scatter_from = window_from.min(look_back).max(heard_since).max(0.0);
         let scatter = bph.map_or_else(Vec::new, |b| {
             crate::session::scatter_windows(
                 holes,
@@ -1121,17 +1147,18 @@ impl LiveAnalyzer {
         let timing_scatter_fraction =
             bph.and_then(|b| crate::beats::timing_scatter_fraction(jitter_us, b));
         // Where the timing can't say, the beats' averaged sound, from the
-        // beats kept for the profiles, says whether a watch is heard: over
+        // take's sample of beat sound, says whether a watch is heard: over
         // the beats the scatter is read from, as a saved reading judges
         // its stretch's ([`BeatLog::beat_sound`]), not the latest run's.
         let sound_beats = crate::session::stretch_beats(&self.beats, scatter_from, end_s);
         let beat_sound = match (bph, &self.beats[sound_beats]) {
             (Some(b), [first, .., last]) if measure::beat_sound_needed(jitter_us, b, judged_s) => {
                 let snips: Vec<(f64, bool, &[f32])> = self
-                    .snippets
+                    .sample
+                    .items()
                     .iter()
                     .filter(|s| s.0 >= first.time && s.0 <= last.time)
-                    .map(|s| (s.0, s.1, s.2.as_slice()))
+                    .map(|s| (s.0, s.1 .0, s.1 .1.as_slice()))
                     .collect();
                 measure::stretch_beat_sound(
                     &snips,
@@ -1440,6 +1467,9 @@ fn judged_s(fitted: bool, end_s: f64, window_from: f64, heard_since: f64, holes:
 mod jump_tests;
 
 #[cfg(test)]
+mod sound_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::synth::{generate, SynthConfig};
@@ -1586,6 +1616,7 @@ mod tests {
             live.sides_known_at(live.duration_s()),
             "{case}: sides never checked"
         );
+        super::sound_tests::sample_sides_agree(&live, &case);
     }
 
     #[test]
@@ -1627,7 +1658,7 @@ mod tests {
         check_hole(18_000, 0.0, 0.17);
     }
 
-    fn feed(a: &mut LiveAnalyzer, x: &[f32]) {
+    pub(super) fn feed(a: &mut LiveAnalyzer, x: &[f32]) {
         for block in x.chunks(480) {
             a.push(block);
         }
@@ -1966,7 +1997,7 @@ mod tests {
 
     /// Steady beats for `seconds`: a watch whose Tock sounds unlike its
     /// Tick, and a live analyzer fed the first `fed` seconds of them.
-    fn steady_live(seconds: f64, fed: f64) -> (LiveAnalyzer, Vec<f32>) {
+    pub(super) fn steady_live(seconds: f64, fed: f64) -> (LiveAnalyzer, Vec<f32>) {
         let audio = generate(
             &SynthConfig {
                 duration_s: seconds,
@@ -2009,43 +2040,6 @@ mod tests {
                 w.start_s,
                 w.end_s
             );
-        }
-    }
-
-    /// The beats of a stretch between two jumps too close to check join
-    /// neither side's Tick Tock profile, whichever of the two is found
-    /// first.
-    #[test]
-    fn an_unchecked_stretch_joins_no_profile() {
-        for later_first in [false, true] {
-            let (mut live, rest) = steady_live(45.0, 30.0);
-            live.set_profile_span(MAX_PROFILE_S);
-            let now = live.duration_s();
-            let (t1, t2) = (now - 2.0, now - 1.0);
-            let between = |live: &LiveAnalyzer| {
-                live.snippets
-                    .iter()
-                    .filter(|s| t1 <= s.0 && s.0 < t2)
-                    .count()
-            };
-            assert!(between(&live) > 0);
-            let (a, b) = if later_first { (t2, t1) } else { (t1, t2) };
-            live.jump_at(a, false);
-            assert!(
-                live.sides.pending().is_some(),
-                "a check from the first jump"
-            );
-            live.jump_at(b, false);
-            assert!(!live.sides_known_at(t1 + 0.5));
-            assert_eq!(between(&live), 0, "kept for the profiles");
-            // Once the sides are told apart again, the profiles are made of
-            // the kept sounds alone.
-            feed(&mut live, &rest);
-            assert!(live.sides.pending().is_none(), "sides settled");
-            assert_eq!(between(&live), 0);
-            let used: usize = live.tick_profiles().iter().flatten().map(|p| p.beats).sum();
-            assert!(used > 0);
-            assert_eq!(used, live.snippets.len());
         }
     }
 

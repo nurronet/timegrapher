@@ -1099,7 +1099,6 @@ mod tests {
     use crate::periodicity::default_wheels;
     use crate::steadiness::{self, Config};
     use crate::synth::{generate, SynthConfig};
-    use crate::timing;
 
     #[test]
     fn derived_rate_grid_cuts_jumps_as_the_tests_do() {
@@ -1374,13 +1373,13 @@ mod tests {
             .map(|b| holes.true_time(b.audio_s) - 0.5 * b.gap_s - 1e-6)
             .collect();
         let beats = holes.beats(&log.beats);
-        // Without the 2 s check, reading 5 would be kept.
-        let outside = timing::windows(&beats, log.bph, 10.0, 10.0)
-            .iter()
-            .filter(|w| holes.clear(w.start_s, w.end_s))
-            .count();
-        assert_eq!(outside, tests.n + 1);
-        let mut wins = timing::windows(&beats, log.bph, 10.0, 10.0);
+        // Without the 2 s check (one part as long as the reading), on the
+        // same tiling from the take's start (#636), reading 5 would be kept.
+        let end = holes.true_time(log.duration_s);
+        let no_check =
+            |cuts: &crate::clean::Cuts| cuts.windows(&beats, log.bph, 0.0, end, 10.0, 10.0, 10.0);
+        assert_eq!(no_check(&holes).len(), tests.n + 1);
+        let mut wins = no_check(&crate::clean::Cuts::none());
         wins.retain(|w| !cut.iter().any(|&c| w.start_s < c && c < w.end_s));
         assert!(wins.len() > tests.n, "{} {}", wins.len(), tests.n);
     }
