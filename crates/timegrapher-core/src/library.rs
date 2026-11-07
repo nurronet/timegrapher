@@ -404,7 +404,13 @@ impl Take {
         if let Some(r) = &self.power_reserve {
             parts.push(format!(
                 "Power Reserve {}",
-                crate::power_reserve::run_text(r.run_s)
+                // A take's file holds a test's run: "at least" when its
+                // recording failed, as on every surface (#1380).
+                crate::power_reserve::run_words(
+                    r.run_s,
+                    r.ending,
+                    crate::power_reserve::Source::Test
+                )
             ));
             // A run the watch didn't end says how it ended.
             if r.ending != crate::power_reserve::Ending::Stopped {

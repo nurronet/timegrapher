@@ -248,6 +248,7 @@ impl TimegrapherApp {
     /// Follow a running Power Reserve Test, whether its pane shows or
     /// not: read the beats every few seconds, and end it at the stop.
     pub(super) fn reserve_tick(&mut self, ctx: &egui::Context) {
+        self.reserve_write_again(ctx);
         if !self.reserve_running() {
             return;
         }
@@ -260,7 +261,10 @@ impl TimegrapherApp {
             return;
         }
         self.reserve_read_s = now;
-        let beat_s = power_reserve::beat_s(live.bph());
+        let beat_s = power_reserve::beat_s(self.reserve_bph());
+        let Some(live) = self.live.as_ref() else {
+            return;
+        };
         let ended = self
             .reserve
             .as_mut()
@@ -297,12 +301,29 @@ impl TimegrapherApp {
         }
     }
 
+    /// The beat rate the running test reads its beats at: the session's
+    /// while locked, kept in the test, else the rate it last ran at
+    /// ([`reserve::Test::bph`]).
+    fn reserve_bph(&mut self) -> Option<u32> {
+        let now = self.live.as_ref().and_then(|l| l.bph());
+        let t = self.reserve.as_mut()?;
+        if now.is_some() {
+            t.bph = now;
+        }
+        t.bph
+    }
+
     /// The run's hours from its first beat at audio second `first` to
     /// `to`, from hour `from_hour` on ([`power_reserve::hours_from`]), as
     /// `timegrapher session` reads each stretch, on the session's clock,
     /// breaks and masks.
     fn reserve_hours(&self, first: f64, to: f64, from_hour: u32) -> Vec<power_reserve::Hour> {
-        let Some(log) = self.live.as_ref().and_then(steady::log_of) else {
+        let bph = self.reserve.as_ref().and_then(|t| t.bph);
+        let Some(log) = self
+            .live
+            .as_ref()
+            .and_then(|l| steady::log_of_at(l, l.bph().or(bph)))
+        else {
             return Vec::new();
         };
         let fit = self
@@ -402,6 +423,20 @@ impl TimegrapherApp {
     /// history with its results, and as its analysis only if so picked.
     pub(super) fn end_reserve(&mut self) {
         self.pause();
+        // The results go into the take with its sound, through
+        // `results_files`.
+        self.finish_reserve();
+        // With no watch picked, asked where it goes before it is saved.
+        if self.open_watch().is_none() {
+            self.test_keep = Some(TestKeep::PowerReserve);
+            return;
+        }
+        self.save_reserve();
+    }
+
+    /// The ended test's results, hour by hour as `timegrapher session`
+    /// reads each stretch, with room in the pane for its charts and table.
+    fn finish_reserve(&mut self) {
         let to_true = self.to_true();
         let Some(t) = self.reserve.as_mut() else {
             return;
@@ -410,12 +445,9 @@ impl TimegrapherApp {
             applog::info(&format!("power reserve test ended: {}", e.text()));
         }
         let mut results = t.finish(to_true).cloned();
-        // Hour by hour, as `timegrapher session` reads each stretch.
         if let Some(r) = results.as_mut() {
             r.hours = self.reserve_hours(r.first_beat_s, r.last_beat_s, 0);
         }
-        // The results go into the take with its sound, through
-        // `results_files`.
         let hours = results.as_ref().map(|r| r.hours.len());
         if let Some(t) = self.reserve.as_mut() {
             t.results = results;
@@ -423,12 +455,77 @@ impl TimegrapherApp {
         if let Some(n) = hours {
             grow_row(&mut self.panes.tiles, Pane::PowerReserve, reserve::run_h(n));
         }
-        // With no watch picked, asked where it goes before it is saved.
-        if self.open_watch().is_none() {
-            self.test_keep = Some(TestKeep::PowerReserve);
+    }
+
+    /// The recording failed while a Power Reserve Test ran: the run ends
+    /// there, read to its last beat heard, at least that long and never a
+    /// stop of the watch ([`power_reserve::Ending::RecordingFailed`]). Its
+    /// results go into the take it was recording into, when it was; the
+    /// take keeps its sound, as no save can follow a failed recording
+    /// (#1380).
+    pub(super) fn reserve_failed(&mut self) {
+        if !self.reserve_running() {
             return;
         }
-        self.save_reserve();
+        // The beats heard up to the failure, as a tick reads them: a stop
+        // found there is the watch's own.
+        let beat_s = power_reserve::beat_s(self.reserve_bph());
+        if let (Some(live), Some(t)) = (self.live.as_ref(), self.reserve.as_mut()) {
+            t.update(live.beats(), beat_s, live.duration_s());
+        }
+        if let Some(t) = self.reserve.as_mut() {
+            if t.running() {
+                t.ending = Some(power_reserve::Ending::RecordingFailed);
+            }
+            // Nothing follows to keep it as its analysis alone: the take
+            // keeps its sound, and says so.
+            t.keep_sound = true;
+        }
+        self.finish_reserve();
+        if let Some(take) = self.session.saved_to().map(Path::to_path_buf) {
+            self.write_reserve_into(take);
+        }
+    }
+
+    /// Write the ended run's results into its take `take`; when that
+    /// fails, tried again a minute later ([`Self::reserve_write_again`]).
+    fn write_reserve_into(&mut self, take: PathBuf) {
+        let Some(t) = self.reserve.as_mut() else {
+            return;
+        };
+        t.unwritten = None;
+        let Some(r) = t.results.as_ref() else {
+            return;
+        };
+        match power_reserve::write(&take, r) {
+            Ok(()) => {
+                t.saved = Some(take);
+                if let Ok(Some(l)) = &mut self.library {
+                    l.scan();
+                }
+            }
+            Err(e) => {
+                applog::error(&format!(
+                    "the power reserve results couldn't be written into {}: {e}",
+                    take.display()
+                ));
+                t.unwritten = Some((take, Instant::now()));
+            }
+        }
+    }
+
+    /// Results whose write failed, written again once a minute until
+    /// they are.
+    fn reserve_write_again(&mut self, ctx: &egui::Context) {
+        let Some((take, at)) = self.reserve.as_ref().and_then(|t| t.unwritten.clone()) else {
+            return;
+        };
+        let wait = STREAM_RETRY.saturating_sub(at.elapsed());
+        if !wait.is_zero() {
+            ctx.request_repaint_after(wait);
+            return;
+        }
+        self.write_reserve_into(take);
     }
 
     /// Save the ended Power Reserve Test's take, with its results, into

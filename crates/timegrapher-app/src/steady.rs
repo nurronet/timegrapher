@@ -237,10 +237,21 @@ pub fn log_of(live: &LiveAnalyzer) -> Option<BeatLog> {
 /// take's run reads its log with the masks by hand alone, so a settling
 /// culled from its hours never moves where it starts (#1233).
 pub fn log_masked(live: &LiveAnalyzer, masked: &[(f64, f64)]) -> Option<BeatLog> {
+    log_masked_at(live, masked, live.bph())
+}
+
+/// [`log_of`] at `bph`, when the session's rate is no longer locked: a
+/// Power Reserve Test reads its hours at the rate it ran at, though the
+/// silence after the watch stopped let an automatic rate go (#1394).
+pub fn log_of_at(live: &LiveAnalyzer, bph: Option<u32>) -> Option<BeatLog> {
+    log_masked_at(live, live.masked(), bph)
+}
+
+fn log_masked_at(live: &LiveAnalyzer, masked: &[(f64, f64)], bph: Option<u32>) -> Option<BeatLog> {
     let mut log = BeatLog {
         sample_rate: live.sample_rate(),
         duration_s: live.duration_s(),
-        bph: live.bph()?,
+        bph: bph?,
         lift_deg: live.config().analysis.amplitude.lift_deg,
         beats: live.beats().to_vec(),
         amplitude_windows: live.amplitude_windows().to_vec(),

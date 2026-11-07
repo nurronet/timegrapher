@@ -1068,3 +1068,199 @@ fn the_window_draws_again_only_while_work_is_under_way() {
     drop(a);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A Power Reserve Test whose recording fails (a full disk) ends there:
+/// the pane no longer says it runs, its results are written into the take
+/// it was recording into with that ending, no failed save is promised
+/// again, and the take's row in Watches reads all its sound (#1380,
+/// Walter's find).
+#[test]
+fn a_power_reserve_test_whose_recording_fails_keeps_its_run_so_far() {
+    let base = std::env::temp_dir().join(format!("tg-app-reserve-fail-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Reverso")).unwrap();
+    let reverso = lib.find("Reverso").unwrap().watch.id.clone();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_watch(&reverso);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let mut r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    let block = |s: usize| timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * s],
+        at: std::time::SystemTime::now(),
+    };
+    r.write(&block(20)).unwrap();
+    app.session.recorder = Some(r);
+    let _tx = super::tests::queued_capture(&mut app, &base);
+    app.position = Position::CrownLeft;
+    app.reserve = Some(crown_left_test());
+    // Recording into its folder: a first save, then a second.
+    app.stream_tick();
+    app.wait_for_save();
+    let take = app
+        .session
+        .saved_to()
+        .expect("recording into its folder")
+        .to_path_buf();
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(6)).unwrap();
+    app.stream_tick();
+    app.wait_for_save();
+    // The third fails, as on a full disk, and is promised again.
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&block(6)).unwrap();
+    app.stream_tick();
+    let mut s = app.saving.take().expect("a save into its folder");
+    let copy = s.thread;
+    s.thread = std::thread::spawn(move || {
+        let _ = copy.join();
+        Err(std::io::Error::other(
+            "No space left on device (os error 28)",
+        ))
+    });
+    app.saving = Some(s);
+    app.wait_for_save();
+    assert!(app.stream_wait.is_some());
+    assert!(app.reserve_running());
+
+    // Then the recording fails.
+    app.recording_failed("No space left on device (os error 28)".into());
+    assert!(!app.reserve_running(), "the pane no longer says Running");
+    assert!(app.stream_wait.is_none(), "nothing is tried again");
+    let t = app.reserve.as_ref().unwrap();
+    assert_eq!(t.ending, Some(power_reserve::Ending::RecordingFailed));
+    assert_eq!(t.saved.as_ref(), Some(&take));
+    let kept = power_reserve::Results::from_json(
+        &std::fs::read_to_string(take.join(power_reserve::FILE)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(t.results.as_ref(), Some(&kept));
+    assert_eq!(kept.ending, power_reserve::Ending::RecordingFailed);
+    assert!(kept.sound_kept, "no keep as its analysis alone follows");
+    assert!(kept
+        .sentence("CL")
+        .starts_with("Power reserve at least 12 s in CL."));
+    // Its row reads the take as its folder holds it, not as first saved.
+    let row = app.open_watch().unwrap().takes[0].clone();
+    let length = row.duration_s.expect("a length");
+    // The failing save's thread wrote its copy before failing here.
+    assert!(length >= 26.0 - 0.01, "{length}");
+    assert!(watches::take_line(&row, false, None).starts_with(
+        "Power Reserve at least 12 s · The recording failed while the watch still ran"
+    ));
+
+    // Opened again, the take brings its run back to the pane.
+    let mut again = TimegrapherApp::with_devices(Vec::new(), None);
+    again.start_batch(&take);
+    let back = again.reserve.as_ref().expect("its results");
+    assert!(!again.reserve_running());
+    assert_eq!(back.results.as_ref(), Some(&kept));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A failed save into the take, once its recording has failed, promises
+/// nothing more (#1380).
+#[test]
+fn a_save_failing_after_the_recording_failed_promises_no_retry() {
+    let base = std::env::temp_dir().join(format!("tg-app-reserve-noretry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.session.listen();
+    let info = app.info("", 48000, 16);
+    let r = Recorder::start(&base.join("unsaved"), info).unwrap();
+    app.session.recorder = Some(r);
+    app.session
+        .recording_failed(0.0, "No space left on device (os error 28)".into());
+    app.save_failed_for_test(&base.join("take"), "No space left".into());
+    assert!(app.stream_wait.is_none());
+    let said = app.message.clone().unwrap().0;
+    assert!(said.contains("recovery folder"), "{said}");
+    assert!(!said.contains("tried again"), "{said}");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Results the full disk kept out of the take are written a minute
+/// later, and until then tried again each minute (#1380).
+#[test]
+fn a_failed_runs_results_are_written_again_a_minute_later() {
+    let base = std::env::temp_dir().join(format!("tg-app-reserve-again-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let take = base.join("take");
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let mut t = crown_left_test();
+    t.ending = Some(power_reserve::Ending::RecordingFailed);
+    t.finish(|s| s);
+    let long_ago = Instant::now() - STREAM_RETRY;
+    t.unwritten = Some((take.clone(), long_ago));
+    app.reserve = Some(t);
+    let ctx = egui::Context::default();
+    // Still no room (here, no folder): tried again a minute on.
+    app.reserve_tick(&ctx);
+    let t = app.reserve.as_ref().unwrap();
+    let (_, at) = t.unwritten.clone().expect("still to write");
+    assert!(at > long_ago);
+    assert!(t.saved.is_none());
+    // Room again: written.
+    std::fs::create_dir_all(&take).unwrap();
+    app.reserve.as_mut().unwrap().unwritten = Some((take.clone(), long_ago));
+    app.reserve_tick(&ctx);
+    let t = app.reserve.as_ref().unwrap();
+    assert!(t.unwritten.is_none());
+    assert_eq!(t.saved.as_ref(), Some(&take));
+    let kept = power_reserve::Results::from_json(
+        &std::fs::read_to_string(take.join(power_reserve::FILE)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(kept.ending, power_reserve::Ending::RecordingFailed);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A run on an automatic rate that reaches the watch's stop keeps its
+/// hour table: the silence before the stop lets the rate go, and the
+/// hours are read at the rate the run ran at (#1394, Walter's find).
+#[test]
+fn a_run_on_an_automatic_rate_keeps_its_hours_at_the_stop() {
+    let cfg = SynthConfig {
+        duration_s: 90.0,
+        bph: 21_600,
+        ..Default::default()
+    };
+    let ticks = generate(&cfg, |_| 280.0, |_| 0.0).samples;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let auto = LiveConfig::default();
+    assert!(auto.analysis.bph.is_none(), "the rate on Auto");
+    app.live = Some(LiveAnalyzer::new(48_000, auto));
+    app.reserve = Some(reserve::Test::new(
+        Position::DialUp,
+        true,
+        String::new(),
+        0.0,
+    ));
+    app.reserve_read_s = 0.0;
+    let ctx = egui::Context::default();
+    // Then silence, in a few long blocks so the test is quick.
+    let silence = vec![0.0f32; 48_000 * 20];
+    let sound = ticks.chunks(48_000).chain(std::iter::repeat_n(
+        silence.as_slice(),
+        (power_reserve::STOP_AFTER_S / 20.0) as usize + 3,
+    ));
+    for s in sound {
+        app.live.as_mut().unwrap().push(s);
+        app.reserve_tick(&ctx);
+        if !app.reserve_running() {
+            break;
+        }
+    }
+    assert_eq!(app.live.as_ref().unwrap().bph(), None, "the rate let go");
+    let t = app.reserve.as_ref().unwrap();
+    assert_eq!(t.ending, Some(power_reserve::Ending::Stopped));
+    assert_eq!(t.bph, Some(21_600));
+    let r = t.results.as_ref().expect("its results");
+    assert!(!r.hours.is_empty(), "its hour table");
+}
