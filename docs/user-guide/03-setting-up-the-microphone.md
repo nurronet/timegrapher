@@ -10,8 +10,8 @@ the sound on its way in.
 ## Settings > Microphone
 
 Open Settings with the gear at the right of the top row, **Edit >
-Settings…**, or **Ctrl+,** (**Cmd+,** on a Mac). Then pick
-**Microphone**.
+Settings…** (**Timegrapher > Settings…** on a Mac), or **Ctrl+,**
+(**Cmd+,** on a Mac). Then pick **Microphone**.
 
 ![Settings at Microphone while a watch is heard, marks 1 to 7](images/settings-microphone.png)
 
@@ -21,7 +21,7 @@ Settings…**, or **Ctrl+,** (**Cmd+,** on a Mac). Then pick
 | 2 | **Microphone** menu and **Rescan** | Picks the input. Rescan looks for inputs again. | To choose the microphone the watch sits on. Rescan after plugging one in. |
 | 3 | **Show Every Input** | Lists every device the system offers, with its id. | When your microphone is missing from the short list. |
 | 4 | **Input Level** | The microphone's gain, where the app can set it. | To bring the peaks into the shaded band. |
-| 5 | **Peak** | The loudest sample of the last half second, against a band at −10 to −6 dBFS. Says "clipping" at once on a clipped sample. | To set the level while a watch ticks. |
+| 5 | **Peak** | The loudest sample of the last half second, against a band at −10 to −6 dBFS. Says "Clipping: lower the Input Level." at once on a clipped sample, for 3 s after the last one. | To set the level while a watch ticks. |
 | 6 | **Quartz Correction** | Times the sound card's clock against the computer's while you listen, and keeps the error it finds. | To correct every rate for the sound card's clock. See [Quartz Correction](#quartz-correction). |
 | 7 | **Done** | Closes Settings. So do Escape and a click outside. | |
 
@@ -72,7 +72,8 @@ flat.
 
 **How the app shows it:**
 
-- The Peak meter says "clipping" the moment a sample clips.
+- The Peak meter says "Clipping: lower the Input Level." the moment a
+  sample clips, and keeps saying it for 3 s after the last one.
 - The Amplitude and Beat Error cards show a chip such as **3% Clipped**:
   the share of the beats in the reading that clipped. It goes once the
   clipped beats leave the reading.

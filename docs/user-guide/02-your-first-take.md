@@ -109,7 +109,7 @@ menu:
 - Once kept, the take records into its folder as it goes, every 5 s.
 - **Listen** again starts a new take. **An unsaved Quick Listen take
   goes without a question**: save it first if you want to keep it. A
-  test's take is always asked about.
+  test's take is asked about once more than 5 s of it is unsaved.
 
 Chapters 22, The Watches View, and 23, Takes and Sound Files, cover
 watches and saving in full.

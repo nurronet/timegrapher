@@ -28,7 +28,9 @@ saves a take.
   the Paper Strip, a stethoscope for the Tick Tock Profile, a camel for
   Charts, an Allen key for Allan Deviation.
 - **A narrow window:** the largest icon groups fold into a menu under
-  their name, with a count of their panes, until the rest fit.
+  their name, until the rest fit. The number beside a folded group's
+  name, such as **Analysis (2)**, is how many of its panes are shown; with
+  none shown there is no number.
 - In Watches the pane icons hide, since the panes belong to the Bench.
 
 ## The Readings Cards
@@ -91,11 +93,13 @@ Every other pane starts hidden.
   **signal** (chapter 3).
 - The latest message, such as "Analysed the whole recording".
 
-**On the right, notices:** one short word for each thing that needs you.
+**On the right, notices:** a short phrase for each thing that needs you.
 
 | Notice | Means |
 | --- | --- |
-| A red failure icon | Something went wrong. Click for the message. |
+| A red icon and **Recording Stopped…** | The recording failed. Click for the whole message. |
+| A red icon and a message's first line, ending "…" | Something else went wrong. Click for the whole message. |
+| A warning icon and a caveat | An opened take's USB lines and its clock log measure its sound card differently. Click for both figures. |
 | **Closed Unexpectedly…** | The app crashed last time. Click to make a report. |
 | **Unsaved Sound Found…** | Sound from an earlier session wasn't saved. Click to open, move or delete it. |
 | **Timegrapher 0.2.0 Available…** (with the version found) | A newer version is published. Click for its download page. |
@@ -106,6 +110,19 @@ Every other pane starts hidden.
 
 ## The Menus
 
+On a Mac the menus are in the system's menu bar, with one more,
+**Timegrapher**, first:
+
+| Item | What it does |
+| --- | --- |
+| **About Timegrapher** | Shows the version. |
+| **Settings…** (Cmd+,) | Opens Settings. On a Mac it is here, not in Edit. |
+| **Hide Timegrapher**, **Hide Others**, **Show All** | The usual Mac window commands. |
+| **Quit Timegrapher** (Cmd+Q) | Closes the app, asking about unsaved sound as Quit does below. On a Mac it is here, not in File. |
+
+The tables below are the menus on Windows and Linux. On a Mac, File has
+no Quit and Edit has only Remove All Masks….
+
 ### File
 
 | Item | What it does | Why you'd use it |
@@ -113,7 +130,8 @@ Every other pane starts hidden.
 | **Open Recording…** (Ctrl+O) | Opens a WAV or FLAC file and analyses all of it. From outside your watches, it asks first whether to add it to one. | To read a recording from another app, or a file someone sent you. |
 | **Open Folder…** | Opens a take this app saved, or a folder of WAV or FLAC segments of one long run, joined end to end. | To reopen a take saved outside your watches. |
 | **Save…** (Ctrl+S) / **Save Again** | Saves the take so far. | To keep a take now. Dimmed while a kept take records into its folder by itself. |
-| **Save As…** (Ctrl+Shift+S) | Saves the take as a new take in a folder you choose. Save Again then goes there. | To make a copy somewhere else. |
+| **Save** (Ctrl+S, no "…") | For an opened recording whose masks or positions changed: saves those into its session file. | To keep masking or position marks made on an opened take. |
+| **Save As…** (Ctrl+Shift+S) | Saves the take as a new take in a folder you choose. Save Again then goes there. Dimmed until the take has been saved once. | To make a copy somewhere else. |
 | **Save Analysis Only…** | Keeps the take's readings without its sound, in a new folder. Stop listening first. | For a long take whose sound would fill the disk. |
 | **New Session** | Clears everything and starts again. Listening carries on into the new session. Unsaved sound is asked about first, except a Quick Listen take's. | For the next watch or position. |
 | **Quit** (Ctrl+Q) | Closes the app. Unsaved sound is asked about first, except a Quick Listen take's. | |
@@ -155,7 +173,8 @@ In Watches, all but Bench and Watches are dimmed.
 
 | Key | Does |
 | --- | --- |
-| **1** to **6** | Sets the position: DU, DD, CU, CD, CL, CR. On the Bench, while listening or before anything is on show, not while typing. |
+| **1** to **6** | Sets the position: DU, DD, CU, CD, CL, CR. On the Bench, while listening or before anything is on show. Not while typing, behind a dialog, or while a Positions Test or Power Reserve Test runs. |
+| **Esc** | Puts down the Position Brush or the Mask tool. |
 | **Ctrl+1**, **Ctrl+2** | Bench, Watches. |
 | **Ctrl+O** | Open Recording. |
 | **Ctrl+S**, **Ctrl+Shift+S** | Save, Save As. |
