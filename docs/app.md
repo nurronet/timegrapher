@@ -392,9 +392,11 @@ The beats found in a take's sound are kept in the system's cache folder
 (`~/.cache/timegrapher/beats` on Linux, `~/Library/Caches/timegrapher/beats`
 on macOS, `%LOCALAPPDATA%\timegrapher\beats` on Windows), so the take
 opens again in seconds rather than minutes. A copy is only read back
-for the same sound files (each one's name, length, modified time and
-start), the same analysis settings and the same build of the engine, and
-then it is exact to the bit; anything else reads the sound again. A take
+for the same sound files (each one's place on disk, length, modified
+time and sixteen samples of its bytes from start to end), the same
+analysis settings and the same build of the engine, and then it is exact
+to the bit; anything else, a take moved or renamed included, reads the
+sound again. A take
 whose files changed in the last two minutes, which may still be
 recording, gets no copy. The folder is held to 2 GB, the copies used
 longest ago going first, and deleting it only makes the next open slow.
@@ -616,7 +618,7 @@ has **New Test**, which sets a test up on a clear Bench and starts
 nothing (sound not saved is asked about first, and a Quick Listen still
 listening stops once asked): the pane shows, the Position card reads Dial
 Up, where the test begins, and the status bar says "Positions Test ·
-Ready, not started". **Start Test** on the Listen card then starts it;
+… · Ready" (the Listen card says Ready beside Start Test). **Start Test** on the Listen card then starts it;
 **Cancel Test**, in New Test's place, leaves the Bench as it was. For a
 watch, **Wind** picks **Full Wind** (just after winding) or **24 Hours
 After**, set against a full-wind test picked each time in **Compare

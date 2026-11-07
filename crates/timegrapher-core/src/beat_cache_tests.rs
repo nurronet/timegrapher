@@ -143,6 +143,55 @@ fn a_copy_is_read_only_for_the_same_sound_and_settings() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// A copy of another take is never read as this one (#1326): not when
+/// its files have the same names, lengths, times and starts in another
+/// folder, nor when they differ only near the end or the middle.
+#[test]
+fn a_copy_is_read_only_for_the_same_files() {
+    let dir = folder("same-files");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    let cache = dir.join("cache");
+    write(&cache, &paths, &cfg, &log, peak).unwrap();
+    assert!(read(&cache, &paths, &cfg).is_some());
+    // The same files, byte for byte and time for time, in another folder.
+    let elsewhere = dir.join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let copies: Vec<PathBuf> = files
+        .iter()
+        .map(|f| {
+            let c = elsewhere.join(f.file_name().unwrap());
+            fs::copy(f, &c).unwrap();
+            set_changed(&c, fs::metadata(f).unwrap().modified().unwrap());
+            c
+        })
+        .collect();
+    let copied: Vec<&Path> = copies.iter().map(|f| f.as_path()).collect();
+    assert!(read(&cache, &copied, &cfg).is_none());
+    // A file much longer than the spans read, so the whole of it isn't.
+    let len = fs::metadata(&files[1]).unwrap().len();
+    assert!(len > 4 * SPANS * HEAD_BYTES as u64, "the take is too short");
+    let mid = (SPANS / 2 * (len - HEAD_BYTES as u64) / (SPANS - 1)) as usize + 7;
+    for at in [len as usize - 3, mid] {
+        let was = fs::metadata(&files[1]).unwrap().modified().unwrap();
+        let mut bytes = fs::read(&files[1]).unwrap();
+        bytes[at] ^= 0x01;
+        fs::write(&files[1], &bytes).unwrap();
+        set_changed(&files[1], was);
+        assert!(
+            read(&cache, &paths, &cfg).is_none(),
+            "a byte at {at} of {len}"
+        );
+        bytes[at] ^= 0x01;
+        fs::write(&files[1], &bytes).unwrap();
+        set_changed(&files[1], was);
+        assert!(read(&cache, &paths, &cfg).is_some());
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// No copy is kept of a take whose files changed in the last two minutes:
 /// it may still be recording.
 #[test]

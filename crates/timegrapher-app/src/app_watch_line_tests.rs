@@ -1023,3 +1023,71 @@ fn the_cards_ask_for_beat_rate_and_lift_only_without_a_calibre() {
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Picking a watch or Unsorted Takes while listening is refused, and the
+/// status bar says why; once a pick goes through after Stop, that
+/// refusal is gone from the status bar (Walter). Another message stays.
+#[test]
+fn a_refused_pick_is_not_still_said_once_a_pick_works() {
+    let base = std::env::temp_dir().join(format!("tg-app-pick-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    drop(lib);
+    // Readings on show, as after a Quick Listen stopped.
+    let mut app = synthetic(2.0, 0.0);
+    app.use_library(Some(root));
+    assert!(app.live.is_some());
+    // A take of the microphone's, not one opened from a folder.
+    app.opened_path.clear();
+    let said = |app: &TimegrapherApp| app.message.as_ref().map(|(m, _)| m.clone());
+    for unsorted in [false, true] {
+        app.session.listen();
+        let _tx = super::tests::queued_capture(&mut app, &base);
+        assert!(app.running());
+        let (pick, words): (&dyn Fn(&mut TimegrapherApp), _) = if unsorted {
+            (
+                &|a| a.pick_unsorted(),
+                "Stop listening before picking Unsorted Takes.",
+            )
+        } else {
+            (
+                &|a| a.pick_watch(&pepsi),
+                "Stop listening before picking another watch.",
+            )
+        };
+        pick(&mut app);
+        assert_eq!(said(&app).as_deref(), Some(words));
+        app.capture = None;
+        pick(&mut app);
+        assert_eq!(said(&app), None, "the refusal no longer stands");
+    }
+    // Either refusal goes once the other pick works: Unsorted Takes
+    // refused, then a watch picked, and the other way round (Trevor).
+    for watch_after in [true, false] {
+        app.session.listen();
+        let _tx = super::tests::queued_capture(&mut app, &base);
+        if watch_after {
+            app.pick_unsorted();
+        } else {
+            app.pick_watch(&pepsi);
+        }
+        assert!(said(&app).is_some_and(|m| m.starts_with("Stop listening before picking")));
+        app.capture = None;
+        if watch_after {
+            app.pick_watch(&pepsi);
+        } else {
+            app.pick_unsorted();
+        }
+        assert_eq!(said(&app), None, "watch after: {watch_after}");
+    }
+    // A message that isn't a refusal is left alone.
+    app.info_msg("Saved.".into());
+    app.pick_watch(&pepsi);
+    assert_eq!(said(&app).as_deref(), Some("Saved."));
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
