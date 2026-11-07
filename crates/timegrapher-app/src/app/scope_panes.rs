@@ -114,7 +114,7 @@ impl TimegrapherApp {
             accent,
             "Sounds",
             &mut o.sounds,
-            "The dots where the three sounds of each beat rise, Unlock Sound, Impulse \
+            "The rings where the three sounds of each beat rise, Unlock Sound, Impulse \
              Sound and Drop Sound, named below the plot",
         );
         theme::bar_gap(ui);
