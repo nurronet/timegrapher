@@ -135,4 +135,4 @@ states, not when. The Charts and the strip show when.
 ---
 
 Previous: [The Tick Tock Profile and the Scope](07-profile-and-scope.md) ·
-[Contents](README.md)
+Next: [Steadiness](09-steadiness.md)

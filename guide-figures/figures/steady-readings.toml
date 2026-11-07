@@ -1,0 +1,23 @@
+# Chapter 10, Readings Over Time: the whole 30-minute take opened, the
+# Steadiness view of its readings in time order.
+output = "steady-readings.png"
+
+actions = [["sleep", 60]]
+
+# 1 a reading, 2 a stretch's level, 3 the change between two stretches,
+# 4 the key, 5 time in the position.
+marks = [[1, 662, 648], [2, 300, 828], [3, 590, 808], [4, 1690, 629], [5, 1032, 1000]]
+
+layout = ["column", [0.35, "Strip"], [0.65, "SteadyReadings"]]
+
+[data]
+corpus = "dd3235_DU_30min"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac"]
+start = 0
+seconds = 1800
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
