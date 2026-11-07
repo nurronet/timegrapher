@@ -1513,7 +1513,7 @@ fn caveat_condition(label: &str, c: &timegrapher_core::measure::Caveat) -> Optio
         Caveat::SidesByCount { count } => Some(format!(
             "{label}: Tick and Tock named by the beat count across {count} break{}, \
              not told apart by their sound",
-            if *count == 1 { "" } else { "s" }
+            timegrapher_core::measure::plural(*count)
         )),
         _ => None,
     }

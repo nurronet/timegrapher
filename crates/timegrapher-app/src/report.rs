@@ -932,7 +932,16 @@ fn excerpt_analysis_config(bph: Option<u32>, lift_deg: f64) -> AnalysisConfig {
 /// command line's own defaults, so `report --replay` compares like with
 /// like. The FLAC is read back as the command line reads it.
 fn analyze_like_the_cli(flac: &[u8], bph: Option<u32>, lift_deg: f64) -> Result<Value, String> {
-    let tmp = std::env::temp_dir().join(format!("timegrapher-report-{}.flac", std::process::id()));
+    // Named for the thread too: each save runs on its own, so two reports
+    // saved at once in one process (as the tests do) don't share it.
+    let thread: String = format!("{:?}", std::thread::current().id())
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    let tmp = std::env::temp_dir().join(format!(
+        "timegrapher-report-{}-{thread}.flac",
+        std::process::id()
+    ));
     std::fs::write(&tmp, flac).map_err(|e| e.to_string())?;
     let loaded = audio::load(&tmp);
     let _ = std::fs::remove_file(&tmp);
@@ -1242,8 +1251,7 @@ mod tests {
             "ordinary fixture has no USB correction"
         );
 
-        // A second bundle, sequentially: the temporary decoder filename is shared
-        // within this process. Keep the original fixture and assertions above.
+        // A second bundle, from the same fixture with a USB clock's tones added.
         let mut usb_audio = a.clone();
         for (i, sample) in usb_audio.samples.iter_mut().enumerate() {
             for f in [5000.0, 6000.0, 7000.0] {
@@ -1289,3 +1297,7 @@ mod tests {
         assert_eq!(replace_word("peter's peterson", "peter", "<user>").1, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "report_tests.rs"]
+mod dialog_tests;

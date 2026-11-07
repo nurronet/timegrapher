@@ -87,7 +87,7 @@ and a low amplitude, or a rate that jumps between two values.
 | --- | --- | --- | --- |
 | 1 | **Rate**, **Amplitude**, **Beat Error** (the hare, the swing and the seesaw) | Show or hide each reading's plot. At least one stays on. | Fewer plots give each more height. |
 | 2 | **Show** | **Probability** (the default): probability paper. **Cumulative:** the share of values at or below each value. | Probability makes one steady state a straight line, so two states stand out. Cumulative reads directly as a share. |
-| 3 | **Values** | **Readings** (the default): one value per Average Over, so no two share beats. **2 s:** one value per 2 s of beats. | Readings shows states that last longer than Average Over. 2 s catches quicker changes, with more scatter. |
+| 3 | **Values** | **Readings** (the default): one value per Average Over, so no two share beats. **2 s:** one value per 2 s of beats; for the rate, the rate over each 2 s of beats. | Readings shows states that last longer than Average Over. 2 s catches quicker changes, with much more scatter: a 2 s rate scatters far more than a 10 s one. |
 | 4 | **Export…** | Saves the pane as a picture, PNG or SVG. | |
 
 ### The Plot
@@ -126,12 +126,13 @@ states, not when. The Charts and the strip show when.
 - **The scale leaves out the outermost 0.5% at each end,** so a stray
   value can't squeeze the rest together. The summary line counts them.
 - **The beat error plot** says above it which measurement it uses (from
-  the unlock or from the drop). When readings from the other one were left
-  out, it says how many were used.
+  the unlock or from the drop). When values from the other one were left
+  out, it says how many were used, counted in the 2 s
+  windows the values are made from, whichever **Values** is set to.
 - **2 s values** are the finest the app measures. None reaches across a
   cut or into a masked stretch.
 
 ---
 
 Previous: [The Tick Tock Profile and the Scope](07-profile-and-scope.md) ·
-[Contents](README.md)
+Next: [Steadiness](09-steadiness.md)

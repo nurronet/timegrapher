@@ -1339,7 +1339,8 @@ verdict word or colour, and the statistics: what was tested ("Tested on 179
 to the next, the lag-1 correlation and Ljung–Box p-value, and the trend
 and period when found; then how much of the session was tested. Its words
 wrap, scroll and can be selected to copy. It opens and closes only when
-clicked, and is one setting for every Steadiness view, kept between runs.
+clicked; each pane keeps its own, kept between runs. In a pane narrower
+than 600 pt it opens over the plots, from the top right.
 **Rate**, **Amplitude** and **Beat Error**, in each pane's toolbar, choose
 which series that pane shows; at least one stays on.
 

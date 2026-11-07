@@ -1,0 +1,24 @@
+# Chapter 9, Steadiness: the whole 30-minute take opened, Readings Over
+# Time with all three series and the Info panel open.
+output = "steady-info.png"
+
+actions = [["sleep", 60], ["click", 61, 508], ["click", 93, 508], ["sleep", 5], ["click", 1737, 508], ["sleep", 2]]
+
+# 1 the series switches, 2 Export, 3 Info, 4 a series' sentence, 5 its
+# statistics, 6 the key, 7 a stretch.
+marks = [[1, 118, 600], [2, 176, 600], [3, 1786, 600], [4, 1590, 676], [5, 1838, 768],
+         [6, 1380, 612], [7, 300, 645]]
+
+layout = ["column", [0.35, "Strip"], [0.65, "SteadyReadings"]]
+
+[data]
+corpus = "dd3235_DU_30min"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac"]
+start = 0
+seconds = 1800
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]

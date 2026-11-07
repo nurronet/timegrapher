@@ -1,0 +1,26 @@
+# Chapter 18, Wavelet Map: the first hour of a 7-hour take (a Dandong 3285;
+# the corpus id at this pin still says 3235) opened, the rate in the
+# Steadiness view.
+output = "steady-wavelet.png"
+
+actions = [["sleep", 150]]
+
+marks = [[1, 1484, 800, 1440, 881], [2, 300, 690], [3, 1484, 955], [4, 1000, 612, 900, 650], [5, 1569, 700, 1569, 860], [6, 545, 1008], [7, 1800, 905]]
+
+layout = ["column", [0.35, "Strip"], [0.65, "SteadyWavelet"]]
+
+[data]
+corpus = "pepsi3235_DU_7h"
+file = "take_part01-001.flac"
+start = 0
+seconds = 3600
+
+[data.session]
+watch = "Dandong 3285"
+calibre = "Dandong 3285"
+bph = 28800
+lift = 55
+position = "DU"
+
+[window]
+size = [1800, 1000]

@@ -2051,7 +2051,7 @@ fn the_white_null_costs_little_power() {
 #[ignore = "writes the table; run by hand"]
 fn write_white_null_table() {
     use super::white::{
-        draw_point, Table, DRAW_BUDGET, MAX_DRAWS, MIN_DRAWS, TABLE_LAGS, TABLE_LB_LAGS,
+        draw_point, point_seed, Table, DRAW_BUDGET, MAX_DRAWS, MIN_DRAWS, TABLE_LAGS, TABLE_LB_LAGS,
     };
     let logs = |from: f64, to: f64, per_decade: f64| -> Vec<usize> {
         let k = ((to / from).log10() * per_decade).ceil() as usize;
@@ -2073,7 +2073,6 @@ fn write_white_null_table() {
             jobs.push(((ratio * w as f64).round() as usize, 1800.0 / w as f64));
         }
     }
-    let seed = |n: usize, step: f64| (n as u64) << 20 ^ step.to_bits().rotate_left(7) ^ 0x1199;
     let next = std::sync::atomic::AtomicUsize::new(0);
     let done = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|sc| {
@@ -2081,7 +2080,7 @@ fn write_white_null_table() {
             sc.spawn(|| loop {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some(&(n, step)) = jobs.get(i) else { break };
-                let p = draw_point(n, step, seed(n, step));
+                let p = draw_point(n, step, point_seed(n, step));
                 eprintln!(
                     "point n {n} window {} draws {} skew {:.3}",
                     p.window, p.draws, p.null.q_skew
@@ -2212,4 +2211,130 @@ fn the_white_table_is_read_between_its_points() {
         got.q_var
     );
     assert!((lo.null.q_var - hi.null.q_var).abs() > 1e-3);
+}
+
+/// Candidates on the same peak are tested once, but only when they come
+/// from the same source: the source sets how many turns a cycle needs,
+/// so a period search's and an autocorrelation's at one period are both
+/// kept (Norm's ruling). Of one source, those within the fold's
+/// resolution p²/(20·span) of the best fold share's go with it, and one
+/// further out is kept (#1398).
+#[test]
+fn only_one_sources_candidates_within_the_folds_resolution_merge() {
+    use CycleSource::{Autocorrelation as Ac, PeriodSearch as Ps};
+    // At 600 s in an hour the fold resolves 600²/(20·3600) = 5 s.
+    let span = 3600.0;
+    assert_eq!(
+        same_peaks_once(&[(600.0, Ps, 0.3), (600.0, Ac, 0.2)], span),
+        [(600.0, Ps), (600.0, Ac)]
+    );
+    // The better fold share is kept, in the order found.
+    assert_eq!(
+        same_peaks_once(&[(604.0, Ps, 0.2), (600.0, Ps, 0.3)], span),
+        [(600.0, Ps)]
+    );
+    assert_eq!(
+        same_peaks_once(&[(600.0, Ps, 0.3), (606.0, Ps, 0.2)], span),
+        [(600.0, Ps), (606.0, Ps)]
+    );
+    // No chaining: 604 goes with 600, and 608, 8 s from it, stays.
+    assert_eq!(
+        same_peaks_once(
+            &[(600.0, Ps, 0.3), (604.0, Ps, 0.2), (608.0, Ps, 0.1)],
+            span
+        ),
+        [(600.0, Ps), (608.0, Ps)]
+    );
+}
+
+/// An autocorrelation peak becomes a candidate only at three times its
+/// 95% band: one at twice the band is noise to the cycle search (#1398).
+#[test]
+fn a_weak_autocorrelation_peak_is_no_candidate() {
+    let cfg = Config {
+        acf_alone: true,
+        ..Config::default()
+    };
+    let g = grid(noise(31, 720, 0.0, 1.0), 10.0);
+    let mut s = check_series(SeriesKind::Rate, g.clone(), None, None, None, &[], &cfg);
+    s.two_state = None;
+    let n = g.y.len() as f64;
+    let acf_peak = |height: f64| {
+        let lags = 60;
+        let band_by_lag: Vec<f64> = (0..=lags).map(|k| 1.96 / (n - k as f64).sqrt()).collect();
+        let mut r = vec![0.0; lags + 1];
+        r[0] = 1.0;
+        r[30] = height * 1.96 / n.sqrt();
+        Autocorrelation {
+            lag_s: (0..=lags).map(|k| k as f64 * 10.0).collect(),
+            r,
+            band: 1.96 / n.sqrt(),
+            band_by_lag,
+            ljung_box_q: 0.0,
+            ljung_box_lags: 10,
+            p_value: 1.0,
+            max_short_lag_r: 0.0,
+            repeat_lag_s: None,
+            repeat_r: None,
+            memory_s: None,
+        }
+    };
+    let from_acf = |s: &SeriesCheck| -> Vec<f64> {
+        refined_candidates(s, &g, None, &cfg)
+            .1
+            .into_iter()
+            .filter(|c| c.1 == CycleSource::Autocorrelation)
+            .map(|c| c.0)
+            .collect()
+    };
+    s.autocorrelation = Some(acf_peak(2.0));
+    assert!(from_acf(&s).is_empty(), "{:?}", from_acf(&s));
+    s.autocorrelation = Some(acf_peak(4.0));
+    let found = from_acf(&s);
+    assert!(
+        found.len() == 1 && (found[0] - 300.0).abs() <= 60.0,
+        "{found:?}"
+    );
+}
+
+/// A cycle's inner cycle fits three or more times and lasts 30 s or
+/// more: a strong second harmonic is the cycle's own shape, not a cycle
+/// inside it, and a line faster than 30 s is the timing search's
+/// (#1398). The cycles here are found and kept, without an inner one.
+#[test]
+fn a_second_harmonic_or_a_fast_line_is_no_inner_cycle() {
+    let tau = std::f64::consts::TAU;
+    let cfg = Config::default();
+    let strongest = |p: f64, inner: f64, sizes: (f64, f64), step: f64, n: usize| {
+        let mut z = Noise(41);
+        let y: Vec<f64> = (0..n)
+            .map(|i| {
+                let t = (i as f64 + 0.5) * step;
+                sizes.0 * (tau * t / p).sin() + sizes.1 * (tau * t / inner).sin() + 0.3 * z.next()
+            })
+            .collect();
+        let g = grid(y, step);
+        let s = check_series(
+            SeriesKind::Rate,
+            g.clone(),
+            None,
+            Some(search_line(p, 2.0 * sizes.0, "s/d", None)),
+            None,
+            &[],
+            &cfg,
+        );
+        let d = longterm::detrend(&g, longterm::DETREND_S);
+        strongest_cycle(&s, &g, &d, &[(p, CycleSource::PeriodSearch)], &[], &cfg)
+            .expect("the cycle is kept")
+    };
+    // 600 s with a second harmonic that explains more than half of it,
+    // in 8 h of 10 s readings.
+    let c = strongest(600.0, 300.0, (2.0, 3.0), 10.0, 2880);
+    assert!((c.period_s - 600.0).abs() < 1.0, "{c:?}");
+    assert_eq!((c.inner_period_s, c.turns), (None, None), "{c:?}");
+    // 100 s with a 20 s line inside it, five turns, in 2 h of 2 s
+    // windows.
+    let c = strongest(100.0, 20.0, (2.0, 2.4), 2.0, 3600);
+    assert!((c.period_s - 100.0).abs() < 0.5, "{c:?}");
+    assert_eq!((c.inner_period_s, c.turns), (None, None), "{c:?}");
 }
