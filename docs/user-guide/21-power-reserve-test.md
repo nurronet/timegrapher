@@ -119,8 +119,10 @@ keeps on the wrist depends on how far down it is allowed to run.
 **Scrolled to its end,** the same table shows the watch's last hours.
 From 56 hours the beats grow faint, and the unlock that the amplitude is
 timed from is found in fewer of the hour's windows: 134° and 124° are
-grey, and so are the beat errors of 5.08 and 5.93 ms beside them, timed
-from the same few windows. In the last two hours it is found in too few to give a figure,
+grey, and so are the beat errors of 5.08 and 5.93 ms beside them, each
+read from under 60% of the hour's windows. Ten times the 0.4 to 0.6 ms
+of the hours before, they are the faint unlock found on noise, not the
+watch. In the last two hours it is found in too few to give a figure,
 and the cells show a dash. The rate, timed from the whole beat, is still
 read: −54.4 s/d, then −144.0 s/d in the last part hour as the watch
 stops. Without the floor, those few windows gave an amplitude near 290°
