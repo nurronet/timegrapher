@@ -62,7 +62,7 @@ dot gives its time and figures.
 
 **In the picture,** the rate climbs from about +5 s/d at the start to
 about +11 s/d at the end, purple to yellow, while the amplitude moves
-back and forth over 215° to 231° from one 5 minutes to the next. The
+back and forth over about 213° to 232° from one 5 minutes to the next. The
 Curve view sorts those same readings by amplitude and so hides the climb.
 
 Use it to see the path the watch took: a steady walk down in amplitude,
