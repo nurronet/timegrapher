@@ -11,9 +11,10 @@
 //! ([`write_white_null_table`](super::tests) writes it), on gap-free white
 //! readings: a take with gaps is read against the null of its present
 //! readings, which held on fresh seeds for scattered, single and block
-//! gaps. The table is read by the readings' count and the detrend's
-//! window, interpolated in log n (and in the window's share of the take);
-//! outside it, or for another number of Ljung–Box lags, the plain χ².
+//! gaps. The table is read at the detrend the take's own grid got and its
+//! present readings, interpolated in log n (and in their share of the
+//! window); outside it, or for another number of Ljung–Box lags, the
+//! plain χ².
 
 #[cfg(test)]
 use super::acf_pairs;
@@ -115,29 +116,41 @@ fn table() -> &'static Table {
     T.get_or_init(|| serde_json::from_str(DATA).expect("white-null.json"))
 }
 
-/// The white null for a take of `n` present readings `step` apart, with
-/// Q over `lb_lags`: the table's, interpolated; None outside it.
-pub(super) fn white_null(n: usize, step: f64, lb_lags: usize) -> Option<WhiteNull> {
-    lookup(table(), n, step, lb_lags)
+/// The white null for a take of `n` present readings on a grid of `len`
+/// readings `step` apart, with Q over `lb_lags`: the table's,
+/// interpolated; None outside it. The detrend (quadratic, or the running
+/// median's window) is the one the take's own grid got, gaps included;
+/// the point along it is the present readings' (#1199).
+pub(super) fn white_null(n: usize, len: usize, step: f64, lb_lags: usize) -> Option<WhiteNull> {
+    lookup(table(), n, len, step, lb_lags)
 }
 
 /// [`white_null`] from `t`.
-pub(super) fn lookup(t: &Table, n: usize, step: f64, lb_lags: usize) -> Option<WhiteNull> {
+pub(super) fn lookup(
+    t: &Table,
+    n: usize,
+    len: usize,
+    step: f64,
+    lb_lags: usize,
+) -> Option<WhiteNull> {
     if lb_lags != t.lb_lags || n < 2 {
         return None;
     }
-    let n = n.min(((DRAW_SPAN_S / step).round() as usize).max(1));
+    let cap = ((DRAW_SPAN_S / step).round() as usize).max(1);
+    let n = n.min(len).min(cap);
     let g = Grid {
         t0: 0.0,
         step,
-        y: vec![0.0; n],
+        y: vec![0.0; len.min(cap)],
     };
     match longterm::detrend_window(&g, longterm::DETREND_S) {
         None => along(&t.quadratic, (n as f64).ln(), false, |p| (p.n as f64).ln()),
         Some(w) => {
-            // Each window's row by the take's share of the window (4 to 8:
-            // a quarter of the take up to 2 h, then 30 min of up to 4 h),
-            // then across the windows either side in log window.
+            // Each window's row by the present readings' share of the
+            // window (4 to 8 without gaps: a quarter of the take up to 2 h,
+            // then 30 min of up to 4 h; a gapped take's share, under 4, reads
+            // the row's end), then across the windows either side in log
+            // window.
             let ratio = n as f64 / w as f64;
             let rows: Vec<(f64, WhiteNull)> = windows(&t.median)
                 .into_iter()
@@ -206,13 +219,15 @@ pub(super) fn q_lags(r: &[f64], pairs: &[usize], most: usize) -> Vec<usize> {
 /// Readings drawn for each point of the table: the series number is this
 /// over the readings each carries, from [`MIN_DRAWS`] to [`MAX_DRAWS`].
 /// 200 series (about 12% in Q's variance) read 71 of 1,000 white takes of
-/// 1 h at p 0.05, as every take of one shape shares its null.
+/// 1 h at p 0.05, as every take of one shape shares its null; 15,873 (at
+/// 8 million readings) left the point at 84 min 4% low in variance and
+/// 0.1 in skew, and takes of 83 min read 1,106 of 20,000 at p 0.05.
 #[cfg(test)]
-pub(super) const DRAW_BUDGET: usize = 8_000_000;
+pub(super) const DRAW_BUDGET: usize = 40_000_000;
 #[cfg(test)]
-const MIN_DRAWS: usize = 200;
+pub(super) const MIN_DRAWS: usize = 1_000;
 #[cfg(test)]
-const MAX_DRAWS: usize = 20_000;
+pub(super) const MAX_DRAWS: usize = 40_000;
 
 /// One point of the table, drawn: white gap-free readings, `n` of them
 /// `step` apart, detrended as a take on that grid is, from `seed`.

@@ -863,7 +863,7 @@ fn detrended_autocorrelation(g: &Grid, held: bool, cfg: &Config) -> Autocorrelat
     let d = longterm::detrend(g, longterm::DETREND_S);
     let n = g.y.iter().filter(|v| v.is_finite()).count();
     let null = held
-        .then(|| white::white_null(n, g.step, cfg.ljung_box_lags))
+        .then(|| white::white_null(n, g.y.len(), g.step, cfg.ljung_box_lags))
         .flatten();
     autocorrelation_less(&d.y, g.step, null.as_ref(), cfg)
 }
