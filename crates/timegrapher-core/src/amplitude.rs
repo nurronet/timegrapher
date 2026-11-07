@@ -63,12 +63,14 @@ pub struct Edges {
 
 /// Unlock and drop edges on a template whose drop sits near `origin`.
 ///
-/// Both ends are taken on rising edges, which are sharper and steadier than
-/// peaks: the unlock is where the template first rises `onset_fraction` of
-/// the drop's height above the noise floor, and the drop is where it first
-/// reaches half the drop's height. The unlock is often much quieter than the
-/// impulse that follows it, so the threshold is relative to the drop rather
-/// than to the loudest pre-drop sound.
+/// Both ends are taken on rising edges, each where a sound crosses half its
+/// own height above the noise floor, which is sharper and steadier than a
+/// peak: the drop where the rise into the drop's peak crosses half the
+/// drop's height, and the unlock where sound 1 crosses half its own. Sound
+/// 1 is found as the first rise held above `onset_fraction` of the drop's
+/// height (or 4 noise SDs, if more): it is often much quieter than the
+/// impulse that follows it, so that threshold is relative to the drop
+/// rather than to the loudest pre-drop sound.
 pub fn edges(template: &[f32], fs: f64, origin: usize, onset_fraction: f32) -> Option<Edges> {
     edges_after(template, fs, origin, onset_fraction, 0)
 }
