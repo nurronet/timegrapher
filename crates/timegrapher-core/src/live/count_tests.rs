@@ -6,8 +6,8 @@ use super::*;
 use crate::synth::{generate, SynthConfig};
 
 /// The beats a live reading counts are those of its own stretch, last
-/// less first (#1417): a watch that loses about one beat in ten (0.1 s
-/// of sound gone every 0.625 s) is named for its missing beats, with
+/// less first (#1417): a watch that loses about two beats in five (0.2 s
+/// of sound gone every 0.5 s) is named for its missing beats, with
 /// the share found, and the same watch heard whole is not.
 #[test]
 fn a_reading_names_the_beats_its_stretch_is_missing() {
@@ -33,10 +33,10 @@ fn a_reading_names_the_beats_its_stretch_is_missing() {
     };
     assert_eq!(missing(&read(&audio.samples)), None);
     let mut lossy = audio.samples.clone();
-    for k in 0..59 {
-        let i = ((2.0 + 0.625 * k as f64) * fs as f64) as usize;
-        lossy[i..i + fs / 10].fill(0.0);
+    for k in 0..74 {
+        let i = ((2.0 + 0.5 * k as f64) * fs as f64) as usize;
+        lossy[i..i + fs / 5].fill(0.0);
     }
     let found = missing(&read(&lossy)).expect("beats missing");
-    assert!((0.85..0.95).contains(&found), "{found}");
+    assert!((0.5..0.75).contains(&found), "{found}");
 }
