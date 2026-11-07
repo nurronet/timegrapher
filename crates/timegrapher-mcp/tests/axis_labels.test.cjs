@@ -22,10 +22,13 @@ const context = vm.createContext({ MINUS });
 vm.runInContext(digits[0] + "\n" + source[0] + "\n" + step[0], context);
 
 test("the fixture has cases", () => assert.ok(cases.length > 0));
+// Core's axis_number with its true minus, as the app's axes set it
+// (true_minus(axis_number), #1431).
 for (const c of cases) {
-  test(`${c.v} on a step of ${c.step} reads ${c.text}, as core writes it`, () => {
-    assert.equal(context.axisLabel(c.v, c.step), c.text);
-    assert.equal(context.stepText(c.v, c.step), c.text, "the Steadiness view's labels");
+  const shown = c.text.replace("-", MINUS);
+  test(`${c.v} on a step of ${c.step} reads ${shown}, as core writes it on a screen`, () => {
+    assert.equal(context.axisLabel(c.v, c.step), shown);
+    assert.equal(context.stepText(c.v, c.step), shown, "the Steadiness view's labels");
   });
 }
 

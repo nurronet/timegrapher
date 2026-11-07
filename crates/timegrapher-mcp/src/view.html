@@ -221,6 +221,8 @@ function num(v, digits) {
   const t = fixedDigits(Math.abs(v), digits);
   return (v < 0 && !/^[0.]+$/.test(t) ? MINUS : "") + t;
 }
+// A chart hover's figure: the series' decimals and unit (#1431).
+function hoverFigure(v, o) { return num(v, o.decimals || 0) + (o.unit || ""); }
 function signed(v, digits) {
   if (!Number.isFinite(v)) return "–";
   const t = fixedDigits(Math.abs(v), digits);
@@ -286,11 +288,11 @@ function gridFor(lo, hi, px, minPx, ladder) {
 
 // An axis value as the app writes it, core chart_scale::axis_number held to
 // the same fixture (axis_labels.test.cjs): decimals from the step, the unit,
-// no "-0".
+// no "-0", and core's true minus, as the app's axes set it (#1431).
 function axisLabel(v, step, unit) {
   const d = step >= 1 ? 0 : step >= 0.1 ? 1 : step >= 0.01 ? 2 : 3;
   const t = fixedDigits(Math.abs(v), d);
-  return (v < 0 && !/^[0.]+$/.test(t) ? "-" : "") + t + (unit || "");
+  return (v < 0 && !/^[0.]+$/.test(t) ? MINUS : "") + t + (unit || "");
 }
 
 // strip::fmt_time: m:ss, or h:mm:ss from an hour.
@@ -478,7 +480,7 @@ function wireCharts(root) {
         const p = nearest(s.points, x);
         if (p) {
           at = p[0];
-          rows.push(`<span class="swatch dot" style="display:inline-block;background:var(${s.key || s.color})"></span> ${esc(s.name)} ${esc(num(p[1], c.o.decimals || 0) + (c.o.unit || ""))}`);
+          rows.push(`<span class="swatch dot" style="display:inline-block;background:var(${s.key || s.color})"></span> ${esc(s.name)} ${esc(hoverFigure(p[1], c.o))}`);
         }
       }
       if (!rows.length) return;
@@ -740,9 +742,12 @@ function sessionView(doc, limits) {
 // Horizontal bars from zero, one per position, on a plot area wide enough
 // for every bar and its value.
 //   rows: [{label, value}]
+// A bar's figure: a rate or beat error with its sign, an amplitude
+// without a plus (#1431).
+function barFigure(v, unit, decimals) { return (unit !== "°" ? signed(v, decimals) : num(v, decimals)) + unit; }
 function bars(rows, color, unit, decimals) {
   const W = chartWidth(), rowH = 26, T = 4, B = 20, R = 6;
-  const fmt = (v) => (unit !== "°" ? signed(v, decimals) : num(v, decimals)) + unit;
+  const fmt = (v) => barFigure(v, unit, decimals);
   const L = Math.ceil(12 + 7 * Math.max(...rows.map((r) => r.label.length)));
   const plotW = W - L - R, plotH = rowH * rows.length;
   let lo = 0, hi = 0;
@@ -1968,7 +1973,7 @@ const WALK_PLOT = { MIN: 280, MAX: 420 };
 function walkTicks([lo, hi, step]) {
   const out = [];
   for (let k = Math.round(lo / step); k * step <= hi + step * 1e-9; k++) {
-    out.push([+(k * step).toFixed(10), axisLabel(k * step, step).replace("-", MINUS)]);
+    out.push([+(k * step).toFixed(10), axisLabel(k * step, step)]);
   }
   return out;
 }
