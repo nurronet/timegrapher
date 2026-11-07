@@ -411,7 +411,7 @@ fn side_shape(
     if times.len() < 3 {
         return None;
     }
-    let tmpl = median_window(env, fs, times, cfg.pre_s, cfg.post_s);
+    let tmpl = median_window(env, fs, times, cfg.pre_s, cfg.post_s)?;
     let origin = (cfg.pre_s * fs).round() as usize;
     let (mut s, marks) = measure_at(&tmpl, fs, origin, cfg)?;
     // Silence just before the unlock against the middle of the gap after the drop.
@@ -465,7 +465,8 @@ pub struct ShapeReport {
     pub even: SideReport,
     pub odd: SideReport,
     pub windows: Vec<ShapeWindow>,
-    /// Whole-recording templates, sample by sample from `-pre_s`.
+    /// Whole-recording templates, sample by sample from `-pre_s`; empty
+    /// where no beat of that side fits a whole window (#1210).
     #[serde(skip)]
     pub template_even: Vec<f32>,
     #[serde(skip)]
@@ -587,7 +588,7 @@ pub fn analyze(
 
     let whole = |even: bool| -> (Vec<f32>, Option<Shape>) {
         let times = side_times(&good, even);
-        let tmpl = median_window(env, fs, &times, cfg.pre_s, cfg.post_s);
+        let tmpl = median_window(env, fs, &times, cfg.pre_s, cfg.post_s).unwrap_or_default();
         (tmpl, side_shape(env, fs, &times, beat_s, cfg).map(|s| s.0))
     };
     let (template_even, whole_even) = whole(true);
