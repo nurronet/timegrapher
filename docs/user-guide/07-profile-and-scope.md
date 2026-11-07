@@ -36,10 +36,10 @@ readings built on it are wrong too. This is where you check.
 | --- | --- | --- |
 | 7 | The facts | The side's Beats, Unlock and Drop (in ms), and Unlock to Drop. Tick and Tock read row against row. |
 | 8 | An edge (**Unlock**) | A solid line from its name: where the reading is timed. |
-| 9 | **Drop** and **Peak** | The drop's edge and the loudest point of the beat. |
+| 9 | **Drop** and **Peak** | The drop's edge, and the top of the drop's sound. |
 | 10 | A sound | A hollow ring where a sound has risen halfway, named in italics below the plot. |
 | 11 | The band | Where the middle 80% of the beats fall. A narrow band means the beats sound alike. |
-| 12 | The noise floor | The dashed line: the level between beats. |
+| 12 | The noise floor | The dashed line: the level in the quiet before the beat, from 20 to 17 ms before the drop. |
 
 - **Edges and sounds** are two measurements of the same averaged sound,
   so they sit near each other but not exactly together.
@@ -76,11 +76,11 @@ would hide it.
 
 | Mark | Control | What it does |
 | --- | --- | --- |
-| 1 | **Span** | How much time each trace covers. See the table below. |
+| 1 | **Span** | How much time each trace covers: 20 ms at first. See the table below. |
 | 2 | **One Beat** | From 15 ms before one beat to 15 ms before the next, at the watch's beat rate. |
-| 3 | **Beats** | Draws the latest 1, 4, 8 or 16 beats over each other, the older ones fainter, so one that differs stands out. |
+| 3 | **Beats** | Draws the latest 1, 4, 8 (the default) or 16 beats over each other, the older ones fainter, so one that differs stands out. |
 | 4 | **Export** | Saves the pane as a picture. |
-| 5 | **Unlock** and **Drop** | The Profile's marks, on the single beats. |
+| 5 | **Unlock** and **Drop** | The Profile's marks, on the single beats. Shown at the 5 to 50 ms spans only. |
 | 6 | A side's row | Tick and Tock each have a row, each scaled to its own loudest beat. |
 
 | Span | Shows | Why |
@@ -89,8 +89,8 @@ would hide it.
 | **10 ms** | 8 ms before the drop to 2 ms after. | The drop and the sound just before it. |
 | **20 ms** | 14 ms before the drop to 6 ms after. | One beat from unlock to drop. |
 | **50 ms** | 15 ms before the drop to 35 ms after. | The beat and what rings on after it. |
-| **200 ms** | 20 ms before the beat to 180 ms after. | The whole beat, and the next. |
-| **400 ms** | Every beat in one grey row. | Three or four beats at once: their rhythm. |
+| **200 ms** | 20 ms before the beat to 180 ms after, ticks above tocks. | The whole beat and the quiet after it. |
+| **400 ms** | From 20 ms before a tick, 380 ms on, in one row. | A tick, the tock after it and the next tick: their rhythm. |
 
 - **The rows are scaled apart,** so Tick and Tock compare in shape, not
   in size.

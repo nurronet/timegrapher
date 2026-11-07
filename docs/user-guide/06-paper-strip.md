@@ -11,8 +11,9 @@ steadily the watch keeps time, beat by beat.
 - **Along the strip** is time: the take's minutes and seconds.
 - **Across the strip** is how early or late each beat came against a
   perfect clock beating exactly at the nominal beat rate, every 125 ms at
-  28,800 bph. **Early** is up, **Late** down: the words Witschi's
-  training course uses (doc. 71.1010D35e, p. 6).
+  28,800 bph. **Early** is up, **Late** down (with Direction set to
+  Down, early is to the right): the words Witschi's training course uses
+  (doc. 71.1010D35e, p. 6).
 - **Tick** dots are blue and **Tock** dots orange (mark 13).
 - **The amplitude** is drawn over the dots as a violet line, on its own
   scale at the right (mark 14). The rate and the beat error can be drawn
@@ -36,9 +37,9 @@ wrapped round a drum. So the strip's **Width** is its zoom.
 
 | Mark | Control | What it does | Why you'd use it |
 | --- | --- | --- | --- |
-| 1 | **Draw Over the Strip** | Three switches: the rate (magenta), amplitude (violet, on at first) and beat error (amber) readings drawn as lines over the dots, each on its own scale, written at the right. | To see at a glance whether a wobble in the rate comes with a dip in amplitude. |
+| 1 | **Draw Over the Strip** | Three switches: the rate (magenta), amplitude (violet, on at first) and beat error (amber) readings drawn as lines over the dots, each on its own scale, written at the right (above the strip with Direction set to Down). | To see at a glance whether a wobble in the rate comes with a dip in amplitude. |
 | 2 | **Width** | How much time fits across: from ±0.1 ms to ±60 s, typed or picked. | Narrow (±1 ms) to see a good watch's beat error; wide to keep a drifting watch from wrapping. |
-| 3 | **Length** | How much time fits along: from 10 s to three days, or up to 80 hours typed (`45`, `5 min`, `2h`, `1:30:00`). | Short to follow the last few seconds; long to see a whole take. |
+| 3 | **Length** | How much time fits along: picked from 10 s to three days; typed (`45`, `5 min`, `2h`, `1:30:00`) or zoomed, from 2 s up to 80 hours. | Short to follow the last few seconds; long to see a whole take. |
 | 4 | **Fit** | Shows the whole take along the strip, and keeps growing with it. Opening a take turns it on. | To see everything at once. Zooming or looking back turns it off. |
 | 5 | **Centre** and **Auto-Centre** | Centre puts the newest beats on the centre line once. Auto-Centre keeps them there. | To bring the trace back after it has wrapped or drifted. |
 | 6 | **Rate Line** and **Parallel Guides** | The Rate reading drawn as a magenta line over the beats it was fitted to, and faint lines at the same slope across the strip. Both on at first. | If the dots follow the line, the reading describes them well. The eye judges whether lines are parallel better than it judges a slope. |
@@ -73,8 +74,9 @@ was left out.
 | 12 | **Settling** | The solid band after each change of position, while the balance settles. Not read. It then fades over 40 s, so each change shows. |
 
 - **Masked** stretches show as grey hatching.
-- During and after a Positions Test, the time before the test and the
-  time it didn't use are left plain.
+- During and after a Positions Test, the time before the test is left
+  plain. On the track the time the test didn't use is plain too; on the
+  strip it is hatched.
 
 ## Masking
 
@@ -135,8 +137,9 @@ take or one opened. It corrects the position record after the fact.
 - The positions recorded stay under the painting. **Right-click** a
   painted stretch on the track to take the painting off.
 - Drag a change of position along the track to move it.
-- Greyed during a Positions Test or Power Reserve Test, which set their
-  own positions.
+- Greyed during a Power Reserve Test, during or after a Positions Test
+  (the test's take keeps its own positions), and while nothing is on show
+  yet.
 
 ---
 

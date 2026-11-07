@@ -7,8 +7,8 @@ Two panes look at the whole take, not just the last few seconds:
 - **Distributions** show how each reading's values spread, with time order
   left out.
 
-Both open as tabs under the Paper Strip, from **Analysis** in the icon
-bar. Distributions starts hidden.
+Both start hidden. They open from **Analysis** in the icon bar, as tabs
+beside the Tick Tock Profile.
 
 ## Charts
 
@@ -24,9 +24,9 @@ happened: after a turn, at a knock, as the mainspring runs down.
 
 | Mark | Control | What it does | Why you'd use it |
 | --- | --- | --- | --- |
-| 1 | **Rate**, **Amplitude**, **Beat Error** | Show or hide each chart. At least one stays on. The charts shown share the pane's height. | Fewer charts give each more height. |
+| 1 | **Rate**, **Amplitude**, **Beat Error** (the hare, the swing and the seesaw) | Show or hide each chart. At least one stays on. The charts shown share the pane's height. | Fewer charts give each more height. |
 | 2 | **Fit** | On while the charts show the whole take. A pan or a zoom turns it off; turning it on shows the whole take again. | To get back to the whole take after zooming in. |
-| 3 | **Export** | Saves the pane as a picture, PNG or SVG. The chart keys go at the top in place of the toolbar. | To share the charts, or put them in a report. |
+| 3 | **Export…** | Saves the pane as a picture, PNG or SVG. The pane's name and the chart keys go at the top in place of the toolbar. | To share the charts, or put them in a report. |
 | 4 | The Amplitude key | **Average Amplitude**, solid, and the amplitude **From Tick** and **From Tock**, dashed. | To see whether the two sides read alike. |
 | 5 | The Beat Error key | Beat error **From the Unlock**, solid, and **From the Drop**, fainter and dashed. | To compare the two measurements of beat error (M5). |
 
@@ -42,8 +42,8 @@ is drawn off the chart.
 
 | To | Do this |
 | --- | --- |
-| Read a moment | Point at it. A line marks that moment on every chart and on the strip. Each chart's top lane gives the time and every line's value there. |
-| Pan | Scroll, swipe, or drag. Panning stops at the take's start and its latest reading. |
+| Read a moment | Point at it. A line marks that moment on every chart and on the strip. Each chart's top lane gives every line's value there, and the chart under the pointer gives the time too. |
+| Pan | Scroll, swipe, or drag. Panning stops at the take's start and its end, or now while listening. |
 | Zoom time | Cmd or Ctrl and scroll, or pinch, around the pointer. |
 | See the whole take | Double-click, or turn **Fit** on. While listening, the charts then follow new beats. |
 | Find a moment on the strip | Click it. The strip and the readings go to it. |
@@ -85,10 +85,10 @@ and a low amplitude, or a rate that jumps between two values.
 
 | Mark | Control | What it does | Why you'd use it |
 | --- | --- | --- | --- |
-| 1 | **Rate**, **Amplitude**, **Beat Error** | Show or hide each reading's plot. At least one stays on. | Fewer plots give each more height. |
+| 1 | **Rate**, **Amplitude**, **Beat Error** (the hare, the swing and the seesaw) | Show or hide each reading's plot. At least one stays on. | Fewer plots give each more height. |
 | 2 | **Show** | **Probability** (the default): probability paper. **Cumulative:** the share of values at or below each value. | Probability makes one steady state a straight line, so two states stand out. Cumulative reads directly as a share. |
 | 3 | **Values** | **Readings** (the default): one value per Average Over, so no two share beats. **2 s:** one value per 2 s of beats. | Readings shows states that last longer than Average Over. 2 s catches quicker changes, with more scatter. |
-| 4 | **Export** | Saves the pane as a picture, PNG or SVG. | |
+| 4 | **Export…** | Saves the pane as a picture, PNG or SVG. | |
 
 ### The Plot
 
@@ -122,11 +122,12 @@ states, not when. The Charts and the strip show when.
 
 - **One position at a time.** Values from another position are a
   different measurement, so the plot counts only the position the watch
-  is in now, and the summary line says so ("Dial Up only").
+  is in now, and, when the take has positions marked, the summary line names it ("Dial Up only").
 - **The scale leaves out the outermost 0.5% at each end,** so a stray
   value can't squeeze the rest together. The summary line counts them.
 - **The beat error plot** says above it which measurement it uses (from
-  the unlock or from the drop), and how many readings used it.
+  the unlock or from the drop). When readings from the other one were left
+  out, it says how many were used.
 - **2 s values** are the finest the app measures. None reaches across a
   cut or into a masked stretch.
 
