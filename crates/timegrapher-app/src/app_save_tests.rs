@@ -913,3 +913,66 @@ fn a_session_file_is_put_in_place_whole() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The question before unsaved work is thrown away names what was
+/// asked for, and says what would be lost: the files' fault first, then
+/// unsaved masks, then the sound with or without changed settings, and
+/// changed settings alone once all the sound is saved.
+#[test]
+fn the_question_before_throwing_work_away_says_what_is_lost() {
+    for (what, title) in [
+        (Confirm::NewSession, "Start a new session?"),
+        (
+            Confirm::NewTake(NewTake::Positions),
+            "Start a new take without saving?",
+        ),
+        (Confirm::ReserveStart, "Start a new take without saving?"),
+        (Confirm::PickWatch(None), "Start a new take without saving?"),
+        (Confirm::Quit, "Quit without saving?"),
+        (Confirm::Microphone, "Start listening without saving?"),
+        (Confirm::QuickListen, "Start listening without saving?"),
+    ] {
+        assert_eq!(super::dialogs::confirm_title(&what), title);
+    }
+    let dir = std::env::temp_dir().join(format!("tg-app-confirm-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.session.listen();
+    let info = app.info("Pepsi", 48000, 16);
+    let mut r = Recorder::start(&dir, info).unwrap();
+    r.write(&timegrapher_core::capture::Block {
+        samples: vec![0.0; 48000 * 20],
+        at: std::time::SystemTime::now(),
+    })
+    .unwrap();
+    app.session.recorder = Some(r);
+    let twenty = length_text(20.0);
+    assert_eq!(
+        app.confirm_text(None, false, false),
+        format!("This session's {twenty} of sound hasn't been saved and will be thrown away.")
+    );
+    assert_eq!(
+        app.confirm_text(None, false, true),
+        format!(
+            "This session's {twenty} of sound and changes to its settings or position \
+             history haven't been saved and will be thrown away."
+        )
+    );
+    assert!(app
+        .confirm_text(None, true, true)
+        .starts_with("Changes to the masked stretches or positions"));
+    assert_eq!(
+        app.confirm_text(Some("The disk is full."), true, true),
+        "The disk is full."
+    );
+    // All the sound saved: only the settings are lost.
+    let metadata = app.session.metadata_snapshot(app.save_metadata());
+    app.session.mark_saved(20.0, dir.join("saved"), metadata);
+    assert_eq!(
+        app.confirm_text(None, false, true),
+        "Changes to this session's settings or position history haven't been saved and \
+         will be thrown away."
+    );
+    app.session.recorder = None;
+    let _ = std::fs::remove_dir_all(&dir);
+}
