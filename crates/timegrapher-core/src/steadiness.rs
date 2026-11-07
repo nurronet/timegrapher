@@ -851,34 +851,37 @@ fn band_at_lag(pairs: f64, lag: f64, n: f64) -> Option<f64> {
 }
 
 /// [`autocorrelation_less`] of `g` less its slow change, taken out as the
-/// period search takes it out, with each lag less what independent
-/// readings read once that is out ([`confidence::fit_lag_bias`]): about
-/// −3/n at lag one after the quadratic of a run under 20 minutes (#828).
-/// A running median's, about −1/window, is left in, well inside the band.
+/// period search takes it out, each lag less what white readings with the
+/// same gaps read once detrended the same way, and the Ljung–Box test held
+/// to those readings ([`white::white_null`], #1199). That bias is about
+/// −3/n at lag one after the quadratic of a run under 20 minutes (#828),
+/// and about −0.7/window under a running median.
 fn detrended_autocorrelation(g: &Grid, cfg: &Config) -> Autocorrelation {
     let d = longterm::detrend(g, longterm::DETREND_S);
-    let terms = longterm::detrend_fit_terms(g, longterm::DETREND_S);
-    autocorrelation_less(&d.y, g.step, terms.map(|p| p.max(1)), cfg)
+    let null = white::white_null(g, max_lag(g.y.len(), g.step, cfg), cfg.ljung_box_lags);
+    autocorrelation_less(&d.y, g.step, Some(&null), cfg)
+}
+
+/// The longest lag the autocorrelation is read to.
+fn max_lag(len: usize, step: f64, cfg: &Config) -> usize {
+    ((cfg.max_lag_s / step) as usize)
+        .min(len / 3)
+        .max(cfg.ljung_box_lags.min(len / 3))
 }
 
 /// Autocorrelation of readings on a uniform grid (gaps NaN), with the
-/// Ljung–Box test, the memory and a repeat, each lag less
-/// [`confidence::fit_lag_bias`] for a fit of `fit_terms` terms when given.
+/// Ljung–Box test, the memory and a repeat; with `null`, each lag less its
+/// bias and the test read against its scaled χ², else the plain χ².
 fn autocorrelation_less(
     y: &[f64],
     step: f64,
-    fit_terms: Option<usize>,
+    null: Option<&white::WhiteNull>,
     cfg: &Config,
 ) -> Autocorrelation {
     let n = y.iter().filter(|v| v.is_finite()).count();
-    let max_lag = ((cfg.max_lag_s / step) as usize)
-        .min(y.len() / 3)
-        .max(cfg.ljung_box_lags.min(y.len() / 3));
-    let (mut r, pairs) = acf_pairs(y, max_lag);
-    if let Some(p) = fit_terms.filter(|_| r.len() > 1) {
-        let present: Vec<bool> = y.iter().map(|v| v.is_finite()).collect();
-        let bias = confidence::fit_lag_bias(&present, p, r.len() - 1);
-        r.iter_mut().zip(&bias).skip(1).for_each(|(v, b)| *v -= b);
+    let (mut r, pairs) = acf_pairs(y, max_lag(y.len(), step, cfg));
+    if let Some(w) = null {
+        r.iter_mut().zip(&w.bias).skip(1).for_each(|(v, b)| *v -= b);
     }
     // Gaps leave fewer pairs at a lag than a full series would have, and a
     // correlation read from few pairs strays far: each lag is weighed by
@@ -889,17 +892,11 @@ fn autocorrelation_less(
     // read the Q up to n²/(n − k)² too high, a quarter at lag 10 of 90
     // readings (#828).
     let ng = y.len() as f64;
-    let np = n as f64;
     let supported = |k: usize| pairs.get(k).is_some_and(|&m| m >= MIN_PAIRS);
     let h_max = cfg.ljung_box_lags.min(r.len().saturating_sub(1)).max(1);
-    let lags: Vec<usize> = (1..=h_max)
-        .filter(|&k| r.get(k).is_some_and(|v| v.is_finite()) && supported(k))
-        .collect();
+    let lags = white::q_lags(&r, &pairs, h_max);
     let h = lags.len();
-    let q: f64 = lags
-        .iter()
-        .map(|&k| r[k] * r[k] * pairs[k] as f64 * (np + 2.0) / np)
-        .sum();
+    let q = white::ljung_q(&r, &pairs, n, &lags);
     let max_short = lags.iter().fold(0.0f64, |a, &k| a.max(r[k].abs()));
     let memory = r
         .iter()
@@ -928,7 +925,11 @@ fn autocorrelation_less(
             && again >= 0.5 * r[k]
     });
     let stride = thin(r.len(), cfg.max_points);
-    let lb_p = if h > 0 { chi2_tail(q, h) } else { 1.0 };
+    let lb_p = match (h, null) {
+        (0, _) => 1.0,
+        (_, Some(w)) => w.p(q),
+        (_, None) => chi2_tail(q, h),
+    };
     Autocorrelation {
         lag_s: (0..r.len())
             .step_by(stride)
@@ -2730,6 +2731,9 @@ mod family;
 
 #[path = "steadiness_cycle.rs"]
 mod cycle_search;
+
+#[path = "steadiness_white.rs"]
+mod white;
 use cycle_search::cycle;
 #[cfg(test)]
 use cycle_search::{refined_candidates, same_peaks_once, strongest_cycle};

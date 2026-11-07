@@ -1889,3 +1889,75 @@ fn flicker_under_a_sharp_cycle_still_carries_the_misfit_caveat() {
     assert!(n.misfit.unwrap() > n.misfit_limit.unwrap(), "{n:?}");
     assert!(longterm::timing_misfit(&r).is_some());
 }
+
+/// Fresh-seed check of the Ljung–Box test against its white null (#1199):
+/// white takes of 10 s (and 2 s) readings, one row with gaps; counts at p
+/// 0.05, 0.01 and 0.004 against each one's upper 99% bound. Then the power
+/// on AR(1) readings, the plain χ² against the null. LB_TAG picks new seeds.
+#[test]
+#[ignore]
+fn fresh_white_takes_hold_the_ljung_box() {
+    let cfg = Config::default();
+    let tag: u64 = std::env::var("LB_TAG")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let draws: u64 = std::env::var("LB_DRAWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4000);
+    let take = |seed: u64, step: f64, n: usize, rho: f64, gaps: bool| {
+        let mut z = crate::synth::Rng::new(seed);
+        let mut x = 0.0;
+        let y: Vec<f64> = (0..n)
+            .map(|i| {
+                x = rho * x + (1.0 - rho * rho).sqrt() * z.normal();
+                if gaps && (i % 97 < 6 || (i / 41) % 13 == 5) {
+                    f64::NAN
+                } else {
+                    x
+                }
+            })
+            .collect();
+        grid(y, step)
+    };
+    let bound = |e: f64| e + 2.58 * (e * (1.0 - e / draws as f64)).sqrt();
+    for &(step, n, gaps) in &[
+        (10.0, 120usize, false),
+        (10.0, 180, false),
+        (10.0, 180, true),
+        (10.0, 360, false),
+        (10.0, 720, false),
+        (2.0, 900, false),
+    ] {
+        let mut c = [0usize; 3];
+        for d in 0..draws {
+            let g = take(tag * 1_000_003 + d, step, n, 0.0, gaps);
+            let p = detrended_autocorrelation(&g, &cfg).p_value;
+            for (k, lvl) in [0.05, 0.01, 0.004].iter().enumerate() {
+                c[k] += usize::from(p < *lvl);
+            }
+        }
+        let over = [0.05, 0.01, 0.004]
+            .iter()
+            .zip(c)
+            .any(|(l, k)| k as f64 > bound(l * draws as f64));
+        eprintln!(
+            "LB step {step} n {n} gaps {gaps}: {c:?} of {draws} (bounds {:.0} {:.0} {:.0}){}",
+            bound(0.05 * draws as f64),
+            bound(0.01 * draws as f64),
+            bound(0.004 * draws as f64),
+            if over { " OVER" } else { "" }
+        );
+    }
+    for rho in [0.1, 0.2] {
+        let (mut plain, mut held) = (0usize, 0usize);
+        for d in 0..draws {
+            let g = take(tag * 7_000_001 + d, 10.0, 180, rho, false);
+            let dt = crate::longterm::detrend(&g, crate::longterm::DETREND_S);
+            plain += usize::from(autocorrelation_less(&dt.y, 10.0, None, &cfg).p_value < 0.01);
+            held += usize::from(detrended_autocorrelation(&g, &cfg).p_value < 0.01);
+        }
+        eprintln!("LB power rho {rho} n 180: plain {plain} held {held} of {draws} at p 0.01");
+    }
+}
