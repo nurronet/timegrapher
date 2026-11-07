@@ -47,13 +47,18 @@ pub struct File {
     pub sha256: String,
 }
 
-/// The corpus index in `root`, if `root` is a corpus checkout.
+/// The corpus index in `root`, if `root` is a corpus checkout. An index
+/// naming a take, release or file that isn't one plain name is refused
+/// whole, before anything is read or downloaded (#1325).
 pub fn load(root: &Path) -> Result<Option<Corpus>, String> {
     let p = root.join(INDEX);
     match std::fs::read_to_string(&p) {
-        Ok(t) => serde_json::from_str(&t)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", p.display())),
+        Ok(t) => {
+            let c: Corpus =
+                serde_json::from_str(&t).map_err(|e| format!("{}: {e}", p.display()))?;
+            check(&c).map_err(|e| format!("{}: {e}", p.display()))?;
+            Ok(Some(c))
+        }
         Err(_) => Ok(None),
     }
 }
@@ -61,6 +66,30 @@ pub fn load(root: &Path) -> Result<Option<Corpus>, String> {
 /// The folder of a corpus checkout that holds the takes.
 pub fn takes_dir(root: &Path) -> PathBuf {
     root.join("takes")
+}
+
+/// Whether `s` is one plain name that stays where it is joined: not
+/// empty, no folder separator or drive, not hidden or `..`.
+fn plain_name(s: &str) -> bool {
+    !s.is_empty() && !s.starts_with('.') && !s.contains(['/', '\\', ':', '\0'])
+}
+
+/// Every take id, release and file name in `c` is a plain name, so a
+/// download lands inside the checkout and comes from the corpus's own
+/// releases.
+fn check(c: &Corpus) -> Result<(), String> {
+    for t in &c.takes {
+        if !plain_name(&t.id) {
+            return Err(format!("unsafe take id {:?}", t.id));
+        }
+        if !plain_name(&t.release) {
+            return Err(format!("{}: unsafe release {:?}", t.id, t.release));
+        }
+        if let Some(f) = t.files.iter().find(|f| !plain_name(&f.name)) {
+            return Err(format!("{}: unsafe file name {:?}", t.id, f.name));
+        }
+    }
+    Ok(())
 }
 
 fn picked(id: &str, filter: &[String]) -> bool {
@@ -124,9 +153,6 @@ pub fn fetch(
             continue;
         }
         for f in &t.files {
-            if f.name.contains(['/', '\\']) || f.name.starts_with('.') {
-                return Err(format!("{INDEX}: {}: unsafe file name {}", t.id, f.name));
-            }
             let path = dir.join(&f.name);
             if let Ok(data) = std::fs::read(&path) {
                 if sha256_hex(&data) == f.sha256 {
@@ -284,6 +310,48 @@ mod tests {
             watch_heard,
             no_watch,
         }
+    }
+
+    /// An index whose take id, release or file name would reach outside
+    /// the checkout or the corpus's releases is refused as it is read,
+    /// before anything is downloaded or written (#1325).
+    #[test]
+    fn an_index_naming_a_path_is_refused_whole() {
+        let dir = std::env::temp_dir().join(format!("tg-corpus-check-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("corpus/takes")).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("take.flac"), "untouched").unwrap();
+        let index = |id: &str, release: &str, name: &str| {
+            serde_json::json!({"takes": [{"id": id, "tier": "smoke", "release": release,
+                "files": [{"name": name, "bytes": 1, "sha256": "00"}]}]})
+            .to_string()
+        };
+        let root = dir.join("corpus");
+        std::fs::write(root.join(INDEX), index("daytona", "daytona", "take.flac")).unwrap();
+        assert!(load(&root).unwrap().is_some());
+        for (id, release, name) in [
+            ("../../outside", "daytona", "take.flac"),
+            ("/abs", "daytona", "take.flac"),
+            ("a\\b", "daytona", "take.flac"),
+            ("..", "daytona", "take.flac"),
+            ("", "daytona", "take.flac"),
+            ("C:x", "daytona", "take.flac"),
+            ("daytona", "../../other/releases/download/x", "take.flac"),
+            ("daytona", "..", "take.flac"),
+            ("daytona", "daytona", "../take.flac"),
+            ("daytona", "daytona", ".hidden"),
+        ] {
+            std::fs::write(root.join(INDEX), index(id, release, name)).unwrap();
+            let err = load(&root).unwrap_err();
+            assert!(err.contains("unsafe"), "{id} {release} {name}: {err}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(outside.join("take.flac")).unwrap(),
+            "untouched"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
