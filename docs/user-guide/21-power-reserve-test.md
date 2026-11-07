@@ -70,9 +70,9 @@ Analysis Only picked.
 Grey in the table marks a figure that stands on less than the rest, and
 the key over the table says so. A beat error from the drop, where the
 unlock isn't found, or whose source wasn't recorded, is grey, and its
-hover names its source. An amplitude read from under 60% of the hour's
-2 s windows is grey too, and its hover says how many ("read from 459 of
-1798 windows"). An amplitude read from under a tenth of them isn't given
+hover names its source. An amplitude or beat error read from under 60%
+of the hour's 2 s windows is grey too, and its hover says how many
+("read from 459 of 1798 windows"). An amplitude read from under a tenth of them isn't given
 at all: the cell shows a dash, and the amplitude chart stops before that
 hour. A few windows are too few to stand for an hour; the figure they
 give can be far from the truth.
@@ -113,13 +113,16 @@ keeps on the wrist depends on how far down it is allowed to run.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 1 | The key | What grey means in each column. |
-| 2 | A grey amplitude | Read from under 60% of the hour's windows; the hover gives the count. |
+| 2 | A grey amplitude and beat error | Read from under 60% of the hour's windows; the hover gives the count. |
 | 3 | A dash | An amplitude withheld: under a tenth of the hour's windows gave one. The beat error beside it is from the drop, so grey. |
 
 **Scrolled to its end,** the same table shows the watch's last hours.
 From 56 hours the beats grow faint, and the unlock that the amplitude is
 timed from is found in fewer of the hour's windows: 134° and 124° are
-grey. In the last two hours it is found in too few to give a figure,
+grey, and so are the beat errors of 5.08 and 5.93 ms beside them, each
+read from under 60% of the hour's windows. Ten times the 0.4 to 0.6 ms
+of the hours before, they are the faint unlock found on noise, not the
+watch. In the last two hours it is found in too few to give a figure,
 and the cells show a dash. The rate, timed from the whole beat, is still
 read: −54.4 s/d, then −144.0 s/d in the last part hour as the watch
 stops. Without the floor, those few windows gave an amplitude near 290°

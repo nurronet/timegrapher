@@ -7,7 +7,7 @@ actions = [["sleep", 600], ["scroll", 251, 700, 60], ["sleep", 3]]
 
 # 1 the key over the table, 2 the grey amplitudes, 3 the dashes (withheld
 # amplitudes) beside grey beat errors.
-marks = [[1, 1010, 213], [2, 510, 696], [3, 510, 750]]
+marks = [[1, 1114, 213], [2, 510, 696], [3, 510, 750]]
 
 layout = "PowerReserve"
 
@@ -22,7 +22,7 @@ lift = 55
 position = "DU"
 
 [window]
-size = [1000, 760]
+size = [1180, 760]
 
 [wait]
 at_most = 3600
