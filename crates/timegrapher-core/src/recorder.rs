@@ -33,7 +33,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod settle;
 use settle::{held_open, settled};
-pub use settle::{read_settled, rename_settled};
+pub use settle::{read_settled, rename_settled, sync_file, sync_folder};
 
 /// Bits a sample of every take's sound is kept at, whatever the
 /// microphone gives. Four 24-bit takes held nothing in their low 8 bits

@@ -11,6 +11,28 @@ pub fn rename_settled(from: &Path, to: &Path) -> io::Result<()> {
     settled(|| std::fs::rename(from, to), held_open)
 }
 
+/// Write the folder `dir`'s entries to the disk, so a power cut can't
+/// undo a rename or a new file in it. Windows has no folder to sync; its
+/// renames are written through by the file system.
+pub fn sync_folder(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    std::fs::File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
+}
+
+/// Write the file at `path` to the disk, waiting the same way: it is
+/// opened for writing, as Windows flushes no file opened to read, and a
+/// file just written may be held by a virus scan.
+pub fn sync_file(path: &Path) -> io::Result<()> {
+    settled(
+        || std::fs::OpenOptions::new().write(true).open(path),
+        held_open,
+    )?
+    .sync_all()
+}
+
 /// Read `path` as text, waiting the same way: a save reads the file it
 /// rewrites first, and that read is refused too while another program
 /// has the file open with no sharing (Walter on #1259).
