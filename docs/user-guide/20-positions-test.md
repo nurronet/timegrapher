@@ -52,7 +52,7 @@ Settle and Each Position are kept between runs.
 
 | Mark | Part | What it does or shows |
 | --- | --- | --- |
-| 5 | The banner | The position under way and how far through: "Crown Right (6 of 6)", "Measuring, 13 of 20 s". |
+| 5 | The banner | The position under way and how far through: "Crown Right (6 of 6)", "Measuring, 11 of 20 s". |
 | 6 | **Pause** | Holds the test, leaving out what this position measured so far. **Resume** settles and measures it again from the start. |
 | 7 | **Restart CR Measurement** | Names the position under way, or the one just measured, and settles and measures it again, after a knock for instance. |
 | 8 | The bar | How far through the settle or the measurement. |
