@@ -108,8 +108,9 @@ fn axis_labels(shown: &[String], unit: &str) -> usize {
     shown
         .iter()
         .filter(|t| {
+            // A screen's minus is the true one (#1402).
             t.strip_suffix(unit)
-                .is_some_and(|v| v.parse::<i32>().is_ok())
+                .is_some_and(|v| v.replace('\u{2212}', "-").parse::<i32>().is_ok())
         })
         .count()
 }
