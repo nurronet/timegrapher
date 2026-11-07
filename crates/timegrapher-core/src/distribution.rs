@@ -181,8 +181,25 @@ impl Distribution {
     /// and `only` names the one position counted (" · Dial Up only").
     /// [`Distribution::summary`] is this with neither.
     pub fn line(&self, kind: Kind, over: &str, only: Option<&str>) -> String {
+        self.line_with(kind, over, only, |x| x)
+    }
+
+    /// [`Distribution::line`] as a screen shows it: each figure with a true
+    /// minus ([`crate::figure_text::true_minus`]), the words as they are,
+    /// so "2-second" keeps its hyphen (#1416).
+    pub fn screen_line(&self, kind: Kind, over: &str, only: Option<&str>) -> String {
+        self.line_with(kind, over, only, |x| crate::figure_text::true_minus(&x))
+    }
+
+    fn line_with(
+        &self,
+        kind: Kind,
+        over: &str,
+        only: Option<&str>,
+        sign: fn(String) -> String,
+    ) -> String {
         let d = kind.decimals;
-        let f = |x: f64| format!("{x:.d$}{}", kind.suffix);
+        let f = |x: f64| sign(format!("{x:.d$}{}", kind.suffix));
         let per = if self.values == "2 s" {
             "2-second stretches"
         } else {
@@ -510,5 +527,22 @@ mod tests {
             "{line}"
         );
         assert_eq!(d.line(AMPLITUDE, "", None), d.summary);
+    }
+
+    /// On screen each figure carries a true minus and the words keep their
+    /// hyphen; the summary kept for files keeps the ASCII minus (#1416).
+    #[test]
+    fn the_screen_line_sets_a_true_minus_on_its_figures_only() {
+        let v: Vec<f64> = (0..60).map(|i| -11.0 + f64::from(i % 7)).collect();
+        let d = distribution(&v, RATE, "2 s", 0.5).unwrap();
+        let screen = d.screen_line(RATE, "", None);
+        assert!(
+            screen.starts_with("60 2-second stretches · median \u{2212}"),
+            "{screen}"
+        );
+        assert!(screen.contains(" to \u{2212}"), "{screen}");
+        assert!(!screen.contains(" -"), "{screen}");
+        assert_eq!(screen.replace('\u{2212}', "-"), d.line(RATE, "", None));
+        assert!(d.summary.contains("median -"), "{}", d.summary);
     }
 }
