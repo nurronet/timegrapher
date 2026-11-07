@@ -1,6 +1,5 @@
-# Chapter 17, STFT Map: the first hour of a 7-hour take (a Dandong 3285;
-# the corpus id at this pin still says 3235) opened, the rate in the
-# Steadiness view.
+# Chapter 17, STFT Map: the first hour of a 7-hour take (a Dandong 3285)
+# opened, the rate in the Steadiness view.
 output = "steady-stft.png"
 
 actions = [["sleep", 150], ["hover", 671, 828]]
@@ -10,7 +9,7 @@ marks = [[1, 110, 600], [2, 182, 600], [3, 214, 600], [4, 300, 871], [5, 1200, 6
 layout = ["column", [0.35, "Strip"], [0.65, "SteadyStft"]]
 
 [data]
-corpus = "pepsi3235_DU_7h"
+corpus = "pepsi3285_DU_7h"
 file = "take_part01-001.flac"
 start = 0
 seconds = 3600
