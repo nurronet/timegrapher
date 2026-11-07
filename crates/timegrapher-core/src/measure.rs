@@ -1143,4 +1143,309 @@ mod tests {
         let c: Caveat = serde_json::from_str(r#"{"code":"clipped","fraction":0.04}"#).unwrap();
         assert_eq!(c.short(52.0, 0).unwrap(), "4% clipped");
     }
+
+    use crate::breaks::Unlisted;
+    use crate::longterm::{null::WALK_MIX, NullModel};
+
+    /// Caveats beside their few words and their sentence, as the app, CLI
+    /// and MCP show them.
+    const WORDED: [(Caveat, &str, &str); 24] = [
+        (
+            Caveat::ReadingWindows {
+                reading: confidence::Figure::Amplitude,
+                windows_used: 3,
+                windows_in_span: 9,
+            },
+            "amplitude read from 3 of 9 windows",
+            "The amplitude was read from 3 of 9 windows in the kept time.",
+        ),
+        (
+            Caveat::BeatErrorSourceReadings {
+                source: crate::session::BeatErrorSource::Unlock,
+                used: 5,
+                readings: 7,
+            },
+            "beat error from the unlock in 5 of 7 readings",
+            "The beat error uses the unlock in 5 of 7 readings; readings from the other \
+             event were left out.",
+        ),
+        (
+            Caveat::BeatErrorUnknownSource { readings: 1 },
+            "1 beat-error readings with no recorded source left out",
+            "The beat-error aggregate leaves out 1 reading whose source was not recorded.",
+        ),
+        (
+            Caveat::BeatErrorFromDrop,
+            "beat error from the drop",
+            "The unlock was not found; the beat error is measured from the drop.",
+        ),
+        (
+            Caveat::SetRateDisagrees { heard: 21600 },
+            "21600 bph heard",
+            "The beat rate set differs from the 21600 bph heard.",
+        ),
+        (
+            Caveat::ShortSpan { span_s: 6.4 },
+            "6 s of beats",
+            "The beats span 6 s, under the 10 s needed to judge whether they are regular.",
+        ),
+        (
+            Caveat::Clipped { fraction: 0.25 },
+            "25% clipped",
+            "25% of the beats have a clipped sample, which moves the timing of the sounds \
+             inside a beat.",
+        ),
+        (
+            Caveat::BeatsMissing { fraction: 0.5 },
+            "50% of beats found",
+            "50% of the beats the beat rate expects in this stretch were found.",
+        ),
+        (
+            Caveat::LiftUnknown,
+            "lift angle 52°, the default",
+            "The lift angle is the default, not one set for the calibre. Every amplitude \
+             is worked out from it.",
+        ),
+        (
+            Caveat::ClockUnknown,
+            "input clock not corrected",
+            "This input's clock hasn't been measured, so the rate includes the sound \
+             card's own clock error.",
+        ),
+        (
+            Caveat::Breaks { count: 1 },
+            "1 break",
+            "1 break in this stretch: a hole in the sound, such as when the computer \
+             slept, or a stumble where the beats stepped off together by more than 4 ms.",
+        ),
+        (
+            Caveat::BreaksUnlisted {
+                why: Unlisted::EntriesSkipped,
+            },
+            "breaks from the clock log",
+            "Some of the breaks this take's session.json lists give no place or gap, so \
+             its breaks were read from the clock log instead, which shows a pause only \
+             where the time it lost is 0.5 s or more.",
+        ),
+        (
+            Caveat::BreaksUnlisted {
+                why: Unlisted::NotTheTake,
+            },
+            "breaks from the clock log",
+            "These files are not the whole of the take its session.json describes, so its \
+             breaks were read from the clock log instead, which shows a pause only where \
+             the time it lost is 0.5 s or more.",
+        ),
+        (
+            Caveat::PausesUnseen { count: 1 },
+            "1 listed pause not in the clock log",
+            "1 pause this take's session.json lists shows no gap in its clock log, so no \
+             time is counted for it.",
+        ),
+        (
+            Caveat::PausesUnseen { count: 3 },
+            "3 listed pauses not in the clock log",
+            "3 pauses this take's session.json lists show no gap in its clock log, so no \
+             time is counted for them.",
+        ),
+        (
+            Caveat::SidesByCount { count: 2 },
+            "sides named by count",
+            "Tick and Tock are named by the beat count across 2 breaks in this stretch, \
+             not told apart by their sound.",
+        ),
+        (
+            Caveat::BeatErrorAsSize,
+            "beat error given as a size: its sign differs either side of a cut",
+            "The beat error's sign differs either side of a cut in the stretch, so it is \
+             given as a size.",
+        ),
+        (
+            Caveat::Masked { seconds: 12.4 },
+            "12 s masked",
+            "12 s of this stretch were masked out and left out of the readings.",
+        ),
+        (
+            Caveat::Positions { count: 6 },
+            "6 positions: a rate change with position can read as one with amplitude",
+            "The take holds 6 positions, so a rate that changes with the position can \
+             show as one that goes with the amplitude.",
+        ),
+        (
+            Caveat::LeadLeftOut { seconds: 31.6 },
+            "first 32 s left out",
+            "The first 32 s held no regular beat before the watch was heard, and are left \
+             out of the readings.",
+        ),
+        (
+            Caveat::PeriodMayBeNoise {
+                rho: 0.6,
+                span_s: 1800.0,
+            },
+            "cycle may be noise",
+            "On a take this short with its 2 s windows this correlated (ρ 0.60 from one to \
+             the next, over 30 min), the period search names a cycle in noise alone about \
+             1 time in 27, not 1 in 100: this cycle may be noise.",
+        ),
+        (
+            Caveat::PeriodSearchUncalibrated {
+                model: NullModel::Timing,
+                mix: 40.0,
+                span_s: 9000.0,
+            },
+            "cycle search not calibrated here",
+            "The period search has no simulated noise for 2.5 h of beat timing whose \
+             wander meets its jitter at 40 cycles a detrend window, so how often it names \
+             a cycle in noise alone is not known here: this cycle may be noise.",
+        ),
+        (
+            Caveat::PeriodSearchUncalibrated {
+                model: NullModel::Timing,
+                mix: WALK_MIX,
+                span_s: 9000.0,
+            },
+            "cycle search not calibrated here",
+            "The period search has no simulated noise for 2.5 h of beat timing with no \
+             jitter floor to measure, so how often it names a cycle in noise alone is not \
+             known here: this cycle may be noise.",
+        ),
+        (
+            Caveat::TimingModelMisfit {
+                misfit: 0.41,
+                limit: 0.18,
+            },
+            "timing noise not the simulated kind",
+            "The beat timing's noise is not the wander plus jitter the period search was \
+             checked against: its spectrum sits 0.41 decades from that shape, where 99 in \
+             100 simulated takes sit within 0.18. How often it names a cycle in this \
+             noise alone is not known: this cycle may be noise.",
+        ),
+    ];
+
+    #[test]
+    fn every_caveat_has_its_words() {
+        for (c, short, long) in WORDED {
+            let words = (c.short(52.0, 0).unwrap(), c.long(None).unwrap());
+            assert_eq!(words, (short.to_string(), long.to_string()), "{c:?}");
+        }
+        // A sliver too small to say has no sentence either.
+        assert_eq!(Caveat::Masked { seconds: 0.02 }.long(None), None);
+        assert_eq!(
+            no_watch_text(NoWatchReason::NoBeatSound, Some(900.0), Some(28800)),
+            "No regular beat found (neither the Tick's nor the Tock's sound shows an unlock \
+             or a drop)"
+        );
+    }
+
+    #[test]
+    fn only_the_caveats_about_breaks_are_about_breaks() {
+        // The three kinds about breaks, and no other kind.
+        let about_breaks: Vec<_> = WORDED
+            .iter()
+            .map(|(c, ..)| *c)
+            .filter(Caveat::is_about_breaks)
+            .collect();
+        assert_eq!(
+            about_breaks,
+            [
+                Caveat::Breaks { count: 1 },
+                Caveat::BreaksUnlisted {
+                    why: Unlisted::EntriesSkipped
+                },
+                Caveat::BreaksUnlisted {
+                    why: Unlisted::NotTheTake
+                },
+                Caveat::PausesUnseen { count: 1 },
+                Caveat::PausesUnseen { count: 3 },
+            ]
+        );
+    }
+
+    /// The order a list gives caveats in.
+    #[test]
+    fn caveats_are_listed_in_their_place() {
+        // Added in any order, a list reads no regular beat first, then the
+        // rate set, the sound, the clock, the breaks, and the rest; a
+        // caveat added twice is listed once.
+        let in_place = [
+            Caveat::NoWatch {
+                reason: NoWatchReason::Scatter,
+            },
+            Caveat::SetRateDisagrees { heard: 21600 },
+            Caveat::ShortSpan { span_s: 6.4 },
+            Caveat::Clipped { fraction: 0.25 },
+            Caveat::BeatsMissing { fraction: 0.5 },
+            Caveat::LiftUnknown,
+            Caveat::ClockUnknown,
+            Caveat::ClockSourcesDisagree {
+                usb_ppm: 12.0,
+                log_ppm: 5.0,
+                log_ppm_sd: 0.0,
+                against: Default::default(),
+            },
+            Caveat::Breaks { count: 1 },
+            Caveat::BreaksUnlisted {
+                why: Unlisted::NotTheTake,
+            },
+            Caveat::PausesUnseen { count: 3 },
+            Caveat::SidesByCount { count: 2 },
+            Caveat::Masked { seconds: 12.4 },
+            Caveat::BeatErrorAsSize,
+            Caveat::Positions { count: 6 },
+            Caveat::LeadLeftOut { seconds: 31.6 },
+            Caveat::BeatErrorFromDrop,
+            Caveat::ReadingWindows {
+                reading: confidence::Figure::Rate,
+                windows_used: 3,
+                windows_in_span: 9,
+            },
+            Caveat::BeatErrorSourceReadings {
+                source: crate::session::BeatErrorSource::Drop,
+                used: 5,
+                readings: 7,
+            },
+        ];
+        let mut list = Vec::new();
+        for c in in_place.iter().rev().chain(in_place.iter()) {
+            add(&mut list, *c);
+        }
+        assert_eq!(list, in_place);
+        // The four that share the last place keep the order they came in.
+        let last = [
+            Caveat::TimingModelMisfit {
+                misfit: 0.41,
+                limit: 0.18,
+            },
+            Caveat::BeatErrorUnknownSource { readings: 1 },
+            Caveat::PeriodSearchUncalibrated {
+                model: NullModel::Readings,
+                mix: 0.5,
+                span_s: 9000.0,
+            },
+            Caveat::PeriodMayBeNoise {
+                rho: 0.6,
+                span_s: 1800.0,
+            },
+        ];
+        let mut list = vec![Caveat::LiftUnknown];
+        for c in last {
+            add(&mut list, c);
+        }
+        add(
+            &mut list,
+            Caveat::NoWatch {
+                reason: NoWatchReason::NoBeatSound,
+            },
+        );
+        assert_eq!(
+            list[..2],
+            [
+                Caveat::NoWatch {
+                    reason: NoWatchReason::NoBeatSound
+                },
+                Caveat::LiftUnknown
+            ]
+        );
+        assert_eq!(list[2..], last);
+    }
 }
