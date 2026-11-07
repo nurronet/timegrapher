@@ -904,7 +904,8 @@ fn parse_profiles(raw: &[u8]) -> Result<Vec<StretchProfiles>, String> {
 
 /// Keep the take whose sound is in `source` (its folder: `session.toml`,
 /// `session.json`, `clock.csv` and the sound) as its analysis alone in a
-/// new folder `dest`: every file but the sound copied, `session.toml`
+/// new folder `dest`: every file but the sound copied, at its path in
+/// the take, subfolders too (#1323), `session.toml`
 /// replaced by `manifest_toml` (which says `audio = false`), and
 /// `analysis/` written from `stored`. Written beside `dest` first and
 /// moved into place whole, so a failure leaves nothing half-written; an
@@ -932,17 +933,27 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
     let result = (|| {
         fs::create_dir(&staged)?;
         for (file, bytes) in companions {
-            let mut parts = Path::new(file).components();
-            if !matches!(parts.next(), Some(std::path::Component::Normal(_)))
-                || parts.next().is_some()
-                || file.eq_ignore_ascii_case(DIR)
+            // A path inside the take: plain names only, never the
+            // analysis's own folder at its top.
+            let path = Path::new(file);
+            let mut parts = path.components();
+            let plain = path
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)));
+            if !plain
+                || parts
+                    .next()
+                    .is_none_or(|c| c.as_os_str().eq_ignore_ascii_case(DIR))
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!("invalid companion file name: {file}"),
                 ));
             }
-            fs::write(staged.join(file), bytes)?;
+            if let Some(dir) = staged.join(path).parent() {
+                fs::create_dir_all(dir)?;
+            }
+            fs::write(staged.join(path), bytes)?;
         }
         write(&staged, stored)?;
         // Read back what was written before it goes into place.
@@ -1167,10 +1178,24 @@ mod tests {
         let companions = vec![
             ("session.toml".to_string(), b"audio = false\n".to_vec()),
             ("clock.csv".to_string(), b"".to_vec()),
+            ("report/notes/a.txt".to_string(), b"kept".to_vec()),
         ];
         save(&dest, &companions, &s).unwrap();
         assert!(is_analysis_only(&dest));
         assert!(dest.join("clock.csv").is_file());
+        // A file in a subfolder keeps its place (#1323).
+        assert_eq!(fs::read(dest.join("report/notes/a.txt")).unwrap(), b"kept");
+        // Never outside the take, nor into the analysis's own folder.
+        for (i, bad) in ["../out.txt", "/abs.txt", "analysis/x", "ANALYSIS", "a/../b"]
+            .into_iter()
+            .enumerate()
+        {
+            let d = dir.join(format!("bad{i}"));
+            let err = save(&d, &[(bad.to_string(), Vec::new())], &s).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{bad}");
+            assert!(!d.exists(), "{bad}");
+        }
+        assert!(!dir.join("out.txt").exists());
         let names: Vec<_> = fs::read_dir(&dest)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

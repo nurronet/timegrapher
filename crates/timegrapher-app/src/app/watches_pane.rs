@@ -754,20 +754,16 @@ impl TimegrapherApp {
         }
     }
 
-    /// How Keep Analysis Only reads a take with session file `m`: at its
-    /// beat rate and lift, and whether that lift was supplied by core's one
-    /// rule for session files, with the take's calibre (#685).
+    /// How Keep Analysis Only reads a take with session file `m`: as core
+    /// reads any take, its session file's beat rate, lift and escape teeth,
+    /// else its calibre's, and whether that lift was supplied (#685, #1324).
     pub(super) fn keep_config(&self, m: &Manifest) -> StreamConfig {
         use timegrapher_core::take;
         let cal = m
             .calibre
             .as_deref()
             .and_then(|n| take::calibre_named(n, &self.cal.user));
-        let mut cfg = StreamConfig::default();
-        cfg.analysis.bph = m.bph;
-        cfg.analysis.amplitude.lift_deg = m.lift.unwrap_or(DEFAULT_LIFT_DEG);
-        cfg.analysis.lift_known = take::file_lift_known(m, cal.as_ref()).unwrap_or(false);
-        cfg
+        take::stream_settings(m, cal.as_ref(), take::Given::default())
     }
 
     /// What Keep Analysis Only needs from saved take `take` before it
@@ -800,20 +796,7 @@ impl TimegrapherApp {
             .map_err(|e| format!("{}: {e}", file.display()))?;
         doc.insert("audio", toml_edit::value(false));
         let mut companions = vec![(MANIFEST.to_string(), doc.to_string().into_bytes())];
-        for e in std::fs::read_dir(take).map_err(|e| format!("{}: {e}", take.display()))? {
-            let e = e.map_err(|e| e.to_string())?;
-            let name = e.file_name().to_string_lossy().into_owned();
-            if !e.file_type().is_ok_and(|t| t.is_file())
-                || name == MANIFEST
-                || files
-                    .iter()
-                    .any(|f| f.file_name() == Some(e.file_name().as_os_str()))
-            {
-                continue;
-            }
-            let bytes = std::fs::read(e.path()).map_err(|err| format!("{name}: {err}"))?;
-            companions.push((name, bytes));
-        }
+        keep_companions(take, take, &files, &mut companions)?;
         let cfg = self.keep_config(&m);
         let shapes = timegrapher_core::analysis_take::shape_stretches(&m, total_s);
         Ok((files, total_s, companions, cfg, shapes))
@@ -1475,4 +1458,37 @@ pub(super) fn settings_of(
         }
     }
     changed
+}
+
+/// Every file of take `take` under `dir` that Keep Analysis Only keeps
+/// beside its analysis, by its path in the take, subfolders too: all but
+/// its sound `files` and its session file, which is written anew (#1323).
+/// Anything that is neither a file nor a folder, such as a link, is
+/// refused, so nothing in the take is lost unseen.
+fn keep_companions(
+    take: &Path,
+    dir: &Path,
+    files: &[PathBuf],
+    out: &mut Vec<(String, Vec<u8>)>,
+) -> Result<(), String> {
+    for e in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let e = e.map_err(|e| e.to_string())?;
+        let path = e.path();
+        let rel = path.strip_prefix(take).map_err(|e| e.to_string())?;
+        let name = rel.to_string_lossy().into_owned();
+        let kind = e.file_type().map_err(|err| format!("{name}: {err}"))?;
+        if kind.is_dir() {
+            keep_companions(take, &path, files, out)?;
+        } else if !kind.is_file() {
+            return Err(format!(
+                "{name} is not a file or a folder, so it can't be kept with the analysis"
+            ));
+        } else if !(name == MANIFEST || dir == take && files.contains(&path)) {
+            let bytes = std::fs::read(&path).map_err(|err| format!("{name}: {err}"))?;
+            // Stored with `/` between folders on every system.
+            let parts: Vec<_> = rel.iter().map(|p| p.to_string_lossy()).collect();
+            out.push((parts.join("/"), bytes));
+        }
+    }
+    Ok(())
 }

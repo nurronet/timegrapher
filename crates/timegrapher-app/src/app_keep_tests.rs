@@ -2188,3 +2188,135 @@ fn a_takes_size_counts_every_file_inside_it() {
     assert_eq!(folder_size(&dir.join("missing")), 0);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Keep Analysis Only keeps every file of the take that isn't its sound,
+/// subfolders too (#1323), and reads the sound as core reads the take: a
+/// session file that names only its calibre is read at the calibre's
+/// beat rate, lift and teeth (#1324). Read at 52° instead of the
+/// calibre's 59°, a watch at 108° reads under 100° and every amplitude
+/// window is thrown away.
+#[test]
+fn keep_analysis_only_keeps_subfolders_and_the_calibres_settings() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-nested-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let watch = lib.add(&library::Watch::new("Explorer")).unwrap();
+    drop(lib);
+    let take = watch.join(library::TAKES).join("2026-11-07 06.00 Dial Up");
+    std::fs::create_dir_all(take.join("report/older")).unwrap();
+    std::fs::create_dir_all(take.join("lift52")).unwrap();
+    std::fs::write(take.join("report/notes.txt"), "kept by hand").unwrap();
+    std::fs::write(take.join("report/older/a.txt"), "older").unwrap();
+    std::fs::write(take.join("lift52/session.toml"), "lift = 52\n").unwrap();
+    std::fs::write(take.join("clock.csv"), "").unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "calibre = \"Test 59\"\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 40.0,
+            lift_deg: 59.0,
+            ..Default::default()
+        },
+        |_| 108.0,
+        |_| 0.0,
+    );
+    let wav = take.join("take_part01-001.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.cal
+        .user
+        .custom
+        .push(timegrapher_core::calibre_store::CustomCalibre {
+            name: "Test 59".into(),
+            maker: None,
+            aliases: Vec::new(),
+            bph: Some(28800),
+            lift_angle_deg: Some(59.0),
+            escape_teeth: Some(20),
+            wheels: Vec::new(),
+            notes: None,
+        });
+    let m: Manifest =
+        toml::from_str(&std::fs::read_to_string(take.join(MANIFEST)).unwrap()).unwrap();
+    let a = app.keep_config(&m).analysis;
+    assert_eq!(
+        (a.bph, a.amplitude.lift_deg, a.lift_known, a.escape_teeth),
+        (Some(28800), 59.0, true, 20)
+    );
+    app.use_library(Some(root));
+    app.start_take_keep(take.clone());
+    let t = Instant::now();
+    while app.take_keep.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll_take_keep();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(analysis_take::is_analysis_only(&take), "{:?}", app.message);
+    assert!(!wav.exists());
+    for (file, text) in [
+        ("report/notes.txt", "kept by hand"),
+        ("report/older/a.txt", "older"),
+        ("lift52/session.toml", "lift = 52\n"),
+        ("clock.csv", ""),
+    ] {
+        assert_eq!(
+            std::fs::read_to_string(take.join(file)).ok().as_deref(),
+            Some(text),
+            "{file}"
+        );
+    }
+    let stored = analysis_take::read(&take).unwrap();
+    assert_eq!(stored.header.lift_deg, 59.0);
+    assert_eq!(stored.header.bph, 28800);
+    let kept = stored
+        .log
+        .amplitude_windows
+        .iter()
+        .filter(|w| w.even_deg.is_some())
+        .count();
+    assert!(kept > 0, "no amplitude window kept");
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take holding anything Keep Analysis Only can't keep, such as a
+/// link, is refused before anything changes (#1323).
+#[cfg(unix)]
+#[test]
+fn keep_analysis_only_refuses_a_take_with_a_link() {
+    let base = std::env::temp_dir().join(format!("tg-app-keep-link-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let watch = lib.add(&library::Watch::new("Explorer")).unwrap();
+    drop(lib);
+    let take = watch.join(library::TAKES).join("2026-11-07 06.00 Dial Up");
+    std::fs::create_dir_all(take.join("report")).unwrap();
+    std::fs::write(base.join("elsewhere.txt"), "outside").unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere.txt"), take.join("report/link.txt")).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\nlift = 52\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let audio = generate(&SynthConfig::default(), |_| 280.0, |_| 0.0);
+    let wav = take.join("take_part01-001.wav");
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root));
+    app.start_take_keep(take.clone());
+    assert!(app.take_keep.is_none());
+    assert!(
+        format!("{:?}", app.message).contains("link.txt"),
+        "{:?}",
+        app.message
+    );
+    assert!(wav.exists() && !analysis_take::is_analysis_only(&take));
+    assert!(take.join("report/link.txt").exists());
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
