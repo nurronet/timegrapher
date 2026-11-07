@@ -26,7 +26,7 @@ vm.runInContext(html.match(/const SERIES = \{[\s\S]*?\n\};/)[0] + "\n" + html.ma
   ["esc", "spectrumOf", "steadyNote", "steadyPlot", "mapNumber"].map(n => definition(n)).join("\n") + "\n" + definition("spectrumSupportText", true), context);
 function render(support, timing = true) {
   context.fftTiming = timing;
-  const sp = { series: "rate", unit: "ms", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2],
+  const sp = { series: "rate", unit: "ms", unit_text: " ms", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2],
     reading_swing: { reading_s: 10, period_s: [128, 64, 32], swing_s_per_day: [8, 60, 40] } };
   if (support !== undefined) sp.support = support;
   const doc = { spectra: [sp], config: { rate_reading_s: 10 } };
@@ -96,7 +96,7 @@ test("the Periods label sits on its line's top, not a thinned slice's low point"
 test("tiny FFT peaks keep their size in timing and rate units", () => {
   for (const timing of [true, false]) {
     context.fftTiming = timing;
-    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [0.0001, 0.00042],
+    const sp = { series: "rate", unit: "ms", unit_text: " ms", period_s: [128, 64], amplitude: [0.0001, 0.00042],
       reading_swing: { period_s: [128, 64], swing_s_per_day: [0.0001, 0.00042] } };
     context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
     assert.ok(context.last.beside[0].text.endsWith(
@@ -107,8 +107,16 @@ test("tiny FFT peaks keep their size in timing and rate units", () => {
 test("FFT labels at the existing size boundaries stay unchanged", () => {
   context.fftTiming = true;
   for (const [peak, text] of [[10, "10"], [1, "1.0"], [0.1, "0.10"], [0.001, "0.001"]]) {
-    const sp = { series: "rate", unit: "ms", period_s: [128, 64], amplitude: [peak / 2, peak] };
+    const sp = { series: "rate", unit: "ms", unit_text: " ms", period_s: [128, 64], amplitude: [peak / 2, peak] };
     context.steadyPlot({ series: "rate" }, "spectrum", { spectra: [sp] });
     assert.ok(context.last.beside[0].text.endsWith(": " + text + " ms"), context.last.beside[0].text);
   }
+});
+
+test("an amplitude spectrum's tallest line is labelled in degrees with no gap, as core writes it (#1428)", () => {
+  context.fftTiming = true;
+  const sp = { series: "amplitude", unit: "deg", unit_text: "°", step_s: 1, period_s: [128, 64, 32], amplitude: [1, 5, 2] };
+  context.steadyPlot({ series: "amplitude" }, "spectrum", { spectra: [sp], config: { rate_reading_s: 10 } });
+  const label = context.last.beside[0].text;
+  assert.ok(/: 5(\.0+)?°$/.test(label), label);
 });

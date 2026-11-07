@@ -155,7 +155,7 @@ impl TimegrapherApp {
         let line = format!(
             "{}: {}",
             steady::title(reading),
-            d.line(kind, " in the session", only)
+            d.screen_line(kind, " in the session", only)
         );
         ui.add(egui::Label::new(RichText::new(&line).small().color(pal.text_secondary)).truncate())
             .on_hover_text(line.clone());

@@ -2338,3 +2338,13 @@ fn a_second_harmonic_or_a_fast_line_is_no_inner_cycle() {
     assert!((c.period_s - 100.0).abs() < 0.5, "{c:?}");
     assert_eq!((c.inner_period_s, c.turns), (None, None), "{c:?}");
 }
+
+/// A unit after a number: degrees as "°" with no gap, every other unit
+/// after a space, the one rule the report, the app and the MCP server
+/// write units by (#1426).
+#[test]
+fn a_unit_follows_its_number_as_the_sentences_write_it() {
+    assert_eq!(unit_after(SeriesKind::Amplitude.unit()), ("", "°"));
+    assert_eq!(unit_after(SeriesKind::Rate.unit()), (" ", "s/d"));
+    assert_eq!(unit_after(SeriesKind::BeatError.unit()), (" ", "ms"));
+}

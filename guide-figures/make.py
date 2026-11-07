@@ -446,12 +446,16 @@ def make(name, fig, corpus, clips, keep):
     os.makedirs(shelf, exist_ok=True)
     target = os.path.join(shelf, folder)
     if os.path.isdir(source) and "session" in data and "seconds" not in data:
-        # A whole take with no session file of its own: its audio, and
-        # one written from [data.session].
+        # A whole take with no session file of its own: its audio (only
+        # `files`, when given, so a long take's first hours open without
+        # cutting a copy), and one written from [data.session].
         os.makedirs(target)
         for entry in sorted(os.listdir(source)):
-            if entry.lower().endswith((".flac", ".wav")):
+            if entry.lower().endswith((".flac", ".wav")) and entry in data.get("files", [entry]):
                 os.symlink(os.path.join(source, entry), os.path.join(target, entry))
+        # The take's clock log, so its rates are on the true clock (M3).
+        if os.path.exists(os.path.join(source, "clock.csv")):
+            os.symlink(os.path.join(source, "clock.csv"), os.path.join(target, "clock.csv"))
         session = data["session"]
         lines = [f"{k} = {json.dumps(session[k], ensure_ascii=False)}" for k in ("watch", "calibre", "bph", "lift") if k in session]
         lines += ["", "[[recording]]", 'file = "."', f"position = {json.dumps(session.get('position', 'DU'))}"]
@@ -484,7 +488,10 @@ def make(name, fig, corpus, clips, keep):
 def shoot(name, fig, work, home, args, data, keep):
     env = dict(os.environ, DISPLAY=DISPLAY, HOME=home,
                XDG_DATA_HOME=os.path.join(home, ".local", "share"),
-               XDG_CONFIG_HOME=os.path.join(home, ".config"))
+               XDG_CONFIG_HOME=os.path.join(home, ".config"),
+               # The beats found are kept across figures, so a long take
+               # is read once for all the figures that open it.
+               XDG_CACHE_HOME=os.path.join(CACHE, "app-cache"))
     env.pop("WAYLAND_DISPLAY", None)
     procs = []
     pulse = None
@@ -618,7 +625,8 @@ def app_window(env):
 def act(step, env):
     """One step before the picture: ["click", x, y] (in the window),
     ["drag", x1, y1, x2, y2], ["hover", x, y] (the pointer left there, for a
-    hover), ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
+    hover), ["scroll", x, y, n] (n wheel steps down there, up when negative),
+    ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
     microphone figure) ["stand", "DD"] to turn the watch, ["stand", "off"]
     to take it off."""
     kind = step[0]
@@ -650,6 +658,18 @@ def act(step, env):
                             str(round(x1 + (x2 - x1) * i / 20)), str(round(y1 + (y2 - y1) * i / 20))], env=env)
         time.sleep(0.3)
         subprocess.run(["xdotool", "mouseup", "1"], env=env)
+        time.sleep(0.5)
+        subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
+    elif kind == "scroll":
+        # ["scroll", x, y, n]: the wheel turned n steps down (up when n < 0)
+        # with the pointer at (x, y), such as to show a table's later rows.
+        win = app_window(env)
+        subprocess.run(["xdotool", "mousemove", "--window", win, str(step[1]), str(step[2])], env=env)
+        time.sleep(0.5)
+        button = "5" if step[3] > 0 else "4"
+        for _ in range(abs(step[3])):
+            subprocess.run(["xdotool", "click", button], env=env)
+            time.sleep(0.05)
         time.sleep(0.5)
         subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
     elif kind == "key":

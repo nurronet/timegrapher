@@ -77,7 +77,8 @@ period, two beats: 7200 ÷ bph seconds, 0.25 s at 28,800 bph.
 
 **Where your additions are kept:** wheel periods and custom calibres go
 in `calibres.json` in the app's settings folder, which the command line
-and the MCP server read too. If that file can't be read, the page says
+and the MCP (Model Context Protocol) server, which lets an AI chat app
+use the timegrapher (chapter 26), read too. If that file can't be read, the page says
 so and keeps any change only until the app closes, so nothing overwrites
 it; repair or move the file, then start the app again.
 
@@ -103,4 +104,4 @@ its own.
 ---
 
 Previous: [Takes and Sound Files](23-takes-and-sound-files.md) ·
-[Contents](README.md)
+Next: [The Command Line](25-command-line.md)

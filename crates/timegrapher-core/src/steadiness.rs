@@ -121,6 +121,17 @@ pub enum SeriesKind {
     BeatError,
 }
 
+/// A Steadiness unit as it follows a number, as the gap before it and
+/// the unit: degrees, which [`SeriesKind::unit`] names "deg", as the
+/// sentences write them, "272.10°"; any other unit after a space,
+/// "0.20 ms". The one place that rule is written (#1426).
+pub fn unit_after(unit: &str) -> (&'static str, &str) {
+    match unit {
+        "deg" => ("", "°"),
+        u => (" ", u),
+    }
+}
+
 impl SeriesKind {
     pub fn name(self) -> &'static str {
         match self {
@@ -1242,10 +1253,8 @@ fn search_also(s: &SeriesCheck) -> Option<String> {
     };
     let mut lines = Vec::new();
     if !fast && !named.iter().any(|&n| near(p.period_s, n)) {
-        let size = match p.size_unit {
-            "deg" => format!("{:.2}°", p.size),
-            u => format!("{:.2} {u}", p.size),
-        };
+        let (gap, u) = unit_after(p.size_unit);
+        let size = format!("{:.2}{gap}{u}", p.size);
         let wheel = p
             .wheel
             .as_ref()
@@ -1988,10 +1997,8 @@ fn fast_line(s: &SeriesCheck) -> Option<String> {
         .as_ref()
         .map_or(String::new(), |w| format!(", the {w}'s period"));
     // Two decimals, as the period search's own line in the report.
-    let size = match p.size_unit {
-        "deg" => format!("{:.2}°", p.size),
-        u => format!("{:.2} {u}", p.size),
-    };
+    let (gap, u) = unit_after(p.size_unit);
+    let size = format!("{:.2}{gap}{u}", p.size);
     let also = if s.cycle.is_some() { " also" } else { "" };
     Some(format!(
         "{what}{also} repeats every {:.1} s{wheel}, {size} peak to peak; {} readings are too coarse to show it",

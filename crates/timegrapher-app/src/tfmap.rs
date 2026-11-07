@@ -5,13 +5,14 @@
 //! cone at a stretch's ends) is left empty: the card shows through.
 
 use crate::marks::{self, Rank};
-use crate::steady::{unit_after, wheel_lines, Turn, WheelLine};
+use crate::steady::{wheel_lines, Turn, WheelLine};
 use crate::strength;
 use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use egui_plot::{LineStyle, Plot};
 use timegrapher_core::library::length_text;
 use timegrapher_core::periodicity::Wheel;
+use timegrapher_core::steadiness::unit_after;
 use timegrapher_core::timefreq::{size_number, TimeFrequency};
 
 pub use timegrapher_core::timefreq::Scale;

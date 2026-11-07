@@ -20,7 +20,12 @@ Each figure is a TOML file:
   is cut again from a downloaded take. `[data.session]` sets the watch,
   calibre, beat rate, lift angle and position when the take has no
   session file. With no `seconds` the whole take is
-  fetched. `mode = "replay"` replays it instead of analysing it;
+  fetched and linked in, its `clock.csv` too; `files` then keeps only
+  those of its files, such as a long take's first hours. The beats the
+  app finds are kept in `.cache/app-cache` between figures, so a long
+  take is read once for every figure that opens it. On a long take,
+  start `actions` with a `sleep` long enough for the analysis to finish:
+  the screen can look settled while it runs. `mode = "replay"` replays it instead of analysing it;
   `mode = "microphone"` plays it into a virtual microphone (a PulseAudio
   server of the figure's own) for the app to listen to, looping, with
   `[data.stand]` naming a file for each position (the clip is Dial Up),
@@ -44,7 +49,8 @@ Each figure is a TOML file:
   for a control too crowded to put the mark beside.
 - `actions`: steps before the picture: `["click", x, y]` (in the window,
   below its title bar), `["drag", x1, y1, x2, y2]`, `["hover", x, y]` (the
-  pointer left there, to show a hover), `["key", "ctrl+o"]`, `["type", "text"]`,
+  pointer left there, to show a hover), `["scroll", x, y, n]` (n wheel
+  steps down at that point, up when negative), `["key", "ctrl+o"]`, `["type", "text"]`,
   `["sleep", s]`, and with a microphone `["stand", "DD"]` to turn the
   watch or `["stand", "off"]` to take it off. A figure whose actions use
   the stand starts with the stand empty.

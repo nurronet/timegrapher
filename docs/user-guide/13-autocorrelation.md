@@ -1,6 +1,6 @@
 # 13. Autocorrelation
 
-![Autocorrelation of the rate over a 30-minute take, marks 1 to 4](images/steady-autocorrelation.png)
+![Autocorrelation of the rate over the first 12 hours of a run-down, marks 1 to 4](images/steady-autocorrelation.png)
 
 **What it shows:** how much each reading resembles the one a given time
 later, the **lag**, from 0 up to 10 minutes, or a third of the take if
@@ -44,13 +44,22 @@ When the line falls and then rises back to a peak, the readings
 
 | What you see | What it can mean |
 | --- | --- |
-| A drop to about 0 after lag 0, then inside the band | Independent readings: each one a fresh draw. As in the picture. |
-| A slow fall over several lags | Each reading follows the last: the watch wanders. The ± allows for it (M7). |
+| A drop to about 0 after lag 0, then inside the band | Independent readings: each one a fresh draw. |
+| A slow fall over several lags | Each reading follows the last: the watch wanders. The ± allows for it (M7). As in the picture. |
 | A fall and a rise to a peak | The readings repeat at the peak's lag. |
 | A Ljung–Box p under 0.05 | Resemblance across the first 10 lags, beyond chance. The headline names it only if it also passes Holm's correction (chapter 9). |
 
-In the picture, the rate's readings are close to independent: a few lags
-touch the band, and the Ljung–Box p is 0.094.
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8: 4317 rate readings, so the band is narrow, ±0.03. The
+readings are far from independent. Each 10 s reading resembles the next
+by 0.43, and the resemblance lasts about a minute before it first falls
+inside the band. After that the line swings well outside the band on
+both sides in a slow wave, up near 4 and 8 to 9 minutes, down near 2
+and 6 minutes: the same rise and fall every few minutes that Cycle
+(chapter 12) folds. The Ljung–Box p is under 10⁻³⁰⁰. So a ± worked out
+as if each reading were a fresh draw would be far too small, which is
+why the app's ± allows for it (M7). By the lag-1 resemblance alone, the
+4317 readings carry about as much evidence as 1,700 independent ones.
 
 ## What It Can't Tell You
 

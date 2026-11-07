@@ -975,6 +975,37 @@ fn joined_readings_over_time_keeps_its_own_span_and_width() {
     });
 }
 
+/// A slow watch's Distributions line gives its figures with a true minus
+/// and keeps "2-second" as it is written (#1416).
+#[test]
+fn the_distributions_line_gives_negative_figures_a_true_minus() {
+    let spread = |t: f64| 0.7 * (((t / 10.0) as usize * 7) % 30) as f64 / 29.0;
+    let mut app = synthetic_varying(300.0, -12.0, spread);
+    app.update_dist_readings(None);
+    let ctx = themed();
+    let mut text = String::new();
+    for _ in 0..3 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1400.0, 300.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.histogram(ui, SeriesKind::Rate));
+        });
+        text = painted_text(&out);
+    }
+    let line = text
+        .lines()
+        .find(|l| l.contains(" · median "))
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(line.contains("median \u{2212}"), "{line}");
+    assert!(line.contains(" to \u{2212}"), "{line}");
+    assert!(!line.contains(" -"), "{line}");
+}
+
 /// A watch running slow puts the Charts' rate scale and the
 /// Distributions' axis below zero, and every number there carries a true
 /// minus, not a hyphen (#1402).

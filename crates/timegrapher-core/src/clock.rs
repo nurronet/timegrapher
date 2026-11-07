@@ -1820,6 +1820,25 @@ unix_s,frames
         assert!((fit.map(400.0) - (400.0 * k + 60.0)).abs() < 1e-3);
     }
 
+    /// A log with a pause after every entry, as three lines a minute apart
+    /// with 60 s and then 120 s of system time between them that the sound
+    /// didn't hear: no stretch has two entries to fit an offset to, so each
+    /// is brought down by the gaps before it, added up, and the card reads
+    /// right with each break its own gap (#1417).
+    #[test]
+    fn a_pause_after_every_entry_takes_out_the_gaps_added_up() {
+        let pairs = [(0.0, 1.7e9), (60.0, 1.7e9 + 120.0), (120.0, 1.7e9 + 300.0)];
+        let fit = ClockFit::new(&pairs).unwrap();
+        assert!(fit.ppm.abs() < 1e-3, "ppm {}", fit.ppm);
+        let gaps: Vec<f64> = fit.breaks.iter().map(|b| b.gap_s).collect();
+        assert_eq!(gaps.len(), 2, "{:?}", fit.breaks);
+        assert!(
+            (gaps[0] - 60.0).abs() < 1e-6 && (gaps[1] - 120.0).abs() < 1e-6,
+            "{gaps:?}"
+        );
+        assert!((fit.map(120.0) - fit.map(0.0) - 300.0).abs() < 1e-6);
+    }
+
     #[test]
     fn a_listed_break_moves_the_logs_break_back() {
         // Logged every 10 s as the recorder does: paused at 303 s for 60 s,
