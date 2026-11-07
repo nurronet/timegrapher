@@ -4,10 +4,11 @@
     python3 packaging/docs_html.py check FOLDER
 
 render writes OUT/Start Here.html (from packaging/PLATFORM/start-here.md),
-OUT/User Guide/ (docs/user-guide, its contents page as index.html) and
+OUT/User Guide/ (docs/user-guide, its contents page as index.html),
+OUT/Reference/ (installing, the MCP server and the JSON contract) and
 OUT/LICENSE.txt, for the platform script to copy into the download's
-folder. A download carries the user guide and nothing else from docs/:
-the reference, developer and research pages stay on GitHub. Links between
+folder. Nothing else from docs/ is carried: the other reference,
+developer and research pages stay on GitHub. Links between
 the carried files are rewritten to the pages beside them; links to
 anything else in the repository go to GitHub at COMMIT (default: HEAD),
 and links to files the repository lacks are left as written. Needs pandoc.
@@ -31,9 +32,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # Set by GitHub Actions; the default is for local runs.
 REPO = os.environ.get("GITHUB_REPOSITORY") or "peterhudson/timegrapher"
 PLATFORMS = ("linux", "macos", "windows")
-# The only part of docs/ a download carries, and its folder there.
+# The parts of docs/ a download carries: the user guide, and the reference
+# pages it links to for installing, the MCP server and the JSON contract.
 GUIDE = "docs/user-guide"
 GUIDE_OUT = "User Guide"
+REFERENCE = ("docs/install.md", "docs/mcp.md", "docs/agent-interface.md")
+REFERENCE_OUT = "Reference"
 
 STYLE = """
 :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --bg: #fff;
@@ -95,6 +99,8 @@ def outputs(platform):
             elif dest.endswith(".md"):
                 dest = dest[:-3] + ".html"
             out[rel] = dest
+    for rel in REFERENCE:
+        out[rel] = f"{REFERENCE_OUT}/{posixpath.basename(rel)[:-3]}.html"
     return out
 
 

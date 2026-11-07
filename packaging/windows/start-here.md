@@ -11,6 +11,7 @@ there. To remove it, delete the folder.
 | **Command Line** | `timegrapher.exe`, the command line tool, and `timegrapher-mcp.exe`, the server that lets AI chat apps use it |
 | **Claude Desktop** | `Timegrapher.mcpb`, the Claude Desktop extension |
 | **User Guide** | The manual, as pages that open in your browser |
+| **Reference** | Installing, the MCP server and the command line's JSON |
 | **LICENSE.txt** | The licence (GPL-3.0) |
 
 ## Open the App
@@ -46,4 +47,8 @@ browser without an internet connection.
   function, what it does, and why you'd use it
 - [Your First Take](../../docs/user-guide/02-your-first-take.md): from
   opening the app to a saved take
-- [Installing and updating](../../docs/install.md) (on GitHub)
+- [Installing and updating](../../docs/install.md)
+
+The **Reference** folder also holds [the MCP server](../../docs/mcp.md), for
+AI chat apps, and [the agent interface](../../docs/agent-interface.md), the
+command line's JSON.

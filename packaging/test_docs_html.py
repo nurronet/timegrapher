@@ -20,7 +20,8 @@ def other_docs():
     # Every Markdown page under docs/ outside the user guide.
     return sorted(path.relative_to(docs_html.ROOT).as_posix()
                   for path in (docs_html.ROOT / "docs").rglob("*.md")
-                  if not path.is_relative_to(docs_html.ROOT / docs_html.GUIDE))
+                  if not path.is_relative_to(docs_html.ROOT / docs_html.GUIDE)
+                  and path.relative_to(docs_html.ROOT).as_posix() not in docs_html.REFERENCE)
 
 
 class Outputs(unittest.TestCase):
@@ -36,7 +37,9 @@ class Outputs(unittest.TestCase):
         for source, dest in mapping.items():
             self.assertTrue((docs_html.ROOT / source).is_file(), source)
             self.assertTrue(dest in ("Start Here.html", "LICENSE.txt")
-                            or dest.startswith("User Guide/"), dest)
+                            or dest.startswith(("User Guide/", "Reference/")), dest)
+        for page in docs_html.REFERENCE:
+            self.assertEqual(mapping[page], "Reference/" + page[len("docs/"):-3] + ".html")
 
     def test_nothing_else_in_docs_is_carried(self):
         mapping = docs_html.outputs("linux")
@@ -45,8 +48,17 @@ class Outputs(unittest.TestCase):
         for page in others:
             self.assertNotIn(page, mapping)
         self.assertNotIn("README.md", mapping)
-        self.assertFalse([s for s in mapping
-                          if s.startswith("docs/") and not s.startswith(docs_html.GUIDE + "/")])
+        self.assertFalse([s for s in mapping if s.startswith("docs/")
+                          and not s.startswith(docs_html.GUIDE + "/")
+                          and s not in docs_html.REFERENCE])
+
+    def test_guide_links_to_reference_pages_stay_offline(self):
+        mapping = docs_html.outputs("linux")
+        chapter = guide_chapters()[0]
+        for page in docs_html.REFERENCE:
+            out = docs_html.rewrite_links(f'<a href="../{page[len("docs/"):]}#x">x</a>',
+                                          chapter, mapping[chapter], mapping, REF)
+            self.assertIn(f'href="../Reference/{page[len("docs/"):-3]}.html#x"', out)
 
     def test_the_documentation_stays_small(self):
         # Each download carries it.
