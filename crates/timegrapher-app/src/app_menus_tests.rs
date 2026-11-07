@@ -2,7 +2,9 @@
 //! name, and what running an item does.
 
 use super::*;
-use crate::app::tests::{painted_text, screen, synthetic, themed};
+use crate::app::tests::{
+    append_save_test_second, painted_text, save_failure_fixture, screen, synthetic, themed,
+};
 
 /// Draw `menu` on its own in one frame, as its drop-down shows it, and
 /// give back the text painted.
@@ -192,22 +194,43 @@ fn a_panes_item_toggles_it_and_reset_panes_puts_them_back() {
     assert!(!app.menu_checked(charts));
 }
 
-/// New Session is dimmed before anything is heard and does nothing; with
-/// a watch heard it clears the take.
+/// New Session is dimmed before anything is heard and does nothing.
 #[test]
-fn new_session_clears_only_what_was_heard() {
+fn new_session_is_dimmed_before_anything_is_heard() {
     let ctx = themed();
     let mut fresh = TimegrapherApp::with_devices(Vec::new(), None);
     assert!(!fresh.menu_enabled(MenuCommand::NewSession));
     fresh.run_menu_command(&ctx, MenuCommand::NewSession);
     assert_eq!(fresh.confirm, None);
+}
+
+/// A take with nothing to save is cleared at once, nothing asked.
+#[test]
+fn new_session_clears_a_take_with_nothing_to_save() {
+    let ctx = themed();
     let mut app = synthetic(30.0, 5.0);
+    assert!(!app.needs_save_confirmation());
     assert!(app.menu_enabled(MenuCommand::NewSession));
     app.run_menu_command(&ctx, MenuCommand::NewSession);
-    match &app.confirm {
-        Some(c) => assert_eq!(c, &Confirm::NewSession),
-        None => assert!(app.live.is_none() && app.trend.is_empty()),
+    assert_eq!(app.confirm, None);
+    assert!(app.live.is_none(), "the take is still shown");
+}
+
+/// A take with sound not yet saved is kept, and New Session asks first.
+#[test]
+fn new_session_asks_before_clearing_unsaved_sound() {
+    let ctx = themed();
+    let (mut app, base) = save_failure_fixture("menu-new-session");
+    app.save_into(&base.join("saved"));
+    app.wait_for_save();
+    for second in 2..=8 {
+        append_save_test_second(&mut app, second);
     }
+    assert!(app.needs_save_confirmation());
+    app.run_menu_command(&ctx, MenuCommand::NewSession);
+    assert_eq!(app.confirm, Some(Confirm::NewSession));
+    assert!(app.live.is_some(), "the take was cleared before asking");
+    let _ = std::fs::remove_dir_all(&base);
 }
 
 /// Report a Problem… opens its window over the app.
