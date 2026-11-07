@@ -300,11 +300,18 @@ fn a_takes_folder_name_gives_its_start() {
         named_start("2028-02-29 00.00").as_deref(),
         Some("2028-02-29T00:00")
     );
+    // Every 400th year is a leap year, though a century (#1300).
+    assert_eq!(
+        named_start("2000-02-29 10.00").as_deref(),
+        Some("2000-02-29T10:00")
+    );
     for name in [
         "ym42 copied",
         "2026-11-0",
         "2026-13-06 18.30",
         "2026-02-29 18.30",
+        "2100-02-29 10.00",
+        "2026-11-00 10.00",
         "2026-04-31 18.30",
         "2026-11-06 24.00",
         "2026-11-06 18.60",
@@ -355,6 +362,19 @@ fn a_take_copied_in_without_its_record_is_as_long_as_its_sound() {
     assert_eq!(read_take(&dir, 0).unwrap().duration_s, Some(135.25));
     fs::write(dir.join("session.json"), r#"{"duration_s":140.0}"#).unwrap();
     assert_eq!(read_take(&dir, 0).unwrap().duration_s, Some(140.0));
+    // Sound whose headers hold no samples gives no length, not 0:00
+    // (#1300).
+    fs::remove_file(dir.join("session.json")).unwrap();
+    let empty = dir.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    crate::audio::write_wav(&empty.join("take.wav"), &audio(0.0)).unwrap();
+    fs::write(
+        empty.join("session.toml"),
+        "bph = 28800\n\n[[recording]]\nfile = 'take.wav'\nposition = 'DU'\n",
+    )
+    .unwrap();
+    assert_eq!(read_take(&empty, 0).unwrap().duration_s, None);
+    fs::write(dir.join("session.json"), r#"{"duration_s":140.0}"#).unwrap();
     // One whose sound isn't all there has no length to give.
     fs::remove_file(dir.join("session.json")).unwrap();
     fs::remove_file(dir.join("take.wav")).unwrap();
