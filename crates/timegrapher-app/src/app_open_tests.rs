@@ -970,7 +970,7 @@ fn a_dialog_starts_where_the_take_was_saved() {
     assert_eq!(app.save_start(), saved.parent().unwrap());
 }
 
-/// Open Recording… asks for a file and Open Take… for a folder. What is
+/// Open Recording… asks for a file and Open Folder… for a folder. What is
 /// picked is opened, unless it is a take outside the library, which
 /// asks first; a cancel opens nothing.
 #[test]
