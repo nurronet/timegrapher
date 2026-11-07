@@ -1015,7 +1015,9 @@ impl TimegrapherApp {
         if self.running() || self.batch.is_some() {
             Some(std::time::Duration::from_millis(40))
         } else {
-            working.then_some(std::time::Duration::from_millis(100))
+            working
+                .then_some(std::time::Duration::from_millis(100))
+                .or_else(|| self.reserve_retry_in())
         }
     }
 
