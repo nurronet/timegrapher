@@ -43,7 +43,7 @@ and **Listen**, then **Rate**, **Amplitude** and **Beat Error**.
   limits the reading, such as **6 s of Beats** or **3% Clipped**.
 - Rest the pointer on a figure to see what stands behind it.
 
-Chapter 5 covers every card.
+[Chapter 5](05-the-readings-cards.md) covers every card.
 
 ### Compact Readings
 
@@ -191,4 +191,5 @@ On a Mac, use **Cmd** in place of Ctrl.
 
 ---
 
-Previous: [Setting Up the Microphone](03-setting-up-the-microphone.md)
+Previous: [Setting Up the Microphone](03-setting-up-the-microphone.md) ·
+Next: [The Readings Cards and the Calibre Card](05-the-readings-cards.md)

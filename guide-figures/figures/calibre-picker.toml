@@ -1,0 +1,27 @@
+# Chapter 5, The Calibre Card: the Calibre pop-up open on an opened take,
+# its search at the top and Manage Calibres… at its foot.
+output = "calibre-picker.png"
+
+# 1 search, 2 Not Set, 3 the Short List, 4 Manage Calibres….
+marks = [[1, 572, 207], [2, 572, 237], [3, 572, 274], [4, 572, 529]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["sleep", 20], ["click", 398, 107], ["sleep", 1]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+# The take names the calibre "3235", which the catalogue reads as Rolex's.
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true

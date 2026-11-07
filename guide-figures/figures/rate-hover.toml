@@ -1,0 +1,23 @@
+# Chapter 5, The Readings Cards: the Rate figure's hover on an opened take,
+# with the whole take's reading under the latest one.
+output = "rate-hover.png"
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["sleep", 20], ["hover", 860, 115]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
