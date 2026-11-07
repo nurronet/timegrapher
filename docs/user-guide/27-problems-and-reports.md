@@ -57,7 +57,7 @@ it out. Give `--bph` and `--lift` as they were set when the problem
 showed. `--listened-back` and `--cc0` are the form's two ticks, for you
 alone to give. It never opens the microphone.
 
-`timegrapher report --replay` runs a zip's measurement again with the
+`timegrapher report --replay <zip>` runs a zip's measurement again with the
 build you have, and lists each value that moved, with its value then
 and now. It is how a maintainer checks that a fix changed what it
 should, and nothing else.
@@ -76,16 +76,16 @@ It records the version, the microphone opened, level changes, the beat
 found and lost, position changes and every message the app shows. It is
 kept under 1 MB, with the two before it.
 
-**If the app closes unexpectedly,** it writes `crash-<time>.txt` beside
-the log, with the message, where it happened and the last 200 lines of
+**If the app closes unexpectedly,** it writes `crash-<time>.txt` in the
+settings folder itself (not in `logs/`), with the message, where it happened and the last 200 lines of
 the log. The next start shows **Closed Unexpectedly…** in the status
 bar, which offers:
 
 | Button | What it does |
 | --- | --- |
-| **Make a Report…** | Copies the record and opens a new GitHub issue to paste it into. |
+| **Make a Report…** | Copies the record and opens a new GitHub issue to paste it into. The crash isn't offered again. |
 | **Show the Record** | Shows what the app wrote down as it closed, in the message itself. |
-| **Dismiss** | Closes the message. |
+| **Dismiss** | Closes the message. The crash isn't offered again; its record stays in the settings folder. |
 
 A test's sound not yet saved when it closed is offered too (chapter 23).
 
