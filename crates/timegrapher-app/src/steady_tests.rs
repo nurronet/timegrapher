@@ -1430,3 +1430,17 @@ fn level_lines_are_drawn_only_where_the_words_name_them() {
     c.changes.as_mut().unwrap().segments.truncate(1);
     assert!(level_lines(&c).is_empty(), "one stretch is no level change");
 }
+
+/// Axis numbers on screen carry a true minus, as the design guide asks
+/// where numbers line up (#1402); zero never reads "−0".
+#[test]
+fn axis_numbers_on_screen_carry_a_true_minus() {
+    assert_eq!(value_text(SeriesKind::Rate, -2.0, 1.0), "\u{2212}2 s/d");
+    assert_eq!(
+        value_text(SeriesKind::BeatError, -0.25, 0.05),
+        "\u{2212}0.25 ms"
+    );
+    assert_eq!(value_text(SeriesKind::Amplitude, 4.0, 1.0), "4°");
+    assert_eq!(plain(-0.5, 0.5), "\u{2212}0.5");
+    assert_eq!(plain(-0.0, 0.5), "0.0");
+}

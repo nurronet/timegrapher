@@ -79,7 +79,7 @@ pub fn ui(
         gutter: gutter(ui, curve, walk),
     };
     for line in curve
-        .map(|c| headline_lines(&c.headline))
+        .map(|c| headline_lines(&true_minus(&c.headline)))
         .unwrap_or_default()
     {
         ui.label(RichText::new(line).small().color(pal.text_secondary));
@@ -1155,6 +1155,52 @@ mod tests {
                 "{view:?}: centred, not at the top: {plot:?}"
             );
         }
+    }
+
+    /// The headline's signed figures carry a true minus on screen, as the
+    /// design guide asks (#1402): "−0.03 ± 0.01 s/d per degree".
+    #[test]
+    fn the_headline_carries_a_true_minus() {
+        let mut curve = run_down();
+        curve.headline = "Between 209° and 233° the rate goes with the amplitude by \
+                          -0.03 ± 0.01 s/d per degree. The rate reads -8.8 s/d at 209°."
+            .into();
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(700.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
+        });
+        let text: Vec<String> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            text.iter()
+                .any(|t| t.ends_with("by \u{2212}0.03 ± 0.01 s/d per degree")),
+            "{text:?}"
+        );
+        assert!(
+            text.iter().any(|t| t.contains("\u{2212}8.8 s/d")),
+            "{text:?}"
+        );
+        assert!(
+            !text
+                .iter()
+                .any(|t| t.contains("-0.03") || t.contains("-8.8")),
+            "{text:?}"
+        );
     }
 
     /// One view at a time: the Curve view has no walk, the Walk view no

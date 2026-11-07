@@ -3687,7 +3687,7 @@ fn paint_y_labels(ui: &egui::Ui, t: &egui_plot::PlotTransform, unit: &str) {
         let drawn = painter.text(
             egui::pos2(frame.left() - 6.0, y),
             egui::Align2::RIGHT_CENTER,
-            format!("{v}{unit}"),
+            timegrapher_core::figure_text::true_minus(&format!("{v}{unit}")),
             font.clone(),
             color,
         );
