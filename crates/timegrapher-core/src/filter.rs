@@ -71,3 +71,70 @@ pub fn highpass4(x: &mut [f32], fs: f64, f0: f64) {
         Biquad::highpass(fs, f0, q).filtfilt(x);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FS: f64 = 48_000.0;
+
+    fn sine(f: f64, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * PI * f * i as f64 / FS).sin() as f32)
+            .collect()
+    }
+
+    /// The rms of the middle half, away from the ends' start-up.
+    fn rms_mid(x: &[f32]) -> f64 {
+        let m = &x[x.len() / 4..3 * x.len() / 4];
+        (m.iter().map(|&v| (v as f64).powi(2)).sum::<f64>() / m.len() as f64).sqrt()
+    }
+
+    /// The 4th-order Butterworth high-pass, run forward and back, is down
+    /// 6 dB at its corner (twice the 3 dB of one pass), keeps what is well
+    /// above it and takes out what is well below: 8th order in all.
+    #[test]
+    fn the_highpass_keeps_whats_above_its_corner_and_takes_out_whats_below() {
+        let f0 = 1000.0;
+        let gain = |f: f64| {
+            let mut x = sine(f, 48_000);
+            highpass4(&mut x, FS, f0);
+            rms_mid(&x) / std::f64::consts::FRAC_1_SQRT_2
+        };
+        assert!((gain(f0) - 0.5).abs() < 0.01, "{}", gain(f0));
+        assert!((gain(8.0 * f0) - 1.0).abs() < 0.001, "{}", gain(8.0 * f0));
+        // An octave below, 8th order: 48 dB down, 1/256 in amplitude.
+        assert!(gain(f0 / 2.0) < 1.0 / 200.0, "{}", gain(f0 / 2.0));
+        assert!(gain(50.0) < 1e-6, "{}", gain(50.0));
+    }
+
+    /// Forward then back, nothing is moved in time: a click's peak stays
+    /// on its sample, as a tick's sub-events must.
+    #[test]
+    fn the_filters_move_nothing_in_time() {
+        let mut x = vec![0.0f32; 4801];
+        x[2400] = 1.0;
+        highpass4(&mut x, FS, 1000.0);
+        let peak = (0..x.len())
+            .max_by(|&a, &b| x[a].abs().total_cmp(&x[b].abs()))
+            .unwrap();
+        assert_eq!(peak, 2400);
+        // Symmetric about it, as only a zero-phase filter leaves it.
+        for k in 1..200 {
+            assert!((x[2400 - k] - x[2400 + k]).abs() < 1e-6, "{k}");
+        }
+    }
+
+    /// The notch takes out its frequency, mains hum, and leaves the rest.
+    #[test]
+    fn the_notch_takes_out_its_frequency_only() {
+        let gain = |f: f64| {
+            let mut x = sine(f, 8 * 48_000);
+            Biquad::notch(FS, 50.0, 30.0).filtfilt(&mut x);
+            rms_mid(&x) / std::f64::consts::FRAC_1_SQRT_2
+        };
+        assert!(gain(50.0) < 1e-3, "{}", gain(50.0));
+        assert!((gain(5000.0) - 1.0).abs() < 1e-3, "{}", gain(5000.0));
+        assert!((gain(25.0) - 1.0).abs() < 0.01, "{}", gain(25.0));
+    }
+}

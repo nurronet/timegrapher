@@ -115,4 +115,18 @@ mod tests {
             assert_eq!(card_ppm(value).unwrap().to_bits(), value.to_bits());
         }
     }
+
+    #[test]
+    fn only_the_averaging_times_the_app_offers_are_taken() {
+        for a in crate::live::AVERAGES {
+            assert_eq!(average_s(a), Ok(a));
+        }
+        for a in [0.0, 5.0, 61.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                average_s(a),
+                Err("the averaging time must be one of 2, 4, 10, 20, 30, 60 seconds".into()),
+                "{a}"
+            );
+        }
+    }
 }

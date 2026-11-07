@@ -98,4 +98,17 @@ mod tests {
         // Shortest first, no two alike.
         assert!(TICKS.windows(2).all(|w| w[0].period_s < w[1].period_s));
     }
+
+    /// With room for fewer than the main marks, the main marks are still
+    /// all drawn; a span between marks has none.
+    #[test]
+    fn the_main_marks_are_kept_however_little_the_room() {
+        let periods = |v: Vec<PeriodTick>| v.iter().map(|t| t.period_s).collect::<Vec<_>>();
+        assert_eq!(
+            periods(period_ticks(4.0, 60_000.0, 1)),
+            [10.0, 60.0, 600.0, 3600.0, 21600.0]
+        );
+        assert!(period_ticks(11.0, 29.0, 10).is_empty());
+        assert_eq!(periods(period_ticks(0.1, 0.1, 0)), [0.1]);
+    }
 }
