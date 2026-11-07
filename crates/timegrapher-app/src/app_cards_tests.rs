@@ -764,14 +764,53 @@ fn an_opened_take_fits_the_strip() {
             let lead = anchor.lead_ms(b, 0.125);
             assert!(lead.abs() < half, "{lead} outside ±{half}");
         }
-        // Listen goes back to the strip as it was, unless it was
-        // changed by hand since.
+        // Listen goes back to the strip as it was, each of width and
+        // length unless it was set by hand since, which stays (Hugh).
         assert_eq!(
             (app.live_view().span_s, app.live_view().half_width_ms),
             (10.0, 1.0)
         );
         app.strip.set_half_width(5.0);
-        assert_eq!(app.live_view(), app.strip);
+        assert_eq!(
+            (app.live_view().span_s, app.live_view().half_width_ms),
+            (10.0, 5.0)
+        );
+    }
+}
+
+/// A test or a new take set up after an opened take starts from the
+/// person's own Width and Length from before the take was opened, not
+/// the take's fitted view (Walter, Hugh); one of them set by hand while
+/// the take was on show stays as set.
+#[test]
+fn a_new_test_starts_from_the_strip_as_it_was_before_the_open() {
+    for (kind, by_hand) in [
+        (NewTake::Positions, false),
+        (NewTake::PowerReserve, false),
+        (NewTake::Positions, true),
+        (NewTake::Listen, false),
+    ] {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        app.strip.set_span(30.0);
+        app.strip.set_half_width(10.0);
+        let fit = app.strip_fit;
+        app.show_log(gaining_log(1e-4), "gaining".into(), vec![], vec![]);
+        assert!(app.strip.span_s > 119.0, "fitted to the take");
+        if by_hand {
+            app.strip.set_half_width(250.0);
+        }
+        if kind == NewTake::Listen {
+            app.take_setup();
+        } else {
+            app.new_take(kind, true);
+            assert_eq!(app.ready_test(), Some(kind));
+        }
+        let width = if by_hand { 250.0 } else { 10.0 };
+        assert_eq!(
+            (app.strip.span_s, app.strip.half_width_ms, app.strip_fit),
+            (30.0, width, fit),
+            "{kind:?}, by hand {by_hand}"
+        );
     }
 }
 
