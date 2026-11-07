@@ -774,6 +774,11 @@ pub struct Component {
     /// A value of 2 corresponds to 1% under that reference model, not a
     /// calibrated probability for arbitrary watch noise or a fault diagnosis.
     pub significance: f64,
+    /// Whether `significance` lies past [`SIMULATED_P`] on a search held
+    /// to the simulated null: the number is then the fitted tail's
+    /// extrapolation, and it is shown as beyond the simulated range
+    /// ([`false_alarm_text`], #1243).
+    pub beyond_simulated: bool,
     /// Harmonics that gave the best score (1 = a sinusoid; more = a
     /// sharper, shorter event within each cycle).
     pub harmonics: u8,
@@ -791,6 +796,30 @@ pub struct Component {
     /// A longer cycle the search also found whose frequency times a whole
     /// number from 2 to 8 is within one resolution (1/span) of this one's.
     pub harmonic_of: Option<Harmonic>,
+}
+
+/// The smallest false-alarm chance the period search's simulated null was
+/// checked to on fresh seeds (`fresh_seeds_hold_the_tail`: every model
+/// and mix held its 99% bound at p 0.01, 0.001 and 0.0003). A smaller one
+/// is the fitted extreme-value tail carried past its draws (400 a cell),
+/// and is said as beyond the simulated range, not quoted (#1243).
+pub const SIMULATED_P: f64 = 0.0003;
+
+/// Whether a search's `significance` lies past [`SIMULATED_P`], when the
+/// search was held to the simulated null (`calibrated`); the plain trials
+/// count's tail is not a simulation, and keeps its number.
+pub fn beyond_simulated(significance: f64, calibrated: bool) -> bool {
+    calibrated && significance > -SIMULATED_P.log10()
+}
+
+/// A false-alarm chance as shown: `shown` of its −log10 within the
+/// simulated range, and past it that it lies beyond (#1243).
+pub fn false_alarm_text(significance: f64, beyond: bool, shown: impl Fn(f64) -> String) -> String {
+    if beyond {
+        format!("under {SIMULATED_P}, beyond the simulated range")
+    } else {
+        shown(significance)
+    }
 }
 
 /// A found cycle's period is `period_s / n`.
@@ -949,6 +978,7 @@ fn analyse_as(
             let s = search(&work, &band, &found);
             let threshold = s.threshold;
             let s_tail = s.tail;
+            let calibrated = s.null.calibrated;
             let pick = pick_period(&s, &work, g.step);
             if first.is_none() {
                 first = Some(s);
@@ -992,6 +1022,7 @@ fn analyse_as(
                 period_s: period,
                 resolution_s: resolution,
                 significance: s_tail.significance(score),
+                beyond_simulated: beyond_simulated(s_tail.significance(score), calibrated),
                 harmonics,
                 explained,
                 peak_to_peak: hi - lo,
@@ -1487,6 +1518,22 @@ mod tests {
         assert!(residual.is_some());
         assert_ne!(searched, residual, "mixes {} and {mix}", r.search.null.mix);
         assert_eq!(r.search.null.misfit_limit, residual);
+    }
+
+    /// Past p 0.0003 a calibrated search's false alarm is said to lie
+    /// beyond the simulated range; within it, or from the plain trials
+    /// count, its number is shown (#1243).
+    #[test]
+    fn a_false_alarm_past_the_simulated_range_is_not_quoted() {
+        assert!(!beyond_simulated(3.5, true));
+        assert!(beyond_simulated(3.53, true));
+        assert!(!beyond_simulated(87.0, false));
+        let shown = |s: f64| format!("{:.0e}", 10f64.powf(-s));
+        assert_eq!(false_alarm_text(3.0, false, shown), "1e-3");
+        assert_eq!(
+            false_alarm_text(87.0, true, shown),
+            "under 0.0003, beyond the simulated range"
+        );
     }
 
     /// Thinning averages the finite cells of near-equal chunks, leaves an

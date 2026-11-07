@@ -10,7 +10,7 @@ use timegrapher_core::calibres::{self, Calibre};
 use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::{fixed_text, signed_text};
 use timegrapher_core::longrun::{self, LongReport};
-use timegrapher_core::longterm::{Component, LongConfig};
+use timegrapher_core::longterm::{false_alarm_text, Component, LongConfig};
 use timegrapher_core::periodicity::{common_escape_wheels, standard_wheels, Wheel};
 use timegrapher_core::stream::{BeatLog, StreamConfig};
 use timegrapher_core::take_context::{Masks, TakeContext};
@@ -796,6 +796,7 @@ struct SlimComponent {
     period_s: f64,
     resolution_s: f64,
     significance: f64,
+    beyond_simulated: bool,
     harmonics: u8,
     explained: f64,
     /// s/d for rate, degrees for amplitude.
@@ -820,6 +821,7 @@ fn slim(
         period_s: c.period_s,
         resolution_s: c.resolution_s,
         significance: c.significance,
+        beyond_simulated: c.beyond_simulated,
         harmonics: c.harmonics,
         explained: c.explained,
         peak_to_peak: ptp,
@@ -983,7 +985,7 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
             fixed_text(c.resolution_s, 2),
             size,
             fixed_text(c.explained * 100.0, 0),
-            false_alarm(c.significance),
+            false_alarm_text(c.significance, c.beyond_simulated, false_alarm),
             wheel_note(c)
         );
     };

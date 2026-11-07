@@ -231,6 +231,7 @@ fn search_line(period_s: f64, size: f64, size_unit: &'static str, wheel: Option<
     Period {
         period_s,
         significance: 10.0,
+        beyond_simulated: false,
         explained: 0.5,
         peak_to_peak: size,
         timing_peak_to_peak_ms: None,

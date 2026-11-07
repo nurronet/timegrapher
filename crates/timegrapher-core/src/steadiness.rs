@@ -317,6 +317,8 @@ pub struct Period {
     pub period_s: f64,
     /// −log10 of the false-alarm chance.
     pub significance: f64,
+    /// Past the simulated null's range ([`longterm::beyond_simulated`]).
+    pub beyond_simulated: bool,
     /// Share of the detrended variance the cycle explains.
     pub explained: f64,
     /// Peak-to-peak over one cycle, the series' units.
@@ -824,6 +826,7 @@ fn period_of(r: &longterm::SeriesReport, unit: &'static str) -> Option<Period> {
     r.components.first().map(|c| Period {
         period_s: c.period_s,
         significance: c.significance,
+        beyond_simulated: c.beyond_simulated,
         explained: c.explained,
         peak_to_peak: c.peak_to_peak,
         timing_peak_to_peak_ms: None,
@@ -2046,7 +2049,9 @@ fn findings(s: &SeriesCheck) -> Option<Finding> {
             "period {:.1} s explains {:.0}% of the detrended variance, false alarm {}",
             p.period_s,
             p.explained * 100.0,
-            p_text(10f64.powf(-p.significance))
+            longterm::false_alarm_text(p.significance, p.beyond_simulated, |s| p_text(
+                10f64.powf(-s)
+            ))
         ));
     }
     if let Some(c) = &s.changes {
@@ -2226,6 +2231,7 @@ pub fn check(
         Period {
             period_s: c.component.period_s,
             significance: c.component.significance,
+            beyond_simulated: c.component.beyond_simulated,
             explained: c.component.explained,
             peak_to_peak: c.rate_swing_s_per_day,
             timing_peak_to_peak_ms: Some(c.timing_swing_ms),
