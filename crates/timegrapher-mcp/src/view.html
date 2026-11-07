@@ -1508,7 +1508,7 @@ function steadyPlot(s, view, doc) {
       // A little room above the tallest line, as in the app; the wheels'
       // names are in the lane above the plot.
       const y = [yLo, yHi + Math.max(yHi - yLo, 0.5) * 0.05];
-      const u = asRate ? " s/d" : sp.unit === "deg" ? "°" : " ms";
+      const u = asRate ? " s/d" : sp.unit_text;
       // Core size text, shared with the map and checked by the parity fixture.
       const size = (v) => mapNumber(v) + u;
       const peak = pts.reduce((a, q) => (q[1] > a[1] ? q : a), pts[0]);
@@ -1577,7 +1577,7 @@ function steadyPlot(s, view, doc) {
 
 // The statistics behind a series' headline, as the JSON gives them.
 function steadyStats(s) {
-  const u = s.unit === "deg" ? "°" : s.unit ? ` ${s.unit}` : "";
+  const u = s.unit_text || "";
   const parts = [`Tested on ${s.readings} ${num(s.step_s, 0)} s readings`];
   if (Number.isFinite(s.median)) parts.push(`median ${num(s.median, 2)}${u}`);
   if (Number.isFinite(s.sd)) parts.push(`SD ${num(s.sd, 2)}${u}`);
@@ -1737,15 +1737,15 @@ function mapNumber(v) {
   const fraction = ("0".repeat(-Number(exponent) - 1) + digits).padEnd(d, "0");
   return (v < 0 ? "-0." : "0.") + fraction;
 }
-// tfmap::size_text: "0.12 ms", "3.1°".
+// tfmap::size_text: "0.12 ms", "3.1°", the unit as core writes it.
 function mapSize(m, v) {
-  return m.unit === "deg" ? `${mapNumber(v)}°` : `${mapNumber(v)} ${m.unit}`;
+  return mapNumber(v) + m.unit_text;
 }
 // The key's title, the unit in it, as the app's: one colour scale carries
 // one unit, so its numbers go bare. The rate map holds timing swing.
 function mapKeyTitle(m) {
   const name = { rate: "Timing Swing", amplitude: "Amplitude Swing", beat_error: "Beat Error Swing" }[m.series] || "Swing";
-  return `${name} (${m.unit === "deg" ? "°" : m.unit})`;
+  return `${name} (${m.unit_text.trim()})`;
 }
 
 function mapChart(m, doc, log) {
