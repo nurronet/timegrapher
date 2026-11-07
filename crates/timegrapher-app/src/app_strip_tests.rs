@@ -411,6 +411,69 @@ fn hovering_an_overlay_axis_row_gives_its_range() {
     assert!(line.contains(" to ") && line.ends_with(" °"), "{line}");
 }
 
+/// Upright with two overlays on, each axis row is two lines: its short
+/// name, then its unit with the numbers on the unit's line and none on
+/// the name's; and the first row's unit ends above the second row's name
+/// (#1278).
+#[test]
+fn upright_overlay_rows_put_their_numbers_on_the_units_line() {
+    let ctx = themed();
+    let mut app = synthetic(40.0, 5.0);
+    app.overlays = [true, true, false];
+    app.strip.horizontal = false;
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 500.0));
+    let mut out = None;
+    for _ in 0..4 {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        out = Some(ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| app.strip_pane(ui));
+        }));
+    }
+    let out = out.unwrap();
+    let texts: Vec<(String, egui::Rect)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) => Some((
+                t.galley.text().to_string(),
+                egui::Rect::from_min_size(t.pos, t.galley.size()),
+            )),
+            _ => None,
+        })
+        .collect();
+    // Each row: a unit "(…)" and the name in the same column just over it.
+    let mut rows: Vec<(egui::Rect, egui::Rect)> = texts
+        .iter()
+        .filter(|t| t.0.starts_with('(') && t.0.ends_with(')'))
+        .filter_map(|(_, unit)| {
+            texts
+                .iter()
+                .find(|(_, n)| {
+                    (n.left() - unit.left()).abs() < 0.5 && (n.bottom() - unit.top()).abs() < 1.0
+                })
+                .map(|(_, name)| (*name, *unit))
+        })
+        .collect();
+    rows.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+    assert_eq!(rows.len(), 2, "{texts:?}");
+    for (name, unit) in &rows {
+        let on = |line: &egui::Rect| {
+            texts
+                .iter()
+                .filter(|(_, r)| {
+                    r.left() > name.right() && (r.center().y - line.center().y).abs() < 1.0
+                })
+                .count()
+        };
+        assert!(on(unit) > 0, "numbers on the unit's line: {texts:?}");
+        assert_eq!(on(name), 0, "none on the name's line: {texts:?}");
+    }
+    assert!(rows[0].1.bottom() <= rows[1].0.top() + 0.5, "{rows:?}");
+}
+
 /// Upright, "Late" and "Early" sit on a line of their own under the ms
 /// numbers, clear of the end ones (#1278: never "Late −60" or "+60Early").
 #[test]
@@ -459,6 +522,8 @@ fn an_upright_strips_early_and_late_stand_clear_of_its_numbers() {
         assert!(!numbers.is_empty(), "{texts:?}");
         for word in ["Late", "Early"] {
             let w = at(word);
+            // Inside the pane, never cut off at its foot.
+            assert!(w.bottom() <= screen.bottom(), "{word} {w:?} in {screen:?}");
             for n in &numbers {
                 assert!(w.top() >= n.bottom() - 1.0, "{word} {w:?} under {n:?}");
             }
