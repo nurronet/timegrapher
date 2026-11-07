@@ -229,6 +229,12 @@ pub(super) const MIN_DRAWS: usize = 1_000;
 #[cfg(test)]
 pub(super) const MAX_DRAWS: usize = 40_000;
 
+/// The seed each point of the table is drawn from.
+#[cfg(test)]
+pub(super) fn point_seed(n: usize, step: f64) -> u64 {
+    (n as u64) << 20 ^ step.to_bits().rotate_left(7) ^ 0x1199
+}
+
 /// One point of the table, drawn: white gap-free readings, `n` of them
 /// `step` apart, detrended as a take on that grid is, from `seed`.
 #[cfg(test)]
@@ -279,5 +285,65 @@ pub(super) fn draw_point(n: usize, step: f64, seed: u64) -> Point {
             q_var,
             q_skew,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The table the app ships is what this code draws: a few of its
+    /// cheapest points, drawn again from their seeds
+    /// ([`point_seed`]) as `write_white_null_table` drew them, match it. A change to the
+    /// detrend, the correlations or Q that would move the null shows here,
+    /// not only when the table is next written.
+    #[test]
+    fn the_shipped_white_null_is_what_its_points_draw() {
+        let t = table();
+        let shipped = |window: usize, n: usize| {
+            let rows = if window == 0 { &t.quadratic } else { &t.median };
+            rows.iter()
+                .find(|p| p.window == window && p.n == n)
+                .unwrap()
+        };
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-9 * a.abs().max(1.0);
+        for (n, step, window) in [(33, 1.0, 0), (40, 1.0, 0), (20, 360.0, 5), (40, 360.0, 5)] {
+            let p = draw_point(n, step, point_seed(n, step));
+            let s = shipped(window, n);
+            assert_eq!((p.window, p.draws), (s.window, s.draws), "{n}");
+            let (a, b) = (&p.null, &s.null);
+            assert!(close(a.q_mean, b.q_mean), "{n}: {} {}", a.q_mean, b.q_mean);
+            assert!(close(a.q_var, b.q_var), "{n}: {} {}", a.q_var, b.q_var);
+            assert!(close(a.q_skew, b.q_skew), "{n}: {} {}", a.q_skew, b.q_skew);
+            assert_eq!(a.bias.len(), b.bias.len());
+            assert!(
+                a.bias.iter().zip(&b.bias).all(|(&x, &y)| close(x, y)),
+                "{n}"
+            );
+        }
+        // Under 31 readings no lag has the pairs Q needs: Q is 0, with
+        // no spread, and any Q is read as likely as can be.
+        let p = draw_point(30, 1.0, point_seed(30, 1.0));
+        assert_eq!(
+            (p.null.q_mean, p.null.q_var, p.null.q_skew),
+            (0.0, 0.0, 0.0)
+        );
+        assert_eq!(p.null.p(50.0), 1.0);
+    }
+
+    /// A take whose grid gets a window the table holds reads that window's
+    /// row as it is, not a blend with its neighbours.
+    #[test]
+    fn a_window_the_table_holds_is_read_as_it_is() {
+        let t = table();
+        let row = t
+            .median
+            .iter()
+            .find(|p| p.window == 5 && p.n == 20)
+            .unwrap();
+        let got = lookup(t, 20, 20, 360.0, t.lb_lags).unwrap();
+        assert_eq!(got.q_mean.to_bits(), row.null.q_mean.to_bits());
+        assert_eq!(got.q_var.to_bits(), row.null.q_var.to_bits());
+        assert_eq!(got.bias, row.null.bias);
     }
 }

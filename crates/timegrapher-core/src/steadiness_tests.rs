@@ -2051,7 +2051,7 @@ fn the_white_null_costs_little_power() {
 #[ignore = "writes the table; run by hand"]
 fn write_white_null_table() {
     use super::white::{
-        draw_point, Table, DRAW_BUDGET, MAX_DRAWS, MIN_DRAWS, TABLE_LAGS, TABLE_LB_LAGS,
+        draw_point, point_seed, Table, DRAW_BUDGET, MAX_DRAWS, MIN_DRAWS, TABLE_LAGS, TABLE_LB_LAGS,
     };
     let logs = |from: f64, to: f64, per_decade: f64| -> Vec<usize> {
         let k = ((to / from).log10() * per_decade).ceil() as usize;
@@ -2073,7 +2073,6 @@ fn write_white_null_table() {
             jobs.push(((ratio * w as f64).round() as usize, 1800.0 / w as f64));
         }
     }
-    let seed = |n: usize, step: f64| (n as u64) << 20 ^ step.to_bits().rotate_left(7) ^ 0x1199;
     let next = std::sync::atomic::AtomicUsize::new(0);
     let done = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|sc| {
@@ -2081,7 +2080,7 @@ fn write_white_null_table() {
             sc.spawn(|| loop {
                 let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let Some(&(n, step)) = jobs.get(i) else { break };
-                let p = draw_point(n, step, seed(n, step));
+                let p = draw_point(n, step, point_seed(n, step));
                 eprintln!(
                     "point n {n} window {} draws {} skew {:.3}",
                     p.window, p.draws, p.null.q_skew
