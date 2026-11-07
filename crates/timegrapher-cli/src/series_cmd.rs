@@ -503,7 +503,9 @@ fn print_cycles(s: &SeriesCheck) {
             size_number(p.size),
             p.size_unit,
             fixed_text(p.explained * 100.0, 0),
-            p_text(10f64.powf(-p.significance))
+            timegrapher_core::longterm::false_alarm_text(p.significance, p.beyond_simulated, |s| {
+                p_text(10f64.powf(-s))
+            })
         );
     }
 }
@@ -749,6 +751,7 @@ mod tests {
         let line = Period {
             period_s: 5.0,
             significance: 10.0,
+            beyond_simulated: false,
             explained: 0.5,
             peak_to_peak: 0.04,
             timing_peak_to_peak_ms: Some(0.04),

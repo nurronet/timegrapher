@@ -1128,6 +1128,7 @@ fn cycle(period_s: f64, wheel: Option<&str>) -> Cycle {
         size: 2.0,
         size_unit: "s/d",
         significance: 8.0,
+        beyond_simulated: false,
         explained: 0.3,
         wheel: wheel.map(str::to_string),
         nearest_wheel: None,
@@ -1383,4 +1384,34 @@ fn a_hole_is_left_out_and_cut_like_a_mask() {
     session::leave_out(&mut log, &mut breaks, &mut masked, &[]);
     assert_eq!(log.beats.len(), beats);
     assert_eq!(breaks.len(), 4);
+}
+
+/// A cycle whose false-alarm chance lies past the simulated null's range
+/// says so instead of quoting the tail's extrapolation; one within it
+/// keeps its number (#1243).
+#[test]
+fn a_cycle_beyond_the_simulated_range_says_so() {
+    let mut r = reading(Position::CH, 2.0, 3.0, 280.0, 0.3);
+    let beyond = Cycle {
+        significance: 87.0,
+        beyond_simulated: true,
+        ..cycle(5.0, None)
+    };
+    r.cycles = vec![beyond, cycle(7.3, None)];
+    let rep = evaluate(&[r]);
+    let other: Vec<&str> = rep
+        .findings
+        .iter()
+        .filter(|f| f.code == "cycle_other")
+        .map(|f| f.evidence.as_str())
+        .collect();
+    assert_eq!(other.len(), 2, "{other:?}");
+    let five = other.iter().find(|e| e.contains("every 5.00 s")).unwrap();
+    assert!(
+        five.contains("false-alarm chance under 0.0003, beyond the simulated range"),
+        "{five}"
+    );
+    assert!(!five.contains("1e-87"), "{five}");
+    let seven = other.iter().find(|e| e.contains("every 7.30 s")).unwrap();
+    assert!(seven.contains("false-alarm chance 1e-8"), "{seven}");
 }

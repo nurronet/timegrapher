@@ -485,13 +485,17 @@ fn cycles_table(sn: &Session) -> String {
         };
         let _ = write!(
             s,
-            r#"<tr><th>{}</th><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}%</td><td class="num">{:.0e}</td><td>{}</td><td class="file">{}</td></tr>"#,
+            r#"<tr><th>{}</th><td>{}</td><td class="num">{}</td><td class="num">{}</td><td class="num">{}%</td><td class="num">{}</td><td>{}</td><td class="file">{}</td></tr>"#,
             r.position.display_label(),
             c.series,
             fixed_text(c.period_s, 2),
             c.size_text(),
             fixed_text(c.explained * 100.0, 0),
-            10f64.powf(-c.significance.min(300.0)),
+            timegrapher_core::longterm::false_alarm_text(
+                c.significance,
+                c.beyond_simulated,
+                |s| format!("{:.0e}", 10f64.powf(-s.min(300.0)))
+            ),
             esc(&wheel),
             esc(&r.label)
         );
@@ -945,6 +949,7 @@ mod tests {
             size: 2.0,
             size_unit: "s/d",
             significance: 8.0,
+            beyond_simulated: false,
             explained: 0.3,
             wheel: wheel.map(str::to_string),
             nearest_wheel: None,

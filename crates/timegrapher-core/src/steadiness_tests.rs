@@ -231,6 +231,7 @@ fn search_line(period_s: f64, size: f64, size_unit: &'static str, wheel: Option<
     Period {
         period_s,
         significance: 10.0,
+        beyond_simulated: false,
         explained: 0.5,
         peak_to_peak: size,
         timing_peak_to_peak_ms: None,
@@ -2135,4 +2136,39 @@ fn the_white_null_table_holds_a_short_take() {
         c[1] += usize::from(p < 0.01);
     }
     assert!(c[0] <= 68 && c[1] <= 18, "{c:?} of 1000");
+}
+
+/// Through the whole check, the fourth-wheel scenario's 60 s rate line
+/// stands far past p 0.0003 on a calibrated search: the Steadiness period
+/// carries `beyond_simulated`, and its finding says the line is beyond the
+/// simulated range rather than quoting the tail's extrapolation (#1243).
+#[test]
+fn a_strong_cycle_reads_beyond_the_simulated_range() {
+    let s = crate::scenarios::find("fourth-wheel").unwrap();
+    let log = crate::scenarios::beat_log(&s, 1);
+    let lc = crate::longterm::LongConfig {
+        wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+        ..Default::default()
+    };
+    let long = crate::longrun::analyse(&log, None, &lc);
+    let r = check(&log, None, &long, &lc, &Config::default());
+    let rate = r
+        .series
+        .iter()
+        .find(|c| c.series == SeriesKind::Rate)
+        .unwrap();
+    let p = rate.period.as_ref().unwrap();
+    assert!((p.period_s - 60.0).abs() < 1.0, "{}", p.period_s);
+    assert!(p.beyond_simulated, "significance {}", p.significance);
+    let f = r
+        .findings
+        .iter()
+        .find(|f| f.series == SeriesKind::Rate)
+        .unwrap();
+    assert!(
+        f.evidence
+            .contains("false alarm under 0.0003, beyond the simulated range"),
+        "{}",
+        f.evidence
+    );
 }

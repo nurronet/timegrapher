@@ -24,6 +24,7 @@ readings
 readings[].bph
 readings[].bph_set
 readings[].cycles
+readings[].cycles[].beyond_simulated
 readings[].cycles[].explained
 readings[].cycles[].fraction_of
 readings[].cycles[].harmonic_of

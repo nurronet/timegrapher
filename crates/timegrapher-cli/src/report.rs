@@ -5,7 +5,7 @@ use crate::long::{duration, false_alarm, wheel_note};
 use std::fmt::Write;
 use timegrapher_core::library::fixed_text;
 use timegrapher_core::longrun::LongReport;
-use timegrapher_core::longterm::{Component, Search};
+use timegrapher_core::longterm::{false_alarm_text, Component, Search};
 use timegrapher_core::periodicity::Wheel;
 use timegrapher_core::{chart_scale, period_ticks};
 
@@ -527,7 +527,7 @@ fn component(
 {}</div>"#,
         fixed_text(c.period_s, 2),
         fixed_text(c.explained * 100.0, 0),
-        false_alarm(c.significance),
+        false_alarm_text(c.significance, c.beyond_simulated, false_alarm),
         fixed_text(c.resolution_s, 2),
         esc(&capitalise(&wheel_note(c))),
         chart(&xa, &ya, "seconds into the cycle", unit, &lines, &[], None),
@@ -828,6 +828,7 @@ mod tests {
             period_s: period,
             resolution_s: 0.0,
             significance: 0.0,
+            beyond_simulated: false,
             harmonics: 1,
             explained: 0.0,
             peak_to_peak: 0.0,
@@ -863,6 +864,7 @@ mod tests {
             period_s: 60.0,
             resolution_s: 0.0,
             significance: 0.0,
+            beyond_simulated: false,
             harmonics: 1,
             explained: 0.0,
             peak_to_peak: 0.0,
@@ -914,6 +916,7 @@ mod tests {
             period_s: 10.0,
             resolution_s: 0.0,
             significance: 0.0,
+            beyond_simulated: false,
             harmonics: 1,
             explained: 0.0,
             peak_to_peak: 0.0,
@@ -943,6 +946,7 @@ mod tests {
             period_s: 10.0,
             resolution_s: 0.0,
             significance: 0.0,
+            beyond_simulated: false,
             harmonics: 1,
             explained: 0.0,
             peak_to_peak: 0.0,

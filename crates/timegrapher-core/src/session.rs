@@ -1043,6 +1043,8 @@ pub struct Cycle {
     pub size_unit: &'static str,
     /// -log10 of the false-alarm probability.
     pub significance: f64,
+    /// Past the simulated null's range ([`crate::longterm::beyond_simulated`]).
+    pub beyond_simulated: bool,
     pub explained: f64,
     pub wheel: Option<String>,
     pub nearest_wheel: Option<(String, f64)>,
@@ -1104,6 +1106,7 @@ pub fn cycles(r: &LongReport, wheels: &[Wheel]) -> Vec<Cycle> {
         size: c.size().0,
         size_unit: c.size().1,
         significance: c.component.significance,
+        beyond_simulated: c.component.beyond_simulated,
         explained: c.component.explained,
         wheel: c.component.wheel.clone(),
         nearest_wheel: c.component.nearest_wheel.clone(),
@@ -1116,6 +1119,7 @@ pub fn cycles(r: &LongReport, wheels: &[Wheel]) -> Vec<Cycle> {
         size: c.peak_to_peak,
         size_unit: "deg",
         significance: c.significance,
+        beyond_simulated: c.beyond_simulated,
         explained: c.explained,
         wheel: c.wheel.clone(),
         nearest_wheel: c.nearest_wheel.clone(),
@@ -1680,7 +1684,9 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
             |c: &Cycle| harmonic_of(c).filter(|w| c.wheel.is_none() && c.explained <= w.explained);
         for c in &r.cycles {
             let size = format!("{} peak to peak", c.size_text());
-            let fa = 10f64.powf(-c.significance.min(300.0));
+            let fa = crate::longterm::false_alarm_text(c.significance, c.beyond_simulated, |s| {
+                format!("{:.0e}", 10f64.powf(-s.min(300.0)))
+            });
             if folded(c).is_some() {
                 continue;
             }
@@ -1720,7 +1726,7 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
                     ri,
                     format!("Regular {} change once per turn of the {w}", c.series),
                     format!(
-                        "{} repeats every {:.2} s ({size}, {:.0}% of the variation) in {}; false-alarm chance {fa:.0e}{harmonics}",
+                        "{} repeats every {:.2} s ({size}, {:.0}% of the variation) in {}; false-alarm chance {fa}{harmonics}",
                         c.series, c.period_s, c.explained * 100.0, at(r)
                     ),
                 ),
@@ -1731,7 +1737,7 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
                         ri,
                         format!("Regular {} change at 1/{n} of the {w}'s turn", c.series),
                         format!(
-                            "{} repeats every {:.2} s ({size}) in {}; false-alarm chance {fa:.0e}{harmonics}",
+                            "{} repeats every {:.2} s ({size}) in {}; false-alarm chance {fa}{harmonics}",
                             c.series,
                             c.period_s,
                             at(r)
@@ -1743,7 +1749,7 @@ fn findings(readings: &[Reading]) -> Vec<Finding> {
                     ri,
                     format!("Regular {} change not tied to a listed wheel", c.series),
                     format!(
-                        "{} repeats every {:.2} s ({size}) in {}; false-alarm chance {fa:.0e}{}{harmonics}",
+                        "{} repeats every {:.2} s ({size}) in {}; false-alarm chance {fa}{}{harmonics}",
                         c.series,
                         c.period_s,
                         at(r),
