@@ -40,3 +40,13 @@ test("the share labels sit at core's scores up to just past the highest point", 
   assert.ok(Math.abs(y("50%") - (4 + plotH / 2)) < 1e-6);
   assert.ok(Math.abs(y("90%") - (4 + (zTop - 1.281552) / (2 * zTop) * plotH)) < 1e-6);
 });
+
+test("a Distribution card writes core's screen line, a true minus on its figures (#1431)", () => {
+  const c = vm.createContext({ esc: String, probabilityChart: () => "<paper/>" });
+  vm.runInContext(html.match(/^const DISTRIBUTIONS = \{[\s\S]*?\n\};/m)[0] + "\n" + definition("distributionCards"), c);
+  const screen = "4317 readings · median −40.6 s/d · middle 80% −62.9 s/d to −35.1 s/d";
+  const card = c.distributionCards({ overall: [{ series: "rate", values: "readings",
+    summary: screen.replace(/−/g, "-"), screen_summary: screen }] });
+  assert.ok(card.includes(`<p class="sub caption">${screen}</p>`), card);
+  assert.ok(!card.includes("median -"), card);
+});

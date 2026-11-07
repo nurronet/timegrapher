@@ -123,6 +123,30 @@ pub fn figure_with_pm(v: f64, se: Option<f64>, base: usize, signed: bool) -> Str
 mod tests {
     use super::*;
 
+    /// Fixed and signed figures as a screen writes them, held to the
+    /// fixture the MCP view's num and signed are tested against too
+    /// (figure_texts.test.cjs, #1431).
+    #[test]
+    fn screen_figures_match_the_views_fixture() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../tests/fixtures/figure_texts.json")).unwrap();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let v = c["v"].as_f64().unwrap();
+            let d = c["digits"].as_u64().unwrap() as usize;
+            assert_eq!(
+                true_minus(&fixed_text(v, d)),
+                c["fixed"].as_str().unwrap(),
+                "{v} {d}"
+            );
+            assert_eq!(
+                true_minus(&signed_text(v, d)),
+                c["signed"].as_str().unwrap(),
+                "{v} {d}"
+            );
+        }
+    }
+
     #[test]
     fn a_screens_minus_is_a_true_minus() {
         assert_eq!(

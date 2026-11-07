@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { MINUS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 // Core's time colour map as the server puts it in (views.rs holds the
 // fixture to core).
@@ -34,11 +35,11 @@ function definition(name) {
 }
 const constant = (name) => html.match(new RegExp(`^const ${name} = .*$`, "m"))[0];
 const root = { dataset: { theme: "light" } };
-const context = vm.createContext({ TIME_MAP, WALK_WORDS,
+const context = vm.createContext({ MINUS, TIME_MAP, WALK_WORDS,
   document: { getElementById: () => ({ clientWidth: 624 }), documentElement: root } });
 vm.runInContext(["CHAR_W", "DASH", "MARKS", "NAME_CLEAR"].map(constant).join("\n") +
   "\nconst WALK_PLOT = " + html.match(/^const WALK_PLOT = (.*);$/m)[1] + ";\nlet clipCount = 0;\n" +
-  ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "axisLabel", "tableRgb", "timeRgb", "rampStops",
+  ["esc", "chartWidth", "plotArea", "gridDown", "gridAcross", "fixedDigits", "axisLabel", "tableRgb", "timeRgb", "rampStops",
     "walkTicks", "beadSide", "walkMarks", "xyChart", "walkCard"].map(definition).join("\n"), context);
 
 // What core steady_views::walk_view sends, with the server's axes and lines.
@@ -160,7 +161,7 @@ test("no walk, no card", () => {
 });
 
 test("the Long Recording view draws the server's walk after Steadiness", () => {
-  const c = vm.createContext({ steadinessCard: () => "<steady/>", walkCard: (w) => `<walk ${w.last_text}/>`, distributionCards: () => "",
+  const c = vm.createContext({ MINUS, steadinessCard: () => "<steady/>", walkCard: (w) => `<walk ${w.last_text}/>`, distributionCards: () => "",
     fileName: () => "a.wav", timeLabel: String });
   vm.runInContext(["esc", "limitsCard", "seriesView"].map(definition).join("\n"), c);
   assert.ok(c.seriesView({ duration_s: 60 }, { walk }, []).includes("<steady/><walk 38 h/>"));

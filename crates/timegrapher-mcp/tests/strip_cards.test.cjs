@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { BASE_DIGITS } = require("./core_digits.cjs");
+const { BASE_DIGITS, MINUS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 const definition = (name) => {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
@@ -13,7 +13,7 @@ const definition = (name) => {
   return match[0];
 };
 const charts = [];
-const context = vm.createContext({
+const context = vm.createContext({ MINUS,
   BASE_DIGITS,
   num: (v, d) => v.toFixed(d),
   signed: (v, d) => (v >= 0 ? "+" : "") + v.toFixed(d),
@@ -50,9 +50,9 @@ test("without an averaging time no average is claimed", () => {
 
 test("a line lifts where a reading has no figure, as the app leaves a cut empty", () => {
   const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
-  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  const real = vm.createContext({ MINUS, chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
   vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
-    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "fixedDigits", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   const svg = real.lineChart({
     title: "Rate", time: true, yRange: [4, 5], unit: " s/d", decimals: 1,
     series: [{ name: "Rate", color: "--rate", points: [[1, 4.5], [2, 4.6], [3, null], [6, 4.7], [7, 4.8]] }],
@@ -64,9 +64,9 @@ test("a line lifts where a reading has no figure, as the app leaves a cut empty"
 
 test("isolated live source readings are visible dots without joining across holes", () => {
   const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
-  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  const real = vm.createContext({ MINUS, chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
   vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
-    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "fixedDigits", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   for (const points of [[[4, 0.2]], [[4, NaN], [40, 0.5], [44, NaN]], [[4, 0.2], [8, NaN], [12, 0.4]]]) {
     const svg = real.lineChart({ title: "Beat Error", time: true, unit: " ms",
       series: [{ name: "From the Drop", color: "--beat-error", points }] });
@@ -78,9 +78,9 @@ test("isolated live source readings are visible dots without joining across hole
 
 test("a lone reading at the first or newest time is a dot drawn whole, bigger than the line", () => {
   const constant = (n) => html.match(new RegExp(`^const ${n} = [\\s\\S]*?;$`, "m"))[0].replace("const ", "var ");
-  const real = vm.createContext({ chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
+  const real = vm.createContext({ MINUS, chartWidth: () => 600, CHAR_W: 6.6, clipCount: 0 });
   vm.runInContext(["DASH", "TIME_STEPS", "LONE_DOT_R", "charts"].map(constant).join("\n") + "\n" +
-    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
+    ["plotArea", "gridDown", "gridAcross", "lineSample", "lineChart", "nearest", "roundStep", "gridFor", "fixedDigits", "axisLabel", "esc", "fmtTime", "markLabels"].map(definition).join("\n"), real);
   // Walter's live Beat Error: lone drop readings at 0:04 and 0:40, the ends of the axis.
   const svg = real.lineChart({ title: "Beat Error", time: true, unit: " ms", yRange: [0, 1],
     series: [{ name: "From the Drop", color: "--beat-error", points: [[4, 0.4], [10, NaN], [20, 0.5], [24, 0.6], [30, NaN], [40, 0.45]] }] });

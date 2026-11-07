@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { MINUS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 function definition(name) {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
@@ -13,11 +14,11 @@ function definition(name) {
   return match[0];
 }
 const constant = (name) => html.match(new RegExp(`^const ${name} = [\\s\\S]*?;\\n(?=\\S|\\n)`, "m"))[0];
-const context = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
+const context = vm.createContext({ MINUS, fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
   periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false });
 vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
   constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
-  ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard"].map(definition)].join("\n"), context);
+  ...["esc", "fixedDigits", "num", "signed", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard"].map(definition)].join("\n"), context);
 
 const rate = { series: "rate", unit: "s/d", unit_text: " s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
   headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak" };
@@ -45,12 +46,12 @@ test("a trend or a level split the headline leaves out says why, in core's words
   assert.ok(stats.includes("3 stretches of one level, under the 20% a level change needs"), stats);
   // A trend the headline names has no note; one stretch is no split.
   const named = context.steadyStats({ ...rate, trend: { per_hour: -1.5, note: null }, changes: { segments: [{}], note: null } });
-  assert.ok(named.endsWith("trend -1.50 s/d per hour"), named);
+  assert.ok(named.endsWith(`trend ${MINUS}1.50 s/d per hour`), named);
   assert.ok(!named.includes("stretches"), named);
 });
 
 test("the Long Recording view says what limits its readings, as the analyze and session views do", () => {
-  const c = vm.createContext({ steadinessCard: () => "<steady/>", walkCard: () => "", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
+  const c = vm.createContext({ MINUS, steadinessCard: () => "<steady/>", walkCard: () => "", distributionCards: () => "<dist/>", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext(["esc", "limitsCard", "seriesView"].map(definition).join("\n"), c);
   const limits = [{ where: null, text: "The beat error's sign differs either side of a cut in the stretch, so it is given as a size." }];
   const html = c.seriesView({ duration_s: 60 }, null, limits);
@@ -59,12 +60,12 @@ test("the Long Recording view says what limits its readings, as the analyze and 
 });
 
 test("a series' own caveat shows once, on that series, in the server's words", () => {
-  const c = vm.createContext({ fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
+  const c = vm.createContext({ MINUS, fmtTime: (t) => `${t / 60}:00`, secs: (t) => `${t} s`, spectrumOf: () => null, steadyView: "readings",
     periodsLog: false, fftTiming: false, mapsLog: false, showWheels: true, showInfo: false, steadyPlot: () => "<svg/>",
     distributionCards: () => "", walkCard: () => "", fileName: () => "a.wav", timeLabel: String });
   vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HINT"), constant("WHEELS_HINT"),
     constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
-    ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
+    ...["esc", "fixedDigits", "num", "signed", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
   const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 24, not 1 in 100: this cycle may be noise.";
   const series = [rate, { ...rate, series: "amplitude", unit: "deg", unit_text: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },

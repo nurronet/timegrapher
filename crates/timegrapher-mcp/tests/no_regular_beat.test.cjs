@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { MINUS } = require("./core_digits.cjs");
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML || path.join(__dirname, "../src/view.html"), "utf8");
 function definition(name) {
   const match = html.match(new RegExp(`^function ${name}\\([^\\n]+\\}\\s*$`, "m")) || html.match(new RegExp(`^function ${name}\\([^\\n]*\\{[\\s\\S]*?^\\}`, "m"));
@@ -15,12 +16,12 @@ function definition(name) {
 // measure::NO_WATCH_TITLE, read from core so the test holds the view to it.
 const NO_BEAT_TITLE = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/measure.rs"), "utf8")
   .match(/pub const NO_WATCH_TITLE: &str = "([^"]+)";/)[1];
-const context = vm.createContext({
+const context = vm.createContext({ MINUS,
   NO_BEAT_TITLE,
   fileName: () => "take.flac", timeLabel: String, positionName: String,
   liveStrip: () => "", stripCards: () => "", trendStrip: () => "",
 });
-vm.runInContext(["chosenBeatError", "esc", "num", "recordingView", "recordView"].map(definition).join("\n"), context);
+vm.runInContext(["chosenBeatError", "esc", "fixedDigits", "num", "recordingView", "recordView"].map(definition).join("\n"), context);
 // The session view's Positions table, with what it draws around the row stubbed.
 Object.assign(context, { ORDER: [], POSITIONS: null, tile: () => "", signed: String, abs: Math.abs, limitsCard: () => "", bars: () => "" });
 vm.runInContext(definition("sessionView"), context);

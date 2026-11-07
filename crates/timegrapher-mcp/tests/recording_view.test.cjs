@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { BASE_DIGITS } = require("./core_digits.cjs");
+const { BASE_DIGITS, MINUS } = require("./core_digits.cjs");
 
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML ||
   path.join(__dirname, "../src/view.html"), "utf8");
@@ -21,18 +21,19 @@ function definition(name, optional = false) {
 // measure::NO_WATCH_TITLE, read from core so the test holds the view to it.
 const NO_BEAT_TITLE = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/measure.rs"), "utf8")
   .match(/pub const NO_WATCH_TITLE: &str = "([^"]+)";/)[1];
-const context = vm.createContext({
+const context = vm.createContext({ MINUS,
   NO_BEAT_TITLE, BASE_DIGITS,
   fileName: () => "test.wav", timeLabel: String, positionName: (p) => `name of ${p}`,
   stripCards: () => "", limitsCard: (l) => (l && l.length ? "<limits>" : ""),
   profileCard: (p, title, dropBeatError) => `<profile drop="${dropBeatError}">`,
 });
-vm.runInContext(["chosenBeatError", "esc", "num", "signed", "abs", "tile", "rateBasis", "recordingView", "readingTiles", "recordingCards", "takeTiles"]
+vm.runInContext(["chosenBeatError", "esc", "fixedDigits", "num", "signed", "abs", "tile", "rateBasis", "recordingView", "readingTiles", "recordingCards", "takeTiles"]
   .map(n => definition(n)).concat(definition("analyzeRate", true)).join("\n"), context);
 
 function render(doc) { return context.recordingView(doc, null, null); }
 function rateValue(markup) {
-  return Number(markup.match(/Rate<\/div>\s*<div class="value">([^<]+)/)[1]);
+  // The screen's true minus read back as a number.
+  return Number(markup.match(/Rate<\/div>\s*<div class="value">([^<]+)/)[1].replace(MINUS, "-"));
 }
 for (const c of cases) {
   test(`rate and basis: ${c.name}`, () => {
@@ -99,8 +100,8 @@ test("a file its take lists shows the take's reading, not the whole file's", () 
 
 test("each of a take's readings of the file gets its own tiles", () => {
   const markup = render(listed([reading("DU", 5, { label: ". (0–90 s)" }), reading("DD", -3, { label: ". (90–180 s)" })]));
-  const rates = [...markup.matchAll(/Rate<\/div>\s*<div class="value">([^<]+)/g)].map((m) => Number(m[1]));
-  assert.deepEqual(rates, [5, -3]);
+  const rates = [...markup.matchAll(/Rate<\/div>\s*<div class="value">([^<]+)/g)].map((m) => m[1]);
+  assert.deepEqual(rates, ["+5.0", `${MINUS}3.0`], "a true minus, as the app's");
   assert.ok(markup.includes("name of DD · . (90–180 s)"), markup);
 });
 
@@ -159,7 +160,7 @@ test("each figure takes the decimals the server gives with its ±", () => {
   const take = context.recordingView(listed([reading("DU", 5), reading("DD", -3)]), null, null, null,
     { readings: [{ rate: "0.04", digits: { rate: 2 } }, { rate: "1.5" }] });
   const rates = [...take.matchAll(/Rate<\/div>\s*<div class="value">([^<]+)/g)].map((m) => m[1]);
-  assert.deepEqual(rates, ["+5.00", (-3).toFixed(BASE_DIGITS.rate)]);
+  assert.deepEqual(rates, ["+5.00", `${MINUS}${(3).toFixed(BASE_DIGITS.rate)}`]);
 });
 
 // Whether clipping is worth saying is core's call (Clipping::noted, the

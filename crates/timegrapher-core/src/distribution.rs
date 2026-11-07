@@ -112,8 +112,12 @@ pub struct Distribution {
     /// [`MAX_POINTS`], evenly by rank beyond that, the lowest and highest
     /// always kept.
     pub points: Vec<[f64; 2]>,
-    /// The summary line the app shows beside the histogram.
+    /// The summary line beside the histogram, for files and pipes: an
+    /// ASCII minus.
     pub summary: String,
+    /// The same line as a screen shows it ([`Distribution::screen_line`]):
+    /// each figure with a true minus, for the MCP view (#1431).
+    pub screen_summary: String,
 }
 
 /// The distribution of `values` (non-finite ones are ignored); `None`
@@ -169,8 +173,10 @@ pub fn distribution(
         quantiles,
         points,
         summary: String::new(),
+        screen_summary: String::new(),
     };
     d.summary = d.line(kind, "", None);
+    d.screen_summary = d.screen_line(kind, "", None);
     Some(d)
 }
 
@@ -544,5 +550,7 @@ mod tests {
         assert!(!screen.contains(" -"), "{screen}");
         assert_eq!(screen.replace('\u{2212}', "-"), d.line(RATE, "", None));
         assert!(d.summary.contains("median -"), "{}", d.summary);
+        // The screen copy the MCP view writes is this line (#1431).
+        assert_eq!(d.screen_summary, screen);
     }
 }

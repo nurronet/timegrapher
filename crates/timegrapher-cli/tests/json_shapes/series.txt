@@ -39,6 +39,7 @@ distributions.overall[].p10
 distributions.overall[].p90
 distributions.overall[].peaks
 distributions.overall[].quantiles
+distributions.overall[].screen_summary
 distributions.overall[].series
 distributions.overall[].step_s
 distributions.overall[].summary

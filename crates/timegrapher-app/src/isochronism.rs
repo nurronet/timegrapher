@@ -456,7 +456,8 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
         .pointer_hover_pos()
         .filter(|_| resp.response.hovered());
     if let Some(i) = at.and_then(|at| nearest_dot(w, &resp.transform, at)) {
-        resp.response.on_hover_text_at_pointer(&w.dots[i].hover);
+        resp.response
+            .on_hover_text_at_pointer(true_minus(&w.dots[i].hover));
     }
     let dark = ui.visuals().dark_mode;
     ui.horizontal(|ui| {
