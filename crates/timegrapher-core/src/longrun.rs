@@ -805,4 +805,60 @@ mod tests {
         let last = timing::fit(&beats[1531..], 18000).unwrap();
         assert_eq!(all.beats_used, first.beats_used + last.beats_used);
     }
+
+    #[test]
+    fn the_timing_grid_coarsens_at_12_and_48_hours() {
+        // The step behind the period search's 2 s and 4 s floors: 0.25 s
+        // up to 12 hours, 0.5 s up to 48, then 4 s.
+        let h = 3600.0;
+        for (span, step) in [
+            (11.9, 0.25),
+            (12.0, 0.25),
+            (12.1, 0.5),
+            (47.9, 0.5),
+            (48.0, 0.5),
+            (48.1, 4.0),
+        ] {
+            assert_eq!(timing_step(span * h), step, "{span} h");
+        }
+    }
+
+    #[test]
+    fn a_cycle_under_30_s_is_sized_as_a_timing_swing() {
+        // Below three 10 s rate readings a cycle is told in ms, its rate
+        // swing being the slope of a fraction of a millisecond.
+        let at = |period_s: f64| RateComponent {
+            component: Component {
+                period_s,
+                resolution_s: 0.1,
+                significance: 3.0,
+                beyond_simulated: false,
+                harmonics: 1,
+                explained: 0.5,
+                peak_to_peak: 0.0004,
+                wheel: None,
+                nearest_wheel: None,
+                shape: Vec::new(),
+                fold: longterm::Fold {
+                    period_s,
+                    profile: Vec::new(),
+                    counts: Vec::new(),
+                    raster: Vec::new(),
+                    t0: 0.0,
+                },
+                harmonic_of: None,
+            },
+            rate_shape: Vec::new(),
+            rate_swing_s_per_day: 40.0,
+            timing_swing_ms: 0.4,
+        };
+        for (period, size) in [
+            (5.0, (0.4, "ms")),
+            (29.9, (0.4, "ms")),
+            (30.0, (40.0, "s/d")),
+            (60.0, (40.0, "s/d")),
+        ] {
+            assert_eq!(at(period).size(), size, "{period} s");
+        }
+    }
 }

@@ -2172,3 +2172,44 @@ fn a_strong_cycle_reads_beyond_the_simulated_range() {
         f.evidence
     );
 }
+
+/// The white null's p (#1199): with a positive skew, a χ² shifted and
+/// scaled to all three moments (skew 2: ν 2, so p = e^(−(q − a)/2b)), 1 at
+/// or under its shift; with none, two moments (Satterthwaite: mean 10 and
+/// variance 20 are χ² on 10 degrees of freedom).
+#[test]
+fn the_white_nulls_p_matches_its_moments() {
+    let null = |skew: f64| white::WhiteNull {
+        bias: vec![0.0],
+        q_mean: 10.0,
+        q_var: 20.0,
+        q_skew: skew,
+    };
+    let (b, a) = (5f64.sqrt(), 10.0 - 2.0 * 5f64.sqrt());
+    let p = null(2.0).p(20.0);
+    assert!((p - (-(20.0 - a) / (2.0 * b)).exp()).abs() < 1e-9, "{p}");
+    assert!((p - chi2_tail(20.0, 10)).abs() > 5e-3, "{p}");
+    assert_eq!(null(2.0).p(a - 0.1), 1.0);
+    assert!((null(0.0).p(18.307) - 0.05).abs() < 1e-3);
+}
+
+/// Between two of the table's points a take's null is blended in log n:
+/// halfway in log n, the mean of the two (#1199).
+#[test]
+fn the_white_table_is_read_between_its_points() {
+    let t = white::table();
+    let (lo, hi) = (&t.quadratic[10], &t.quadratic[11]);
+    assert!(hi.n > lo.n + 1);
+    let n = ((lo.n as f64).ln() * 0.5 + (hi.n as f64).ln() * 0.5)
+        .exp()
+        .round() as usize;
+    let w = ((n as f64).ln() - (lo.n as f64).ln()) / ((hi.n as f64).ln() - (lo.n as f64).ln());
+    let got = white::white_null(n, n, 1.0, t.lb_lags).unwrap();
+    let want = lo.null.q_var + (hi.null.q_var - lo.null.q_var) * w;
+    assert!(
+        (got.q_var - want).abs() < 1e-9,
+        "{} against {want}",
+        got.q_var
+    );
+    assert!((lo.null.q_var - hi.null.q_var).abs() > 1e-3);
+}
