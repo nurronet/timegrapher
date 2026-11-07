@@ -40,7 +40,9 @@ rate ≈ c₀ + c₁ (A − Ā) + c₂ (A − Ā)²
 turn at A = Ā − c₁ ÷ (2 c₂)       shown when inside the middle 80%
 ```
 
-**The slope.** A straight line through every pair, by least squares. But
+**The slope.** A straight line through every pair, by least squares,
+after leaving out a rate reading over 6 short-term σ from the running
+median, as the Steadiness views do. But
 the amplitude readings are noisy, and noise in the quantity along the
 bottom always pulls a fitted slope towards 0. The slope is corrected for
 it (errors in variables, Fuller 1987):
@@ -61,7 +63,8 @@ allows for correlated readings, as in M7.
 readings and the median amplitude of its 2 s windows, each read on its
 own. A 5 minutes with under half of either is left out. Past 250
 points (a take over about 20.8 hours) neighbouring 5 minutes are merged,
-10, 15 … minutes a point, each series weighted by its own count.
+10, 15 … minutes a point: each series the mean of the joined medians,
+weighted by their counts.
 
 ## Why This Way
 

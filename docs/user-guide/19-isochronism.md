@@ -44,7 +44,8 @@ is why the pane gives the curve and the turn beside the slope.
 
 **Walk** keeps the time the curve leaves out: one dot for each 5 minutes
 (each 10, 15 … minutes on a take over about 20 hours, so there are at
-most 250), at its median rate and its median amplitude, in time order, joined by a
+most 250), at its median rate and its median amplitude (on a long take,
+the mean of the joined 5 minutes' medians), in time order, joined by a
 trail. Each dot is coloured by the hours since the take's start, with a
 key. A ring marks the start, a large dot the end with its hour, and a
 ring each 12 hours (each 24 hours on a take over 96 hours). The trail
@@ -74,7 +75,8 @@ same amplitudes, so a degree stays put when you switch.
 - **Steps of 2°,** each needing at least 10 readings, between the 2nd and
   98th percentile of the amplitudes, so a few stray readings don't add
   steps of their own. At least 3 steps are needed.
-- **The slope** is a straight line through every reading, none smoothed,
+- **The slope** is a straight line through every reading, none smoothed
+  (a reading over 6σ from its neighbours' median is left out first),
   corrected for the noise in the amplitude readings, with a ± that allows
   for correlated readings. It is withheld when that noise is half or more
   of their spread. M12 gives the method.
