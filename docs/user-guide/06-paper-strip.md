@@ -40,13 +40,20 @@ wrapped round a drum. So the strip's **Width** is its zoom.
 | 1 | **Draw Over the Strip** | Three switches: the rate (magenta), amplitude (violet, on at first) and beat error (amber) readings drawn as lines over the dots, each on its own scale, written at the right (above the strip with Direction set to Down). | To see at a glance whether a wobble in the rate comes with a dip in amplitude. |
 | 2 | **Width** | How much time fits across: from ±0.1 ms to ±60 s, typed or picked. | Narrow (±1 ms) to see a good watch's beat error; wide to keep a drifting watch from wrapping. |
 | 3 | **Length** | How much time fits along: picked from 10 s to three days; typed (`45`, `5 min`, `2h`, `1:30:00`) or zoomed, from 2 s up to 80 hours. | Short to follow the last few seconds; long to see a whole take. |
-| 4 | **Fit** | Shows the whole take along the strip, and keeps growing with it. Opening a take turns it on. | To see everything at once. Zooming or looking back turns it off. |
+| 4 | **Fit** | Shows the whole take along the strip, and keeps growing with it. | To see everything at once. Zooming or looking back turns it off; changing the width leaves it on. |
 | 5 | **Centre** and **Auto-Centre** | Centre puts the newest beats on the centre line once. Auto-Centre keeps them there. | To bring the trace back after it has wrapped or drifted. |
 | 6 | **Rate Line** and **Parallel Guides** | The Rate reading drawn as a magenta line over the beats it was fitted to, and faint lines at the same slope across the strip. Both on at first. | If the dots follow the line, the reading describes them well. The eye judges whether lines are parallel better than it judges a slope. |
 | 7 | **Mask** | Leaves stretches out of the readings. See [Masking](#masking). | To take a knock or a handling stretch out of every reading. |
 | 8 | **Position Brush** | Marks a stretch as one position. See [The Position Brush](#the-position-brush). | To correct the position after the fact. |
 | 9 | **Direction** | **Across** (time left to right, the default) or **Down** (newest at the top, as on the open tg program). | Down, if you're used to a printed strip: a gaining watch leans right as it rises. |
 | 10 | **Export** | Saves the strip as a PNG or SVG picture. | To share it, or put it in a report. |
+
+**Opening a take** turns Fit on and sets the width to the narrowest listed
+width that holds all the take's beats without wrapping (one stray dot in a
+thousand at each end left out), so the whole take shows at once.
+**Listen, or a new test,** then brings back the width, length and Fit the
+strip had before the take was opened. A width or length you changed by
+hand meanwhile stays as you set it.
 
 ## Moving Around
 
