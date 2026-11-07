@@ -14,6 +14,9 @@ steadily the watch keeps time, beat by beat.
   28,800 bph. **Early** is up, **Late** down: the words Witschi's
   training course uses (doc. 71.1010D35e, p. 6).
 - **Tick** dots are blue and **Tock** dots orange (mark 13).
+- **The amplitude** is drawn over the dots as a violet line, on its own
+  scale at the right (mark 14). The rate and the beat error can be drawn
+  the same way (mark 1).
 
 | What you see | What it means |
 | --- | --- |

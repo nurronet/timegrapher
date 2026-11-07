@@ -4,8 +4,8 @@ output = "scope.png"
 
 # 1 Span, 2 One Beat, 3 Beats, 4 Export, 5 the profile's marks, 6 a
 # side's row.
-marks = [[1, 225, 637], [2, 376, 637], [3, 495, 637], [4, 582, 637],
-         [5, 603, 646], [6, 82, 762]]
+marks = [[1, 225, 637], [2, 376, 637], [3, 495, 637], [4, 608, 615],
+         [5, 526, 648], [6, 82, 762]]
 
 layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Scope", "Sound"]]]
 
