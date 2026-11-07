@@ -59,6 +59,12 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
             let (a, b) = (a.unwrap(), b.unwrap());
             assert!((a - b).abs() <= tol, "{what}: {name} {a} against {b}");
         };
+        // The beats found are counted against those expected over the
+        // sound after the lead, the time listened (#1417).
+        for s in [&want, &got] {
+            let f = s.beats_found_fraction;
+            assert!((0.97..1.03).contains(&f), "{what}: found {f}");
+        }
         near(got.rate_s_per_day, want.rate_s_per_day, 0.3, "rate");
         near(got.amplitude_deg, want.amplitude_deg, 1.0, "amplitude");
         near(

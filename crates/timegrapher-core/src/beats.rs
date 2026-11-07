@@ -1539,6 +1539,65 @@ mod tests {
         }
     }
 
+    /// An envelope at `fs` with a beat at each of `bph`'s beats from 50 ms
+    /// on, every other one `be_ms` late, each a 5 ms fall from `amp`.
+    fn beats_env(fs: f64, secs: f64, rates: &[(u32, f64, f32)]) -> Vec<f32> {
+        let mut env = vec![0.0f32; (secs * fs) as usize];
+        for &(bph, be_ms, amp) in rates {
+            let beat = 3600.0 / f64::from(bph);
+            for k in 0.. {
+                let late = if k % 2 == 1 { be_ms / 1000.0 } else { 0.0 };
+                let i = ((0.05 + k as f64 * beat + late) * fs) as usize;
+                if i + 40 >= env.len() {
+                    break;
+                }
+                for d in 0..40 {
+                    env[i + d] += amp * (-(d as f32) / 8.0).exp();
+                }
+            }
+        }
+        env
+    }
+
+    /// A beat error splits the beat into two intervals, a tick to a tock
+    /// and back, so the single beat's lag scores low and half the rate's
+    /// scores high. The rate is the fastest the split intervals support
+    /// when every other they support divides it: a 28,800 watch 3 to 9 ms
+    /// out of beat still guesses 28,800, not 14,400 (#1417).
+    #[test]
+    fn a_watch_out_of_beat_keeps_its_rate() {
+        let fs = 8000.0;
+        for bph in [17_280, 28_800, 36_000, 43_200, 72_000] {
+            for be_ms in [3.0, 6.0, 9.0] {
+                let env = beats_env(fs, 12.0, &[(bph, be_ms, 1.0)]);
+                assert_eq!(guess_bph(&env, fs), bph, "{bph} bph, {be_ms} ms");
+            }
+        }
+        for bph in [18_000, 19_800, 21_600, 25_200] {
+            let env = beats_env(fs, 12.0, &[(bph, 9.0, 1.0)]);
+            assert_eq!(guess_bph(&env, fs), bph, "{bph} bph, 9 ms");
+        }
+    }
+
+    /// Two watches heard at once: no one rate's split intervals hold both,
+    /// so the guess is the fastest rate whose own beat lag scores, one of
+    /// the two, and never a rate neither beats at. The lag's slack is a
+    /// fraction of the lag (#1417): a slack wide enough to take in every
+    /// lag would score every rate alike and guess 72,000.
+    #[test]
+    fn two_watches_at_once_guess_one_of_their_rates() {
+        let fs = 8000.0;
+        for (a, b, want) in [
+            (21_600, 28_800, 28_800),
+            (19_800, 28_800, 28_800),
+            (21_600, 36_000, 36_000),
+            (18_000, 25_200, 25_200),
+        ] {
+            let env = beats_env(fs, 12.0, &[(a, 0.0, 1.0), (b, 0.0, 1.0)]);
+            assert_eq!(guess_bph(&env, fs), want, "{a} and {b}");
+        }
+    }
+
     /// Sound with no beat energy at any rate guesses no rate of its own:
     /// every rate scores 0 in digital silence, and the fastest (72,000)
     /// must not win on that (#476).
