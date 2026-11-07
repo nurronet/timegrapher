@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use serde_json::{json, Map, Value};
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::histogram::normal_quantile;
 use timegrapher_core::palette::{Palette, Rgb, DARK, LIGHT};
 use timegrapher_core::walk::{default_merge, merged, IsochronismWalk, WalkPoint};
@@ -44,6 +45,7 @@ pub fn page() -> &'static str {
         let positions = serde_json::to_string(&positions()).expect("the positions as JSON");
         let no_beat = serde_json::to_string(timegrapher_core::measure::NO_WATCH_TITLE)
             .expect("the no-beat heading as JSON");
+        let minus = serde_json::to_string(&true_minus("-")).expect("the minus sign as JSON");
         HTML.replace("/*PALETTE*/", &css)
             .replace("/*BASE_DIGITS*/null", &base_digits())
             .replace("/*VIRIDIS*/null", &viridis)
@@ -59,6 +61,7 @@ pub fn page() -> &'static str {
             .replace("/*PROBABILITY_MARKS*/null", &marks)
             .replace("/*POSITIONS*/null", &positions)
             .replace("/*NO_BEAT_TITLE*/null", &no_beat)
+            .replace("/*MINUS*/null", &minus)
     })
 }
 
@@ -581,9 +584,15 @@ fn walk_chart(w: &IsochronismWalk, doc: &Value) -> Option<Value> {
     let axes = timegrapher_core::steady_views::walk_axes(&v.dots, curve);
     let mut v = serde_json::to_value(v).unwrap_or(Value::Null);
     v["axes"] = json!(axes);
+    // Screen text, so with a true minus, as the app's (#1431).
+    for d in v["dots"].as_array_mut().into_iter().flatten() {
+        if let Some(h) = d["hover"].as_str() {
+            d["hover"] = json!(true_minus(h));
+        }
+    }
     v["summary"] = json!(iso["headline"]
         .as_str()
-        .map(timegrapher_core::steady_views::headline_lines)
+        .map(|h| timegrapher_core::steady_views::headline_lines(&true_minus(h)))
         .unwrap_or_default());
     Some(v)
 }
@@ -921,6 +930,36 @@ mod tests {
         // No walk, or too short a one: no card.
         let mut none = json!({ "walk": null });
         assert!(take_series_charts(&mut none)["walk"].is_null());
+    }
+
+    /// The walk's words are screen text: a true minus, as the app's
+    /// (#1431), while the model's JSON keeps the ASCII minus.
+    #[test]
+    fn the_walks_words_carry_a_true_minus() {
+        let points: Vec<Value> = (0..30)
+            .map(|i| {
+                let t = 150.0 + 300.0 * i as f64;
+                json!({ "t_s": t, "wind_h": t / 3600.0, "rate_s_per_day": -1.25 - i as f64 / 100.0,
+                    "amplitude_deg": 300.0 - i as f64, "readings": 30, "amp_windows": 150 })
+            })
+            .collect();
+        let headline = "The rate falls -0.03 s/d per degree; flattest near 280°.";
+        let mut doc = json!({ "walk": { "bin_s": 300.0, "points": points },
+            "isochronism": { "headline": headline, "bin_deg": 10.0, "bins": [] } });
+        let charts = take_series_charts(&mut doc);
+        assert_eq!(
+            charts["walk"]["summary"][0],
+            "The rate falls \u{2212}0.03 s/d per degree"
+        );
+        let hover = charts["walk"]["dots"][0]["hover"].as_str().unwrap();
+        assert!(hover.ends_with("\u{2212}1.2 s/d"), "{hover}");
+        assert_eq!(doc["isochronism"]["headline"], headline, "the model's own");
+    }
+
+    #[test]
+    fn the_page_writes_cores_minus() {
+        let line = format!("const MINUS = {};", json!(true_minus("-")));
+        assert!(page().contains(&line), "{line}");
     }
 
     #[test]

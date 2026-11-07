@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const { MINUS } = require("./core_digits.cjs");
 
 const html = fs.readFileSync(process.env.TIMEGRAPHER_TEST_VIEW_HTML ||
   path.join(__dirname, "../src/view.html"), "utf8");
@@ -15,8 +16,8 @@ const definition = (name) => {
   if (!match) throw new Error(`Missing renderer function: ${name}`);
   return match[0];
 };
-const context = vm.createContext({});
-vm.runInContext(["roundStep", "axisLabel", "scoreTicks"].map(definition).join("\n"), context);
+const context = vm.createContext({ MINUS });
+vm.runInContext(["roundStep", "fixedDigits", "axisLabel", "scoreTicks"].map(definition).join("\n"), context);
 
 test("the fixture has cases", () => assert.ok(cases.length > 0));
 for (const c of cases) {

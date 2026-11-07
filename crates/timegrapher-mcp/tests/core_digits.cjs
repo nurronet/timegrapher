@@ -7,4 +7,9 @@ const lib = fs.readFileSync(path.join(__dirname, "../../timegrapher-core/src/fig
 const block = lib.match(/pub mod base_digits \{([\s\S]*?)\n\}/)[1];
 const BASE_DIGITS = Object.fromEntries([...block.matchAll(/pub const (\w+): usize = (\d+);/g)]
   .map(([, name, d]) => [name.toLowerCase(), Number(d)]));
-module.exports = { BASE_DIGITS };
+// The screen's minus sign (figure_text::true_minus), as the server puts it
+// in the page's MINUS.
+const minus = lib.match(/pub fn true_minus\(text: &str\) -> String \{\s*text\.replace\('-', "\\u\{([0-9a-fA-F]+)\}"\)/);
+if (!minus) throw new Error("Missing core figure_text::true_minus");
+const MINUS = String.fromCodePoint(parseInt(minus[1], 16));
+module.exports = { BASE_DIGITS, MINUS };
