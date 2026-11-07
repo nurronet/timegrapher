@@ -957,3 +957,62 @@ fn a_takes_file_opened_after_a_plain_one_names_its_watch() {
     assert_eq!(opened(&mut app, &take.join("take.wav")), first);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A save or load dialog starts in the folder the take was last saved
+/// in, and in the save folder until it has been saved.
+#[test]
+fn a_dialog_starts_where_the_take_was_saved() {
+    let mut app = synthetic(2.0, 0.0);
+    assert_eq!(app.save_start(), PathBuf::from(&app.save_dir));
+    let saved = std::env::temp_dir().join("tg-app-saved-here").join("take");
+    let metadata = app.session.metadata_snapshot(app.save_metadata());
+    app.session.mark_saved(1.0, saved.clone(), metadata);
+    assert_eq!(app.save_start(), saved.parent().unwrap());
+}
+
+/// Open Recording… asks for a file and Open Take… for a folder. What is
+/// picked is opened, unless it is a take outside the library, which
+/// asks first; a cancel opens nothing.
+#[test]
+fn what_opens_dialog_picks_is_opened_or_asked_about() {
+    let take = one_position_take("picked", 3.0);
+    let root = std::env::temp_dir().join(format!("tg-app-picked-lib-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    drop(library::Library::create(&root).unwrap());
+    let answer = |app: TimegrapherApp, want: Pick, picked: Vec<PathBuf>| {
+        let app = std::sync::Mutex::new(app);
+        assert!(crate::pick::answer(&app, |_, pick| {
+            assert_eq!(pick, want);
+            picked
+        }));
+        app.into_inner().unwrap()
+    };
+    // Cancelled: nothing opens.
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.open_from_menu(false);
+    let app = answer(app, Pick::File, Vec::new());
+    assert!(app.file_path.is_empty() && app.batch.is_none() && app.open_ask.is_none());
+    // A recording already in the library: opened.
+    let wav = root.join("audio-001.wav");
+    std::fs::copy(take.join("audio-001.wav"), &wav).unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.open_from_menu(false);
+    let app = answer(app, Pick::File, vec![wav.clone()]);
+    assert_eq!(app.file_path, wav.display().to_string());
+    assert_eq!(app.input, Input::File);
+    assert!(app.open_ask.is_none());
+    assert!(app.batch.is_some(), "it is being read");
+    // Let go of the library, or the next copy finds it held.
+    drop(app);
+    // A take's folder outside the library: asked about before it opens.
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.open_from_menu(true);
+    let app = answer(app, Pick::Folder, vec![take.clone()]);
+    assert_eq!(app.file_path, take.display().to_string());
+    assert!(app.open_ask.is_some());
+    assert!(app.batch.is_none(), "nothing read until answered");
+    std::fs::remove_dir_all(take).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}

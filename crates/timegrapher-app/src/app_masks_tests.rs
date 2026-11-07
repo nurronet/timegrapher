@@ -569,8 +569,21 @@ fn full_wind_results_load_and_the_next_test_is_set_against_them() {
         .message
         .as_ref()
         .is_some_and(|(m, error)| *error && m.contains("other.json")));
+    // Loaded through Load Full-Wind Results…'s dialog: a file that isn't
+    // results loads nothing, then the results load, from a file.
+    for (pick, loaded) in [(bad, false), (path, true)] {
+        app.load_earlier();
+        let held = std::sync::Mutex::new(app);
+        assert!(crate::pick::answer(&held, |_, p| {
+            assert_eq!(p, Pick::File);
+            vec![pick]
+        }));
+        app = held.into_inner().unwrap();
+        assert_eq!(app.guided_earlier.is_some(), loaded);
+        assert_eq!(app.guided_earlier_file, loaded);
+    }
+    assert_eq!(app.guided_earlier, read);
     // Loaded, the next test runs against them.
-    app.guided_earlier = read;
     app.reset_session(48000, "test".into());
     app.session.listen();
     let _tx = queued_capture(&mut app, &base);
