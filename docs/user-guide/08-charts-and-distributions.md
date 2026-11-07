@@ -111,7 +111,8 @@ straight line. That makes departures from one state easy to see:
 | --- | --- |
 | Along the dashed line | One steady state, with random scatter. |
 | Two straight stretches joined by a bend | Two states: the watch spent part of the take at one level and part at another. |
-| An S across the line | Two states. |
+| Flat through the middle, steep at both ends | Two states close together. |
+| Both ends bending away from the line | One state with more large departures than random scatter gives, such as occasional disturbances or a slow wander. The Charts show which. |
 | A few points off at one end | A few readings unlike the rest. The Charts show when they came. |
 
 **Probability paper keeps no time order.** It shows that there were two
