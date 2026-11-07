@@ -34,7 +34,8 @@ With no calibre picked, or none of its wheels known, one minute and one
 hour are marked in grey instead.
 
 **In the picture,** the rate repeats every 5 s, the escape wheel's
-period, and the fourth wheel's minute shows as a line at 1 min with
+period (it turns once in twice its teeth in beats: 20 teeth at
+28,800 bph give 5 s, 15 teeth give 3.75 s), and the fourth wheel's minute shows as a line at 1 min with
 taller ones at 30, 20 and 15 s: a half, a third and a quarter of a
 minute. A disturbance that is sharp rather than smooth spreads over these
 **harmonics** of its period, and they can stand taller than the period
@@ -62,7 +63,7 @@ itself.
   whichever is wider.
 
 The rate is searched on the beats' timing, so its lines can be far
-faster than the 10 s readings: the escape wheel's 5 s line is a swing in
+faster than the 10 s readings: the escape wheel's line is a swing in
 the timing of the beats, given in ms, that no 10 s reading would show.
 The amplitude and the beat error are searched on their 2 s windows, from
 16 s up.

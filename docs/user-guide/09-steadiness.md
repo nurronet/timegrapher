@@ -80,11 +80,12 @@ so running many tests on one take doesn't add up to a false alarm.
 - A finding is named only when its own test passes, and also passes
   **Holm's correction** at 0.05 across the whole family of tests.
 - On a steady watch, the tests aim to name nothing on 95 takes in 100.
-  On the project's seeded steady takes they name nothing on 192 in 200.
+  On the project's seeded 2-hour steady takes they name nothing on 192
+  in 200. On 30 minute takes they name something on up to 20 in 300.
 - **Correlated readings** (each reading like the last, M7) raise the
   chance of a finding on short takes. On a 30 minute take whose readings
-  follow each other closely, the tests named something on 30 takes in
-  100. Takes of 2 hours or more stay near the target.
+  follow each other closely (ρ 0.9), the tests named something on up to
+  20 takes in 100; on a 2-hour take, on up to 7 in 100.
 
 The thresholds are for detection: how sure a finding must be before it is
 named. None of them is a tolerance for a watch.

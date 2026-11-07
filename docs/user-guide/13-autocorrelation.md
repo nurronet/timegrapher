@@ -13,7 +13,7 @@ repeat that the period search may score too low to list.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 1 | Lag 0 | Every reading matches itself: always 1. |
-| 2 | The band | The dashed lines at ±1.96/√n, n the number of readings. Independent readings stay inside it at about 19 lags in 20. |
+| 2 | The band | The dashed lines at ±1.96/√n, n the number of readings; wider at a lag where gaps leave fewer pairs. Independent readings stay inside it at about 19 lags in 20. |
 | 3 | A lag outside the band | A resemblance at that lag. One in twenty lags lands outside by chance. |
 | 4 | The Ljung–Box p-value | One test over the first 10 lags together: the chance of resemblance this strong if the readings were independent. |
 
@@ -31,8 +31,8 @@ When the line falls and then rises back to a peak, the readings
 - **Gaps are left as gaps.** Each lag is read from the pairs of readings
   that lag apart; a lag with under 30 pairs is left out.
 - **The Ljung–Box test** weighs each of the first 10 lags by the pairs it
-  is read from, and is judged against what independent readings with the
-  same count and gaps give.
+  is read from, and is judged against what independent readings of the
+  same count, with the slow change taken off the same way, give.
 - **The memory** in the Info panel is the lag where the resemblance falls
   below 1/e, about 0.37: how long a reading's resemblance lasts.
 
