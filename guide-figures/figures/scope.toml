@@ -1,0 +1,26 @@
+# Chapter 7, The Scope: an opened take, the Scope's tab in front at its
+# 20 ms span.
+output = "scope.png"
+
+# 1 Span, 2 One Beat, 3 Beats, 4 Export, 5 the profile's marks, 6 a
+# side's row.
+marks = [[1, 225, 637], [2, 376, 637], [3, 495, 637], [4, 608, 615],
+         [5, 526, 648], [6, 82, 762]]
+
+layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Scope", "Sound"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
