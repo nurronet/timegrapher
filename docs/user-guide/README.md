@@ -9,9 +9,6 @@ guide explains what each fact means and where it can mislead.
 
 ## Contents
 
-The guide is being written a few chapters at a time. Chapters not yet
-written have no link.
-
 **Start**
 
 1. [What a Timegrapher Measures](01-what-a-timegrapher-measures.md): the beat, its three sounds, rate, amplitude and beat error
