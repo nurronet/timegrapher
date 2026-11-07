@@ -200,7 +200,7 @@ impl Distribution {
         }
         let off = self.below + self.above;
         if off > 0 {
-            let s = if off == 1 { "" } else { "s" };
+            let s = crate::measure::plural(off);
             line += &format!(" · {off} outlier{s} off the scale");
         }
         if self.peaks.len() > 1 {
