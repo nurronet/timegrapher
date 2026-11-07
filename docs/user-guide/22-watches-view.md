@@ -25,7 +25,7 @@ type in. The picture holds two watches and one unsorted take.
 | 3 | **Sort** | By **Name**, **Last Take** or **Size**. | Last Take for the watches on the bench now; Size to find what fills the disk. |
 | 4 | **List Shows** | What the line under each name gives: the calibre, or one of the fields added to the watches, such as Customer. Kept between runs. | To see whose watch each one is at a glance. |
 | 5 | **Unsorted Takes** | Always first: the Quick Listen takes kept but not yet filed under a watch. Picking it goes back to Quick Listen (no watch, no calibre, 52°). | To file takes made before the watch was added. |
-| 6 | A watch's row | Its first photo or its initial (when any watch in the list has a photo), its name, its calibre, how many takes and the date of the last, and the space they use from 1 MB. The row picked is shaded. | Pick a watch to see its takes. |
+| 6 | A watch's row | Its first photo or its initial (when any watch in the list has a photo), its name, its calibre, how many takes and the date of the last, and the space they use from 1 MB (megabyte). The row picked is shaded. | Pick a watch to see its takes. |
 
 With the view under 900 points wide the list and the watch take turns:
 picking a watch shows it, and **‹ All Watches** goes back. While a watch's

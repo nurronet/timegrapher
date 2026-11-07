@@ -23,14 +23,14 @@ Profile.
 | **Cycle** | The readings folded at the cycle found, one cycle laid over the next. | 12 |
 | **Autocorrelation** | How much each reading resembles the one a lag later. | 13 |
 | **Allan Deviation** | How the scatter of an average changes as it gets longer. | 14 |
-| **CUSUM** | The running sum of each reading's distance from the mean: steps in level. | 15 |
-| **FFT** | The size of each period in the readings, like Witschi's FFT. | 16 |
-| **STFT Map** | Each period's size over the take, read over 20 min windows. | 17 |
-| **Wavelet Map** | Each period over the take, sharply placed in time. | 18 |
+| **CUSUM** (cumulative sum) | The running sum of each reading's distance from the mean: steps in level. | 15 |
+| **FFT** (Fast Fourier Transform) | The size of each period in the readings, like the FFT view on a Witschi timegrapher. | 16 |
+| **STFT Map** (Short-Time Fourier Transform) | Each period's size over the take, read over 20 min windows. | 17 |
+| **Wavelet Map** | Each period over the take, sharply placed in time, from short wave-shaped pulses (wavelets) matched to each period. | 18 |
 
 ## The Toolbar and Info
 
-![Readings Over Time with all three series and the Info panel open, marks 1 to 7](images/steady-info.png)
+![Readings Over Time with the rate and the amplitude and the Info panel open, over the first 12 hours of a run-down, marks 1 to 7](images/steady-info.png)
 
 | Mark | Control or part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
@@ -38,9 +38,20 @@ Profile.
 | 2 | **Export…** | Saves the pane as a picture, PNG or SVG. | |
 | 3 | **Info** | Opens the Info panel down the right of this pane, or over its plots from the top right when the pane is under 600 pt wide. It opens and closes only when clicked; each pane keeps its own, between runs too. | To read what the tests found, in words and figures. |
 | 4 | A series' sentence | What was detected in that series, in one or two sentences: a cycle, two levels, a level change, a trend, correlation between readings, or none of these. | The headline: start here. |
-| 5 | The statistics | What was tested ("Tested on 178 10 s readings"), the median, the standard deviation, the scatter from one reading to the next, the lag-1 correlation, the Ljung–Box p-value, the trend whenever one was fitted (and why it isn't named, when it isn't), the period when found, the number of stretches of one level, and any readings left out as more than 6 σ from their 5-minute level. | The figures behind the sentence. |
+| 5 | The statistics | What was tested ("Tested on 4317 10 s readings"), the median, the standard deviation, the scatter from one reading to the next, the lag-1 correlation, the Ljung–Box p-value, the trend whenever one was fitted (and why it isn't named, when it isn't), the period when found, the number of stretches of one level, and any readings left out as more than 6 σ from their 5-minute level. | The figures behind the sentence. |
 | 6 | The key | What a dot is, and how many are drawn. | To know what is plotted: 10 s readings for the rate, 2 s windows for the amplitude and beat error. |
 | 7 | A stretch | A level the change finder found (chapter 15). | To see where the level changed. |
+
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8, the rate and the amplitude shown. The Info panel puts
+into words what the plots show: "Rate shifts level 1 time: -46.0 s/d,
+then -68.0 s/d." The change came 47 minutes after winding, and the
+amplitude stepped down at the same moment, from about 254° to 245°.
+Both then dip together near 9 hours. The statistics under each sentence
+say how far to trust it: the rate readings follow each other (lag-1
+r 0.43), so a plain ± over them would be too small (M7), and the
+amplitude's 4-minute cycle is named with the caution that it may be
+noise.
 
 Some views add their own switches to the toolbar: **dB Scale** (Periods
 and the two maps), **Timing** (FFT) and **Wheel Periods** (Periods, FFT

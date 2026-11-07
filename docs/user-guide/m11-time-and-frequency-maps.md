@@ -2,8 +2,8 @@
 
 ## What It Is
 
-Three views break a series into periods: the **FFT** (chapter 16) over the
-whole take, and the **STFT Map** and **Wavelet Map** (chapters 17 and 18)
+Three views break a series into periods: the **FFT** (Fast Fourier Transform, chapter 16) over the
+whole take, and the **STFT Map** (Short-Time Fourier Transform) and **Wavelet Map** (chapters 17 and 18)
 at each time of it. This note gives how each size is worked out, and
 what each method trades.
 

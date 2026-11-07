@@ -12,7 +12,7 @@ beside the Tick Tock Profile.
 
 ## Charts
 
-![The Charts pane with all three charts, marks 1 to 5](images/charts.png)
+![The Charts pane with all three charts over the first 54 hours of a run-down, marks 1 to 5](images/charts.png)
 
 **What it shows:** one chart for each reading, stacked, all on the take's
 time axis. 0:00 sits at the same place on every chart. With the Paper
@@ -29,6 +29,25 @@ happened: after a turn, at a knock, as the mainspring runs down.
 | 3 | **Export…** | Saves the pane as a picture, PNG or SVG. The pane's name and the chart keys go at the top in place of the toolbar. | To share the charts, or put them in a report. |
 | 4 | The Amplitude key | **Average Amplitude**, solid, and the amplitude **From Tick** and **From Tock**, dashed. | To see whether the two sides read alike. |
 | 5 | The Beat Error key | Beat error **From the Unlock**, solid, and **From the Drop**, fainter and dashed. | To compare the two measurements of beat error (M5). |
+
+**In the picture** is a Dandong 3235, fully wound and left dial up until
+it stopped, 59.8 hours later; the first 54 hours are shown, before the
+dying hours stretch the scales. Over them the amplitude falls steadily
+from about 255° to 145°, the mainspring letting down. The rate does not
+simply follow it: it settles near −65 s/d after the first hour, drifts
+to about −100 s/d by 42 hours, then climbs to about −40 s/d as the
+amplitude falls fastest. At about 15 hours the rate and the amplitude
+step down together, and at about 33 hours both dip and recover. Twice
+more the rate jumps on its own: at about 44 hours it climbs by some
+20 s/d within an hour, and at about 51 hours it steps up by about 15 s/d
+at once, while the amplitude line runs on smoothly through both. A rate
+that moves with no change in amplitude points at something other than
+the mainspring; Isochronism's Walk view (chapter 19) shows the same two
+jumps. These are moments a card read now and then would miss, and the
+places to look on the strip. The beat error from the unlock grows from about 0.4 to
+0.55 ms. Isochronism (chapter 19) puts the rate against the amplitude
+directly, and the Power Reserve Test (chapter 21) gives the same run
+hour by hour.
 
 **The lines.** Each reading keeps its colour across the app: rate
 magenta, amplitude violet, beat error amber. A second line of the same
@@ -72,7 +91,7 @@ All the charts pan and zoom together.
 
 ## Distributions
 
-![The Distributions pane showing the Rate plot, marks 1 to 8](images/distributions.png)
+![The Distributions pane showing the Rate plot over the first 12 hours of the same run-down, marks 1 to 8](images/distributions.png)
 
 **What it shows:** how the values of each reading spread over the take
 in the position the watch is in now. A masked stretch is left out.
@@ -97,9 +116,19 @@ and a low amplitude, or a rate that jumps between two values.
 | 5 | The summary line | How many values, the median, the middle 80%, the one position counted, the outliers left off the scale, and the peaks when there is more than one. |
 | 6 | The dashed line | Where the values would fall if they came from one steady state. It goes through the median, with a slope from the middle half of the values. |
 | 7 | The percent scale | Each value's rank, spaced in standard deviations and labelled in percent. 50% is the median. |
-| 8 | A value | One reading. In the picture, the lowest readings fall left of the line: a tail of slow readings. |
+| 8 | A value | One reading. In the picture, the fastest readings bend away to the right of the line. |
 
 Hover the summary line to read it whole when the pane is narrow.
+
+**In the picture** are the first 12 hours of the run in the Charts
+picture: 4317 rate readings, median −67.3 s/d, the middle 80% from
+−77.3 to −56.4 s/d. From the bottom to about the 85% line the points
+lie along the dashed line: one steady rate with random scatter. Above
+it they bend away to the right: a tail of fast readings that one steady
+state doesn't give. Readings Over Time (chapter 10) shows where much of
+it comes from: the first 47 minutes after winding, at about −46 s/d,
+before the rate settled near −68 s/d. A plain average would mix the two
+and hide that the watch has a second, faster state.
 
 ### Reading Probability Paper
 

@@ -1,25 +1,34 @@
-# Chapter 17, STFT Map: the first hour of a 7-hour take (a Dandong 3285)
-# opened, the rate in the Steadiness view.
+# Chapter 17, STFT Map: the first 12 hours of a fully wound Dandong 3235,
+# dial up, the pane alone with the readings hidden, on the dB scale, the
+# pointer on the escape wheel's line.
 output = "steady-stft.png"
 
-actions = [["sleep", 150], ["hover", 671, 828]]
+actions = [["sleep", 150], ["click", 133, 90], ["sleep", 3], ["hover", 751, 690], ["sleep", 2]]
 
-marks = [[1, 110, 600], [2, 182, 600], [3, 214, 600], [4, 300, 871], [5, 1200, 640, 1100, 622], [6, 1400, 780], [7, 545, 1008], [8, 1800, 895], [9, 1040, 923]]
+# 1 the series control, left of the pane; 2 dB Scale, 3 Wheel Periods,
+# above them; 4 a line across, 5 a bright patch, 6 the key, 7 a wheel's
+# name, 8 the pointer on a wheel's line.
+marks = [[1, 28, 157], [2, 182, 129], [3, 216, 129], [4, 1000, 735], [5, 1110, 240],
+         [6, 590, 1009], [7, 1796, 780], [8, 950, 785]]
 
-layout = ["column", [0.35, "Strip"], [0.65, "SteadyStft"]]
+layout = "SteadyStft"
+
+[settings]
+show_readings = false
 
 [data]
-corpus = "pepsi3285_DU_7h"
-file = "take_part01-001.flac"
-start = 0
-seconds = 3600
+corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac"]
 
 [data.session]
-watch = "Dandong 3285"
-calibre = "Dandong 3285"
+watch = "Dandong 3235"
+calibre = "Dandong 3235"
 bph = 28800
 lift = 55
 position = "DU"
 
 [window]
 size = [1800, 1000]
+
+[wait]
+at_most = 1200

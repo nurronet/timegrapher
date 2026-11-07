@@ -69,8 +69,8 @@ you.
 
 **Beyond the App**
 
-25. [The Command Line](25-command-line.md): every command, its options, and its JSON for scripts and agents
-26. [Claude Desktop](26-claude-desktop.md): the timegrapher in an AI chat app, what it can do and what it never does
+25. [The Command Line](25-command-line.md): every command, its options, and its JSON (JavaScript Object Notation) output for scripts and agents
+26. [Claude Desktop](26-claude-desktop.md): the timegrapher in an AI (artificial intelligence) chat app, what it can do and what it never does
 27. [Problems and Reports](27-problems-and-reports.md): Report a Problem, the log and crash records, and a window that won't open
 28. [Glossary](28-glossary.md): the words this guide uses
 

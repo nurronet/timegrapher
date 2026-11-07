@@ -1,0 +1,31 @@
+# Chapter 21, Power Reserve Test: the same take as power-reserve, the
+# pane alone, its hour table scrolled to the last hours, where the
+# amplitude is greyed or withheld.
+output = "power-reserve-end.png"
+
+actions = [["sleep", 600], ["scroll", 251, 700, 60], ["sleep", 3]]
+
+# 1 the key over the table, 2 the grey amplitudes, 3 the dashes (withheld
+# amplitudes) beside grey beat errors.
+marks = [[1, 1010, 213], [2, 510, 696], [3, 510, 750]]
+
+layout = "PowerReserve"
+
+[data]
+corpus = "ym42_DU_65h"
+
+[data.session]
+watch = "Dandong 3235"
+calibre = "Dandong 3235"
+bph = 28800
+lift = 55
+position = "DU"
+
+[window]
+size = [1000, 760]
+
+[wait]
+at_most = 3600
+
+[settings]
+show_readings = false

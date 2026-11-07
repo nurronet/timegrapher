@@ -1,25 +1,33 @@
-# Chapter 21, Power Reserve Test: a whole 7 h 28 min take of a
-# Dandong 3285, fully wound at the start, opened in one position.
+# Chapter 21, Power Reserve Test: a whole 64 h 51 min take of a
+# Dandong 3235, fully wound at the start and left dial up until it
+# stopped, 59.8 h in; the last 5 h are the stand with no watch.
 output = "power-reserve.png"
 
-actions = [["sleep", 420]]
+actions = [["sleep", 600]]
 
-marks = [[1, 330, 520], [2, 432, 522], [3, 514, 522], [4, 591, 522], [5, 660, 522], [6, 1030, 572], [7, 1240, 650], [8, 1240, 790], [9, 480, 920]]
+# 1 the position, 2 Keep Sound, 3 New Test, 4 Save as CSV, 5 Copy, above
+# the toolbar; 6 the result line, 7 the rate, 8 the amplitude, 9 the
+# hour table.
+marks = [[1, 300, 372], [2, 430, 372], [3, 512, 372], [4, 593, 372], [5, 650, 372],
+         [6, 870, 431], [7, 1000, 572], [8, 1000, 760], [9, 520, 870]]
 
-layout = ["column", [0.22, "Strip"], [0.78, "PowerReserve"]]
+layout = ["column", [0.18, "Strip"], [0.82, "PowerReserve"]]
 
 [data]
-corpus = "pepsi3285_DU_7h"
-files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac"]
-start = 0
-seconds = 26904
+corpus = "ym42_DU_65h"
 
 [data.session]
-watch = "Dandong 3285"
-calibre = "Dandong 3285"
+watch = "Dandong 3235"
+calibre = "Dandong 3235"
 bph = 28800
 lift = 55
 position = "DU"
 
 [window]
 size = [1800, 1000]
+
+[wait]
+at_most = 3600
+
+[settings]
+show_readings = false

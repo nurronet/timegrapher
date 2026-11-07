@@ -5,7 +5,7 @@
 Steadiness (chapters 9 to 18) runs a family of tests on the readings of
 each series in time order, and names what passes. This note gives the
 statistics behind the Info panel's figures and the views: the scatter,
-the outlier rule, the Allan deviation, the trend, the CUSUM, the change
+the outlier rule, the Allan deviation, the trend, the CUSUM (cumulative sum), the change
 finder and Holm's correction. The period search has its own note (M10),
 and the autocorrelation is in chapter 13.
 
@@ -52,7 +52,7 @@ long the take is, and never settles. The Allan deviation compares each
 average with the next, so it settles for wander and drift as well, and
 says at what averaging time each kind of noise takes over. It is the
 standard measure of frequency stability for clocks and oscillators (IEEE
-Std 1139). For independent readings it falls as 1/√τ, the dashed line; a
+Std 1139, from the Institute of Electrical and Electronics Engineers). For independent readings it falls as 1/√τ, the dashed line; a
 cycle of period P raises it most near τ ≈ 0.37 P.
 
 ## The Trend

@@ -32,7 +32,7 @@ needs installing.
    just ask, giving a recording's whole path.
 
 The Linux zip has no extension. Any chat app that runs local MCP
-servers (VS Code, Goose, LM Studio and others) can use
+(Model Context Protocol) servers (VS Code, Goose, LM Studio and others) can use
 `timegrapher-mcp` from the **Command Line** folder: give it the
 program's full path as the command, with no arguments.
 [The MCP page](../mcp.md#install) gives the steps, and how to add it to

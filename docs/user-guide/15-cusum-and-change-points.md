@@ -1,6 +1,6 @@
-# 15. CUSUM and Change Points
+# 15. CUSUM (Cumulative Sum) and Change Points
 
-![CUSUM of the rate over a 30-minute take, marks 1 to 3](images/steady-cusum.png)
+![CUSUM of the rate over the first 12 hours of a run-down, marks 1 to 3](images/steady-cusum.png)
 
 **What it shows:** the **CUSUM**, the cumulative sum: the running total of
 each reading's distance from the mean of all of them, scaled so that the
@@ -17,7 +17,7 @@ wind or a change in the watch that you suspect moved the rate.
 | --- | --- | --- |
 | 1 | The CUSUM | The running total, against the time of the take. |
 | 2 | The dashed lines | ±1.36: readings with no change of level, correlated or not, stay inside them about 95 times in 100. |
-| 3 | The largest excursion | The point furthest from 0. When the headline names a level change, the corner nearest it gets a dot and a note, "level changes near 12:30". |
+| 3 | The largest excursion | The point furthest from 0. When the headline names a level change, the corner nearest it gets a dot and a note, "level changes near 47:00". |
 
 ## Reading the Shape
 
@@ -30,11 +30,15 @@ they are over it. So:
   in one step.
 - **A wander inside the lines** is no change of level.
 
-**In the picture,** the total falls to −5 at about 9 minutes, then rises
-back to 0: the rate was under its mean for the first part of the take and
-over it for the rest. The headline names a slide, "Rate changes slowly",
-not a level change, so no corner is marked; Readings Over Time draws the
-slide as its two steps (chapter 10).
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8. The total climbs steeply from the start, far past the
+dashed line, and turns sharply at 47 minutes: the corner of a tent, the
+step from a fast first stretch to a slower level. The headline names it,
+and the corner is marked "level changes near 47:00". From there to about
+5 hours the total drifts gently up, then slides down to 9½ hours: the
+rate a little over its mean, then a little under it: changes too small
+beside the scatter for any single reading to show. The steeper fall near
+9 hours is the dip that Readings Over Time shows there (chapter 10).
 
 ## Change Points
 

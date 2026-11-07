@@ -1,6 +1,6 @@
 # 14. Allan Deviation
 
-![Allan Deviation of the rate over a 30-minute take, marks 1 to 5](images/steady-allan.png)
+![Allan Deviation of the rate over the first 12 hours of a run-down, marks 1 to 5](images/steady-allan.png)
 
 **What it shows:** how much the average of the readings scatters as the
 average gets longer. Along the bottom is the **averaging time**, τ (tau);
@@ -41,15 +41,21 @@ the standard way clocks and oscillators are compared for stability (M9).
 | What you see | What it can mean |
 | --- | --- |
 | The curve on or below the dashed line all the way | The readings jitter from moment to moment and nothing more. A longer average is always steadier. |
-| The curve leaves the dashed line and flattens | The readings wander: past that time, averaging longer doesn't help. As in the picture, from about a minute. |
+| The curve leaves the dashed line and flattens | The readings wander: past that time, averaging longer doesn't help. As in the picture, from the first average. |
 | The curve rises towards the right | Drift or slow wander: the longer the average, the more it differs from the next. |
 | A bump | A cycle. A cycle of period P lifts the curve near 0.37 P. |
 
-**In the picture,** the curve follows the dashed line up to about 40 s,
-then flattens: the least scatter is 0.77 s/d, at an average of 160 s
-(labelled to the nearest minute, "3 min"), and averages of 5 minutes
-scatter more. The rate here slides slowly through the take (chapter 10),
-and a slide shows this way.
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8. Single 10 s readings scatter by about 5 s/d. Were they
+independent, an hour's average would scatter by about 0.3 s/d, the
+dashed line. Instead the curve leaves the line at once and hardly falls:
+the least scatter is 2.39 s/d, for averages of 11 minutes, and averages
+of 20 to 40 minutes scatter more again, about 3 s/d, lifted by the slow
+changes Readings Over Time shows (chapter 10). What it means at the
+bench: on this watch, two readings taken one after the other, each
+averaged over 11 minutes, differ by about 3.4 s/d (root mean square,
+√2 × 2.39), and averaging longer doesn't narrow that: over 20 to
+40 minutes they differ by about 4 s/d.
 
 **In the Info panel,** when the curve stands at least twice the dashed
 line at any averaging time with 8 or more independent pairs, the tests

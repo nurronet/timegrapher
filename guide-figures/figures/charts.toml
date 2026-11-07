@@ -1,28 +1,33 @@
-# Chapter 8, Charts and Distributions: the Charts pane in front, on five
-# minutes of an opened take, the Amplitude and Beat Error charts turned on.
+# Chapter 8, Charts and Distributions: the Charts pane alone, on the first
+# 54 hours of a 64 h 51 min take of a Dandong 3235, fully wound and left
+# dial up until it stopped, 59.8 h in (the last hours, as it died, would
+# set the scales); the Amplitude and Beat Error charts turned on.
 output = "charts.png"
 
-actions = [["sleep", 25], ["click", 61, 546], ["click", 93, 546], ["sleep", 2]]
+actions = [["sleep", 420], ["click", 63, 90], ["click", 93, 90], ["sleep", 3]]
 
-# 1 the reading switches, 2 Fit, 3 Export, 4 the Amplitude key, 5 the Beat
-# Error key.
-marks = [[1, 96, 637], [2, 190, 637], [3, 238, 637], [4, 1488, 780], [5, 1575, 914]]
+# 1 the series switches, 2 Fit, 3 Export, 4 the Amplitude key, 5 the
+# Beat Error key.
+marks = [[1, 96, 182], [2, 190, 182], [3, 238, 182], [4, 1520, 476], [5, 1606, 762]]
 
-layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Charts", "Sound", "Scope"]]]
+layout = "Charts"
 
 [data]
-corpus = "dd3235_DU_30min"
-file = "take_part01-001.flac"
-start = 300
-seconds = 300
+corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac", "take_part01-013.flac", "take_part01-014.flac", "take_part01-015.flac", "take_part01-016.flac", "take_part01-017.flac", "take_part01-018.flac", "take_part01-019.flac", "take_part01-020.flac", "take_part01-021.flac", "take_part01-022.flac", "take_part01-023.flac", "take_part01-024.flac", "take_part01-025.flac", "take_part01-026.flac", "take_part01-027.flac", "take_part01-028.flac", "take_part01-029.flac", "take_part01-030.flac", "take_part01-031.flac", "take_part01-032.flac", "take_part01-033.flac", "take_part01-034.flac", "take_part01-035.flac", "take_part01-036.flac", "take_part01-037.flac", "take_part01-038.flac", "take_part01-039.flac", "take_part01-040.flac", "take_part01-041.flac", "take_part01-042.flac", "take_part01-043.flac", "take_part01-044.flac", "take_part01-045.flac", "take_part01-046.flac", "take_part01-047.flac", "take_part01-048.flac", "take_part01-049.flac", "take_part01-050.flac", "take_part01-051.flac", "take_part01-052.flac", "take_part01-053.flac", "take_part01-054.flac"]
 
 [data.session]
+watch = "Dandong 3235"
 calibre = "Dandong 3235"
+bph = 28800
+lift = 55
+position = "DU"
 
 [window]
 size = [1800, 1000]
 
-[settings]
-rate_line = true
-rate_guides = true
+[wait]
+at_most = 1200
 
+[settings]
+show_readings = false

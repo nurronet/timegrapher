@@ -1,6 +1,6 @@
 # 11. Periods
 
-![Periods, the rate over a 30-minute take, marks 1 to 9](images/steady-periods.png)
+![Periods, the rate over the first 12 hours of a run-down, marks 1 to 9](images/steady-periods.png)
 
 **What it shows:** how strongly the readings repeat at each period, from
 seconds up to many minutes, on a log scale. A tall, narrow line is a
@@ -24,22 +24,36 @@ regular beat.
 
 | Mark | Part | What it shows |
 | --- | --- | --- |
-| 5 | The strongest line | Its period and, when it matches one, the wheel whose turn it matches: "5 s, Escape Wheel". |
+| 5 | The strongest line | When the search keeps a line, the strongest kept gets a dot and a note: its period and, when it matches one, the wheel whose turn it matches, "5 s, Escape Wheel". In the picture no line is kept (below), so the mark is on the tallest. |
 | 6 | The dashed line | The score a period needs for the search to list it: its 1% false-alarm level over the whole search. |
 | 7 | A wheel's period | A grey dotted line, named above the plot (inside its top on a short pane). |
 | 8 | Half a wheel's period | A fainter dotted line marked ×2: where a wheel that is off centre shows, twice a turn. Not drawn where another wheel already turns at that period. |
-| 9 | Another line | A line over the dashed line away from the wheels' marks. Here 15 s, a quarter of the fourth wheel's minute (below). |
+| 9 | Another line | A line away from the wheels' marks. Here 4 min, just under the dashed line: the cycle Cycle folds (chapter 12). |
 
 With no calibre picked, or none of its wheels known, one minute and one
 hour are marked in grey instead.
 
-**In the picture,** the rate repeats every 5 s, the escape wheel's
-period (it turns once in twice its teeth in beats: 20 teeth at
-28,800 bph give 5 s, 15 teeth give 3.75 s), and the fourth wheel's minute shows as a line at 1 min with
-taller ones at 30, 20 and 15 s: a half, a third and a quarter of a
-minute. A disturbance that is sharp rather than smooth spreads over these
-**harmonics** of its period, and they can stand taller than the period
-itself.
+**In the picture** are the first 12 hours of the Dandong 3235 run-down
+from chapter 8. Two lines stand far above the rest, each exactly on a
+wheel's mark. The tallest is at 5 s, the escape wheel's turn (it turns
+once in twice its teeth in beats: 20 teeth at 28,800 bph give 5 s,
+15 teeth give 3.75 s). The next is at 30 s, half the fourth wheel's
+minute, with a smaller line at the minute itself. A disturbance that is
+sharp rather than smooth spreads over the **harmonics** of its period,
+a half, a third, a quarter of it, and they can stand taller than the
+period itself. So in a few seconds' look the plot points at two wheels
+of the train, the escape wheel and the fourth wheel, and at nothing in
+between.
+
+Yet no line has a dot, and the headline names only the level change at
+47 minutes (chapter 15). The plot shows each period's score before any
+line is taken out; a line is kept only if, once the stronger ones are
+taken out, it still passes the dashed line, explains at least 0.5% of
+the movement in the beat timing, and passes the correction across every
+test (chapter 9). Here the 5 s line is the tallest, so it is picked
+first, and still it is not kept: it explains under 0.5% of the beat
+timing's movement once the slow change is taken off. A tall score is
+not by itself a named line.
 
 ## How It Is Worked Out
 
