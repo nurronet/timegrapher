@@ -1,0 +1,15 @@
+app: head running
+took 3.4 s
+$ powershell -NoProfile -c "Select-String -Path $env:APPDATA\timegrapher\logs\timegrapher.log -Pattern ERROR,WARN,panic | Select-Object -Last 8"
+
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log:2:2026-11-07T00:07:33.683Z warn  OpenGL didn't 
+open the window (egui_glow: OpenGL: egui_glow requires opengl 2.0+. ); trying wgpu
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log:5:2026-11-07T00:07:34.139Z error Can't open the 
+input. no default sound input; name one (see the list of devices)
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log:7:2026-11-07T00:08:16.682Z warn  OpenGL didn't 
+open the window (egui_glow: OpenGL: egui_glow requires opengl 2.0+. ); trying wgpu
+C:\Users\runneradmin\AppData\Roaming\timegrapher\logs\timegrapher.log:10:2026-11-07T00:08:16.779Z error Can't open the 
+input. no default sound input; name one (see the list of devices)
+
+
+
