@@ -316,7 +316,13 @@ Linux),
 first, with its size; it can't be undone; deleting the take on show
 leaves the window empty, as at the start). Moving the take on show, or
 filing it from Unsorted Takes, takes the Watches view to the watch it went
-to, and the Bench's card and the status line name that watch. Keep
+to, and the Bench's card and the status line name that watch. A take
+moved or filed under a watch takes, in its `session.toml`, that watch's
+name and the calibre, lift angle and beat rate the watch has set (the
+calibre's own where the table gives them, as a new take of the watch
+starts with), and the take on show is read again with them; what the
+watch leaves unset stays as recorded, and a take kept as its analysis
+alone keeps what it was measured with. Keep
 Analysis Only… asks
 first, saying the take's size and its sound's and what is lost: the take
 can't be measured again without its sound, and the Scope doesn't
