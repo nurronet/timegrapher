@@ -31,11 +31,25 @@ In words:
    inflate it. The constants turn it into a standard deviation for
    normal noise.
 2. **The correlation, `ρ`,** is how much each reading resembles the next.
-   Watch readings do: on the project's recordings, neighbouring 2 s
-   amplitude windows correlate by anywhere from 0.01 to 0.90.
+   Watch readings do: on the project's test recordings, neighbouring 2 s
+   amplitude windows correlate by anywhere from 0.01 to 0.90 (the
+   [Math Standards Guide](../math-standards.md#12-method-audit),
+   section 12).
 3. **The effective count, `n_eff`,** counts correlated readings as fewer
    independent ones. At ρ = 0.5, 30 readings are worth 10.
 4. **The ±** is the standard error of a median of `n_eff` readings.
+
+**Over several stretches** between cuts (positions, breaks, masks), the
+differences `d` are taken within each stretch only, never across a cut.
+For amplitude and beat error, a second term is added: how far the
+stretches' own medians spread, past what their noise explains.
+
+```text
+τ²   = largest of 0 and (variance of the stretches' medians
+       − mean of their ±²)
+term = 1.2533 × τ ÷ √k     (k: the stretches of 3 readings or more)
+±    = √(within² + term²)
+```
 
 The live **rate's ±** is read from the 10 s windows since the last break,
 up to five minutes, then scaled to the Average Over time. It needs about
@@ -49,6 +63,9 @@ up to five minutes, then scaled to the Average Over time. It needs about
   independent gives a ± too small. On a seeded test at ρ 0, 0.5 and 0.9,
   the share of repeats within ±1 standard error stays between 55% and 85%
   (68% expected).
+- **The spread between stretches:** a watch reading 270° in one stretch
+  and 250° in the next leaves the take's median uncertain by more than
+  either stretch's noise. Stretches at one level add nothing on average.
 - **One function for every figure,** in the app, the command line and the
   MCP server, so the same take gives the same ± everywhere.
 
