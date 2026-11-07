@@ -4,10 +4,10 @@ output = "settings-microphone.png"
 
 # 1 the categories, 2 the microphone menu and Rescan, 3 Show Every Input,
 # 4 Input Level, 5 Peak, 6 Quartz Correction, 7 Done.
-marks = [[1, 378, 300], [2, 1145, 354], [3, 1145, 394], [4, 1145, 488],
+marks = [[1, 420, 398], [2, 1145, 354], [3, 1145, 394], [4, 1145, 488],
          [5, 1145, 532], [6, 1145, 640], [7, 1395, 201]]
 
-layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 
 actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 12],
            ["click", 1044, 19], ["sleep", 2], ["click", 424, 218], ["sleep", 2]]

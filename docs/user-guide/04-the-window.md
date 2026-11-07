@@ -18,7 +18,7 @@ saves a take.
 | 1 | **Menus** | File, Edit, View, Watches and Help. On a Mac they are in the system's menu bar. | For everything that isn't a button on the window. See [The Menus](#the-menus). |
 | 2 | **Bench \| Watches** | Switches between the two views. **Ctrl+1** and **Ctrl+2** (**Cmd** on a Mac) do the same. | Watches to find, file or compare takes; Bench to look at one. |
 | 3 | Core pane icons | Show or hide the Readings, the Paper Strip, the Tick Tock Profile and the Scope. | The panes you use on every take. |
-| 4 | **Analysis** icons | Show or hide Charts, Distributions, the ten Steadiness panes and Isochronism. | To look at how a take changes over time. |
+| 4 | **Analysis** icons | Show or hide Charts, Distributions, the nine Steadiness panes and Isochronism. | To look at how a take changes over time. |
 | 5 | **Tests** icons | Show or hide the Positions Test and the Power Reserve Test. | To run a test or read its results. |
 | 6 | Settings gear | Opens Settings. | For the appearance, the microphone, the Watches folder and the calibres. |
 

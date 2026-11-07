@@ -2,7 +2,7 @@
 # with readings on the cards, the strip and the profile.
 output = "quick-listen.png"
 
-layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 
 # The watch on the stand, then Listen.
 actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 1]]

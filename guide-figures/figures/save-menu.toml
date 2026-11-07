@@ -4,7 +4,7 @@ output = "save-menu.png"
 # 1 the Save button, 2 Unsorted Takes, 3 Keep in a Watch, 4 Save in a Folder.
 marks = [[1, 669, 143], [2, 790, 213], [3, 790, 262], [4, 790, 316]]
 
-layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 
 # The watch on the stand, Listen, Stop after half a minute, then Save.
 actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 30],

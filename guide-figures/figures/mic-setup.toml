@@ -7,7 +7,7 @@ output = "mic-setup.png"
 marks = [[1, 1190, 448], [2, 1190, 478], [3, 1190, 597], [4, 1190, 626],
          [5, 1190, 687], [6, 1190, 742]]
 
-layout = ["column", [0.55, "Strip"], [0.45, "Sound"]]
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 
 actions = [["stand", "DU"], ["sleep", 8]]
 
