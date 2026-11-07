@@ -423,6 +423,20 @@ impl TimegrapherApp {
     /// history with its results, and as its analysis only if so picked.
     pub(super) fn end_reserve(&mut self) {
         self.pause();
+        // The results go into the take with its sound, through
+        // `results_files`.
+        self.finish_reserve();
+        // With no watch picked, asked where it goes before it is saved.
+        if self.open_watch().is_none() {
+            self.test_keep = Some(TestKeep::PowerReserve);
+            return;
+        }
+        self.save_reserve();
+    }
+
+    /// The ended test's results, hour by hour as `timegrapher session`
+    /// reads each stretch, with room in the pane for its charts and table.
+    fn finish_reserve(&mut self) {
         let to_true = self.to_true();
         let Some(t) = self.reserve.as_mut() else {
             return;
@@ -431,12 +445,9 @@ impl TimegrapherApp {
             applog::info(&format!("power reserve test ended: {}", e.text()));
         }
         let mut results = t.finish(to_true).cloned();
-        // Hour by hour, as `timegrapher session` reads each stretch.
         if let Some(r) = results.as_mut() {
             r.hours = self.reserve_hours(r.first_beat_s, r.last_beat_s, 0);
         }
-        // The results go into the take with its sound, through
-        // `results_files`.
         let hours = results.as_ref().map(|r| r.hours.len());
         if let Some(t) = self.reserve.as_mut() {
             t.results = results;
@@ -444,12 +455,6 @@ impl TimegrapherApp {
         if let Some(n) = hours {
             grow_row(&mut self.panes.tiles, Pane::PowerReserve, reserve::run_h(n));
         }
-        // With no watch picked, asked where it goes before it is saved.
-        if self.open_watch().is_none() {
-            self.test_keep = Some(TestKeep::PowerReserve);
-            return;
-        }
-        self.save_reserve();
     }
 
     /// The recording failed while a Power Reserve Test ran: the run ends
@@ -476,24 +481,7 @@ impl TimegrapherApp {
             // keeps its sound, and says so.
             t.keep_sound = true;
         }
-        let to_true = self.to_true();
-        let Some(t) = self.reserve.as_mut() else {
-            return;
-        };
-        if let Some(e) = t.ending {
-            applog::info(&format!("power reserve test ended: {}", e.text()));
-        }
-        let mut results = t.finish(to_true).cloned();
-        if let Some(r) = results.as_mut() {
-            r.hours = self.reserve_hours(r.first_beat_s, r.last_beat_s, 0);
-        }
-        let hours = results.as_ref().map(|r| r.hours.len());
-        if let Some(t) = self.reserve.as_mut() {
-            t.results = results;
-        }
-        if let Some(n) = hours {
-            grow_row(&mut self.panes.tiles, Pane::PowerReserve, reserve::run_h(n));
-        }
+        self.finish_reserve();
         if let Some(take) = self.session.saved_to().map(Path::to_path_buf) {
             self.write_reserve_into(take);
         }
