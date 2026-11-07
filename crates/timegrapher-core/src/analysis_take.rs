@@ -904,17 +904,25 @@ fn parse_profiles(raw: &[u8]) -> Result<Vec<StretchProfiles>, String> {
 
 /// Write every file under `dir`, and `dir` and its folders' entries, to
 /// the disk: a crash or power cut after this can't leave one empty.
-fn sync_tree(dir: &Path) -> io::Result<()> {
+fn sync_tree(dir: &Path, sync: &Syncs) -> io::Result<()> {
     for e in fs::read_dir(dir)? {
         let e = e?;
         let kind = e.file_type()?;
         if kind.is_dir() {
-            sync_tree(&e.path())?;
+            sync_tree(&e.path(), sync)?;
         } else if kind.is_file() {
-            crate::recorder::sync_file(&e.path())?;
+            (sync.file)(&e.path())?;
         }
     }
-    crate::recorder::sync_folder(dir)
+    (sync.folder)(dir)
+}
+
+/// How [`save`] writes a file and a folder's entries to the disk: the
+/// disk's own ([`crate::recorder::sync_file`], [`crate::recorder::sync_folder`]),
+/// or in a test, ones that note or fail.
+struct Syncs<'a> {
+    file: &'a dyn Fn(&Path) -> io::Result<()>,
+    folder: &'a dyn Fn(&Path) -> io::Result<()>,
 }
 
 /// Keep the take whose sound is in `source` (its folder: `session.toml`,
@@ -926,6 +934,20 @@ fn sync_tree(dir: &Path) -> io::Result<()> {
 /// moved into place whole, so a failure leaves nothing half-written; an
 /// existing `dest` is never touched.
 pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> io::Result<PathBuf> {
+    let disk = Syncs {
+        file: &crate::recorder::sync_file,
+        folder: &crate::recorder::sync_folder,
+    };
+    save_with(dest, companions, stored, &disk)
+}
+
+/// [`save`], writing to the disk with `sync`.
+fn save_with(
+    dest: &Path,
+    companions: &[(String, Vec<u8>)],
+    stored: &Stored,
+    sync: &Syncs,
+) -> io::Result<PathBuf> {
     if fs::symlink_metadata(dest).is_ok() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -978,11 +1000,11 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
         }
         // On the disk before it goes into place, and its new name after,
         // since the caller may delete the take's sound next (#1336).
-        sync_tree(&staged)?;
+        sync_tree(&staged, sync)?;
         crate::recorder::rename_settled(&staged, dest)?;
         // Its name not on the disk: the save fails and the take is kept,
         // so the copy goes too, and a retry finds no twin in the way.
-        crate::recorder::sync_folder(parent).inspect_err(|_| {
+        (sync.folder)(parent).inspect_err(|_| {
             let _ = fs::remove_dir_all(dest);
         })
     })();
@@ -1246,11 +1268,166 @@ mod tests {
         fs::create_dir_all(dir.join("a/b")).unwrap();
         fs::write(dir.join("a/b/c.txt"), b"kept").unwrap();
         fs::write(dir.join("top.txt"), b"").unwrap();
-        sync_tree(&dir).unwrap();
+        let disk = Syncs {
+            file: &crate::recorder::sync_file,
+            folder: &crate::recorder::sync_folder,
+        };
+        sync_tree(&dir, &disk).unwrap();
         assert_eq!(fs::read(dir.join("a/b/c.txt")).unwrap(), b"kept");
         fs::remove_dir_all(&dir).unwrap();
-        let err = sync_tree(&dir).unwrap_err();
+        let err = sync_tree(&dir, &disk).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    /// A take measured and the companions it keeps, in a scratch folder.
+    fn kept_parts(tag: &str) -> (PathBuf, Stored, Vec<(String, Vec<u8>)>) {
+        let dir = scratch(tag);
+        let wav = take(&dir, 20.0);
+        let s = measure(
+            &[wav.as_path()],
+            &StreamConfig::default(),
+            &[],
+            software(),
+            |_| {},
+        )
+        .unwrap();
+        let companions = vec![
+            ("session.toml".to_string(), b"audio = false\n".to_vec()),
+            ("report/notes/a.txt".to_string(), b"kept".to_vec()),
+        ];
+        (dir, s, companions)
+    }
+
+    /// Every file and folder of a save is synced, in its subfolders too,
+    /// before it goes into place, and the folder it goes into after (#1336,
+    /// #1350).
+    #[test]
+    fn a_save_syncs_every_file_and_folder_before_its_move() {
+        let (dir, s, companions) = kept_parts("synced");
+        let dest = dir.join("kept");
+        let files = std::cell::RefCell::new(Vec::new());
+        let folders = std::cell::RefCell::new(Vec::new());
+        // Each noted as it lies once moved: inside dest, or the parent.
+        let place = |p: &Path| -> PathBuf {
+            let staged = p.ancestors().find(|a| {
+                a.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(".timegrapher-save-"))
+            });
+            match staged {
+                Some(st) => dest.join(p.strip_prefix(st).unwrap()),
+                None => p.to_path_buf(),
+            }
+        };
+        let noting = Syncs {
+            file: &|p| {
+                files.borrow_mut().push(place(p));
+                Ok(())
+            },
+            folder: &|p| {
+                folders.borrow_mut().push(place(p));
+                Ok(())
+            },
+        };
+        save_with(&dest, &companions, &s, &noting).unwrap();
+        let mut on_disk_files = Vec::new();
+        let mut on_disk_folders = vec![dest.clone()];
+        let mut todo = vec![dest.clone()];
+        while let Some(d) = todo.pop() {
+            for e in fs::read_dir(&d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    on_disk_folders.push(p.clone());
+                    todo.push(p);
+                } else {
+                    on_disk_files.push(p);
+                }
+            }
+        }
+        let mut synced = files.borrow().clone();
+        synced.sort();
+        on_disk_files.sort();
+        assert_eq!(synced, on_disk_files);
+        assert!(synced.contains(&dest.join("report/notes/a.txt")));
+        assert!(synced.contains(&dest.join(DIR).join(HEADER)));
+        // Each folder before the move, the folder it went into last.
+        let folders = folders.borrow().clone();
+        assert_eq!(folders.last(), Some(&dir));
+        let mut before = folders[..folders.len() - 1].to_vec();
+        before.sort();
+        on_disk_folders.sort();
+        assert_eq!(before, on_disk_folders);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A sync that fails fails the save, so Keep Analysis Only keeps the
+    /// take; and it leaves no copy and nothing staged behind, so a save
+    /// again isn't refused (#1350).
+    #[test]
+    fn a_failed_sync_fails_the_save_and_leaves_nothing() {
+        let (dir, s, companions) = kept_parts("unsynced");
+        let failed = || Err(io::Error::other("the disk refused"));
+        let at = |name: &'static str| {
+            move |p: &Path| {
+                if p.ends_with(name) {
+                    failed()
+                } else {
+                    Ok(())
+                }
+            }
+        };
+        let fine = |_: &Path| Ok(());
+        let parent = dir.clone();
+        let parent_fails = move |p: &Path| if p == parent { failed() } else { Ok(()) };
+        let cases: [(&str, Syncs); 4] = [
+            // A file in a subfolder; the analysis's own header.
+            (
+                "nested file",
+                Syncs {
+                    file: &at("a.txt"),
+                    folder: &fine,
+                },
+            ),
+            (
+                "analysis",
+                Syncs {
+                    file: &at(HEADER),
+                    folder: &fine,
+                },
+            ),
+            // A subfolder's entries; the folder it goes into, after the
+            // move.
+            (
+                "folder",
+                Syncs {
+                    file: &fine,
+                    folder: &at("notes"),
+                },
+            ),
+            (
+                "parent",
+                Syncs {
+                    file: &fine,
+                    folder: &parent_fails,
+                },
+            ),
+        ];
+        for (what, sync) in cases {
+            let dest = dir.join(format!("kept-{}", what.replace(' ', "-")));
+            let err = save_with(&dest, &companions, &s, &sync).unwrap_err();
+            assert_eq!(err.to_string(), "the disk refused", "{what}");
+            assert!(!dest.exists(), "{what}");
+            assert!(
+                fs::read_dir(&dir).unwrap().all(|e| !e
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".timegrapher")),
+                "{what}"
+            );
+            // The same save, synced, then goes through.
+            save(&dest, &companions, &s).unwrap();
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// A header from a later layout says so, rather than misreading it.
