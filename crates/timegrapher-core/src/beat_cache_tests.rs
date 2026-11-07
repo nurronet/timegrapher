@@ -192,6 +192,36 @@ fn a_copy_is_read_only_for_the_same_files() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// A file no longer than the spans is read whole into the key: a byte
+/// changed past its first 64 KiB, its length and time the same, is seen.
+#[test]
+fn a_short_file_is_keyed_on_every_byte() {
+    let dir = folder("short-file");
+    let f = dir.join("short.wav");
+    let len = (SPANS as usize - 1) * HEAD_BYTES;
+    let mut bytes: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+    fs::write(&f, &bytes).unwrap();
+    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    set_changed(&f, hour_ago);
+    let cfg = StreamConfig::default();
+    let was = key(&[f.as_path()], &cfg).unwrap();
+    for at in [HEAD_BYTES + 5, len / 2 + 3, len - 1] {
+        bytes[at] ^= 0x01;
+        fs::write(&f, &bytes).unwrap();
+        set_changed(&f, hour_ago);
+        assert_ne!(
+            key(&[f.as_path()], &cfg).unwrap(),
+            was,
+            "a byte at {at} of {len}"
+        );
+        bytes[at] ^= 0x01;
+        fs::write(&f, &bytes).unwrap();
+        set_changed(&f, hour_ago);
+        assert_eq!(key(&[f.as_path()], &cfg).unwrap(), was);
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// No copy is kept of a take whose files changed in the last two minutes:
 /// it may still be recording.
 #[test]

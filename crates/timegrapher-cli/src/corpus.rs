@@ -354,6 +354,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// One unsafe name anywhere refuses the whole index: in a later take,
+    /// in a later file of a take, or as a NUL inside a name.
+    #[test]
+    fn a_path_in_any_take_or_file_refuses_the_index() {
+        let dir = std::env::temp_dir().join(format!("tg-corpus-any-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("corpus");
+        std::fs::create_dir_all(&root).unwrap();
+        let take = |id: &str, names: &[&str]| {
+            let files: Vec<_> = names
+                .iter()
+                .map(|n| serde_json::json!({"name": n, "bytes": 1, "sha256": "00"}))
+                .collect();
+            serde_json::json!({"id": id, "tier": "smoke", "release": id, "files": files})
+        };
+        let write = |takes: Vec<serde_json::Value>| {
+            let index = serde_json::json!({ "takes": takes }).to_string();
+            std::fs::write(root.join(INDEX), index).unwrap();
+        };
+        write(vec![
+            take("a", &["1.flac", "2.flac"]),
+            take("b", &["1.flac"]),
+        ]);
+        assert!(load(&root).unwrap().is_some());
+        for takes in [
+            vec![take("a", &["1.flac"]), take("../b", &["1.flac"])],
+            vec![take("a", &["1.flac"]), take("b", &["1.flac", "../2.flac"])],
+            vec![take("a", &["1.flac", "2\0.flac"])],
+            vec![take("a\0b", &["1.flac"])],
+        ] {
+            write(takes);
+            let err = load(&root).unwrap_err();
+            assert!(err.contains("unsafe"), "{err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_watch_heard_on_an_empty_stand_fails() {
         assert!(!smoke("ran", Some(false), true).fails());
