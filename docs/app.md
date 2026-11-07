@@ -35,7 +35,7 @@ Cmd+O on a Mac), Open Folder…, Save… or Save Again (Ctrl+S), Save As…
 and **Watches** (Ctrl+2); then ticks for **Readings**, **Compact
 Readings** (below), the Paper Strip, the Tick Tock Profile and the Scope,
 an **Analysis** submenu with a tick for each Analysis pane, ticks for
-the Positions Test and the Power Reserve Test, and Reset Panes. All but
+**Positions Test** and **Power Reserve**, and Reset Panes. All but
 Bench and Watches are dimmed in Watches, as the panes are the Bench's.
 **Watches**: **New Watch…**, **Find in Watches…**, which shows the
 Watches view's list with its search ready to type in. Going back to

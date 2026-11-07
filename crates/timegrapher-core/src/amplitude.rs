@@ -323,15 +323,9 @@ pub fn windows_between(
     let guide = |even: bool| -> Option<f64> {
         let times = side_times(beats, even);
         let e = (times.len() >= 3)
-            .then(|| {
-                edges(
-                    &trimmed_template(env, fs, &times),
-                    fs,
-                    origin,
-                    cfg.onset_fraction,
-                )
-            })
-            .flatten();
+            .then(|| trimmed_template(env, fs, &times))
+            .flatten()
+            .and_then(|t| edges(&t, fs, origin, cfg.onset_fraction));
         e.map(|e| e.unlock)
     };
     let from = [guide(true), guide(false)];
@@ -353,7 +347,7 @@ pub fn windows_between(
             if times.len() < 3 {
                 return None;
             }
-            let tmpl = trimmed_template(env, fs, &times);
+            let tmpl = trimmed_template(env, fs, &times)?;
             let guided = edges_guided(
                 &tmpl,
                 fs,
@@ -365,17 +359,12 @@ pub fn windows_between(
             // for the lowest amplitude, as seconds from the beat time.
             let height = |e: &Edges| e.unlock_level - e.floor;
             let at = |i: f64, origin: usize| (i - origin as f64) / fs;
-            let earlier = edges_after(
-                &trimmed_template_from(env, fs, &times, long_pre_s),
-                fs,
-                long_origin,
-                cfg.onset_fraction,
-                0,
-            )
-            .filter(|e| {
-                at(e.unlock, long_origin) < at(guided.unlock, origin) - 0.0003
-                    && height(e) >= EARLIER_SOUND_MIN * height(&guided)
-            });
+            let earlier = trimmed_template_from(env, fs, &times, long_pre_s)
+                .and_then(|t| edges_after(&t, fs, long_origin, cfg.onset_fraction, 0))
+                .filter(|e| {
+                    at(e.unlock, long_origin) < at(guided.unlock, origin) - 0.0003
+                        && height(e) >= EARLIER_SOUND_MIN * height(&guided)
+                });
             let (unlock, drop) = match earlier {
                 Some(e) => (at(e.unlock, long_origin), at(e.drop, long_origin)),
                 None => (at(guided.unlock, origin), at(guided.drop, origin)),
