@@ -1282,7 +1282,7 @@ fn a_moved_takes_lift_becomes_known_from_its_watch() {
 /// Picking another watch in the Watches list with a take on show: the
 /// take is put away, as Unsorted Takes and the Watch line do, so the
 /// Bench never names a watch the take isn't in; picking its own watch
-/// keeps it, and so does one with marks not yet saved (#1303).
+/// keeps it, and marks not yet saved are asked about first (#1303).
 #[test]
 fn picking_another_watch_puts_the_take_on_show_away() {
     let base = std::env::temp_dir().join(format!("tg-app-pick-away-{}", std::process::id()));
@@ -1335,13 +1335,48 @@ fn picking_another_watch_puts_the_take_on_show_away() {
         "{}",
         app.status_words()
     );
-    // With its marks not yet saved, it stays, as a new take would ask.
+    // With its marks not yet saved, they are asked about first, as the
+    // Watch line asks; until then the take and its own watch stay named.
     open(&mut app);
     app.brush = Some(Position::DialDown);
     app.paint_position(0.0, 5.0);
     assert!(app.needs_save_confirmation());
     app.pick_watch(&daytona_id);
+    assert!(matches!(&app.confirm, Some(Confirm::PickWatch(Some(i))) if *i == daytona_id));
     assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi_id.as_str()));
+    assert!(
+        app.status_words().contains("Pepsi") && !app.status_words().contains("Daytona"),
+        "{}",
+        app.status_words()
+    );
+    // Don't Save: it goes, and Daytona is picked.
+    app.confirm = None;
+    app.line_pick(Some(daytona_id.clone()), true);
+    assert!(app.take_on_show().is_none());
+    assert_eq!(app.watch, "Daytona");
+
+    // A take from Unsorted Takes, in no watch: picking one puts it away too.
+    let unsorted = root
+        .join(library::UNSORTED)
+        .join(library::TAKES)
+        .join("2026-10-21 10.00 Dial Up");
+    std::fs::create_dir_all(&unsorted).unwrap();
+    for f in ["take_part01-001.wav", MANIFEST] {
+        std::fs::copy(take.join(f), unsorted.join(f)).unwrap();
+    }
+    app.use_library(Some(root.clone()));
+    app.pick_unsorted();
+    app.take_action(Some(watches::TakeAction::Open(unsorted.clone())));
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.take_on_show().as_ref(), Some(&unsorted));
+    app.pick_watch(&pepsi_id);
+    assert!(app.take_on_show().is_none());
+    assert_eq!(app.watch, "Pepsi");
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
