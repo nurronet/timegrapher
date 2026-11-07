@@ -610,6 +610,19 @@ impl TimegrapherApp {
             if Path::new(self.file_path.trim()).starts_with(from) {
                 self.file_path = self.opened_path.clone();
             }
+            // The take on show is the watch's it went to now: the Bench's
+            // card and the status line name that one (#1280).
+            let went = match &self.library {
+                Ok(Some(l)) => l
+                    .watch_of(to)
+                    .map(|e| (e.watch.id.clone(), e.watch.name.clone())),
+                _ => None,
+            };
+            if let Some((id, name)) = went {
+                self.watch_open = Some(id);
+                self.unsorted_open = false;
+                self.watch = name;
+            }
         }
     }
 
@@ -748,18 +761,14 @@ impl TimegrapherApp {
     /// false`), how to read it and its shape stretches; or why it can't.
     fn keep_prepare(&self, take: &Path) -> Result<KeepPrep, String> {
         let file = take.join(MANIFEST);
-        let text =
-            std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = timegrapher_core::recorder::read_settled(&file)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
         let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
         if m.audio == Some(false) {
             return Err("its sound has already been removed".into());
         }
-        if m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".") {
-            return Err(format!(
-                "its {MANIFEST} lists each sound file by name, and only takes whose \
-                 {MANIFEST} names the whole folder, as the app writes it, can have their \
-                 sound removed"
-            ));
+        if let Some(why) = crate::watches::sound_kept_by_name(&m) {
+            return Err(why);
         }
         let files = recordings_in(take)?;
         let mut total_s = 0.0;

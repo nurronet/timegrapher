@@ -3832,7 +3832,8 @@ fn started_in(dir: &Path) -> Option<String> {
 fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
     let mut v = match existing.filter(|p| p.is_file()) {
         Some(p) => {
-            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let text = timegrapher_core::recorder::read_settled(p)
+                .map_err(|e| format!("{}: {e}", p.display()))?;
             serde_json::from_str(&text).map_err(|e| format!("Can't read {}: {e}", p.display()))?
         }
         None => serde_json::json!({}),
@@ -3855,7 +3856,8 @@ fn with_start(existing: Option<&Path>, fill: &Fill) -> Result<String, String> {
 /// session.toml as it was, comments too.
 fn fill_take(take: &Path, watch: &library::Watch, fill: &Fill) -> Result<(), String> {
     let file = take.join(MANIFEST);
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let text = timegrapher_core::recorder::read_settled(&file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
     let mut doc: toml_edit::DocumentMut = text
         .parse()
         .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
@@ -3946,17 +3948,11 @@ fn tenth(t: f64) -> f64 {
     (t * 10.0).round() / 10.0
 }
 
-/// Write `text` to `target` through a file beside it, renamed over it once
-/// whole, so a failed write never leaves half a file.
+/// Write `text` to `target` by core's one rule for a file put in place
+/// whole: a file beside it, flushed to disk, then renamed over it, so
+/// neither a failed write nor a power cut leaves half a file (#1286).
 fn write_replacing(target: &Path, text: &str) -> Result<(), String> {
-    let name = format!(".{}.saving", file_name(target));
-    let temp = target.with_file_name(name);
-    std::fs::write(&temp, text)
-        .and_then(|()| timegrapher_core::recorder::rename_settled(&temp, target))
-        .map_err(|e| {
-            let _ = std::fs::remove_file(&temp);
-            format!("{}: {e}", target.display())
-        })
+    library::write_atomic(target, text.as_bytes())
 }
 
 /// How the files in a folder are put together, said where a folder is

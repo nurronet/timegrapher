@@ -89,6 +89,8 @@ series[].long_run_sd
 series[].median
 series[].null
 series[].null.calibrated
+series[].null.misfit
+series[].null.misfit_limit
 series[].null.mix
 series[].null.model
 series[].outliers

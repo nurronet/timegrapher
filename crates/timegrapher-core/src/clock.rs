@@ -142,6 +142,33 @@ pub fn ppm_pm_text(ppm: f64, sd: Option<f64>) -> String {
     figure_with_pm(ppm, sd, base_digits::CLOCK, true)
 }
 
+/// A sound card's error in words, "12.3 ppm fast" or "0.84 ppm slow":
+/// its size to the decimals its standard error `sd` calls for from the
+/// clock's base ([`crate::figure_text::figure`], #510 K3, #1271), at the
+/// base with none, then which way it runs. One that rounds to zero reads
+/// "0.0 ppm" (to its decimals), with no way, as it keeps time.
+pub fn ppm_words(ppm: f64, sd: Option<f64>) -> String {
+    use crate::figure_text::{base_digits, figure};
+    let size = figure(ppm.abs(), sd, base_digits::CLOCK, false);
+    if size.bytes().all(|b| b == b'0' || b == b'.') {
+        format!("{size} ppm")
+    } else {
+        format!("{size} ppm {}", if ppm > 0.0 { "fast" } else { "slow" })
+    }
+}
+
+/// The standard error of the gap between two measures of one clock, each
+/// with its own (`None` for one typed in, taken as exact): the root of the
+/// sum of their squares, as the two are measured apart. `None` when
+/// neither has one.
+pub fn gap_sd(a: Option<f64>, b: Option<f64>) -> Option<f64> {
+    let ok = |s: Option<f64>| s.filter(|s| s.is_finite() && *s > 0.0);
+    match (ok(a), ok(b)) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0.0).hypot(b.unwrap_or(0.0))),
+    }
+}
+
 impl Withheld {
     /// One line for a reader: what was measured and why it isn't applied.
     pub fn note(&self) -> String {
@@ -1182,6 +1209,33 @@ fn columns_guessed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A clock's error in words follows its ± (#1271): the same clock
+    /// kept and timed reads to the same decimals, and one that rounds to
+    /// zero says so with no way.
+    #[test]
+    fn a_clocks_words_follow_its_plus_minus() {
+        assert_eq!(ppm_words(0.84, Some(0.06)), "0.84 ppm fast");
+        assert_eq!(ppm_words(-20.24, Some(0.3)), "20.2 ppm slow");
+        assert_eq!(ppm_words(-12.3, None), "12.3 ppm slow");
+        assert_eq!(ppm_words(12.3, Some(0.0)), "12.3 ppm fast");
+        assert_eq!(ppm_words(0.8401, Some(0.0004)), "0.840 ppm fast");
+        assert_eq!(ppm_words(-0.01, None), "0.0 ppm");
+        assert_eq!(ppm_words(0.004, Some(0.06)), "0.00 ppm");
+        assert_eq!(ppm_words(0.006, Some(0.06)), "0.01 ppm fast");
+    }
+
+    /// Two measures of one clock are apart by no less than either is
+    /// sure of: their errors add in squares, and a typed-in one adds none.
+    #[test]
+    fn a_gap_between_two_clocks_is_as_sure_as_both() {
+        let both = gap_sd(Some(0.3), Some(0.4)).unwrap();
+        assert!((both - 0.5).abs() < 1e-12, "{both}");
+        assert_eq!(gap_sd(Some(0.06), None), Some(0.06));
+        assert_eq!(gap_sd(None, Some(0.2)), Some(0.2));
+        assert_eq!(gap_sd(None, None), None);
+        assert_eq!(gap_sd(Some(f64::NAN), Some(0.0)), None);
+    }
 
     /// The clock's sign and scale, defined once (#657): one second of a
     /// card `ppm` fast is exactly 1 − ppm·1e-6 true seconds, and a log or

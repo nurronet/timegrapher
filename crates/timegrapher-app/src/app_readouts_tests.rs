@@ -1008,3 +1008,14 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
     assert!(at.is_some(), "{figure} drawn: {text}");
     assert!(text.contains(&want), "{want} in: {text}");
 }
+
+/// The timed clock's hint writes the ppm and its ± to the decimals the ±
+/// calls for, never one fixed decimal (#510 R8): a small ± shows more, a
+/// wide one the clock's base, and the sign is said in words after it.
+#[test]
+fn a_timed_clocks_decimals_follow_its_plus_minus() {
+    use super::readouts::timed_clock_text;
+    assert_eq!(timed_clock_text(0.84, 0.06), "0.84 ± 0.06");
+    assert_eq!(timed_clock_text(-20.24, 0.3), "20.2 ± 0.3");
+    assert_eq!(timed_clock_text(0.84, 0.0004), "0.840 ± <0.001");
+}

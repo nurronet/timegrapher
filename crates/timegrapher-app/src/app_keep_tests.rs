@@ -1062,6 +1062,15 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let d = root.join("Daytona").join(library::TAKES).join(&name);
     assert!(d.is_dir() && !take.exists());
     assert_eq!(Path::new(&app.opened_path), d);
+    // On show, it is Daytona's now: the Bench's card and the status line
+    // name it (#1280).
+    assert_eq!(app.watch_open.as_deref(), Some(daytona_id.as_str()));
+    assert_eq!(app.watch, "Daytona");
+    assert!(
+        app.status_words().contains("· Daytona ·"),
+        "{}",
+        app.status_words()
+    );
     app.answer_take_ask(watches::Ask::Delete {
         take: d.clone(),
         bytes: 0,
@@ -1086,6 +1095,60 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     assert!(added.join("take_part01-001.wav").is_file() && !outside.exists());
     assert_eq!(Path::new(&app.opened_path), added);
     assert_eq!(app.addable_take(), None);
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The take on show, filed from Unsorted Takes under a watch: the Bench
+/// leaves Unsorted Takes for that watch and the status line names it
+/// (#1280).
+#[test]
+fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
+    let base = std::env::temp_dir().join(format!("tg-app-file-shown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let pepsi = lib.find("Pepsi").unwrap().watch.id.clone();
+    let take = lib.unsorted_dir().unwrap().join("2026-10-20 10.00 Dial Up");
+    drop(lib);
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\n\n[[recording]]\nfile = \".\"\nposition = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.pick_unsorted();
+    app.take_action(Some(watches::TakeAction::Open(take.clone())));
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+        app.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
+    assert!(app.unsorted_open && app.watch_open.is_none());
+
+    app.take_readings.wait();
+    app.move_take(&take, &pepsi);
+    assert!(!app.unsorted_open);
+    assert_eq!(app.watch_open.as_deref(), Some(pepsi.as_str()));
+    assert_eq!(app.watch, "Pepsi");
+    assert!(
+        app.status_words().contains("· Pepsi ·"),
+        "{}",
+        app.status_words()
+    );
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -1610,5 +1673,184 @@ fn just_open_it_lets_the_watch_picked_go() {
     // The next take starts from Quick Listen's settings, not Alpha's.
     app.new_session();
     assert_eq!(app.watch_setup(), WatchSetup::default());
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A new watch made while adding a take starts with what the take says
+/// of its calibre, beat rate and lift, so the two agree (#1266). Where the
+/// calibre table gives a beat rate or lift, the watch takes the table's,
+/// as Edit… keeps it, not the take's (Vernon on #1273).
+#[test]
+fn a_new_watch_made_for_a_take_takes_its_calibre_beat_rate_and_lift() {
+    let known = timegrapher_core::calibres::find("2824-2").expect("ETA 2824-2 in the table");
+    let table_lift = known.lift_angle_deg.expect("a lift for the 2824-2");
+    for (n, calibre) in ["Unlisted 1", known.calibre.as_str()]
+        .into_iter()
+        .enumerate()
+    {
+        let base =
+            std::env::temp_dir().join(format!("tg-app-new-for-take-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Timegrapher Data");
+        library::Library::create(&root).unwrap();
+        let take = base.join("outside take");
+        std::fs::create_dir_all(&take).unwrap();
+        let audio = generate(
+            &SynthConfig {
+                duration_s: 20.0,
+                ..Default::default()
+            },
+            |_| 280.0,
+            |_| 0.0,
+        );
+        timegrapher_core::audio::write_wav(&take.join("take.wav"), &audio).unwrap();
+        std::fs::write(
+            take.join(MANIFEST),
+            format!(
+                "calibre = '{calibre}'\nbph = 28800\nlift = 55.0\n\n\
+                 [[recording]]\nfile = 'take.wav'\nposition = 'DU'\n"
+            ),
+        )
+        .unwrap();
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        app.use_library(Some(root.clone()));
+        app.input = Input::File;
+        let mut a = app.open_ask_for(&take).expect("asked");
+        a.add = true;
+        a.new_watch = true;
+        a.new_name = "YM42 roam".into();
+        a.started = "2026-10-22 14:30".into();
+        let need = app.open_need(&a);
+        app.answer_open_ask(a, need);
+        assert!(
+            app.open_ask.is_none(),
+            "added: {:?}",
+            app.open_ask.as_ref().and_then(|a| a.error.clone())
+        );
+        let lib = library::Library::open(&root).unwrap();
+        let w = &lib.find("YM42 roam").expect("the new watch").watch;
+        assert_eq!(w.calibre.as_deref(), Some(calibre));
+        // What a Listen on the watch, and its Edit…, start with.
+        if n == 0 {
+            assert_eq!((w.bph, w.lift), (Some(28800), Some(55.0)));
+            assert_eq!(app.cal.watch_lift(w), Some(55.0));
+            assert_eq!(app.cal.watch_bph(w), Some(28800));
+        } else {
+            assert_eq!(
+                (w.bph, w.lift),
+                (None, None),
+                "the table's, not stored twice"
+            );
+            assert_eq!(app.cal.watch_lift(w), Some(table_lift));
+            assert_eq!(app.cal.watch_bph(w), known.bph);
+        }
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+            app.poll();
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+/// A New Watch made for a recording that can't be added is taken back, so
+/// it isn't left empty in the watches and a second try can use its name
+/// (#1275).
+#[cfg(unix)]
+#[test]
+fn a_new_watch_for_a_recording_that_cant_be_added_is_taken_back() {
+    let base = std::env::temp_dir().join(format!("tg-app-add-undo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    library::Library::create(&root).unwrap();
+    let take = base.join("outside take");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "bph = 28800\nlift = 55.0\n\n[[recording]]\nfile = 'take.wav'\nposition = 'DU'\n",
+    )
+    .unwrap();
+    // A link in the take, which can't be copied.
+    let link = take.join("notes.txt");
+    std::os::unix::fs::symlink(take.join("take.wav"), &link).unwrap();
+    // Two watches already there with no takes: one with nothing in it,
+    // one with a photo.
+    let mut lib = library::Library::open(&root).unwrap();
+    lib.add(&library::Watch::new("Alpha")).unwrap();
+    let pictured = lib.add(&library::Watch::new("Pictured")).unwrap();
+    std::fs::write(pictured.join(library::PHOTOS).join("dial.jpg"), b"jpeg").unwrap();
+    let alpha = lib.find("Alpha").unwrap().watch.id.clone();
+    let photo = lib.find("Pictured").unwrap().watch.id.clone();
+    // One with a photo is never taken back.
+    let err = lib.remove_empty(&photo).unwrap_err();
+    assert!(err.contains("has takes or photos"), "{err}");
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    app.input = Input::File;
+    // A failed add into a watch already there leaves it, empty or not.
+    let mut a = app.open_ask_for(&take).expect("asked");
+    a.add = true;
+    a.new_watch = false;
+    a.watch = Some(alpha);
+    a.started = "2026-10-22 14:30".into();
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    assert!(app.open_ask.as_ref().is_some_and(|a| a.error.is_some()));
+    app.open_ask = None;
+    let ask = |app: &TimegrapherApp| {
+        let mut a = app.open_ask_for(&take).expect("asked");
+        a.add = true;
+        a.new_watch = true;
+        a.new_name = "YM42 roam".into();
+        a.started = "2026-10-22 14:30".into();
+        a
+    };
+    let a = ask(&app);
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    let why = app.open_ask.as_ref().and_then(|a| a.error.clone());
+    assert!(
+        why.as_deref().is_some_and(|w| w.contains("link")),
+        "{why:?}"
+    );
+    let names = |root: &Path| -> Vec<String> {
+        library::Library::open(root)
+            .unwrap()
+            .watches
+            .iter()
+            .map(|e| e.watch.name.clone())
+            .collect()
+    };
+    assert_eq!(
+        names(&root),
+        ["Alpha", "Pictured"],
+        "only the new one taken back"
+    );
+    // Fixed, the same name is free to try again.
+    std::fs::remove_file(&link).unwrap();
+    // As the question does, still open with the reason in it.
+    let mut a = app.open_ask.take().expect("the question stays open");
+    a.error = None;
+    let need = app.open_need(&a);
+    app.answer_open_ask(a, need);
+    assert!(
+        app.open_ask.is_none(),
+        "{:?}",
+        app.open_ask.as_ref().and_then(|a| a.error.clone())
+    );
+    assert_eq!(names(&root), ["Alpha", "Pictured", "YM42 roam"]);
+    let t = Instant::now();
+    while app.batch.is_some() && t.elapsed().as_secs() < 120 {
+        app.poll();
+    }
     let _ = std::fs::remove_dir_all(&base);
 }

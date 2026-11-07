@@ -113,6 +113,8 @@ struct Raw {
     mean: Vec<Option<f64>>,
     #[serde(default)]
     shape: Vec<Option<f64>>,
+    #[serde(default)]
+    misfit_p99: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -127,6 +129,9 @@ struct Measured {
     /// The drawn mix the rebinned tail was fitted to (its shape group).
     #[serde(default, skip_serializing)]
     tail_from: Option<f64>,
+    /// Timing: each mean-pass draw's fitted mix and misfit.
+    #[serde(default)]
+    misfit_draws: Vec<(f64, f64)>,
     /// The fitted Gumbel's location and scale, score units.
     mu: f64,
     sigma: f64,
@@ -172,13 +177,7 @@ fn x_index(x: f64) -> Option<usize> {
 /// gamma shape there, levelled as a take is, by the table's mean at the
 /// mix its own fit reads (so the shape carries that fit's scatter too;
 /// none until the table has means); and the median mix the fit reads.
-fn null_mean(
-    model: NullModel,
-    span: f64,
-    step: f64,
-    mix: f64,
-    draws: usize,
-) -> (Vec<Option<f64>>, Vec<Option<f64>>, f64) {
+fn null_mean(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> NullMean {
     let mi = (mix.min(1e15) * 1000.0).round() as u64;
     let id = [model as u64, span as u64, (step * 100.0) as u64, mi];
     let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
@@ -192,6 +191,7 @@ fn null_mean(
     let mut lev_ss = vec![0.0; X_POINTS];
     let own = levelling(model, span, step, mix);
     let mut fitted = Vec::new();
+    let mut misfits = Vec::new();
     for d in 0..draws {
         let g = null_grid(
             model,
@@ -213,9 +213,11 @@ fn null_mean(
         let f = match model {
             NullModel::Readings => sp.rho,
             NullModel::Timing => {
-                let from_x = if w.is_some() { 2.0 } else { 6.0 };
-                let from = (from_x / (sp.df * scale)).ceil() as usize;
-                timing_mix(&sp.power, sp.df, step, from, scale)
+                let t = fit_of_draw(&sp, w, step, scale);
+                if t.misfit.is_finite() {
+                    misfits.push((t.mix, t.misfit));
+                }
+                t.mix
             }
         };
         fitted.push(f);
@@ -245,7 +247,76 @@ fn null_mean(
         .map(|(&s, &c)| (c >= 20).then(|| (s / c as f64 * 1e4).round() / 1e4))
         .collect();
     fitted.sort_by(f64::total_cmp);
-    (mean, shape, fitted[fitted.len() / 2])
+    let misfit_p99 = (misfits.len() >= 100).then(|| p99(misfits.iter().map(|m| m.1)));
+    NullMean {
+        mean,
+        shape,
+        fitted_mix: fitted[fitted.len() / 2],
+        misfit_p99,
+        misfit_draws: misfits,
+    }
+}
+
+/// A null draw's timing fit, read from well above the detrend's corner
+/// as the search reads it.
+fn fit_of_draw(sp: &crate::longterm::Spectrum, w: Option<f64>, step: f64, scale: f64) -> TimingFit {
+    let from_x = if w.is_some() { 2.0 } else { 6.0 };
+    let from = (from_x / (sp.df * scale)).ceil() as usize;
+    timing_fit(&sp.power, sp.df, step, from, scale)
+}
+
+/// Timing's misfit draws alone, more of them than the mean takes: the
+/// first `draws` are the mean pass's own, so its seeds carry on.
+fn misfit_draws(span: f64, step: f64, mix: f64, draws: usize) -> Vec<(f64, f64)> {
+    let mi = (mix.min(1e15) * 1000.0).round() as u64;
+    let id = [
+        NullModel::Timing as u64,
+        span as u64,
+        (step * 100.0) as u64,
+        mi,
+    ];
+    let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
+    let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
+    let scale = x_scale(&g0, w);
+    (0..draws)
+        .filter_map(|d| {
+            let seed = seed_of(&[id[0], id[1], id[2], id[3], 1, d as u64]);
+            let g = null_grid(NullModel::Timing, span, step, mix, scale, seed);
+            let t = fit_of_draw(&spectrum(&detrend(&g, DETREND_S), w), w, step, scale);
+            t.misfit.is_finite().then_some((t.mix, t.misfit))
+        })
+        .collect()
+}
+
+/// Draws a timing cell for its misfit limit: an empirical 99th
+/// percentile from 400 left fresh seeds past it 2 to 3 in 100 at some
+/// cells (#1245).
+const MISFIT_DRAWS: usize = 2000;
+
+/// A timing cell's misfit draws and percentile from `n` draws.
+fn set_misfit(m: &mut Measured, n: usize) {
+    let c = &m.cell;
+    m.misfit_draws = misfit_draws(c.span_s, c.step_s, c.mix, n);
+    m.cell.misfit_p99 = Some(p99(m.misfit_draws.iter().map(|d| d.1)));
+}
+
+/// The 99th percentile of `x`, rounded as the table keeps it.
+fn p99(x: impl Iterator<Item = f64>) -> f64 {
+    let mut v: Vec<f64> = x.collect();
+    v.sort_by(f64::total_cmp);
+    (v[((v.len() as f64 * 0.99).ceil() as usize).max(1) - 1] * 1e4).round() / 1e4
+}
+
+/// What [`null_mean`] measures over a cell's draws.
+struct NullMean {
+    mean: Vec<Option<f64>>,
+    shape: Vec<Option<f64>>,
+    /// The draws' median fitted mix.
+    fitted_mix: f64,
+    /// Timing: the 99th percentile of the draws' misfit.
+    misfit_p99: Option<f64>,
+    /// Timing: each draw's fitted mix and misfit.
+    misfit_draws: Vec<(f64, f64)>,
 }
 
 /// The maxima of the same draws as [`measure`]'s, each levelled as a take
@@ -303,11 +374,18 @@ fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Me
     let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
     let scale = x_scale(&g0, w);
     let min_p = 3f64.max(8.0 * step);
-    let (mean, shape, fitted_mix) = null_mean(model, span, step, mix, draws);
+    let NullMean {
+        mean,
+        shape,
+        fitted_mix,
+        misfit_p99,
+        misfit_draws,
+    } = null_mean(model, span, step, mix, draws);
     // The plain trials count's tail; the maxima don't depend on it.
     let lev = Levelling {
         mean: mean.clone(),
         shape: shape.clone(),
+        misfit_p99: None,
         mu: 0.0,
         sigma: 1.0 / std::f64::consts::LN_10,
         xi: 0.0,
@@ -354,11 +432,13 @@ fn measure(model: NullModel, span: f64, step: f64, mix: f64, draws: usize) -> Me
             loc0: ((mu - log_trials / slope) * 1e4).round() / 1e4,
             mean,
             shape,
+            misfit_p99,
         },
         fitted_mix,
         smax,
         fitted: Vec::new(),
         tail_from: None,
+        misfit_draws,
         mu,
         sigma,
     }
@@ -371,6 +451,11 @@ struct Run {
     cache: Option<String>,
     remean: bool,
     refit: Option<String>,
+    /// Only timing's misfit percentile measured again, all else kept.
+    misfit: bool,
+    /// Draws a cell for the misfit (`NULL_MISFIT_DRAWS`, default
+    /// [`MISFIT_DRAWS`]), at least `draws`.
+    misfit_n: usize,
 }
 
 impl Run {
@@ -380,8 +465,10 @@ impl Run {
             cache,
             remean,
             refit,
+            misfit,
+            misfit_n,
         } = self;
-        let (draws, remean) = (*draws, *remean);
+        let (draws, remean, misfit, misfit_n) = (*draws, *remean, *misfit, *misfit_n);
         // A cell already measured (the run was cut short) is
         // read back rather than run again.
         let kept = cache
@@ -392,8 +479,20 @@ impl Run {
             // The mean measured again over its band, the
             // maxima kept (they use the band's mean only,
             // the same draws).
-            Some(mut m) if remean => {
-                (m.cell.mean, m.cell.shape, _) = null_mean(model, span, step, mix, draws);
+            Some(mut m) if !remean && misfit && model == NullModel::Timing => {
+                set_misfit(&mut m, misfit_n.max(draws));
+                if let Some(f) = &kept {
+                    std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
+                }
+                m
+            }
+            Some(mut m) if remean || (misfit && model == NullModel::Timing) => {
+                let n = null_mean(model, span, step, mix, draws);
+                if remean {
+                    (m.cell.mean, m.cell.shape) = (n.mean, n.shape);
+                }
+                m.cell.misfit_p99 = n.misfit_p99;
+                m.misfit_draws = n.misfit_draws;
                 if let Some(f) = &kept {
                     std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
                 }
@@ -418,7 +517,10 @@ impl Run {
             }
             Some(m) => m,
             None => {
-                let m = measure(model, span, step, mix, draws);
+                let mut m = measure(model, span, step, mix, draws);
+                if model == NullModel::Timing && misfit_n > draws {
+                    set_misfit(&mut m, misfit_n);
+                }
                 if let Some(f) = &kept {
                     std::fs::write(f, serde_json::to_string(&m).unwrap()).unwrap();
                 }
@@ -441,6 +543,8 @@ fn write_period_null_table() {
         remean: std::env::var("NULL_REMEAN").is_ok(),
         // `NULL_REFIT=Timing`: that model's maxima levelled as takes are.
         refit: std::env::var("NULL_REFIT").ok(),
+        misfit: std::env::var("NULL_MISFIT").is_ok(),
+        misfit_n: std::env::var("NULL_MISFIT_DRAWS").map_or(MISFIT_DRAWS, |s| s.parse().unwrap()),
     };
     let mut jobs = Vec::new();
     for model in [NullModel::Timing, NullModel::Readings] {
@@ -510,8 +614,9 @@ fn write_period_null_table() {
         );
         (n, p1, p01) = (n + cn, p1 + c1, p01 + c01);
     }
+    let misfit_n = run.misfit_n.max(draws);
     let note = format!(
-        "Generated by write_period_null_table (longterm/null_tests.rs), fixed seeds. {draws} draws a cell for the mean and as many for the maximum. The maximum's generalised extreme value by maximum likelihood: location and scale for each cell (the scale's relative error about {:.0}%); the shape profiled over 0 to {:.1} in steps of 0.02, shared by each take length and step (readings) or each mix (timing). Timing's location and scale are fitted to the maxima grouped by the mix each take's search fitted, which is the coordinate the lookup reads, pooled from every drawn mix of that length and step. The drawn mixes are white, 1 to 10^4 up to 0.35 of the sampling rate, and walk. The drawn mixes reach both ends of the lookup's axis, white and walk, so no fitted mix lies past them. A cell that fewer than {MIN_BIN} draws read takes the {MIN_BIN} read nearest it. Each cell's tail is then the least favourable over the drawn mixes read as it or either neighbour (the lookup blends neighbours): fitted to the drawn mix, of those giving at least {MIN_SOURCE} draws, whose maxima most often pass the fit's p 0.001 and 0.0003 levels, refitted until that mix is the one fitted, and sharing that mix's shape group. So the false-alarm chance holds for every drawn mix, not on average over them. Each bin's whitened power is scored by its own null spread (a gamma shape per x). Pooled tail check: {p1} of {n} null maxima under p 0.01 (expected {:.0}), {p01} under 0.001 (expected {:.0}).",
+        "Generated by write_period_null_table (longterm/null_tests.rs), fixed seeds. {draws} draws a cell for the mean and as many for the maximum. The maximum's generalised extreme value by maximum likelihood: location and scale for each cell (the scale's relative error about {:.0}%); the shape profiled over 0 to {:.1} in steps of 0.02, shared by each take length and step (readings) or each mix (timing). Timing's location and scale are fitted to the maxima grouped by the mix each take's search fitted, which is the coordinate the lookup reads, pooled from every drawn mix of that length and step. The drawn mixes are white, 1 to 10^4 up to 0.35 of the sampling rate, and walk. The drawn mixes reach both ends of the lookup's axis, white and walk, so no fitted mix lies past them. A cell that fewer than {MIN_BIN} draws read takes the {MIN_BIN} read nearest it. Each cell's tail is then the least favourable over the drawn mixes read as it or either neighbour (the lookup blends neighbours): fitted to the drawn mix, of those giving at least {MIN_SOURCE} draws, whose maxima most often pass the fit's p 0.001 and 0.0003 levels, refitted until that mix is the one fitted, and sharing that mix's shape group. So the false-alarm chance holds for every drawn mix, not on average over them. Each bin's whitened power is scored by its own null spread (a gamma shape per x). Each timing cell also gives a misfit limit: the misfit is the rms in decades of the quarter-octave band powers from the walk plus white fitted to them, and the limit is the largest 99th percentile of it ({misfit_n} draws a drawn mix) over the drawn mixes (of those with at least {MIN_SOURCE} draws there) read as this cell or either neighbour. Pooled tail check: {p1} of {n} null maxima under p 0.01 (expected {:.0}), {p01} under 0.001 (expected {:.0}).",
         78.0 / (draws as f64).sqrt(),
         0.02 * XI_STEPS as f64,
         n as f64 * 0.01,
@@ -710,6 +815,54 @@ fn rebin_by_fitted_mix(done: &mut [Measured]) {
             m.smax = b;
             m.tail_from = worst.is_finite().then_some(worst);
         }
+        rebin_misfit(done, &idx, &keys);
+    }
+}
+
+/// Each timing cell's misfit limit as the lookup meets it: the largest
+/// 99th percentile over the drawn mixes (of those with [`MIN_SOURCE`]
+/// draws there) read as this cell or either neighbour (Norm on #1245).
+/// A cell no drawn mix reads keeps its own.
+fn rebin_misfit(done: &mut [Measured], idx: &[usize], keys: &[f64]) {
+    let nearest = |u: f64| {
+        (0..keys.len())
+            .min_by(|&a, &b| (keys[a] - u).abs().total_cmp(&(keys[b] - u).abs()))
+            .unwrap()
+    };
+    let read: Vec<Vec<(usize, f64)>> = idx
+        .iter()
+        .map(|&i| {
+            done[i]
+                .misfit_draws
+                .iter()
+                .filter(|d| d.0.is_finite())
+                .map(|&(f, m)| (nearest(axis(NullModel::Timing, f)), m))
+                .collect()
+        })
+        .collect();
+    if read.iter().all(Vec::is_empty) {
+        return;
+    }
+    for (k, &i) in idx.iter().enumerate() {
+        let worst = read
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .filter(|d| d.0.abs_diff(k) <= 1)
+                    .map(|d| d.1)
+                    .collect::<Vec<f64>>()
+            })
+            .filter(|x| x.len() >= MIN_SOURCE)
+            .map(|x| p99(x.into_iter()))
+            .fold(f64::NAN, f64::max);
+        let c = &mut done[i].cell;
+        if worst.is_finite() {
+            eprintln!(
+                "misfit Timing {} {} {}: own {:?}, limit {worst}",
+                c.span_s, c.step_s, c.mix, c.misfit_p99
+            );
+            c.misfit_p99 = Some(worst);
+        }
     }
 }
 
@@ -777,6 +930,7 @@ fn fit_shapes(done: &[Measured]) -> Vec<Cell> {
                 log_trials: round((m.mu - c.loc0) * c.slope),
                 mean: c.mean.clone(),
                 shape: c.shape.clone(),
+                misfit_p99: c.misfit_p99,
             }
         })
         .collect()
@@ -887,6 +1041,91 @@ fn a_lookup_between_cells_interpolates() {
     );
 }
 
+/// Out of sample, the misfit caveat (#1245): each timing cell's walk plus
+/// white, fresh seeds, with a sine the search names, read as a take is.
+/// Prints each cell's named count and how many of those carry
+/// `timing_model_misfit`; at the 99th percentile, about 1 in 100. Run by
+/// hand: `FRESH_DRAWS` a cell (default 200), `FRESH_MIX` one drawn mix,
+/// `FRESH_SPAN` one take length, `FRESH_TAG` another batch of seeds,
+/// `FRESH_NOSINE` the null alone read at its own fit (every draw counted).
+#[test]
+#[ignore = "out-of-sample misfit check; run by hand"]
+fn fresh_sines_hold_the_misfit() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let draws: usize = std::env::var("FRESH_DRAWS").map_or(200, |s| s.parse().unwrap());
+    let only_mix: Option<f64> = std::env::var("FRESH_MIX").ok().map(|s| s.parse().unwrap());
+    let only_span: Option<f64> = std::env::var("FRESH_SPAN").ok().map(|s| s.parse().unwrap());
+    let tag: u64 = std::env::var("FRESH_TAG").map_or(13, |s| s.parse().unwrap());
+    let mut cells: Vec<&Cell> = table()
+        .cells
+        .iter()
+        .filter(|c| {
+            c.model == NullModel::Timing
+                && only_mix.is_none_or(|x| c.mix == x)
+                && only_span.is_none_or(|x| c.span_s == x)
+        })
+        .collect();
+    cells.sort_by(|a, b| (b.span_s / b.step_s).total_cmp(&(a.span_s / a.step_s)));
+    let next = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|sc| {
+        for _ in 0..workers {
+            sc.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(c) = cells.get(i) else { break };
+                let g0 = null_grid(NullModel::Readings, c.span_s, c.step_s, 0.0, 1.0, 1);
+                let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * c.step_s);
+                let scale = x_scale(&g0, w);
+                let mi = (c.mix.min(1e15) * 1000.0).round() as u64;
+                // A period well inside the band: 60 s, or a fifth of a
+                // short take.
+                let period = 60f64.min(c.span_s / 5.0).max(16.0 * c.step_s);
+                let (mut named, mut caveats) = (0, 0);
+                for d in 0..draws {
+                    let seed = seed_of(&[
+                        1,
+                        c.span_s as u64,
+                        (c.step_s * 100.0) as u64,
+                        mi,
+                        tag,
+                        d as u64,
+                    ]);
+                    let mut g =
+                        null_grid(NullModel::Timing, c.span_s, c.step_s, c.mix, scale, seed);
+                    let det = detrend(&g, DETREND_S);
+                    let ys: Vec<f64> = det.y.iter().copied().filter(|v| v.is_finite()).collect();
+                    let rms = (ys.iter().map(|v| v * v).sum::<f64>() / ys.len() as f64).sqrt();
+                    if std::env::var("FRESH_NOSINE").is_ok() {
+                        let f = fit_of_draw(&spectrum(&det, w), w, c.step_s, scale);
+                        let lim = levelling(NullModel::Timing, c.span_s, c.step_s, f.mix)
+                            .and_then(|l| l.misfit_p99);
+                        named += 1;
+                        caveats += usize::from(lim.is_some_and(|l| f.misfit > l));
+                        continue;
+                    }
+                    for (j, y) in g.y.iter_mut().enumerate() {
+                        let t = j as f64 * c.step_s;
+                        *y += 2.0 * rms * (std::f64::consts::TAU * t / period).sin();
+                    }
+                    let r = crate::longterm::analyse_timing(
+                        &g,
+                        &crate::longterm::LongConfig::default(),
+                    );
+                    if r.components.is_empty() {
+                        continue;
+                    }
+                    named += 1;
+                    caveats += usize::from(crate::longterm::timing_misfit(&r).is_some());
+                }
+                eprintln!(
+                    "misfit {} {} {}: {draws} {named} {caveats}",
+                    c.span_s, c.step_s, c.mix
+                );
+            });
+        }
+    });
+}
+
 /// Out of sample: fresh seeds (none the table was fitted on) through the
 /// whole search, its own mix fitted and looked up, at every cell; the
 /// count of maxima past p 0.01 and 0.001 against the expected. Run by
@@ -992,6 +1231,7 @@ fn a_bins_power_reads_as_its_own_tail() {
     let lev = |k: Option<f64>| Levelling {
         mean: vec![Some(1.0); X_POINTS],
         shape: k.map_or_else(Vec::new, |k| vec![Some(k); X_POINTS]),
+        misfit_p99: None,
         mu: 0.0,
         sigma: 1.0,
         xi: 0.0,
@@ -1054,6 +1294,7 @@ fn a_levellings_tail_at_its_own_trials_is_its_own() {
         let l = Levelling {
             mean: vec![Some(1.0); X_POINTS],
             shape: Vec::new(),
+            misfit_p99: None,
             mu: 3.4,
             sigma: 0.47,
             xi,
@@ -1085,6 +1326,64 @@ fn a_step_a_few_ppm_off_finds_its_cells() {
 /// The timing's crossover fit on the null itself: about none on white
 /// noise, the pure walk's mark on a walk, and close to the crossover a
 /// walk plus white noise was made with (the median of 21 draws).
+/// A walk plus white sits inside the null's 99th percentile of misfit;
+/// flicker timing (power falling as 1/f, a sum of relaxations a decade
+/// apart) sits past it, which is when the caveat is given (#1218, #1219).
+#[test]
+fn flicker_timing_sits_past_the_nulls_misfit() {
+    let (span, step) = (5400.0, 0.25);
+    let g0 = null_grid(NullModel::Readings, span, step, 0.0, 1.0, 1);
+    let w = detrend_window(&g0, DETREND_S).map(|w| w as f64 * step);
+    let scale = x_scale(&g0, w);
+    let n = (span / step) as usize;
+    let flicker = |seed: u64| -> Grid {
+        let mut z = Rng::new(seed);
+        let taus = [1.0, 10.0, 100.0, 1000.0, 10000.0];
+        let mut x = [0.0; 5];
+        let y = (0..n)
+            .map(|_| {
+                let mut v = 0.0;
+                for (xi, tau) in x.iter_mut().zip(taus) {
+                    let phi = (-step / tau).exp();
+                    *xi = phi * *xi + (1.0 - phi * phi).sqrt() * z.normal();
+                    v += *xi;
+                }
+                v
+            })
+            .collect();
+        Grid { t0: 0.0, step, y }
+    };
+    let read = |g: &Grid| {
+        let sp = spectrum(&detrend(g, DETREND_S), w);
+        let from = (2.0 / (sp.df * scale)).ceil() as usize;
+        let f = timing_fit(&sp.power, sp.df, step, from, scale);
+        let limit = levelling(NullModel::Timing, span, step, f.mix)
+            .and_then(|l| l.misfit_p99)
+            .expect("a covered take");
+        (f.misfit, limit)
+    };
+    let mut past = 0;
+    for d in 0..20u64 {
+        let (m, limit) = read(&flicker(seed_of(&[11, d])));
+        past += usize::from(m > limit);
+    }
+    assert!(past >= 18, "flicker past the null's misfit on {past} of 20");
+    let mut walks = 0;
+    for d in 0..100u64 {
+        let g = null_grid(
+            NullModel::Timing,
+            span,
+            step,
+            100.0,
+            scale,
+            seed_of(&[12, d]),
+        );
+        let (m, limit) = read(&g);
+        walks += usize::from(m > limit);
+    }
+    assert!(walks <= 5, "walk plus white past it on {walks} of 100");
+}
+
 #[test]
 fn timing_mix_recovers_the_crossover() {
     let (span, step) = (7200.0, 0.25);

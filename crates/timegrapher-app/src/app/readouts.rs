@@ -817,8 +817,7 @@ impl TimegrapherApp {
                     note.unwrap_or_default()
                 ));
             }
-            let ppm = format!("{:.1}", f.ppm.abs());
-            let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
+            let ppm = timegrapher_core::clock::ppm_words(f.ppm, Some(f.ppm_sd));
             let from = self
                 .take_clock_source
                 .as_deref()
@@ -827,7 +826,7 @@ impl TimegrapherApp {
             // breaks: what the log measured follows.
             let note = note.map_or(String::new(), |n| format!(" {n}."));
             return Some(format!(
-                "The rate corrected for the sound card's own clock, {ppm} ppm {way}{from}, \
+                "The rate corrected for the sound card's own clock, {ppm}{from}, \
                  as the Positions table reads it.{note} tg reads the recording on the card's \
                  clock."
             ));
@@ -864,58 +863,59 @@ impl TimegrapherApp {
 
     /// The input's clock in words, for Settings' Quartz Correction: as
     /// timed and offered to keep, as kept, or not timed yet.
-    fn clock_words(
+    pub(super) fn clock_words(
         &self,
         measured: Option<&timegrapher_core::clock::ClockFit>,
         kept: Option<&clockstore::DeviceClock>,
     ) -> ClockWords {
-        let words = |ppm: f64| {
-            format!(
-                "{:.1} ppm {}",
-                ppm.abs(),
-                if ppm >= 0.0 { "fast" } else { "slow" }
-            )
-        };
+        use timegrapher_core::clock::{gap_sd, ppm_words, rate_error_s_per_day};
         if let Some(f) = measured {
             let way = if f.ppm >= 0.0 { "fast" } else { "slow" };
             let mut hint = format!(
                 "Timed against the computer's clock over {} of listening, this input's \
-                 clock runs {:.1} ± {:.1} ppm {way}: {:+.1} seconds per day on every rate. \
+                 clock runs {} ppm {way}: {:+.1} seconds per day on every rate. \
                  Keep it to show the corrected rate as True Clock from now on; the command \
                  line and the MCP server use it too. It is only right if the computer's \
                  clock is kept by internet time.",
                 length_text(f.span_s),
-                f.ppm.abs(),
-                f.ppm_sd,
+                timed_clock_text(f.ppm, f.ppm_sd),
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {
-                let off = f.ppm - c.ppm;
+                // How far apart the two are, to the decimals the gap's own
+                // ± calls for: each measure's added in squares (#1271).
+                let off = (f.ppm - c.ppm).abs();
+                let sd = gap_sd(Some(f.ppm_sd), c.ppm_sd);
                 hint += &format!(
-                    "\n\nThe clock kept for \"{}\" runs {}, kept {}. This timing is {:.1} ppm \
-                     from it, {:.1} seconds per day on True Clock. An input reached by a \
+                    "\n\nThe clock kept for \"{}\" runs {}, kept {}. This timing is {} ppm \
+                     from it, {} seconds per day on True Clock. An input reached by a \
                      shared name, such as the system default, may be a different sound card \
                      from the one timed then. Keep replaces the kept clock with this one.",
                     c.device,
-                    words(c.ppm),
+                    ppm_words(c.ppm, c.ppm_sd),
                     day_of(&c.measured_utc),
-                    off.abs(),
-                    timegrapher_core::clock::rate_error_s_per_day(off.abs())
+                    figure(off, sd, base::CLOCK, false),
+                    figure(
+                        rate_error_s_per_day(off).abs(),
+                        sd.map(|s| rate_error_s_per_day(s).abs()),
+                        base::RATE,
+                        false
+                    )
                 );
             }
             return ClockWords {
-                value: words(f.ppm),
+                value: ppm_words(f.ppm, Some(f.ppm_sd)),
                 hint,
             };
         }
         if let Some(c) = kept {
             return ClockWords {
-                value: words(c.ppm),
+                value: ppm_words(c.ppm, c.ppm_sd),
                 hint: format!(
                     "This input's own clock runs {} ({:+.1} s/d on every rate), measured {} \
                      from {}. The Rate figure's hover gives the rate corrected for it, as True \
                      Clock. The clock kept is under Settings > Microphone > Quartz Correction.",
-                    words(c.ppm),
+                    ppm_words(c.ppm, c.ppm_sd),
                     c.rate_error_s_per_day(),
                     c.measured_utc,
                     match c.source.as_str() {
@@ -977,9 +977,8 @@ impl TimegrapherApp {
         match saved {
             Ok(p) => {
                 self.info_msg(format!(
-                    "Kept this input's clock, {:.1} ppm {}, in {}",
-                    d.ppm.abs(),
-                    if d.ppm >= 0.0 { "fast" } else { "slow" },
+                    "Kept this input's clock, {}, in {}",
+                    timegrapher_core::clock::ppm_words(d.ppm, d.ppm_sd),
                     p.display()
                 ));
                 self.put_input_clock(Some(d));
@@ -1765,4 +1764,13 @@ fn status_item(
         resp
     })
     .inner
+}
+
+/// A clock timed while listening as the hint gives it, `ppm` as its size
+/// and its standard error `sd`, both to the decimals the ± calls for
+/// (core's [`timegrapher_core::figure_text::figure_with_pm`], #510 R8):
+/// "0.84 ± 0.06", "20.2 ± 0.3". The hint says "fast" or "slow" after it.
+pub(super) fn timed_clock_text(ppm: f64, sd: f64) -> String {
+    use timegrapher_core::figure_text::{base_digits, figure_with_pm};
+    figure_with_pm(ppm.abs(), Some(sd), base_digits::CLOCK, false)
 }

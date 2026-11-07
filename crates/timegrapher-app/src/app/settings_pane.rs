@@ -542,7 +542,7 @@ impl TimegrapherApp {
                 RichText::new(match &kept {
                     Some(c) => format!(
                         "Forget the clock kept for \"{device}\", {}, measured {}?",
-                        settings_window::ppm_words(c.ppm),
+                        timegrapher_core::clock::ppm_words(c.ppm, c.ppm_sd),
                         day_of(&c.measured_utc)
                     ),
                     None => format!("Forget the clock kept for \"{device}\"?"),
