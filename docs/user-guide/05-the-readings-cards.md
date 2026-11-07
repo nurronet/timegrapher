@@ -46,14 +46,17 @@ rate.
 
 ### Picking a Calibre
 
-![The Calibre pop-up open, marks 1 to 4](images/calibre-picker.png)
+![The Calibre pop-up open with "Seiko 6R" typed, marks 1 to 3](images/calibre-picker.png)
 
 | Mark | Part | What it does |
 | --- | --- | --- |
-| 1 | **Search every calibre** | Matches a calibre's name, another name for it, or its maker. ↑ and ↓ move through the matches; Enter picks one. |
-| 2 | **Not Set** | Back to no calibre: Auto and 52°. |
-| 3 | The lists | **Recent** (the last six calibres used), the **Short List** by maker, and **Custom**, your own. |
-| 4 | **Manage Calibres…** | Opens Settings at Calibres, to add your own or change the Short List. See chapter 24. |
+| 1 | **Search every calibre** | Matches a calibre's name, another name for it, or its maker. ⊗ or Esc clears it. |
+| 2 | The matches | ↑ and ↓ move through them; Enter picks the highlighted one. |
+| 3 | **Manage Calibres…** | Opens Settings at Calibres, to add your own or change the Short List. See chapter 24. |
+
+With the search empty, the menu offers **Not Set** (back to Auto and
+52°), then **Recent** (the last six calibres used), the **Short List** by
+maker, and **Custom**, your own calibres.
 
 - **What a calibre sets:** its beat rate, and its lift angle where the
   table has one. They then show as text, not as controls.
@@ -129,7 +132,7 @@ Rest the pointer on a figure to see what stands behind it.
 
 | Card | The hover adds |
 | --- | --- |
-| **Rate** | The rate corrected onto true time, labelled **True Clock**, when the sound card's clock is known. The beats the readings are fitted to ("79 beats in 10 s"), and the **jitter**. |
+| **Rate** | The sound card's clock (M3). **Listening,** with a correction kept for the input, the big figure stays on the card's clock and the hover adds the corrected rate, labelled **True Clock**. **On an opened take** with its own clock (a clock log, USB lines, or a correction saved with it), the big figure is already corrected, and the hover says by how much and from what, as in the picture. Then the beats the readings are fitted to ("79 beats in 10 s"), and the **jitter**. |
 | **Amplitude** | The amplitude of the Ticks and of the Tocks, apart. |
 | **Beat Error** | The beat error timed from the drop, beside the big figure's, timed from the unlock. |
 

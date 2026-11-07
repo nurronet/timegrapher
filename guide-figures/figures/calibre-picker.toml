@@ -1,13 +1,15 @@
 # Chapter 5, The Calibre Card: the Calibre pop-up open on an opened take,
-# its search at the top and Manage Calibres… at its foot.
+# a search typed, and Manage Calibres… at its foot. A search, not the
+# empty menu: the empty menu's Short List headings name makers it
+# shouldn't show here.
 output = "calibre-picker.png"
 
-# 1 search, 2 Not Set, 3 the Short List, 4 Manage Calibres….
-marks = [[1, 572, 207], [2, 572, 237], [3, 572, 274], [4, 572, 529]]
+# 1 search, 2 the matches, 3 Manage Calibres….
+marks = [[1, 665, 207], [2, 665, 237], [3, 665, 529]]
 
 layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 
-actions = [["sleep", 20], ["click", 398, 107], ["sleep", 1]]
+actions = [["sleep", 20], ["click", 398, 107], ["sleep", 1], ["type", "Seiko 6R"], ["sleep", 1]]
 
 [data]
 corpus = "dd3235_DU_30min"
