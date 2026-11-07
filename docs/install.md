@@ -1,9 +1,10 @@
 # Installing Timegrapher
 
 Ready-made downloads are on the
-[Releases page](https://github.com/peterhudson/timegrapher/releases/latest).
-Each release has one download for each system, and `SHA256SUMS.txt` to
-check a download:
+[Releases page](https://github.com/peterhudson/timegrapher/releases).
+If it lists no version yet, none has been published: build from source as
+[building.md](building.md) describes. Each release has one download for
+each system, and `SHA256SUMS.txt` to check a download:
 
 | System | Download |
 |---|---|

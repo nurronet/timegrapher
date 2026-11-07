@@ -33,10 +33,11 @@ paper-strip trace; see [docs/app.md](docs/app.md).
 
 Download the desktop app and the command line tool for Linux, macOS or
 Windows from the
-[Releases page](https://github.com/peterhudson/timegrapher/releases/latest).
+[Releases page](https://github.com/peterhudson/timegrapher/releases).
 The builds are not signed, so macOS and Windows ask once per version before
-opening them: [docs/install.md](docs/install.md) has the steps. To build
-from source instead, use Rust 1.90.0 or later and see the
+opening them: [docs/install.md](docs/install.md) has the steps. If the
+Releases page lists no version yet, or to build from source instead, use
+Rust 1.90.0 or later and see the
 [package and platform requirements](docs/building.md).
 
 ## Desktop app
