@@ -165,7 +165,8 @@ pub struct TwoState {
 }
 
 struct Block {
-    /// Which `block_s` stretch of the take the block is, from its start:
+    /// Which `block_s` stretch of the take the block is, from its start
+    /// (the stretch its samples' middles lie in):
     /// blocks that are missing (masked, in a gap, too thin) leave holes
     /// in these numbers.
     k: i64,
@@ -220,10 +221,13 @@ fn blocks(samples: &[Sample], p: &Params) -> (Vec<Block>, f64) {
     let need = ((0.6 * block_s / len).floor() as usize).max(1);
     let mut out = Vec::new();
     let mut i = 0;
+    // Each sample in the block its middle lies in, blocks laid from the
+    // take's first sample (#636), as every other surface places a window.
+    let block_of = |s: &Sample| (0.5 * (s.start_s + s.end_s) / block_s).floor();
     while i < kept.len() {
-        let k = (kept[i].start_s / block_s).floor();
+        let k = block_of(kept[i]);
         let mut j = i;
-        while j < kept.len() && (kept[j].start_s / block_s).floor() == k {
+        while j < kept.len() && block_of(kept[j]) == k {
             j += 1;
         }
         let b = &kept[i..j];
@@ -818,6 +822,25 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// A sample that starts in one 10 s block and has its middle in the
+    /// next is in the next, as every surface places a window by its
+    /// middle on the take's one tiling (#636).
+    #[test]
+    fn a_sample_is_in_the_block_its_middle_lies_in() {
+        // 2 s samples from 9 s, middles 10, 12, ... 28 s, valued 0 to 9.
+        let s: Vec<Sample> = (0..10)
+            .map(|i| Sample {
+                start_s: 9.0 + 2.0 * i as f64,
+                end_s: 11.0 + 2.0 * i as f64,
+                value: i as f64,
+                ..Default::default()
+            })
+            .collect();
+        let (b, _) = blocks(&s, &Params::default());
+        let got: Vec<(i64, f64)> = b.iter().map(|b| (b.k, b.value)).collect();
+        assert_eq!(got, [(1, 2.0), (2, 7.0)]);
     }
 
     #[test]

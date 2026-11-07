@@ -446,10 +446,12 @@ fn the_positions_table_reads_a_free_take() {
     let t = app.free_table(&egui::Context::default()).unwrap();
     let cu = t.rows.iter().find(|r| r.0 == "Crown Up (CU, 3H)").unwrap();
     assert_eq!(cu.2, guided::FreeCell::Short, "{t:?}");
-    // Seven seconds more: 12 s measured.
+    // Twelve seconds more: 17 s measured, which holds a whole 10 s
+    // reading on the take's tiling (readings start on multiples of 5 s,
+    // #636) whatever the position's phase.
     let audio = generate(
         &SynthConfig {
-            duration_s: 7.0,
+            duration_s: 12.0,
             ..Default::default()
         },
         |_| 280.0,

@@ -607,20 +607,20 @@ mod tests {
         }
     }
 
-    /// How many of `seeds` steady takes of `duration_s`, their rate,
+    /// How many of the steady takes `seeds` of `duration_s`, their rate,
     /// amplitude and beat error wandering as AR(1) noise of lag-one
     /// correlation `rho` from reading to reading ([`super::steady_red`]),
     /// name anything on the whole pane other than the correlation itself:
     /// a finding (at ρ 0, "wandering" too, since nothing correlates) or a
     /// line the period search "also finds".
-    fn red_pane_named(duration_s: f64, rho: f64, seeds: u64) -> usize {
+    fn red_pane_named(duration_s: f64, rho: f64, seeds: std::ops::RangeInclusive<u64>) -> usize {
         use crate::longterm::LongConfig;
         use crate::steadiness::{self, Config};
         let lc = LongConfig {
             wheels: crate::periodicity::standard_wheels(BPH, 20),
             ..Default::default()
         };
-        (1..=seeds)
+        seeds
             .filter(|&seed| {
                 let log = beat_log(&super::steady_red(duration_s, rho, seed), seed);
                 let long = crate::longrun::analyse(&log, None, &lc);
@@ -635,21 +635,45 @@ mod tests {
             .count()
     }
 
-    /// Each cell's count against its cap, the cells run side by side.
+    /// Each cell's count of 100 seeds against its cap, the cells run
+    /// side by side.
     fn red_pane_within(cells: &[(f64, f64, usize)]) {
+        let cells: Vec<_> = cells
+            .iter()
+            .map(|&(d, rho, cap)| (d, rho, 100, cap))
+            .collect();
+        red_pane_within_of(&cells);
+    }
+
+    /// Each cell's count of its first `seeds` seeds against its cap, the
+    /// cells, and each hundred seeds of a cell, run side by side. Every
+    /// cell over its cap is told at once, so none hides behind another.
+    fn red_pane_within_of(cells: &[(f64, f64, u64, usize)]) {
         let named: Vec<usize> = std::thread::scope(|sc| {
-            let runs: Vec<_> = cells
+            let runs: Vec<Vec<_>> = cells
                 .iter()
-                .map(|&(d, rho, _)| sc.spawn(move || red_pane_named(d, rho, 100)))
+                .map(|&(d, rho, seeds, _)| {
+                    (0..seeds.div_ceil(100))
+                        .map(|k| {
+                            let range = k * 100 + 1..=((k + 1) * 100).min(seeds);
+                            sc.spawn(move || red_pane_named(d, rho, range))
+                        })
+                        .collect()
+                })
                 .collect();
-            runs.into_iter().map(|h| h.join().unwrap()).collect()
+            runs.into_iter()
+                .map(|hs| hs.into_iter().map(|h| h.join().unwrap()).sum())
+                .collect()
         });
-        for (&(d, rho, cap), n) in cells.iter().zip(named) {
-            assert!(
-                n <= cap,
-                "{d} s at ρ {rho}: {n} of 100 steady takes name something (cap {cap})"
-            );
-        }
+        let over: Vec<String> = cells
+            .iter()
+            .zip(named)
+            .filter(|&(&(.., cap), n)| n > cap)
+            .map(|(&(d, rho, seeds, cap), n)| {
+                format!("{d} s at ρ {rho}: {n} of {seeds} steady takes name something (cap {cap})")
+            })
+            .collect();
+        assert!(over.is_empty(), "{}", over.join("; "));
     }
 
     /// The whole pane on steady watches whose readings follow themselves
@@ -660,26 +684,37 @@ mod tests {
     /// null (#1195), and may only fall. The target is 5: 30 min and 2 h
     /// miss it at ρ 0.9 (#916's caveat, #917). 2 h at ρ 0 to 0.5 is the
     /// control test above; 8 h and 24 h are the test below.
+    ///
+    /// With the one 2 s tiling (#636) three cells are held on 300 seeds at
+    /// their measured count, as Peter chose on 2026-11-05: 30 min at ρ 0
+    /// names something on 20 of 300 (18 before the tiling), missing the
+    /// target before and after (#1195), 2 h at ρ 0.7 on 3 of 300 (2
+    /// before), and 30 min at ρ 0.7 on 13 of 300 (6 of the first 100, as
+    /// before the tiling).
     #[test]
     fn a_steady_watch_with_red_noise_names_little_on_the_whole_pane() {
+        red_pane_within_of(&[
+            (1800.0, 0.0, 300, 20),
+            (1800.0, 0.7, 300, 13),
+            (7200.0, 0.7, 300, 3),
+        ]);
         red_pane_within(&[
-            (1800.0, 0.0, 5),
             (1800.0, 0.3, 0),
             (1800.0, 0.5, 1),
-            (1800.0, 0.7, 6),
             (1800.0, 0.9, 20),
-            (7200.0, 0.7, 2),
             (7200.0, 0.9, 7),
         ]);
     }
 
     /// The rest of the grid, too slow for every run (about 25 minutes on
-    /// one core): every cell meets the target of 5.
+    /// one core): every cell meets the target of 5. With the one 2 s
+    /// tiling (#636), 2 h at ρ 0 is held on 300 seeds at its measured
+    /// count, 3 (1 of the first 100, 0 before the tiling).
     #[test]
     #[ignore = "8 h and 24 h takes: run by hand"]
     fn long_steady_watches_with_red_noise_name_little_on_the_whole_pane() {
+        red_pane_within_of(&[(7200.0, 0.0, 300, 3)]);
         red_pane_within(&[
-            (7200.0, 0.0, 0),
             (7200.0, 0.3, 2),
             (7200.0, 0.5, 3),
             (28800.0, 0.0, 1),

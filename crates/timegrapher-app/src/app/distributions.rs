@@ -469,9 +469,13 @@ mod source_tests {
     /// The readings the pane counts are core's (#1144): one per Average
     /// Over, read again when Average Over changes, with the beat error's
     /// source as core chose it over the windows they are made of.
+    /// Listening runs on 2 s past the last whole reading: live settles a
+    /// 2 s amplitude cell only once a beat's guard of sound follows it,
+    /// and a reading needs every cell on the take's one tiling (#636), so
+    /// at 120 s the last reading's amplitude is still to come.
     #[test]
     fn readings_are_cores_one_per_average_over() {
-        let mut app = super::super::tests::synthetic(120.0, 5.0);
+        let mut app = super::super::tests::synthetic(122.0, 5.0);
         app.average_s = 10.0;
         app.update_dist_readings(None);
         let count = |app: &TimegrapherApp, k| app.hist_values(k, false, &theme::DARK).0;
