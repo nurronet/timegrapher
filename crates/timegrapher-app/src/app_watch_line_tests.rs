@@ -1065,6 +1065,25 @@ fn a_refused_pick_is_not_still_said_once_a_pick_works() {
         pick(&mut app);
         assert_eq!(said(&app), None, "the refusal no longer stands");
     }
+    // Either refusal goes once the other pick works: Unsorted Takes
+    // refused, then a watch picked, and the other way round (Trevor).
+    for watch_after in [true, false] {
+        app.session.listen();
+        let _tx = super::tests::queued_capture(&mut app, &base);
+        if watch_after {
+            app.pick_unsorted();
+        } else {
+            app.pick_watch(&pepsi);
+        }
+        assert!(said(&app).is_some_and(|m| m.starts_with("Stop listening before picking")));
+        app.capture = None;
+        if watch_after {
+            app.pick_watch(&pepsi);
+        } else {
+            app.pick_unsorted();
+        }
+        assert_eq!(said(&app), None, "watch after: {watch_after}");
+    }
     // A message that isn't a refusal is left alone.
     app.info_msg("Saved.".into());
     app.pick_watch(&pepsi);
