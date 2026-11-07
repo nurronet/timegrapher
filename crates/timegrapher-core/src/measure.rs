@@ -612,7 +612,9 @@ fn uncalibrated_text(model: crate::longterm::NullModel, mix: f64, span_s: f64) -
     )
 }
 
-pub(crate) fn plural(n: usize) -> &'static str {
+/// The "s" an English noun takes after a count of `n`: none after 1.
+/// The one rule for every count the app, CLI and MCP word (#1366).
+pub fn plural(n: usize) -> &'static str {
     if n == 1 {
         ""
     } else {

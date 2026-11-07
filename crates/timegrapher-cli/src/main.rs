@@ -1689,7 +1689,7 @@ fn print_shape_and_periods(s: &timegrapher_core::analysis::Summary) {
                 signed_text(a, base_digits::BEAT_ERROR),
                 signed_text(b, base_digits::BEAT_ERROR),
                 m.beat_error_quarter_windows,
-                if m.beat_error_quarter_windows == 1 { "" } else { "s" }
+                timegrapher_core::measure::plural(m.beat_error_quarter_windows)
             );
         }
     }

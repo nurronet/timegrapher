@@ -197,7 +197,7 @@ pub fn pane(
         format!(
             " Beats stopped and came back {} time{} on the way.",
             t.heard.pauses.len(),
-            if t.heard.pauses.len() == 1 { "" } else { "s" }
+            timegrapher_core::measure::plural(t.heard.pauses.len())
         )
     });
     let pause_hint = format!(
