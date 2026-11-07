@@ -333,3 +333,117 @@ fn span_and_beats_set_the_view() {
     }
     assert!(has(&out, "Span") && has(&out, "Beats") && has(&out, "ms"));
 }
+
+/// One frame of `draw` in a 600 × 400 panel, and the rect it was given.
+fn drawn(ctx: &egui::Context, rows: &[Row], z: Zoom, fs: f64) -> (FullOutput, Rect) {
+    let mut given = Rect::NOTHING;
+    let out = frame(ctx, (600.0, 400.0), Vec::new(), |ui| {
+        given = Rect::from_min_size(ui.cursor().min, ui.available_size());
+        draw(ui, rows, z, 0.125, fs)
+    });
+    (out, given)
+}
+
+/// Each span puts the drop where its window says: the unlock up to about
+/// 12 ms before it at 20 ms, most of 50 ms after it for what rings on,
+/// and nearly all of 200 and 400 ms after it for the quiet and the next
+/// beats. The axis starts at the window's first grid line and its 0 sits
+/// that share of the way across the plot.
+#[test]
+fn each_span_puts_the_drop_where_its_window_says() {
+    let ctx = themed();
+    let rows = [row("Tick", vec![vec![0.1; 100]], Vec::new())];
+    for (z, before_ms, first) in [
+        (Zoom::Ms5, 3.5, "−3.5"),
+        (Zoom::Ms10, 8.0, "−8"),
+        (Zoom::Ms20, 14.0, "−14"),
+        (Zoom::Ms50, 15.0, "−15"),
+        (Zoom::Ms200, 20.0, "−20"),
+        (Zoom::Ms400, 20.0, "0"),
+    ] {
+        let (out, given) = drawn(&ctx, &rows, z, 48000.0);
+        let t = texts(&out);
+        let axis: Vec<&(String, Rect)> = t
+            .iter()
+            .filter(|(_, r)| r.top() > given.bottom() - 18.0)
+            .collect();
+        assert_eq!(axis.first().map(|a| a.0.as_str()), Some(first), "{z:?}");
+        let x0 = axis
+            .iter()
+            .find(|(s, _)| s == "0" || s == "0.0")
+            .unwrap_or_else(|| panic!("{z:?}: {axis:?}"))
+            .1
+            .center()
+            .x;
+        let (left, width) = (given.left() + 44.0, given.width() - 48.0);
+        let want = before_ms / z.span_ms(0.125);
+        let frac = f64::from((x0 - left) / width);
+        assert!((frac - want).abs() < 0.005, "{z:?}: {frac} for {want}");
+    }
+}
+
+/// Past 50 ms no edges are marked, so the rows keep no names lane above
+/// them: two rows fill the plot, 6 points apart. A trace at full size
+/// fills 96% of its row's height, clear of the row's edges.
+#[test]
+fn rows_without_edges_fill_the_plot_and_traces_their_rows() {
+    let ctx = themed();
+    // 200 ms at 1 kHz: 200 samples, one line point each.
+    let wave: Vec<f32> = (0..200)
+        .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+        .collect();
+    let rows = [
+        row("Tick", vec![wave.clone()], Vec::new()),
+        row("Tock", vec![wave], Vec::new()),
+    ];
+    for z in [Zoom::Ms200, Zoom::Ms400] {
+        let (out, given) = drawn(&ctx, &rows, z, 1000.0);
+        let t = texts(&out);
+        let at = |s: &str| t.iter().find(|(x, _)| x == s).unwrap().1.center().y;
+        let (top, plot_h) = (given.top(), given.height() - 18.0);
+        let h = (plot_h - 6.0) / 2.0;
+        assert!((at("Tick") - (top + h / 2.0)).abs() < 0.6, "{z:?}");
+        assert!((at("Tock") - (top + 1.5 * h + 6.0)).abs() < 0.6, "{z:?}");
+        let spans: Vec<f32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                Shape::Path(p) if p.points.len() == 200 => {
+                    let ys = p.points.iter().map(|q| q.y);
+                    let lo = ys.clone().fold(f32::MAX, f32::min);
+                    Some(ys.fold(f32::MIN, f32::max) - lo)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(spans.len(), 2, "{z:?}");
+        for s in spans {
+            assert!((s / h - 0.96).abs() < 0.005, "{z:?}: {}", s / h);
+        }
+    }
+}
+
+/// An edge before the span's start isn't drawn, as one past its end
+/// isn't: neither its line nor its name.
+#[test]
+fn an_edge_before_the_span_is_not_drawn() {
+    let ctx = themed();
+    let ink = Color32::from_rgb(40, 120, 200);
+    let rows = [row(
+        "Tick",
+        vec![vec![0.0; 960]],
+        vec![mark("Early", -16.0), mark("Drop", -0.3)],
+    )];
+    let mut out = drawn(&ctx, &rows, Zoom::Ms20, 48000.0).0;
+    for _ in 0..2 {
+        out = drawn(&ctx, &rows, Zoom::Ms20, 48000.0).0;
+    }
+    assert!(has(&out, "Drop"));
+    assert!(!has(&out, "Early"), "{:?}", texts(&out));
+    let lines = out
+        .shapes
+        .iter()
+        .filter(|c| matches!(&c.shape, Shape::LineSegment { stroke, .. } if stroke.color == ink))
+        .count();
+    assert_eq!(lines, 1, "only the drop's line");
+}
