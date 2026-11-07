@@ -87,8 +87,8 @@ fn fit_follows_the_take_until_the_strip_is_zoomed_or_panned() {
     // As if the session had grown since the last frame.
     app.strip.set_span(10.0);
     app.follow_fit();
-    assert!((app.strip.span_s - app.latest_s()).abs() < 1e-9);
-    let end = app.latest_s();
+    let end = app.take_span().unwrap().1;
+    assert!((app.strip.span_s - end).abs() < 1e-9);
     app.apply_strip_input(
         StripInput {
             width_factor: 2.0,

@@ -1017,6 +1017,9 @@ pub fn draw_strip(
         .map(|(o, s)| scale_column(ui, &font, o, *s))
         .collect();
     let (r, lane) = strip_rects(resp.rect, view, extras.gutter, &cols, row_h);
+    if view.horizontal {
+        crate::theme::note_time_span(ui.ctx(), r.x_range());
+    }
     let f = Frame {
         painter,
         outer: resp.rect,

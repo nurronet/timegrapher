@@ -1440,6 +1440,24 @@ struct Gutter {
     last: f32,
 }
 
+/// Note where the Paper Strip's plot runs while it lies across, `x` its
+/// left and right (left of its overlays' scales), so a chart under it
+/// ends there too and their times line up (Hugh, #1252).
+pub fn note_time_span(ctx: &egui::Context, x: egui::Rangef) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("time span"), (pass, x)));
+}
+
+/// The width a time chart whose gutter starts at `left` takes to end
+/// where the strip's plot does: only one under the strip, starting where
+/// it does, and only while the strip lies across.
+pub fn time_width(ctx: &egui::Context, left: f32) -> Option<f32> {
+    let pass = ctx.cumulative_pass_nr();
+    let (at, x) = ctx.data(|d| d.get_temp::<(u64, egui::Rangef)>(egui::Id::new("time span")))?;
+    let under = pass <= at + 1 && (left + time_gutter(ctx) - x.min).abs() < 2.0;
+    under.then_some(x.max - left)
+}
+
 fn gutter_id() -> egui::Id {
     egui::Id::new("time gutter")
 }
