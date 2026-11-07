@@ -4,8 +4,10 @@
 //! gave, exact to the bit, and is read back only when everything that
 //! made it is the same:
 //!
-//! - the sound files: each one's name, length, modified time and first
-//!   64 KiB, in order;
+//! - the sound files: each one's full path, length, modified time and
+//!   [`SPANS`] spans of 64 KiB spread from its start to its end, in order
+//!   (#1326: a copy of another take, with the same name, length, time and
+//!   start, must not read as this one);
 //! - the engine: this build's version and a hash of core's own source
 //!   (`build.rs`), so any change to core makes every copy stale, with no
 //!   version to bump by hand;
@@ -32,8 +34,12 @@ use std::time::{Duration, SystemTime};
 
 /// The layout's name and version, first in every copy.
 pub const FORMAT: &[u8; 16] = b"timegrapher.bc/1";
-/// Bytes of each sound file read into the key, from its start.
+/// Bytes in each span of a sound file read into the key.
 const HEAD_BYTES: usize = 1 << 16;
+/// Spans of each sound file read into the key: the first at its start,
+/// the last at its end, the rest evenly between. 1 MiB a file, so a 40 GB
+/// take still opens from its copy in seconds.
+pub const SPANS: u64 = 16;
 /// A take whose newest file changed this recently may still be recording:
 /// no copy is kept of it.
 const STILL_WRITING: Duration = Duration::from_secs(120);
@@ -87,20 +93,36 @@ pub fn key(files: &[&Path], cfg: &StreamConfig) -> Option<String> {
             .ok()?
             .duration_since(SystemTime::UNIX_EPOCH)
             .ok()?;
-        h.update(f.file_name()?.as_encoded_bytes());
+        h.update(std::path::absolute(f).ok()?.as_os_str().as_encoded_bytes());
         h.update([0]);
         h.update(meta.len().to_le_bytes());
         h.update(changed.as_nanos().to_le_bytes());
-        let mut head = Vec::with_capacity(HEAD_BYTES);
-        fs::File::open(f)
-            .ok()?
-            .take(HEAD_BYTES as u64)
-            .read_to_end(&mut head)
-            .ok()?;
-        h.update(&head);
+        spans(&mut h, f, meta.len())?;
     }
     let d = h.finalize();
     Some(d.iter().take(16).map(|b| format!("{b:02x}")).collect())
+}
+
+/// Feed [`SPANS`] spans of `f`, `len` bytes long, into `h`: the whole
+/// file when it is no longer than they are.
+fn spans(h: &mut Sha256, f: &Path, len: u64) -> Option<()> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(f).ok()?;
+    let span = HEAD_BYTES as u64;
+    let mut buf = Vec::with_capacity(HEAD_BYTES);
+    if len <= span * SPANS {
+        file.read_to_end(&mut buf).ok()?;
+        h.update(&buf);
+        return Some(());
+    }
+    for i in 0..SPANS {
+        let at = i * (len - span) / (SPANS - 1);
+        file.seek(SeekFrom::Start(at)).ok()?;
+        buf.clear();
+        (&mut file).take(span).read_to_end(&mut buf).ok()?;
+        h.update(&buf);
+    }
+    Some(())
 }
 
 /// The beats of `files` read with `cfg`, and the loudest sample's size,

@@ -392,8 +392,9 @@ The beats found in a take's sound are kept in the system's cache folder
 (`~/.cache/timegrapher/beats` on Linux, `~/Library/Caches/timegrapher/beats`
 on macOS, `%LOCALAPPDATA%\timegrapher\beats` on Windows), so the take
 opens again in seconds rather than minutes. A copy is only read back
-for the same sound files (each one's name, length, modified time and
-start), the same analysis settings and the same build of the engine, and
+for the same sound files (each one's place on disk, length, modified
+time and sixteen samples of its bytes from start to end), so a take that
+is moved or renamed reads its sound once more; the same analysis settings and the same build of the engine, and
 then it is exact to the bit; anything else reads the sound again. A take
 whose files changed in the last two minutes, which may still be
 recording, gets no copy. The folder is held to 2 GB, the copies used
