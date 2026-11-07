@@ -1718,7 +1718,7 @@ fn shifts_text(s: &SeriesCheck) -> String {
     let k = s.series;
     let ch = s.changes.as_ref().unwrap();
     let n = ch.segments.len() - 1;
-    let times = if n == 1 { "" } else { "s" };
+    let times = crate::measure::plural(n);
     if ch.segments.len() <= 4 {
         let means: Vec<String> = ch.segments.iter().map(|g| k.fmt(g.mean)).collect();
         return format!("shifts level {n} time{times}: {}", means.join(", then "));
@@ -2063,7 +2063,7 @@ fn findings(s: &SeriesCheck) -> Option<Finding> {
             ev.push(format!(
                 "{} level change{} at {} explain {:.0}%",
                 at.len(),
-                if at.len() == 1 { "" } else { "s" },
+                crate::measure::plural(at.len()),
                 at.join(", "),
                 c.explained * 100.0
             ));
