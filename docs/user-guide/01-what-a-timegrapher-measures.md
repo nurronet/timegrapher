@@ -81,8 +81,9 @@ kept running exactly as it is now. **+10 s/d** gains, **−10 s/d** loses.
 with position, wind and temperature, so one reading describes one
 moment, not the watch.
 
-**How it is heard:** at 28,800 bph, +10 s/d makes each beat about
-14.5 microseconds early. The app fits a line through many beat times
+**How it is heard:** at 28,800 bph, +10 s/d makes each beat come about
+14.5 microseconds sooner after the last, so the beats drift steadily
+ahead of a perfect clock. The app fits a line through many beat times
 rather than timing one beat.
 
 **The sound card's clock:** the microphone's sound card keeps its own
