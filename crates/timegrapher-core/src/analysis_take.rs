@@ -911,24 +911,10 @@ fn sync_tree(dir: &Path) -> io::Result<()> {
         if kind.is_dir() {
             sync_tree(&e.path())?;
         } else if kind.is_file() {
-            // Opened for writing, as Windows flushes no file opened to read.
-            fs::OpenOptions::new()
-                .write(true)
-                .open(e.path())?
-                .sync_all()?;
+            crate::recorder::sync_file(&e.path())?;
         }
     }
-    sync_folder(dir)
-}
-
-/// Write `dir`'s entries to the disk. Windows has no folder to sync; its
-/// renames and new files are written through by the file system.
-fn sync_folder(dir: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    fs::File::open(dir)?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = dir;
-    Ok(())
+    crate::recorder::sync_folder(dir)
 }
 
 /// Keep the take whose sound is in `source` (its folder: `session.toml`,
@@ -983,7 +969,7 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
         // since the caller may delete the take's sound next (#1336).
         sync_tree(&staged)?;
         crate::recorder::rename_settled(&staged, dest)?;
-        sync_folder(parent)
+        crate::recorder::sync_folder(parent)
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&staged);

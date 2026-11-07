@@ -393,22 +393,14 @@ fn same_flac_samples(a: &Path, b: &Path) -> Result<bool, AudioError> {
 
 /// Make the names in the folder holding `file` last: once this returns,
 /// a power cut cannot undo a rename into it, so a WAV deleted after its
-/// FLAC took its name is never lost with it. Windows has no folder to sync;
-/// its renames are written through by the file system.
+/// FLAC took its name is never lost with it
+/// ([`crate::recorder::sync_folder`]).
 fn sync_folder(file: &Path) -> Result<(), AudioError> {
-    #[cfg(unix)]
-    {
-        let dir = match file.parent() {
-            Some(d) if !d.as_os_str().is_empty() => d,
-            _ => Path::new("."),
-        };
-        File::open(dir)
-            .and_then(|d| d.sync_all())
-            .map_err(AudioError::Io)?;
-    }
-    #[cfg(not(unix))]
-    let _ = file;
-    Ok(())
+    let dir = match file.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => Path::new("."),
+    };
+    crate::recorder::sync_folder(dir).map_err(AudioError::Io)
 }
 
 /// The open WAV `wav`, read from its start.
