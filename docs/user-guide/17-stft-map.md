@@ -52,9 +52,9 @@ can't be seen at all: the slow wander at periods of minutes is many
 times bigger, and takes every bright colour. The dB scale gives each
 size its own step, so the small, steady line shows beside the large,
 restless top of the map. A fainter band near 20 s also runs right
-across. Periods (chapter 11) finds the 5 s line in the take as a whole;
-the map adds that it held hour after hour, rather than coming from one
-stretch of the take.
+across. Periods (chapter 11) scores the 5 s line tallest over the take
+as a whole, though too small a share to name; the map adds that it held
+hour after hour, rather than coming from one stretch of the take.
 
 **The rate's map is of the beat timing,** in ms, not of the rate in s/d:
 a swing of the timing at 5 s is far too fast for any rate reading to

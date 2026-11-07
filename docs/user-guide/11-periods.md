@@ -50,9 +50,10 @@ Yet no line has a dot, and the headline names only the level change at
 line is taken out; a line is kept only if, once the stronger ones are
 taken out, it still passes the dashed line, explains at least 0.5% of
 the movement in the beat timing, and passes the correction across every
-test (chapter 9). Over 12 hours the timing wanders slowly far more than
-over half an hour, so swings this small are too small a share of it to
-be named, though they stand out here.
+test (chapter 9). Here the 5 s line is the tallest, so it is picked
+first, and still it is not kept: it explains under 0.5% of the beat
+timing's movement once the slow change is taken off. A tall score is
+not by itself a named line.
 
 ## How It Is Worked Out
 

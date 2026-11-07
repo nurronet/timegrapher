@@ -51,8 +51,8 @@ half minute, each about 3 s/d peak to peak, and the tallest peak, at
 matches no wheel of the calibre. Twelve hours of readings place each
 period finely, so a line is narrow and sits exactly where it is; the
 neighbouring spikes of 1 to 3 s/d are what a take this long resolves of
-the scatter, and Periods (chapter 11) says which of them are beyond
-doubt. The escape wheel's 5 s is under the 20 s the rate readings can
+the scatter. Periods (chapter 11) tests each line; on this take it
+keeps none. The escape wheel's 5 s is under the 20 s the rate readings can
 show, so it is in the Timing spectrum only.
 
 ## How It Is Worked Out
