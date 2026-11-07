@@ -1221,6 +1221,18 @@ fn a_failed_runs_results_are_written_again_a_minute_later() {
     let (_, at) = t.unwritten.clone().expect("still to write");
     assert!(at > long_ago);
     assert!(t.saved.is_none());
+    // An idle window draws for the next try on its own (#1405).
+    let next = app.repaint_every().expect("a draw for the next try");
+    assert!(next > STREAM_RETRY / 2 && next <= STREAM_RETRY, "{next:?}");
+    // Not tried again before the minute is up.
+    app.reserve_tick(&ctx);
+    let (_, again) = app.reserve.as_ref().unwrap().unwritten.clone().unwrap();
+    assert_eq!(again, at, "no try before the minute");
+    // Three quarters of the minute gone: the draw comes at the time left.
+    app.reserve.as_mut().unwrap().unwritten =
+        Some((take.clone(), Instant::now() - STREAM_RETRY * 3 / 4));
+    let left = app.repaint_every().expect("a draw for the next try");
+    assert!(left <= STREAM_RETRY / 4, "{left:?}");
     // Room again: written.
     std::fs::create_dir_all(&take).unwrap();
     app.reserve.as_mut().unwrap().unwritten = Some((take.clone(), long_ago));
@@ -1228,6 +1240,7 @@ fn a_failed_runs_results_are_written_again_a_minute_later() {
     let t = app.reserve.as_ref().unwrap();
     assert!(t.unwritten.is_none());
     assert_eq!(t.saved.as_ref(), Some(&take));
+    assert_eq!(app.repaint_every(), None, "nothing left to try");
     let kept = power_reserve::Results::from_json(
         &std::fs::read_to_string(take.join(power_reserve::FILE)).unwrap(),
     )

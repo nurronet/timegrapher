@@ -1,0 +1,78 @@
+# Chapter 24: Settings at Watches Folder.
+output = "settings-watches-folder.png"
+
+# 1 Location and Show in File Manager, 2 what it holds, 3 Move Watches…,
+# 4 Choose Another….
+marks = [[1, 1150, 320], [2, 1150, 364], [3, 642, 440], [4, 780, 440]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["sleep", 3], ["click", 1044, 19], ["sleep", 2], ["click", 424, 258], ["sleep", 3]]
+
+[wait]
+at_least = 5
+at_most = 200
+
+[window]
+size = [1800, 1000]
+
+[[watch]]
+name = "Two-Tone Diver"
+calibre = "Dandong 3235"
+bph = 28800
+lift = 59
+notes = "Recorded in all six positions before its service."
+
+[[watch.fields]]
+label = "Customer"
+kind = "text"
+value = "Own watch"
+
+[[watch.fields]]
+label = "Received"
+kind = "date"
+value = "2026-10-08"
+
+[[watch.take]]
+corpus = "ym42_DU_2h"
+folder = "2026-10-08 11.31 Dial Up"
+position = "DU"
+
+[[watch.take]]
+corpus = "ym42_DD_30min"
+folder = "2026-10-09 09.12 Dial Down"
+position = "DD"
+
+[[watch.take]]
+corpus = "ym42_CD_90min"
+folder = "2026-10-09 14.40 Crown Down"
+position = "CD"
+
+[[watch.take]]
+corpus = "ym42_CL_90min"
+folder = "2026-10-10 10.05 Crown Left"
+position = "CL"
+
+[[watch]]
+name = "Blue and Red GMT"
+calibre = "Dandong 3285"
+bph = 28800
+lift = 59
+
+[[watch.fields]]
+label = "Customer"
+kind = "text"
+value = "A. Client"
+
+[[watch.take]]
+corpus = "pepsi3285_DU_7h"
+folder = "2026-10-21 08.02 Dial Up"
+position = "DU"
+
+[[watch]]
+name = "Unsorted"
+
+[[watch.take]]
+corpus = "dd3235_DU_30min"
+folder = "2026-10-30 16.47 Dial Up"
+position = "DU"

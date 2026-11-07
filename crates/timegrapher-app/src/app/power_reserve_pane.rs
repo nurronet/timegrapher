@@ -248,7 +248,7 @@ impl TimegrapherApp {
     /// Follow a running Power Reserve Test, whether its pane shows or
     /// not: read the beats every few seconds, and end it at the stop.
     pub(super) fn reserve_tick(&mut self, ctx: &egui::Context) {
-        self.reserve_write_again(ctx);
+        self.reserve_write_again();
         if !self.reserve_running() {
             return;
         }
@@ -515,17 +515,22 @@ impl TimegrapherApp {
     }
 
     /// Results whose write failed, written again once a minute until
-    /// they are.
-    fn reserve_write_again(&mut self, ctx: &egui::Context) {
+    /// they are; the window draws for each try with no input
+    /// ([`Self::reserve_retry_in`], #1405).
+    fn reserve_write_again(&mut self) {
         let Some((take, at)) = self.reserve.as_ref().and_then(|t| t.unwritten.clone()) else {
             return;
         };
-        let wait = STREAM_RETRY.saturating_sub(at.elapsed());
-        if !wait.is_zero() {
-            ctx.request_repaint_after(wait);
-            return;
+        if at.elapsed() >= STREAM_RETRY {
+            self.write_reserve_into(take);
         }
-        self.write_reserve_into(take);
+    }
+
+    /// How long until the next try at results whose write failed, for
+    /// the window to draw then on its own.
+    pub(super) fn reserve_retry_in(&self) -> Option<std::time::Duration> {
+        let (_, at) = self.reserve.as_ref()?.unwritten.as_ref()?;
+        Some(STREAM_RETRY.saturating_sub(at.elapsed()))
     }
 
     /// Save the ended Power Reserve Test's take, with its results, into

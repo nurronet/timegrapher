@@ -119,4 +119,4 @@ rate climbs from +7.1 to +10.0 s/d while the amplitude falls from 226° to
 ---
 
 Previous: [Positions Test](20-positions-test.md) ·
-[Contents](README.md)
+Next: [The Watches View](22-watches-view.md)

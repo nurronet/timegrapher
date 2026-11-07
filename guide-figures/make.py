@@ -24,6 +24,7 @@ at CORPUS_REVISION); the audio is fetched with its scripts/fetch.py.
 Needs: a built timegrapher-app (target/release, or APP_BIN), Xvfb, openbox,
 xdotool, ImageMagick and pngquant; ffmpeg for --clips. Linux only. Standard library only.
 """
+import datetime
 import hashlib
 import json
 import os
@@ -75,7 +76,7 @@ BASE_SETTINGS = {
 
 # The corpus commit the figures are made from. It runs ahead of the one
 # CI pins when a figure needs a take regress doesn't read.
-CORPUS_REVISION = "39b0d45e8999121e166ff69ccaa60d28d56de72d"
+CORPUS_REVISION = "738010e6a6ca244ddd14a9893754af6c0a1d7acb"
 
 
 def ensure_corpus(path):
@@ -360,6 +361,62 @@ def draw_marks(out, marks):
     subprocess.run(args + [out], check=True)
 
 
+def watches_folder(home, fig, corpus):
+    """The Watches folder the figure opens on: each [[watch]] a watch
+    (the name "Unsorted" is the Unsorted takes), each [[watch.take]] a
+    whole corpus take, its sound linked from .cache/audio, in a take
+    folder named as the app names them, with a session.toml of its own."""
+    root = os.path.join(home, "Timegrapher Data")
+    os.makedirs(root, exist_ok=True)
+    with open(os.path.join(root, "library.toml"), "w") as f:
+        f.write("format = 1\n")
+    for n, watch in enumerate(fig.get("watch", [])):
+        unsorted = watch["name"] == "Unsorted"
+        folder = os.path.join(root, watch["name"])
+        os.makedirs(os.path.join(folder, "takes"), exist_ok=True)
+        if not unsorted:
+            os.makedirs(os.path.join(folder, "photos"), exist_ok=True)
+            lines = [f'id = "guide{n:04d}"', f"name = {json.dumps(watch['name'], ensure_ascii=False)}"]
+            lines += [f"{k} = {json.dumps(watch[k], ensure_ascii=False)}" for k in ("calibre", "lift", "bph", "notes") if k in watch]
+            for field in watch.get("fields", []):
+                lines += ["", "[[field]]"] + [f"{k} = {json.dumps(field[k], ensure_ascii=False)}" for k in ("label", "kind", "value")]
+            with open(os.path.join(folder, "watch.toml"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+        for take in watch.get("take", []):
+            source = fetch_take(corpus(), take["corpus"])
+            target = os.path.join(folder, "takes", take["folder"])
+            os.makedirs(target)
+            for entry in sorted(os.listdir(source)):
+                if entry.lower().endswith((".flac", ".wav")):
+                    # Linked hard, so the take's size is its sound's.
+                    try:
+                        os.link(os.path.join(source, entry), os.path.join(target, entry))
+                    except OSError:
+                        shutil.copy(os.path.join(source, entry), target)
+            if os.path.exists(os.path.join(source, "clock.csv")):
+                shutil.copy(os.path.join(source, "clock.csv"), target)
+            session = {k: watch[k] for k in ("calibre", "lift", "bph") if k in watch and not unsorted}
+            session.update(take.get("session", {}))
+            lines = [] if unsorted else [f"watch = {json.dumps(watch['name'], ensure_ascii=False)}"]
+            lines += [f"{k} = {json.dumps(session[k], ensure_ascii=False)}" for k in ("calibre", "bph", "lift") if k in session]
+            lines += ["", "[[recording]]", 'file = "."', f"position = {json.dumps(take.get('position', 'DU'))}"]
+            with open(os.path.join(target, "session.toml"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+            # The take's session.json, its watch and start the figure's:
+            # the folder's name read as UTC, as the figure's screen keeps it.
+            if os.path.exists(os.path.join(source, "session.json")):
+                with open(os.path.join(source, "session.json")) as f:
+                    about = json.load(f)
+                start = datetime.datetime.strptime(take["folder"][:16], "%Y-%m-%d %H.%M")
+                end = start + datetime.timedelta(seconds=about.get("duration_s", 0))
+                about.pop("watch", None)
+                about.update(**({} if unsorted else {"watch": watch["name"]}), position=take.get("position", "DU"),
+                             started_utc=start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                             ended_utc=end.strftime("%Y-%m-%dT%H:%M:%S.000Z"), notes=[])
+                with open(os.path.join(target, "session.json"), "w") as f:
+                    json.dump(about, f, indent=1, ensure_ascii=False)
+
+
 def make(name, fig, corpus, clips, keep):
     work = os.path.join(CACHE, "figures", name)
     shutil.rmtree(work, ignore_errors=True)
@@ -377,6 +434,8 @@ def make(name, fig, corpus, clips, keep):
         with open(os.path.join(config, f"crash-{fig['crash']['at'].replace(':', '-')}.txt"), "w") as f:
             f.write(fig["crash"]["record"])
 
+    if "watch" in fig:
+        watches_folder(home, fig, corpus)
     # The recording sits in ~/Recordings/<folder>, as a reader's would.
     data = fig.get("data", {})
     if not data:

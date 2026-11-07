@@ -1,0 +1,82 @@
+# Chapter 22: the New Watch form, a name typed.
+output = "new-watch.png"
+
+# 1 Name, 2 Calibre, 3 Lift Angle, 4 Beat Rate, 5 Notes, 6 Add Field,
+# 7 Add Watch.
+marks = [[1, 1200, 448], [2, 1200, 478], [3, 1200, 508], [4, 1200, 538], [5, 1200, 603],
+         [6, 835, 647], [7, 1200, 716]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["sleep", 3], ["click", 343, 19], ["sleep", 2], ["click", 76, 65], ["sleep", 2],
+           ["click", 949, 381], ["type", "Bare ETA 2824-2"], ["sleep", 1],
+           ["click", 949, 411], ["sleep", 1], ["type", "ETA 2824-2"], ["sleep", 1],
+           ["key", "Return"], ["sleep", 2]]
+
+[wait]
+at_least = 5
+at_most = 120
+
+[window]
+size = [1800, 1000]
+
+[[watch]]
+name = "Two-Tone Diver"
+calibre = "Dandong 3235"
+bph = 28800
+lift = 59
+notes = "Recorded in all six positions before its service."
+
+[[watch.fields]]
+label = "Customer"
+kind = "text"
+value = "Own watch"
+
+[[watch.fields]]
+label = "Received"
+kind = "date"
+value = "2026-10-08"
+
+[[watch.take]]
+corpus = "ym42_DU_2h"
+folder = "2026-10-08 11.31 Dial Up"
+position = "DU"
+
+[[watch.take]]
+corpus = "ym42_DD_30min"
+folder = "2026-10-09 09.12 Dial Down"
+position = "DD"
+
+[[watch.take]]
+corpus = "ym42_CD_90min"
+folder = "2026-10-09 14.40 Crown Down"
+position = "CD"
+
+[[watch.take]]
+corpus = "ym42_CL_90min"
+folder = "2026-10-10 10.05 Crown Left"
+position = "CL"
+
+[[watch]]
+name = "Blue and Red GMT"
+calibre = "Dandong 3285"
+bph = 28800
+lift = 59
+
+[[watch.fields]]
+label = "Customer"
+kind = "text"
+value = "A. Client"
+
+[[watch.take]]
+corpus = "pepsi3285_DU_7h"
+folder = "2026-10-21 08.02 Dial Up"
+position = "DU"
+
+[[watch]]
+name = "Unsorted"
+
+[[watch.take]]
+corpus = "dd3235_DU_30min"
+folder = "2026-10-30 16.47 Dial Up"
+position = "DU"
