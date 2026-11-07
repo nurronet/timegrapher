@@ -111,7 +111,7 @@ pub(super) struct Table {
 
 const DATA: &str = include_str!("../data/white-null.json");
 
-fn table() -> &'static Table {
+pub(super) fn table() -> &'static Table {
     static T: OnceLock<Table> = OnceLock::new();
     T.get_or_init(|| serde_json::from_str(DATA).expect("white-null.json"))
 }
