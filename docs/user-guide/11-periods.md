@@ -26,8 +26,8 @@ regular beat.
 | --- | --- | --- |
 | 5 | The strongest line | Its period and, when it matches one, the wheel whose turn it matches: "5 s, Escape Wheel". |
 | 6 | The dashed line | The score a period needs for the search to list it: its 1% false-alarm level over the whole search. |
-| 7 | A wheel's period | A bold dotted line, named above the plot. |
-| 8 | Half a wheel's period | A fainter dotted line marked ×2: where a wheel that is off centre shows, twice a turn. |
+| 7 | A wheel's period | A grey dotted line, named above the plot (inside its top on a short pane). |
+| 8 | Half a wheel's period | A fainter dotted line marked ×2: where a wheel that is off centre shows, twice a turn. Not drawn where another wheel already turns at that period. |
 | 9 | Another line | A line over the dashed line that matches no wheel's period. |
 
 With no calibre picked, or none of its wheels known, one minute and one

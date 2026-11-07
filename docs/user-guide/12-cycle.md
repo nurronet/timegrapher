@@ -17,11 +17,12 @@ take.
 | 2 | The swing | How far the median line swings, highest less lowest, beside the boxes' median height. |
 | 3 | A box | The middle half of the readings at that point of the cycle. Drawn where a point has at least four readings. |
 | 4 | The median line | The median reading at each point of the cycle: the cycle's typical shape. |
-| 5 | A reading | One reading at its place in the cycle, coloured by when its cycle came: purple for the first, through to yellow for the last. |
+| 5 | A reading | One reading at its place in the cycle, coloured by when its cycle came: purple for the first, through to yellow-green for the last. |
 
 **What it is folded at,** in this order:
 
-1. **The series' own cycle,** when the tests found one: "60 s cycle,
+1. **The series' own cycle,** when the tests found one or the period
+   search listed one: "60 s cycle,
    Fourth Wheel, 30 cycles folded".
 2. **Another series' cycle,** when this series has none: "Folded at the
    rate's 60 s cycle, 30 cycles". It then shows whether the same

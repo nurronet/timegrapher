@@ -3,7 +3,8 @@
 ![Autocorrelation of the rate over a 30-minute take, marks 1 to 4](images/steady-autocorrelation.png)
 
 **What it shows:** how much each reading resembles the one a given time
-later, the **lag**, from 0 up to 10 minutes. 1 is the same, 0 is no
+later, the **lag**, from 0 up to 10 minutes, or a third of the take if
+that is shorter. 1 is the same, 0 is no
 resemblance, below 0 is opposite.
 
 **Why you'd use it:** to know whether the readings are independent, each
@@ -29,12 +30,15 @@ When the line falls and then rises back to a peak, the readings
   negative resemblance of its own. Independent readings then read about 0
   at every lag.
 - **Gaps are left as gaps.** Each lag is read from the pairs of readings
-  that lag apart; a lag with under 30 pairs is left out.
+  that lag apart. A lag with under 30 pairs is still drawn, but counts for
+  nothing in the Ljung–Box test or the search for a repeat.
 - **The Ljung–Box test** weighs each of the first 10 lags by the pairs it
   is read from, and is judged against what independent readings of the
   same count, with the slow change taken off the same way, give.
-- **The memory** in the Info panel is the lag where the resemblance falls
-  below 1/e, about 0.37: how long a reading's resemblance lasts.
+- **How long the resemblance lasts** is the lag where it falls below
+  1/e, about 0.37. The headline gives it when it says the readings wander:
+  "correlated for about …". The Info panel's figures give the lag-1
+  correlation and the Ljung–Box p.
 
 ## What to Look For
 

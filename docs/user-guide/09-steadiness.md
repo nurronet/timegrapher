@@ -34,11 +34,11 @@ Profile.
 
 | Mark | Control or part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
-| 1 | **Rate**, **Amplitude**, **Beat Error** (the hare, the swing and the seesaw) | Show or hide each series in this pane. Rate alone at first; at least one stays on. | To compare the three, or give one the room. Each pane keeps its own choice. |
+| 1 | **Rate**, **Amplitude**, **Beat Error** (the hare, the swing and the seesaw) | Show or hide each series in this pane. Rate alone at first; at least one stays on. | To compare the three, or give one the room. Each pane keeps its own choice, except the STFT and Wavelet Maps, which share one and show one series at a time. |
 | 2 | **Export…** | Saves the pane as a picture, PNG or SVG. | |
-| 3 | **Info** | Opens the Info panel down the right of this pane. It opens and closes only when clicked, and is one setting for every Steadiness view. | To read what the tests found, in words and figures. |
+| 3 | **Info** | Opens the Info panel down the right of this pane, or over its plots from the top right when the pane is under 600 pt wide. It opens and closes only when clicked; each pane keeps its own, between runs too. | To read what the tests found, in words and figures. |
 | 4 | A series' sentence | What was detected in that series, in one or two sentences: a cycle, two levels, a level change, a trend, correlation between readings, or none of these. | The headline: start here. |
-| 5 | The statistics | What was tested ("Tested on 178 10 s readings"), the median, the standard deviation, the scatter from one reading to the next, the lag-1 correlation, the Ljung–Box p-value, and the trend and period when found. | The figures behind the sentence. |
+| 5 | The statistics | What was tested ("Tested on 178 10 s readings"), the median, the standard deviation, the scatter from one reading to the next, the lag-1 correlation, the Ljung–Box p-value, the trend whenever one was fitted (and why it isn't named, when it isn't), the period when found, the number of stretches of one level, and any readings left out as more than 6 σ from their 5-minute level. | The figures behind the sentence. |
 | 6 | The key | What a dot is, and how many are drawn. | To know what is plotted: 10 s readings for the rate, 2 s windows for the amplitude and beat error. |
 | 7 | A stretch | A level the change finder found (chapter 15). | To see where the level changed. |
 
@@ -67,9 +67,9 @@ The words in the Info panel can be selected and copied.
   as 6 s; the period search starts at 16 s (chapter 11).
 - **No reading over part of its span.** A reading short of a window, or
   touching a cut or a mask, is left out, not averaged over what is left.
-- **The beat error is the one from the unlock.** Where its sign turns
-  over across a cut, its readings are drawn as sizes, and the Info panel
-  says so.
+- **The beat error is the one from the unlock** where the unlock is
+  found, otherwise from the drop. Where its sign turns over across a cut,
+  its readings are drawn as sizes.
 
 ## How Sure the Tests Are
 
