@@ -10,26 +10,42 @@ use timegrapher_core::{analyze, take, AnalysisConfig};
 /// `noise_s` of the synthetic stand noise (as the live tests make it),
 /// then `watch_s` of a watch at +5 s/d and 270°.
 fn noise_then_watch(noise_s: f64, watch_s: f64) -> (Audio, Audio) {
-    let watch = generate(
+    noise_then(noise_s, watch_s, 28_800, 5)
+}
+
+/// [`noise_then_watch`] at `bph`, the noise drawn from `seed`.
+fn noise_then(noise_s: f64, watch_s: f64, bph: u32, seed: u64) -> (Audio, Audio) {
+    let watch = watch_at(bph, watch_s);
+    let led = noise_before(noise_s, &watch, seed);
+    (watch, led)
+}
+
+/// `watch_s` of a watch at `bph`, +5 s/d and 270°.
+fn watch_at(bph: u32, watch_s: f64) -> Audio {
+    generate(
         &SynthConfig {
             duration_s: watch_s,
+            bph,
             rate_s_per_day: 5.0,
             beat_error_ms: 0.4,
             ..Default::default()
         },
         |_| 270.0,
         |_| 0.0,
-    );
+    )
+}
+
+/// `noise_s` of the synthetic stand noise drawn from `seed`, then `watch`.
+fn noise_before(noise_s: f64, watch: &Audio, seed: u64) -> Audio {
     let rms = noise_rms(SynthConfig::default().snr_db) * SCALE;
-    let mut rng = Rng::new(5);
+    let mut rng = Rng::new(seed);
     let n = (noise_s * watch.sample_rate as f64) as usize;
     let mut samples: Vec<f32> = (0..n).map(|_| (rms * rng.normal()) as f32).collect();
     samples.extend_from_slice(&watch.samples);
-    let led = Audio {
+    Audio {
         samples,
         sample_rate: watch.sample_rate,
-    };
-    (watch, led)
+    }
 }
 
 fn lead_left_out(c: &[Caveat]) -> Option<f64> {
@@ -73,6 +89,148 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
             0.03,
             "beat error",
         );
+    }
+}
+
+/// At 18,000 and 19,800 bph a 10 s window of the noise can scatter under
+/// the doubt line (0.7% of a beat), far more than the watch after it
+/// (#1418): the lead runs on to where the scatter drops to the watch's,
+/// not to the first such noise window, and the noise's beats stay out of
+/// the rate. With the rate set too, as the guess is the same.
+#[test]
+fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
+    for (bph, noise_s, seed) in [
+        (18_000, 49.0, 5),
+        (18_000, 60.0, 5),
+        (18_000, 60.0, 21),
+        (19_800, 60.0, 5),
+        (19_800, 60.0, 9),
+        (19_800, 49.0, 5),
+        // Seeds the fix was not tuned on.
+        (18_000, 60.0, 101),
+        (18_000, 75.0, 404),
+        (19_800, 60.0, 202),
+        (19_800, 49.0, 505),
+        (21_600, 60.0, 303),
+        (21_600, 49.0, 606),
+        (18_000, 60.0, 707),
+        (19_800, 60.0, 808),
+        (21_600, 60.0, 909),
+    ] {
+        let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
+        let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
+        let want = analyze(&alone, &AnalysisConfig::default()).summary;
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            // Within a 5 s window step of the watch's start before it and
+            // two after: the windows step 5 s, and none spans the jump
+            // onto the watch's beats. The rate says the noise is out.
+            assert!(
+                (noise_s - 5.0..noise_s + 10.0).contains(&lead),
+                "{what}: lead {lead}"
+            );
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+        }
+    }
+}
+
+/// A watch heard from the start whose first `rough_s` scatter about
+/// `sd_frac` of a beat: each beat there is moved by a draw of that SD,
+/// cut at the midpoints between the beats `analyze` finds.
+fn rough_start(bph: u32, rough_s: f64, sd_frac: f64, seed: u64) -> Audio {
+    scatter(&watch_at(bph, 120.0), bph, rough_s, sd_frac, seed)
+}
+
+/// `watch` with each beat before `upto_s` moved by a draw of `sd_frac`
+/// of a beat, cut at the midpoints between the beats `analyze` finds.
+fn scatter(watch: &Audio, bph: u32, upto_s: f64, sd_frac: f64, seed: u64) -> Audio {
+    let fs = f64::from(watch.sample_rate);
+    let beats = analyze(watch, &AnalysisConfig::default()).beats;
+    let beat_s = 3600.0 / f64::from(bph);
+    let mut rng = Rng::new(seed);
+    let mut out = watch.samples.clone();
+    for b in beats.iter().filter(|b| b.time > beat_s && b.time < upto_s) {
+        let (a, z) = (
+            ((b.time - beat_s / 2.0) * fs) as usize,
+            ((b.time + beat_s / 2.0) * fs) as usize,
+        );
+        let shift = (rng.normal() * sd_frac * beat_s * fs).round() as isize;
+        for (i, v) in out.iter_mut().enumerate().take(z).skip(a) {
+            let from = i as isize - shift;
+            *v = if (a as isize..z as isize).contains(&from) {
+                watch.samples[from as usize]
+            } else {
+                0.0
+            };
+        }
+    }
+    Audio {
+        samples: out,
+        sample_rate: watch.sample_rate,
+    }
+}
+
+/// A noise window can scatter under a watch's line when the watch
+/// scatters 0.1% of a beat: on this noise (seed 101) the window from 45 s
+/// reads 0.34% against a line of 0.40%, and the window after it holds
+/// no beat clear enough to fit, so the next window clear of it is the
+/// one across the step onto the watch at 60 s, which reads as the
+/// watch's (#1418). Such a pair is not taken as the watch's: the lead
+/// runs to the watch and the rate stays the watch's alone, guessed and
+/// set. With 0.05% of scatter, and every acceptance seed, the same.
+#[test]
+fn a_noise_window_paired_across_the_step_onto_the_watch_stays_in_the_lead() {
+    let bph = 18_000;
+    for (sd, seed) in [(0.001, 101), (0.0005, 101), (0.001, 2004), (0.001, 3001)] {
+        let what = format!("watch scattering {sd} of a beat after noise {seed}");
+        let watch = scatter(&watch_at(bph, 60.0), bph, 60.0 - 0.2, sd, 77);
+        let want = analyze(&watch, &AnalysisConfig::default()).summary;
+        let led = noise_before(60.0, &watch, seed);
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            assert!((55.0..70.0).contains(&lead), "{what}: lead {lead}");
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+        }
+    }
+}
+
+/// A watch heard from the start whose first 30 to 60 s scatter about
+/// 0.5% of a beat, under the doubt line, and then 0.01%: that rough start
+/// scatters more than 4 times the windows after it, so it is left out as
+/// a lead would be (#1418). The rate stays the watch's.
+#[test]
+fn a_watchs_rough_start_is_left_out_as_a_lead() {
+    for (bph, rough_s) in [
+        (28_800, 45.0),
+        (18_000, 45.0),
+        (21_600, 60.0),
+        (28_800, 30.0),
+    ] {
+        let what = format!("{bph} bph, rough for {rough_s} s");
+        let s = analyze(
+            &rough_start(bph, rough_s, 0.005, 3),
+            &AnalysisConfig::default(),
+        )
+        .summary;
+        assert!(s.watch_heard, "{what}");
+        let lead = lead_left_out(&s.caveats).expect("the rough start left out");
+        assert!(lead > 10.0 && lead <= rough_s + 1.0, "{what}: lead {lead}");
+        let r = s.rate_s_per_day.unwrap();
+        assert!((r - 5.0).abs() <= 0.3, "{what}: rate {r}");
     }
 }
 
