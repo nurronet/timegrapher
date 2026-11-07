@@ -90,6 +90,16 @@ fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
         (19_800, 60.0, 5),
         (19_800, 60.0, 9),
         (19_800, 49.0, 5),
+        // Seeds the fix was not tuned on.
+        (18_000, 60.0, 101),
+        (18_000, 75.0, 404),
+        (19_800, 60.0, 202),
+        (19_800, 49.0, 505),
+        (21_600, 60.0, 303),
+        (21_600, 49.0, 606),
+        (18_000, 60.0, 707),
+        (19_800, 60.0, 808),
+        (21_600, 60.0, 909),
     ] {
         let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
         let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
@@ -112,6 +122,73 @@ fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
             let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
             assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
         }
+    }
+}
+
+/// A watch heard from the start whose first `rough_s` scatter about
+/// `sd_frac` of a beat: each beat there is moved by a draw of that SD,
+/// cut at the midpoints between the beats `analyze` finds.
+fn rough_start(bph: u32, rough_s: f64, sd_frac: f64, seed: u64) -> Audio {
+    let watch = generate(
+        &SynthConfig {
+            duration_s: 120.0,
+            bph,
+            rate_s_per_day: 5.0,
+            beat_error_ms: 0.4,
+            ..Default::default()
+        },
+        |_| 270.0,
+        |_| 0.0,
+    );
+    let fs = f64::from(watch.sample_rate);
+    let beats = analyze(&watch, &AnalysisConfig::default()).beats;
+    let beat_s = 3600.0 / f64::from(bph);
+    let mut rng = Rng::new(seed);
+    let mut out = watch.samples.clone();
+    for b in beats.iter().filter(|b| b.time > beat_s && b.time < rough_s) {
+        let (a, z) = (
+            ((b.time - beat_s / 2.0) * fs) as usize,
+            ((b.time + beat_s / 2.0) * fs) as usize,
+        );
+        let shift = (rng.normal() * sd_frac * beat_s * fs).round() as isize;
+        for (i, v) in out.iter_mut().enumerate().take(z).skip(a) {
+            let from = i as isize - shift;
+            *v = if (a as isize..z as isize).contains(&from) {
+                watch.samples[from as usize]
+            } else {
+                0.0
+            };
+        }
+    }
+    Audio {
+        samples: out,
+        sample_rate: watch.sample_rate,
+    }
+}
+
+/// A watch heard from the start whose first 30 to 60 s scatter about
+/// 0.5% of a beat, under the doubt line, and then 0.01%: that rough start
+/// scatters more than 4 times the windows after it, so it is left out as
+/// a lead would be (#1418). The rate stays the watch's.
+#[test]
+fn a_watchs_rough_start_is_left_out_as_a_lead() {
+    for (bph, rough_s) in [
+        (28_800, 45.0),
+        (18_000, 45.0),
+        (21_600, 60.0),
+        (28_800, 30.0),
+    ] {
+        let what = format!("{bph} bph, rough for {rough_s} s");
+        let s = analyze(
+            &rough_start(bph, rough_s, 0.005, 3),
+            &AnalysisConfig::default(),
+        )
+        .summary;
+        assert!(s.watch_heard, "{what}");
+        let lead = lead_left_out(&s.caveats).expect("the rough start left out");
+        assert!(lead > 10.0 && lead <= rough_s + 1.0, "{what}: lead {lead}");
+        let r = s.rate_s_per_day.unwrap();
+        assert!((r - 5.0).abs() <= 0.3, "{what}: rate {r}");
     }
 }
 

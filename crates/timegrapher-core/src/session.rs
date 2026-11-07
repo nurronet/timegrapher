@@ -606,8 +606,10 @@ pub const LEAD_SCATTER_RATIO: f64 = 4.0;
 
 /// The least scatter, as a fraction of a beat, the windows after a lead
 /// are taken to have ([`LEAD_SCATTER_RATIO`]): a clean watch's 0.01%
-/// would otherwise hold its own first window to a few microseconds.
-pub const LEAD_SCATTER_FLOOR: f64 = 0.001;
+/// would otherwise hold its own first window to a few microseconds. The
+/// line for a clean watch is then 0.08% of a beat, under the 0.34% a
+/// 10 s window of noise came down to at 18,000 bph.
+pub const LEAD_SCATTER_FLOOR: f64 = 0.0002;
 
 /// Where the watch starts in a stretch that opens with a lead of noise
 /// (#844), from its scatter windows (`windows`, in time order): the start
