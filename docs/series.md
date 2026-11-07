@@ -55,16 +55,16 @@ the seeded 2 h control scenario it names nothing on 192 takes in 200
 (`scenarios.rs`), set once the period search was calibrated (#1195) and
 the 2 s tiling made one (#636). They may only fall, and the tests are
 the source. On 30 min the pane names something other than the
-correlation on 20 of 300 takes at ρ 0, 0 and 1 of 100 at ρ 0.3 and 0.5,
+correlation (at ρ 0, where nothing correlates, a wander counts too) on
+20 of 300 takes at ρ 0, 0 and 1 of 100 at ρ 0.3 and 0.5,
 13 of 300 at ρ 0.7 and 20 of 100 at ρ 0.9; on 2 h, on 3 of 300 at ρ 0
 and at ρ 0.7, 2 and 3 of 100 at ρ 0.3 and 0.5, and 7 of 100 at ρ 0.9;
 on 8 h and 24 h, on at most 1 of 100 at any ρ (#916, #917). Takes of
 30 min at ρ 0 and 0.9, and 2 h at ρ 0.9, miss the target of 5 in 100.
-When last measured (#917, before #1195 and #636; no kept test holds it),
-a level change alone was named on 7 in 100 at 30 min ρ 0.9 and 3 at 2 h:
-about 2% a series at 30 min, a floor rather than a bias, because a take
-whose readings follow themselves that closely holds about 10 independent
-readings, too few to read their correlation closely. `long` (its text,
+Part of the 30 min ρ 0.9 count is a level change named alone. That is
+a floor rather than a bias: a take whose readings follow themselves
+that closely holds about 10 independent readings, too few to read their
+correlation closely. `long` (its text,
 report and summary) and a session's cycles list the same lines: core
 decides the kept set once (`steadiness::hold_to_family`).
 
