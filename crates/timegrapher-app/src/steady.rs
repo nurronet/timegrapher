@@ -416,7 +416,7 @@ fn stats_line(c: &SeriesCheck) -> String {
 /// A Steadiness unit as it follows a number, as the space before it and
 /// the unit: degrees as the sentences write them, "272.10°", any other
 /// unit after a space, "0.20 ms". Core names degrees "deg".
-fn unit_after(unit: &'static str) -> (&'static str, &'static str) {
+pub(crate) fn unit_after(unit: &'static str) -> (&'static str, &'static str) {
     match unit {
         "deg" => ("", "°"),
         u => (" ", u),
