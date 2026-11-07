@@ -296,7 +296,8 @@ under it its calibre, beat rate, lift angle and added fields, with
   its name and "Can't be shown" instead).
 
 Right-clicking a take, or **…**, offers **Open**,
-**Show in Finder**,
+**Show in Finder** (Show in Explorer on Windows, Show in File Manager on
+Linux),
 **Keep Analysis Only…**, **Move to Another Watch** and **Delete…** (asking
 first, with its size; it can't be undone; deleting the take on show
 leaves the window empty, as at the start). Moving the take on show, or
