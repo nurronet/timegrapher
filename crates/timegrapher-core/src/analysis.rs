@@ -264,7 +264,9 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     };
     let heard = hear(audio, &beats, bph, &fits.rate_windows, from_s, beat_sound);
     let watch_heard = heard.no_watch.is_none();
-    let amplitude_se_deg = se(&|w| w.mean());
+    // A withheld figure has no ± (#1429).
+    let f = &fits.figures;
+    let amplitude_se_deg = f.amplitude_deg.and(se(&|w| w.mean()));
     let assessment = assess_take(
         cfg,
         &beats,
@@ -275,7 +277,10 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         lead_s,
     );
     let doubts = assessment.doubts;
-    let confidence = assessment.confidence;
+    let mut confidence = assessment.confidence;
+    if let Some(c) = confidence.as_mut() {
+        f.floor_confidence(c);
+    }
     let caveats = assessment.caveats;
     let shape = watch_heard.then(|| {
         let beat_s = crate::timing::beat_period_s(fits.overall.as_ref(), bph);
@@ -306,8 +311,8 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         amplitude_even_deg: fits.figures.amplitude_even_deg,
         amplitude_odd_deg: fits.figures.amplitude_odd_deg,
         amplitude_se_deg,
-        amplitude_even_se_deg: se(&|w| w.even_deg),
-        amplitude_odd_se_deg: se(&|w| w.odd_deg),
+        amplitude_even_se_deg: f.amplitude_even_deg.and(se(&|w| w.even_deg)),
+        amplitude_odd_se_deg: f.amplitude_odd_deg.and(se(&|w| w.odd_deg)),
         lift_deg: cfg.amplitude.lift_deg,
         timing_periods,
         amplitude_periods,
@@ -473,13 +478,11 @@ fn fit_take(
     let residuals =
         timing::residuals_pieces(beats, &cuts).unwrap_or_else(|| vec![f64::NAN; beats.len()]);
     let part = crate::session::window_part_s(amplitude_windows);
-    // Too few windows give no window figure, as in `session` (#1429).
-    let in_take: Vec<&AmplitudeWindow> = clear
-        .iter()
-        .filter(|w| crate::session::window_in(w, from_s, duration))
-        .collect();
+    // Too few windows give no window figure, as in `session` (#1429): the
+    // figures' own windows (none before `from_s`, which the lead's
+    // `keep_from` left out) against the cells from `from_s` on.
     let cells = crate::session::window_cells(&holes, duration, part, from_s, duration);
-    let figures = crate::session::floor_figures(figures, &in_take, cells);
+    let figures = crate::session::floor_figures(figures, &clear.iter().collect::<Vec<_>>(), cells);
     let rate_windows = holes.windows(
         beats,
         bph,

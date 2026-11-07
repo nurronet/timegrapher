@@ -558,6 +558,21 @@ pub fn floor_figures(
     }
 }
 
+impl WindowFigures {
+    /// `c` with no ± for a figure these give none of: a withheld amplitude
+    /// ([`floor_figures`], #1429) has no ±, and nor has a beat error with
+    /// no unlock figure, as a reading whose beat error comes from the drop
+    /// has none.
+    pub fn floor_confidence(&self, c: &mut crate::confidence::Confidence) {
+        if self.amplitude_deg.is_none() {
+            c.amplitude.se = None;
+        }
+        if self.beat_error_unlock_ms.is_none() {
+            c.beat_error.se = None;
+        }
+    }
+}
+
 /// A stretch's timing fit and window figures, as every reading of a
 /// stretch takes them: saved (`session`), whole (`analyze`) and live
 /// (#512, one engine reads a stretch).
@@ -991,6 +1006,9 @@ pub fn measure_masked(
         },
     );
     m.confidence = a.confidence;
+    if let Some(c) = m.confidence.as_mut() {
+        figures.floor_confidence(c);
+    }
     m.caveats = a.caveats;
     if masked_s > 0.0 {
         crate::measure::add(
@@ -2439,6 +2457,9 @@ mod reading_coverage_tests {
         assert_eq!(m.amplitude_p05, None);
         assert_eq!(m.beat_error_unlock_ms, None);
         assert_ne!(m.beat_error_source, Some(BeatErrorSource::Unlock));
+        let c = m.confidence.unwrap();
+        assert_eq!(c.amplitude.se, None);
+        assert_eq!(c.beat_error.se, None);
         assert_eq!(amplitude_caveat(&m), Some((2, 1800)));
     }
 
@@ -2452,6 +2473,10 @@ mod reading_coverage_tests {
             let m = measure(&log, None, 0.0, 3600.0);
             assert_eq!(m.amplitude_deg.is_some(), read, "{keep} windows");
             assert_eq!(m.beat_error_unlock_ms.is_some(), read, "{keep} windows");
+            // A withheld figure has no ± either (#1429).
+            let c = m.confidence.unwrap();
+            assert_eq!(c.amplitude.se.is_some(), read, "{keep} windows");
+            assert_eq!(c.beat_error.se.is_some(), read, "{keep} windows");
             assert_eq!(amplitude_caveat(&m), Some((keep, 1800)));
         }
     }
@@ -2465,6 +2490,28 @@ mod reading_coverage_tests {
             let m = measure(&log, None, 0.0, 60.0);
             assert_eq!(m.amplitude_deg.is_some(), read, "{keep} windows");
         }
+    }
+
+    /// A withheld figure gives no ± (#1429): `floor_confidence` clears
+    /// the amplitude's and the unlock beat error's, and keeps the rate's.
+    #[test]
+    fn a_withheld_figure_has_no_uncertainty() {
+        let mut c = crate::confidence::Confidence::new(Some(0.1), Some(2.0), Some(0.01));
+        WindowFigures {
+            amplitude_deg: Some(270.0),
+            beat_error_unlock_ms: Some(0.4),
+            ..Default::default()
+        }
+        .floor_confidence(&mut c);
+        assert_eq!(
+            (c.rate.se, c.amplitude.se, c.beat_error.se),
+            (Some(0.1), Some(2.0), Some(0.01))
+        );
+        WindowFigures::default().floor_confidence(&mut c);
+        assert_eq!(
+            (c.rate.se, c.amplitude.se, c.beat_error.se),
+            (Some(0.1), None, None)
+        );
     }
 
     /// `analyze` takes the same floor (#1429).
