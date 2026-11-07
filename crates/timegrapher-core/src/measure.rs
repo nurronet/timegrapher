@@ -188,7 +188,8 @@ pub enum Counted {
     /// Readings, such as a session's position readings.
     #[default]
     Readings,
-    /// The amplitude's [`crate::distribution::STRETCH_S`] windows.
+    /// The amplitude's windows, [`crate::distribution::STRETCH_S`] long by default
+    /// (`AnalysisConfig::amplitude_window_s`).
     Windows,
 }
 

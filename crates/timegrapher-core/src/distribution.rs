@@ -209,7 +209,8 @@ impl Distribution {
     }
 }
 
-/// Seconds of beats in each "2 s" value, as the amplitude's windows.
+/// Seconds of beats in each "2 s" value: the amplitude's window, which
+/// [`crate::analysis::AnalysisConfig`] takes by default.
 pub const STRETCH_S: f64 = 2.0;
 
 /// The rate over each [`STRETCH_S`] of `beats` on a grid from `t0`, as
