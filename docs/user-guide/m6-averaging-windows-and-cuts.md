@@ -38,19 +38,21 @@ take's reading covers each position's measured stretch.
 | **Position change** | The watch turned to another position. |
 | **Mask** | A stretch you masked by hand on the Paper Strip. |
 | **Pause between beats** | More than 2 s with no beat. |
-| **Clock step** | A step in the clock log no listed pause explains. |
+| **Clock step** | A step of 0.5 s or more in the clock log that no listed pause explains. |
 
 Two rules cover them all:
 
 - **Nothing is fitted, windowed or averaged across a cut.** Each stretch
-  between cuts is read on its own, and stretches are combined by the beats
-  each used.
+  between cuts is read on its own. The rate and the drop's beat error
+  combine the stretches, weighted by the beats each used; amplitude and
+  the beat error from the unlock are the median over every 2 s window of
+  every stretch.
 - **Nothing is filled in.** A window that reaches into a cut is left out.
   A window short of a beat or two is made from the beats it has.
 
 **Settling.** After each change of position, the first seconds aren't
-read while the balance settles: 20 s unless set otherwise, and never more
-than half the position's time.
+read while the balance settles: 20 s by default, but never more than half
+the position's time. A settling time you set is used as it is.
 
 **Short stretches.** A stretch between cuts whose beats span under 10 s
 gives no rate: a few seconds of beats give a rate several s/d out.
