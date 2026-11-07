@@ -106,6 +106,10 @@ pub struct Test {
     /// failed (the disk full, say): the take, and when the write last
     /// failed, tried again a minute later (#1380).
     pub unwritten: Option<(PathBuf, std::time::Instant)>,
+    /// The beat rate it last ran at, kept once an automatic rate lets go
+    /// in the silence after the watch stops, so its hours are still read
+    /// at it (#1394).
+    pub bph: Option<u32>,
 }
 
 impl Test {
@@ -123,6 +127,7 @@ impl Test {
             saved: None,
             saving: false,
             unwritten: None,
+            bph: None,
         }
     }
 

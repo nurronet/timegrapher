@@ -1219,3 +1219,47 @@ fn a_failed_runs_results_are_written_again_a_minute_later() {
     assert_eq!(kept.ending, power_reserve::Ending::RecordingFailed);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A run on an automatic rate that reaches the watch's stop keeps its
+/// hour table: the silence before the stop lets the rate go, and the
+/// hours are read at the rate the run ran at (#1394, Walter's find).
+#[test]
+fn a_run_on_an_automatic_rate_keeps_its_hours_at_the_stop() {
+    let cfg = SynthConfig {
+        duration_s: 90.0,
+        bph: 21_600,
+        ..Default::default()
+    };
+    let ticks = generate(&cfg, |_| 280.0, |_| 0.0).samples;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let auto = LiveConfig::default();
+    assert!(auto.analysis.bph.is_none(), "the rate on Auto");
+    app.live = Some(LiveAnalyzer::new(48_000, auto));
+    app.reserve = Some(reserve::Test::new(
+        Position::DialUp,
+        true,
+        String::new(),
+        0.0,
+    ));
+    app.reserve_read_s = 0.0;
+    let ctx = egui::Context::default();
+    // Then silence, in a few long blocks so the test is quick.
+    let silence = vec![0.0f32; 48_000 * 20];
+    let sound = ticks.chunks(48_000).chain(std::iter::repeat_n(
+        silence.as_slice(),
+        (power_reserve::STOP_AFTER_S / 20.0) as usize + 3,
+    ));
+    for s in sound {
+        app.live.as_mut().unwrap().push(s);
+        app.reserve_tick(&ctx);
+        if !app.reserve_running() {
+            break;
+        }
+    }
+    assert_eq!(app.live.as_ref().unwrap().bph(), None, "the rate let go");
+    let t = app.reserve.as_ref().unwrap();
+    assert_eq!(t.ending, Some(power_reserve::Ending::Stopped));
+    assert_eq!(t.bph, Some(21_600));
+    let r = t.results.as_ref().expect("its results");
+    assert!(!r.hours.is_empty(), "its hour table");
+}

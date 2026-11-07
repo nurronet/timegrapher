@@ -261,7 +261,10 @@ impl TimegrapherApp {
             return;
         }
         self.reserve_read_s = now;
-        let beat_s = power_reserve::beat_s(live.bph());
+        let beat_s = power_reserve::beat_s(self.reserve_bph());
+        let Some(live) = self.live.as_ref() else {
+            return;
+        };
         let ended = self
             .reserve
             .as_mut()
@@ -298,12 +301,29 @@ impl TimegrapherApp {
         }
     }
 
+    /// The beat rate the running test reads its beats at: the session's
+    /// while locked, kept in the test, else the rate it last ran at
+    /// ([`reserve::Test::bph`]).
+    fn reserve_bph(&mut self) -> Option<u32> {
+        let now = self.live.as_ref().and_then(|l| l.bph());
+        let t = self.reserve.as_mut()?;
+        if now.is_some() {
+            t.bph = now;
+        }
+        t.bph
+    }
+
     /// The run's hours from its first beat at audio second `first` to
     /// `to`, from hour `from_hour` on ([`power_reserve::hours_from`]), as
     /// `timegrapher session` reads each stretch, on the session's clock,
     /// breaks and masks.
     fn reserve_hours(&self, first: f64, to: f64, from_hour: u32) -> Vec<power_reserve::Hour> {
-        let Some(log) = self.live.as_ref().and_then(steady::log_of) else {
+        let bph = self.reserve.as_ref().and_then(|t| t.bph);
+        let Some(log) = self
+            .live
+            .as_ref()
+            .and_then(|l| steady::log_of_at(l, l.bph().or(bph)))
+        else {
             return Vec::new();
         };
         let fit = self
@@ -444,8 +464,8 @@ impl TimegrapherApp {
         }
         // The beats heard up to the failure, as a tick reads them: a stop
         // found there is the watch's own.
+        let beat_s = power_reserve::beat_s(self.reserve_bph());
         if let (Some(live), Some(t)) = (self.live.as_ref(), self.reserve.as_mut()) {
-            let beat_s = power_reserve::beat_s(live.bph());
             t.update(live.beats(), beat_s, live.duration_s());
         }
         if let Some(t) = self.reserve.as_mut() {
