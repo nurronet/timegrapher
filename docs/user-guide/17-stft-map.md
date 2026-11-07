@@ -18,8 +18,10 @@ through a take, grew as the mainspring ran down, or stopped after a
 knock.
 
 The picture is the first hour of a 7-hour take on another watch, a
-Dandong 3285, whose wheel train is the 3235's: the 30-minute take of
-chapters 9 to 16 has no 20 minutes without a reading missing.
+Dandong 3285, which the app's calibre table gives the 3235's wheel
+periods (the project's [32xx train counts](../32xx-train-wheel-counts.md)
+cover 3230, 3235, 3255 and 3285): the 30-minute take of chapters 9 to 16
+has no 20 minutes without a reading missing.
 
 ## The Toolbar
 
