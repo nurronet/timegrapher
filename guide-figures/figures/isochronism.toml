@@ -1,18 +1,19 @@
-# Chapter 19, Isochronism: the Curve view: a whole 64 h 51 min take of a Dandong 3235,
-# fully wound at the start and left dial up until it stopped, 59.8 h in.
+# Chapter 19, Isochronism: the Curve view over the first 44 hours of a
+# Dandong 3235 run-down (fully wound, dial up), the smooth part of the run.
 output = "isochronism.png"
 
-actions = [["sleep", 120]]
+actions = [["sleep", 300]]
 
-# 1 View, left of the pane, 2 Export, 3 the slope, 4 the ends, 5 the turn, 6 a dot and its
-# bar, 7 the curve.
-marks = [[1, 28, 157], [2, 150, 157], [3, 555, 187], [4, 380, 206], [5, 1235, 273],
-         [6, 1160, 862], [7, 600, 480]]
+# 1 View, left of the pane, 2 Export, 3 the slope, 4 the ends, 5 a dot and
+# its bar, 6 the curve.
+marks = [[1, 28, 157], [2, 150, 157], [3, 568, 187], [4, 380, 206], [5, 1262, 600],
+         [6, 1000, 665]]
 
 layout = "Isochronism"
 
 [data]
 corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac", "take_part01-013.flac", "take_part01-014.flac", "take_part01-015.flac", "take_part01-016.flac", "take_part01-017.flac", "take_part01-018.flac", "take_part01-019.flac", "take_part01-020.flac", "take_part01-021.flac", "take_part01-022.flac", "take_part01-023.flac", "take_part01-024.flac", "take_part01-025.flac", "take_part01-026.flac", "take_part01-027.flac", "take_part01-028.flac", "take_part01-029.flac", "take_part01-030.flac", "take_part01-031.flac", "take_part01-032.flac", "take_part01-033.flac", "take_part01-034.flac", "take_part01-035.flac", "take_part01-036.flac", "take_part01-037.flac", "take_part01-038.flac", "take_part01-039.flac", "take_part01-040.flac", "take_part01-041.flac", "take_part01-042.flac", "take_part01-043.flac", "take_part01-044.flac"]
 
 [data.session]
 watch = "Dandong 3235"

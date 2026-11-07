@@ -49,7 +49,8 @@ Each figure is a TOML file:
   for a control too crowded to put the mark beside.
 - `actions`: steps before the picture: `["click", x, y]` (in the window,
   below its title bar), `["drag", x1, y1, x2, y2]`, `["hover", x, y]` (the
-  pointer left there, to show a hover), `["key", "ctrl+o"]`, `["type", "text"]`,
+  pointer left there, to show a hover), `["scroll", x, y, n]` (n wheel
+  steps down at that point, up when negative), `["key", "ctrl+o"]`, `["type", "text"]`,
   `["sleep", s]`, and with a microphone `["stand", "DD"]` to turn the
   watch or `["stand", "off"]` to take it off. A figure whose actions use
   the stand starts with the stand empty.

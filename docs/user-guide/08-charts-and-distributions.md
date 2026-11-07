@@ -37,8 +37,14 @@ from about 255° to 145°, the mainspring letting down. The rate does not
 simply follow it: it settles near −65 s/d after the first hour, drifts
 to about −100 s/d by 42 hours, then climbs to about −40 s/d as the
 amplitude falls fastest. At about 15 hours the rate and the amplitude
-step down together, and at about 33 hours both dip and recover: moments
-a card read now and then would miss, and the place to look on the strip. The beat error from the unlock grows from about 0.4 to
+step down together, and at about 33 hours both dip and recover. Twice
+more the rate jumps on its own: at about 44 hours it climbs by some
+20 s/d within an hour, and at about 51 hours it steps up by about 15 s/d
+at once, while the amplitude line runs on smoothly through both. A rate
+that moves with no change in amplitude points at something other than
+the mainspring; Isochronism's Walk view (chapter 19) shows the same two
+jumps. These are moments a card read now and then would miss, and the
+places to look on the strip. The beat error from the unlock grows from about 0.4 to
 0.55 ms. Isochronism (chapter 19) puts the rate against the amplitude
 directly, and the Power Reserve Test (chapter 21) gives the same run
 hour by hour.

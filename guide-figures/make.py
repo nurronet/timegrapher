@@ -625,7 +625,8 @@ def app_window(env):
 def act(step, env):
     """One step before the picture: ["click", x, y] (in the window),
     ["drag", x1, y1, x2, y2], ["hover", x, y] (the pointer left there, for a
-    hover), ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
+    hover), ["scroll", x, y, n] (n wheel steps down there, up when negative),
+    ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
     microphone figure) ["stand", "DD"] to turn the watch, ["stand", "off"]
     to take it off."""
     kind = step[0]
@@ -657,6 +658,18 @@ def act(step, env):
                             str(round(x1 + (x2 - x1) * i / 20)), str(round(y1 + (y2 - y1) * i / 20))], env=env)
         time.sleep(0.3)
         subprocess.run(["xdotool", "mouseup", "1"], env=env)
+        time.sleep(0.5)
+        subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
+    elif kind == "scroll":
+        # ["scroll", x, y, n]: the wheel turned n steps down (up when n < 0)
+        # with the pointer at (x, y), such as to show a table's later rows.
+        win = app_window(env)
+        subprocess.run(["xdotool", "mousemove", "--window", win, str(step[1]), str(step[2])], env=env)
+        time.sleep(0.5)
+        button = "5" if step[3] > 0 else "4"
+        for _ in range(abs(step[3])):
+            subprocess.run(["xdotool", "click", button], env=env)
+            time.sleep(0.05)
         time.sleep(0.5)
         subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
     elif kind == "key":

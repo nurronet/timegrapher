@@ -1,12 +1,12 @@
 # Chapter 16, FFT: the first 12 hours of a fully wound Dandong 3235,
-# dial up, the pane alone with the readings hidden.
+# dial up, the pane alone with the readings hidden, Timing on.
 output = "steady-fft.png"
 
-actions = [["sleep", 150]]
+actions = [["sleep", 150], ["click", 141, 90], ["sleep", 15]]
 
 # 1 Timing, 2 Wheel Periods, above them; 3 the input line, 4 the tallest
 # peak, 5 half a wheel's period, 6 a wheel's period.
-marks = [[1, 195, 129], [2, 229, 129], [3, 1095, 214], [4, 1040, 277], [5, 165, 242], [6, 470, 242]]
+marks = [[1, 190, 129], [2, 224, 129], [3, 1095, 214], [4, 1640, 276], [5, 225, 242], [6, 470, 242]]
 
 layout = "SteadyFft"
 
