@@ -2826,4 +2826,68 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
         }
     }
+
+    /// The list finds a watch by its name, calibre, notes or any field's
+    /// value, ignoring case and the search's spaces at either end; Last
+    /// Take puts the watch with the newest take first, a watch with none
+    /// last, and Size the one whose takes take the most room first.
+    #[test]
+    fn the_list_searches_every_field_and_sorts_three_ways() {
+        let root = std::env::temp_dir().join(format!("tg-watch-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut lib = Library::create(&root).unwrap();
+        let mut a = timegrapher_core::library::Watch::new("Alpha");
+        a.calibre = Some("ETA 2824-2".into());
+        let mut b = timegrapher_core::library::Watch::new("Bravo");
+        b.notes = Some("Serviced in March".into());
+        let mut c = timegrapher_core::library::Watch::new("Charlie");
+        c.fields.push(timegrapher_core::library::Field {
+            label: "Customer".into(),
+            kind: FieldKind::Text,
+            value: "Mrs Ng".into(),
+        });
+        for w in [&c, &a, &b] {
+            lib.add(w).unwrap();
+        }
+        let take = |started: Option<&str>, bytes: u64| Take {
+            name: "t".into(),
+            bytes,
+            audio: true,
+            incomplete: false,
+            started_utc: started.map(Into::into),
+            named_start: None,
+            duration_s: None,
+            positions: Vec::new(),
+            at_end: None,
+            power_reserve: None,
+        };
+        let at = |name: &str| {
+            lib.watches
+                .iter()
+                .position(|e| e.watch.name == name)
+                .unwrap()
+        };
+        let (ia, ib) = (at("Alpha"), at("Bravo"));
+        lib.watches[ia].takes = vec![take(Some("2026-11-01T09:00:00Z"), 900)];
+        lib.watches[ib].takes = vec![
+            take(Some("2026-10-01T09:00:00Z"), 100),
+            take(Some("2026-11-05T09:00:00Z"), 100),
+        ];
+        let names = |search: &str, sort: Sort| -> Vec<String> {
+            shown(&lib, search, sort)
+                .iter()
+                .map(|e| e.watch.name.clone())
+                .collect()
+        };
+        assert_eq!(names("", Sort::Name), ["Alpha", "Bravo", "Charlie"]);
+        assert_eq!(names("  eta 2824 ", Sort::Name), ["Alpha"]);
+        assert_eq!(names("MARCH", Sort::Name), ["Bravo"]);
+        assert_eq!(names("ng", Sort::Name), ["Charlie"]);
+        assert_eq!(names("brav", Sort::Name), ["Bravo"]);
+        assert!(names("Omega", Sort::Name).is_empty());
+        assert_eq!(names("", Sort::LastTake), ["Bravo", "Alpha", "Charlie"]);
+        assert_eq!(names("", Sort::Size), ["Alpha", "Bravo", "Charlie"]);
+        drop(lib);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
