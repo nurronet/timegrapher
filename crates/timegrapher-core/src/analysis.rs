@@ -633,6 +633,37 @@ mod tests {
         }
     }
 
+    /// Clipping in figures (#1417): the clipped beats as a share of the
+    /// beats found, none of none, and the peak in dB of full scale, a half
+    /// scale peak at −6.02 dBFS and digital silence floored at −200.
+    #[test]
+    fn clipping_is_a_share_of_the_beats_and_a_peak_in_dbfs() {
+        let c = Clipping::of(40, 3, 12, 0.5);
+        assert_eq!((c.samples, c.beats), (40, 3));
+        assert!((c.beat_fraction - 0.25).abs() < 1e-12, "{c:?}");
+        assert!((c.peak_dbfs + 6.0206).abs() < 1e-4, "{c:?}");
+        assert_eq!(Clipping::of(0, 0, 0, 1.0).beat_fraction, 0.0);
+        assert!(Clipping::of(0, 0, 0, 1.0).peak_dbfs.abs() < 1e-12);
+        assert!((Clipping::of(0, 0, 8, 0.0).peak_dbfs + 200.0).abs() < 1e-9);
+        // Three beats at 1, 2 and 3 s, one clipped run at the second.
+        let fs = 8000.0;
+        let mut x = vec![0.1f32; 4 * 8000];
+        for v in &mut x[16_000..16_004] {
+            *v = 1.0;
+        }
+        let beats: Vec<Beat> = (1..=3)
+            .map(|i| Beat {
+                index: i,
+                time: i as f64,
+                quality: 1.0,
+            })
+            .collect();
+        let m = Clipping::measure(&x, fs, &beats);
+        assert_eq!(m.beats, 1, "{m:?}");
+        assert!((m.beat_fraction - 1.0 / 3.0).abs() < 1e-12, "{m:?}");
+        assert!(m.peak_dbfs.abs() < 1e-9, "{m:?}");
+    }
+
     #[test]
     fn analyze_reads_the_same_amplitude_windows_as_session() {
         // 90 s at 28,800 bph with 6 ms of silence every 11.1 s: listening

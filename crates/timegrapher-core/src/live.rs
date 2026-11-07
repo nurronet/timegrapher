@@ -1465,6 +1465,8 @@ fn judged_s(fitted: bool, end_s: f64, window_from: f64, heard_since: f64, holes:
 mod jump_tests;
 
 #[cfg(test)]
+mod count_tests;
+#[cfg(test)]
 mod sound_tests;
 
 #[cfg(test)]
