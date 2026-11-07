@@ -1449,3 +1449,33 @@ fn the_null_table_has_the_generators_shape() {
         assert!(c.shape.iter().flatten().all(|&k| k > 0.0), "{at}");
     }
 }
+
+/// The culling the misfit is read with (#1299): a band holding a kept
+/// harmonic is left out whole; a further harmonic's bins leave only their
+/// band's median, and a band left with under half its bins is dropped.
+/// On a flat spectrum (misfit 0) one band lifted 10⁶ times reads a misfit
+/// unless the rule takes it out. Bands from bin 8: [8, 12), [12, 16), …
+#[test]
+fn the_misfit_culls_bands_and_bins_by_its_rules() {
+    let read = |lift: &[usize], removed: &[f64], thinned: &[f64]| {
+        let mut p = vec![1.0; 200];
+        lift.iter().for_each(|&j| p[j] = 1e6);
+        let cull = Cull {
+            removed,
+            thinned,
+            half: 0.5,
+        };
+        timing_fit_culled(&p, 1.0, 1e-3, 8, 1.0, &cull).misfit
+    };
+    let lifted = [12, 13, 14, 15];
+    assert!(read(&[], &[], &[]) < 1e-9);
+    assert!(read(&lifted, &[], &[]) > 0.1);
+    // A kept harmonic at bin 12 leaves its band out whole.
+    assert!(read(&lifted, &[12.0], &[]) < 1e-9);
+    // Two of four bins thinned: the band stays, on the other two.
+    assert!(read(&[12, 13], &[], &[]) > 0.1);
+    assert!(read(&[12, 13], &[], &[12.0, 13.0]) < 1e-9);
+    // Three of four thinned: the band is dropped, not read on its last bin.
+    assert!(read(&[15], &[], &[12.0, 13.0, 14.0]) < 1e-9);
+    assert!(read(&[15], &[], &[]) < 1e-9);
+}
