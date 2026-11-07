@@ -310,10 +310,14 @@ under it its calibre, beat rate, lift angle and added fields, with
   its name and "Can't be shown" instead).
 
 Right-clicking a take, or **…**, offers **Open**,
-**Show in Finder**,
+**Show in Finder** (Show in Explorer on Windows, Show in File Manager on
+Linux),
 **Keep Analysis Only…**, **Move to Another Watch** and **Delete…** (asking
 first, with its size; it can't be undone; deleting the take on show
-leaves the window empty, as at the start). Keep Analysis Only… asks
+leaves the window empty, as at the start). Moving the take on show, or
+filing it from Unsorted Takes, takes the Watches view to the watch it went
+to, and the Bench's card and the status line name that watch. Keep
+Analysis Only… asks
 first, saying the take's size and its sound's and what is lost: the take
 can't be measured again without its sound, and the Scope doesn't
 work on it, while the readings, charts, Steadiness and the Positions Test
@@ -323,8 +327,9 @@ take, checks it reads back, and only then puts it in the take's place
 and deletes the sound; `session.toml` gains `audio = false` and keeps
 everything else it says. It works on a take whose `session.toml` names
 the whole folder in each recording entry, as the app's own takes do; a
-take that lists its sound file by file is refused with a message saying
-so. A take Save Again saves into, one being analysed, or one
+take that lists its sound file by file has the item greyed out, its
+hover saying why, as does one whose sound is already gone, one with
+files missing, and any take while another's sound is being removed. A take Save Again saves into, one being analysed, or one
 whose analysis is being kept is not renamed, moved or deleted until that
 is done. **Add Photos…** copies the photos picked (JPEG, PNG, TIFF, or HEIC as
 an iPhone takes them, each kept as it is) into the watch's `photos/`,
@@ -1087,8 +1092,10 @@ than 48 to a point along the strip, every nth tick and its tock are
 drawn, as the rest would only lie under them.
 
 **Fit**, the switch beside Length (arrows out to two edges, lit while
-on), shows the whole session so far along the strip, up to its latest
-beat (its last 80 hours when it is longer):
+on), shows the whole session so far along the strip, up to the take's
+end: its newest beat or its newest reading, whichever is later, the same
+end the charts and Readings Over Time have (its last 80 hours when it is
+longer):
 
 - While it is on, the length keeps growing with the take as beats arrive.
 - Zooming the strip's time (Cmd or Ctrl and the wheel, a pinch, or a
@@ -1249,7 +1256,9 @@ cover the whole take: to look at a stretch of it, zoom or pan them, or
 use the strip with its overlays and masks. The charts stacked in the pane
 share one time axis, the take's, from its start to its end (or now, while
 listening), so 0:00 sits in the same place on each, whatever its first
-reading. Wherever the pointer is on the
+reading. Under the Paper Strip lying across, they also share its gutter
+and its width, so with Fit on a time sits at the same place on the strip
+and on every chart. Wherever the pointer is on the
 strip or a chart, a thin line marks that moment on all of them, and on the
 strip a label gives its time from the start to the hundredth of a second
 (such as 1:23.45). With the pointer
