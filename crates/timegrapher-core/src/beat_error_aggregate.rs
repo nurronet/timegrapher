@@ -1,7 +1,7 @@
 //! Select one source before a beat-error statistic is computed.
 
 use super::{chosen_beat_error, BeatErrorSource};
-use crate::measure::Caveat;
+use crate::measure::{Caveat, Counted};
 use serde::Serialize;
 
 /// Counts of the sourced readings offered to an aggregate, before selection.
@@ -17,6 +17,8 @@ pub struct BeatErrorSelection {
     pub beat_error_source: Option<BeatErrorSource>,
     pub beat_error_sources: BeatErrorSources,
     pub values: Vec<(usize, f64)>,
+    /// What the counts and values are of.
+    pub counted: Counted,
 }
 
 impl BeatErrorSelection {
@@ -33,6 +35,7 @@ impl BeatErrorSelection {
                     source,
                     used: self.values.len(),
                     readings,
+                    counted: self.counted,
                 });
             }
         }
@@ -77,6 +80,22 @@ pub fn select_beat_errors(
         beat_error_source,
         beat_error_sources,
         values,
+        counted: Counted::Readings,
+    }
+}
+
+/// [`select_beat_errors`] over the amplitude's windows, each offering its
+/// chosen beat error; the caveats count windows, not readings.
+pub fn select_window_beat_errors<'a>(
+    windows: impl IntoIterator<Item = &'a crate::amplitude::AmplitudeWindow>,
+) -> BeatErrorSelection {
+    BeatErrorSelection {
+        counted: Counted::Windows,
+        ..select_beat_errors(
+            windows
+                .into_iter()
+                .map(|w| chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)),
+        )
     }
 }
 
@@ -104,6 +123,7 @@ mod tests {
                 source: BeatErrorSource::Unlock,
                 used: 2,
                 readings: 3,
+                counted: Counted::Readings,
             }]
         ));
     }
@@ -133,5 +153,45 @@ mod tests {
         assert_eq!(selected.beat_error_sources, BeatErrorSources::default());
         assert!(selected.values.is_empty());
         assert!(selected.caveats().is_empty());
+    }
+
+    #[test]
+    fn a_window_selection_counts_windows() {
+        let window = |unlock: Option<f64>, drop: Option<f64>| crate::amplitude::AmplitudeWindow {
+            start_s: 0.0,
+            end_s: 2.0,
+            even_deg: None,
+            odd_deg: None,
+            beat_error_ms: drop,
+            beat_error_unlock_ms: unlock,
+            even_unlock_ms: None,
+            odd_unlock_ms: None,
+            even_drop_ms: None,
+            odd_drop_ms: None,
+        };
+        let windows = [
+            window(Some(0.3), Some(8.0)),
+            window(None, Some(8.0)),
+            window(Some(0.5), None),
+        ];
+        let selected = select_window_beat_errors(&windows);
+        let by_reading = select_beat_errors(
+            windows
+                .iter()
+                .map(|w| chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)),
+        );
+        assert_eq!(selected.counted, Counted::Windows);
+        assert_eq!(by_reading.counted, Counted::Readings);
+        assert_eq!(selected.values, by_reading.values);
+        assert_eq!(selected.values, vec![(0, 0.3), (2, 0.5)]);
+        assert!(matches!(
+            selected.caveats().as_slice(),
+            [Caveat::BeatErrorSourceReadings {
+                source: BeatErrorSource::Unlock,
+                used: 2,
+                readings: 3,
+                counted: Counted::Windows,
+            }]
+        ));
     }
 }

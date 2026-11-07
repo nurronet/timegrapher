@@ -169,6 +169,7 @@ mod tests {
             [crate::measure::Caveat::BeatErrorSourceReadings {
                 used: 2,
                 readings: 3,
+                counted: crate::measure::Counted::Readings,
                 ..
             }]
         ));

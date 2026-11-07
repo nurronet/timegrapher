@@ -562,7 +562,9 @@ and Steadiness beat-error statistics select one source before calculating: unloc
 when present, otherwise drop. Each carries `beat_error_source`,
 `beat_error_sources: {unlock, drop}`, and factual `caveats`. A
 `beat_error_source_readings` caveat records `source`, `used`, and `readings` when
-observations of the other source were excluded. Drop-only statistics carry
+observations of the other source were excluded, and `counted`: `readings`, or
+`windows` when the counts are of the amplitude's 2 s windows, as in the
+steadiness figures. Reports written before `counted` read as `readings`. Drop-only statistics carry
 `beat_error_from_drop`. Minimum counts apply after selection; a difference with
 only one selected endpoint is null.
 

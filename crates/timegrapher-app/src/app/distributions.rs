@@ -327,9 +327,7 @@ impl TimegrapherApp {
     }
     fn hist_beat_errors(&self, short: bool) -> core_session::BeatErrorSelection {
         if short {
-            return core_session::select_beat_errors(self.position_windows().iter().map(|w| {
-                core_session::chosen_beat_error(w.beat_error_unlock_ms, w.beat_error_ms)
-            }));
+            return core_session::select_window_beat_errors(self.position_windows());
         }
         // The source core chose over the windows the readings are made
         // of, with its caveats.
