@@ -42,8 +42,9 @@ is why the pane gives the curve and the turn beside the slope.
 
 ![Isochronism, the Walk view, over the same take, marks 1 to 4](images/isochronism-walk.png)
 
-**Walk** keeps the time the curve leaves out: one dot for each 5 minutes,
-at its median rate and its median amplitude, in time order, joined by a
+**Walk** keeps the time the curve leaves out: one dot for each 5 minutes
+(each 10, 15 … minutes on a take over about 20 hours, so there are at
+most 250), at its median rate and its median amplitude, in time order, joined by a
 trail. Each dot is coloured by the hours since the take's start, with a
 key. A ring marks the start, a large dot the end with its hour, and a
 ring each 12 hours (each 24 hours on a take over 96 hours). The trail
@@ -81,7 +82,9 @@ same amplitudes, so a degree stays put when you switch.
   the middle 80% of the range.
 - **The walk** takes the median rate of the 10 s readings and the median
   amplitude of the 2 s windows in each 5 minutes; a 5 minutes with under
-  half of either is left out, never filled.
+  half of either is left out, never filled. On a take over about 20
+  hours, neighbouring 5 minutes are joined, 10, 15 … minutes a dot, so
+  there are at most 250.
 
 ## What to Look For
 

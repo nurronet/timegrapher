@@ -59,8 +59,9 @@ allows for correlated readings, as in M7.
 
 **The walk.** One point per 5 minutes: the median rate of its 10 s
 readings and the median amplitude of its 2 s windows, each read on its
-own. A 5 minutes with under half of either is left out. Points are
-merged to fit the plot, each series weighted by its own count.
+own. A 5 minutes with under half of either is left out. Past 250
+points (a take over about 20.8 hours) neighbouring 5 minutes are merged,
+10, 15 … minutes a point, each series weighted by its own count.
 
 ## Why This Way
 
