@@ -357,7 +357,7 @@ impl TimegrapherApp {
     /// Whether the take on show is listening, stopped or opened.
     pub(super) fn state_words(&self) -> &'static str {
         match self.session.state() {
-            session::State::Idle if self.ready_test().is_some() => "Ready, not started",
+            session::State::Idle if self.ready_test().is_some() => "Ready",
             session::State::Idle => "Not Started",
             session::State::Listening => "Listening",
             session::State::Paused { .. } => "Stopped",

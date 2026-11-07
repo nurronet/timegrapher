@@ -910,8 +910,7 @@ impl TimegrapherApp {
     /// name, calibre, lift angle and beat rate. Refused while listening,
     /// since the readings so far are of the watch already set.
     pub(super) fn pick_watch(&mut self, id: &str) {
-        if self.running() {
-            self.info_msg("Stop listening before picking another watch.".into());
+        if self.pick_refused("another watch") {
             return;
         }
         // A take on show from another watch or Unsorted Takes is put away,
@@ -959,12 +958,31 @@ impl TimegrapherApp {
             .is_some_and(|(w, u)| *w == self.watch_open && *u == self.unsorted_open)
     }
 
+    /// Whether picking `what` is refused, while listening: the readings
+    /// so far are of the watch already set, and the status bar says so.
+    /// Once a pick goes through, that refusal no longer stands (Walter).
+    fn pick_refused(&mut self, what: &str) -> bool {
+        let refusal = |what: &str| format!("Stop listening before picking {what}.");
+        if self.running() {
+            self.info_msg(refusal(what));
+            return true;
+        }
+        let stale = ["another watch", "Unsorted Takes"].map(refusal);
+        if self
+            .message
+            .as_ref()
+            .is_some_and(|(m, _)| stale.contains(m))
+        {
+            self.message = None;
+        }
+        false
+    }
+
     /// Unsorted Takes: Quick Listen again, with no watch, its takes on
     /// show and the settings back to the defaults: no calibre, the
     /// default lift angle and the beat rate found from the beats.
     pub(super) fn pick_unsorted(&mut self) {
-        if self.running() {
-            self.info_msg("Stop listening before picking Unsorted Takes.".into());
+        if self.pick_refused("Unsorted Takes") {
             return;
         }
         // A watch's take on show, all of it saved, is put away: Unsorted
