@@ -612,7 +612,7 @@ fn uncalibrated_text(model: crate::longterm::NullModel, mix: f64, span_s: f64) -
     )
 }
 
-fn plural(n: usize) -> &'static str {
+pub(crate) fn plural(n: usize) -> &'static str {
     if n == 1 {
         ""
     } else {

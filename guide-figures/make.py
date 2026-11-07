@@ -547,7 +547,8 @@ def stop_player(env):
 
 def act(step, env):
     """One step before the picture: ["click", x, y] (in the window),
-    ["drag", x1, y1, x2, y2], ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
+    ["drag", x1, y1, x2, y2], ["hover", x, y] (the pointer left there, for a
+    hover), ["key", "ctrl+o"], ["type", "text"], ["sleep", seconds], or (with a
     microphone figure) ["stand", "DD"] to turn the watch, ["stand", "off"]
     to take it off."""
     kind = step[0]
@@ -564,6 +565,10 @@ def act(step, env):
         subprocess.run(["xdotool", "click", "1"], env=env)
         time.sleep(0.5)
         subprocess.run(["xdotool", "mousemove", "0", str(SCREEN[1] - 1)], env=env)
+    elif kind == "hover":
+        win = subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],
+                             env=env, capture_output=True, text=True).stdout.split()[0]
+        subprocess.run(["xdotool", "mousemove", "--window", win, str(step[1]), str(step[2])], env=env)
     elif kind == "drag":
         # ["drag", x1, y1, x2, y2]: press, move in steps as a hand would, release.
         win = subprocess.run(["xdotool", "search", "--sync", "--onlyvisible", "--name", "^Timegrapher"],

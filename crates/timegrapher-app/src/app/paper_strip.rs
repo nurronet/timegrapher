@@ -29,13 +29,31 @@ impl TimegrapherApp {
         self.live_strip = Some((live, self.strip));
     }
 
-    /// The strip's view a live session goes back to: the one before a take
-    /// was fitted, unless the strip was changed by hand since.
+    /// The strip's view a live session goes back to: the person's own
+    /// width and length from before a take was fitted, each unless they
+    /// set it by hand since, which stays (Hugh).
     pub(super) fn live_view(&self) -> StripView {
-        match self.live_strip {
-            Some((live, fitted)) if fitted == self.strip => live,
-            _ => self.strip,
+        let mut v = self.strip;
+        if let Some((live, fitted)) = self.live_strip {
+            if v.half_width_ms == fitted.half_width_ms {
+                v.half_width_ms = live.half_width_ms;
+            }
+            if v.span_s == fitted.span_s {
+                v.span_s = live.span_s;
+            }
         }
+        v
+    }
+
+    /// A new take, a test, or listening after an opened take: the strip
+    /// goes back to its live view, and Fit to how it was if the length
+    /// does.
+    pub(super) fn restore_live_strip(&mut self) {
+        if matches!(self.live_strip, Some((_, fitted)) if fitted.span_s == self.strip.span_s) {
+            self.strip_fit = self.live_fit;
+        }
+        self.strip = self.live_view();
+        self.live_strip = None;
     }
 
     /// Fit the strip's length and width to the take on show.

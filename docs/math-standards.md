@@ -176,7 +176,7 @@ Reading: the figures over one span, each with its ± and caveats
   ↓ readings put together
 Positions Test: mean per position, then X, largest, spread
 Power Reserve hours: one reading per hour
-Steadiness: mean of fine windows per reading today; core readings after #656
+Steadiness: median of the fine windows per reading, as the core reading takes it (#656)
 Long runs: median per grid step
 ```
 
@@ -246,7 +246,7 @@ What each figure needs before it is shown today, and what happens when data is m
 | Positions Test row | 10 s in position | No row | `session.rs:1026` |
 | Distribution | 3 values | None | `distribution.rs:125` |
 | Isochronism bin | 10 readings | Bin left out | `steadiness.rs:2633` |
-| Steadiness reading | every fine window in it (until #656) | Reading left out | `steadiness.rs:2515` |
+| Steadiness reading | every fine window in it, of the series' one source (#1364) | Reading left out | `steadiness.rs:2557` |
 | Clock correction | 10 log entries, SE ≤ 20 ppm | Card clock, caveat | `clock.rs:169` |
 | Power Reserve stop | 600 s with no run of 8 good beats | Run goes on | `power_reserve.rs:24` |
 
@@ -263,7 +263,7 @@ What each figure needs before it is shown today, and what happens when data is m
 | Amplitude, beat error (unlock) | Median of 2 s windows | A mis-marked edge moves one window, not the figure |
 | Window amplitude | Mean of tick and tock | One number per window |
 | Positions Test per position, X | Mean | As NIHS 93-10 defines the positions values |
-| Steadiness bins | Mean of fine windows today | Decided (R2, #656): the core reading, so Steadiness and the charts agree |
+| Steadiness bins | Median of fine windows (#656) | The core reading's statistic, so Steadiness and the charts agree. Every window is required, since the Steadiness tests are calibrated on readings of equal span (#1364) |
 | Long-run grid | Median per step | Period search on a robust series |
 | Spread of residuals, jitter | 1.4826 × MAD | A robust standard deviation (`dsp.rs:276`) |
 
