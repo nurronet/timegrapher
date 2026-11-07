@@ -21,7 +21,7 @@ written have no link.
 **The App**
 
 4. [The Window](04-the-window.md): the top row, Bench and Watches, panes, the status bar, menus and keys
-5. The Readings Cards and the Calibre Card
+5. [The Readings Cards and the Calibre Card](05-the-readings-cards.md): the position, the calibre, Listen, the readings, their ± and chips
 6. Paper Strip
 7. Tick Tock Profile and Scope
 8. Charts and Distributions
@@ -54,13 +54,13 @@ Each page says what a measure is, how it is computed, why it is done
 that way, when you'd use it, what it helps find, and what it can't tell
 you.
 
-- M1. Beats
-- M2. Rate
-- M3. The Sound Card's Clock
-- M4. Amplitude and Lift Angle
-- M5. Beat Error
-- M6. Averaging, Windows and Cuts
-- M7. The ± and Correlated Readings
+- [M1. Beats](m1-beats.md)
+- [M2. Rate](m2-rate.md)
+- [M3. The Sound Card's Clock](m3-the-sound-cards-clock.md)
+- [M4. Amplitude and Lift Angle](m4-amplitude-and-lift-angle.md)
+- [M5. Beat Error](m5-beat-error.md)
+- [M6. Averaging, Windows and Cuts](m6-averaging-windows-and-cuts.md)
+- [M7. The ± and Correlated Readings](m7-the-plus-minus.md)
 - M8. Positions Test Figures
 - M9. Steadiness Statistics
 - M10. Finding Cycles
