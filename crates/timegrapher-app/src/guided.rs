@@ -13,6 +13,7 @@ use crate::app::Position;
 use crate::theme;
 use eframe::egui::{self, RichText, Vec2};
 use timegrapher_core::clock::ClockFit;
+use timegrapher_core::figure_text::{fixed_text, signed_text, true_minus};
 use timegrapher_core::session::{self, Measurement, Reading, SourcedFigures};
 use timegrapher_core::stream::BeatLog;
 
@@ -864,27 +865,14 @@ fn step_chips(ui: &mut egui::Ui, test: &Test) {
     }
 }
 
-/// The figures as the pane writes them: a signed figure with a true minus
-/// sign, a plain one, or a dash when missing. A figure that rounds to zero
-/// takes no sign.
+/// The figures as the pane writes them, by core's `figure_text`: signed
+/// or plain, with a true minus, no sign on a zero, a dash when missing.
 fn signed(v: Option<f64>, d: usize) -> String {
-    v.map_or_else(
-        || "—".to_string(),
-        |x| {
-            let s = format!("{:.d$}", x.abs());
-            if s.bytes().all(|b| b == b'0' || b == b'.') {
-                s
-            } else if x < 0.0 {
-                format!("−{s}")
-            } else {
-                format!("+{s}")
-            }
-        },
-    )
+    v.map_or_else(|| "—".to_string(), |x| true_minus(&signed_text(x, d)))
 }
 
 fn plain(v: Option<f64>, d: usize) -> String {
-    v.map_or_else(|| "—".to_string(), |x| format!("{x:.d$}"))
+    v.map_or_else(|| "—".to_string(), |x| true_minus(&fixed_text(x, d)))
 }
 
 /// A table's title, in the pane's own type.
@@ -2089,6 +2077,17 @@ mod tests {
     use timegrapher_core::live::{LiveAnalyzer, LiveConfig};
     use timegrapher_core::measure::Caveat;
     use timegrapher_core::synth::{generate, SynthConfig};
+
+    /// The table's figures are core's figure text (#510).
+    #[test]
+    fn the_tables_figures_are_cores() {
+        assert_eq!(signed(Some(-0.04), 1), "0.0");
+        assert_eq!(signed(Some(-1.26), 1), "\u{2212}1.3");
+        assert_eq!(signed(Some(2.0), 1), "+2.0");
+        assert_eq!(plain(Some(-0.004), 2), "0.00");
+        assert_eq!(plain(Some(-0.3), 2), "\u{2212}0.30");
+        assert_eq!(plain(None, 0), "—");
+    }
 
     /// The 24 Hours After half offers the full-wind tests kept in the
     /// watch's takes that began 12 to 36 hours ago, newest first, and no
