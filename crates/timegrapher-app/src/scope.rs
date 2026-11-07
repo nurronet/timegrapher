@@ -14,6 +14,7 @@ use crate::theme;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use timegrapher_core::beats::Beat;
 use timegrapher_core::chart_scale::axis_number;
+use timegrapher_core::figure_text::true_minus;
 use timegrapher_core::filter::highpass4;
 
 /// How much of each beat is drawn.
@@ -310,7 +311,7 @@ fn time_axis(
             painter.text(
                 egui::pos2(x, plot.bottom() + 3.0),
                 egui::Align2::CENTER_TOP,
-                axis_number(ms, step),
+                true_minus(&axis_number(ms, step)),
                 egui::FontId::proportional(11.0),
                 pal.text_tertiary,
             );
@@ -588,3 +589,7 @@ mod tests {
         assert_eq!(Zoom::Ms5.step_ms(0.125), 0.5);
     }
 }
+
+#[cfg(test)]
+#[path = "scope_tests.rs"]
+mod drawn_tests;
