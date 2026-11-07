@@ -1113,8 +1113,9 @@ longer):
 - Opening a take turns it on and sets the width to the narrowest of the
   listed widths that holds all its beats without wrapping (leaving out
   one stray dot in a thousand at each end), so the whole take shows at
-  once. Listen then brings back the width, length and Fit the strip had
-  before, unless they were changed by hand meanwhile.
+  once. Listen, or a new test, then brings back the width, length and
+  Fit the strip had before. A width or length changed by hand meanwhile
+  stays as set.
 
 On the strip, the mouse wheel or a trackpad swipe either way (with Shift
 too) moves along the session (live or not), as dragging along the
