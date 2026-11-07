@@ -1891,7 +1891,14 @@ the sound stays there, and the next start says so in the status bar,
 **Unsaved Sound Found…**, which opens the message with when it started (in this computer's time), its length and
 size, and **Open** (analysed here, and offered again next time),
 **Move To…** (the recording's folder moved into one you pick, to open
-with Open Folder…), **Delete…** (asking first) and **Later**. A folder
+with Open Folder…), **Delete…** (asking first) and **Later**. When the
+sound was from a take recording into its own folder as it went, that take
+already holds all of it but its last few seconds, so what is kept is a
+copy: the message names the take and offers **Open Take** (the take
+itself, opened where it is), **Delete Copy…** (asking first, and saying
+that only those last seconds are lost) and **Later**. If that take has
+since been moved or deleted, the copy is the only one, and it is offered
+as unsaved sound like any other. A folder
 another copy of the app is recording into is never offered. The
 microphone's own settings are kept aside while recordings are open and
 come back with the next take on the microphone.
