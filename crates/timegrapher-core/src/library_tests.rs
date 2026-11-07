@@ -1215,3 +1215,155 @@ fn a_fixed_figure_has_no_minus_at_zero() {
     assert_eq!(fixed_text(-0.006, 2), "-0.01");
     assert_eq!(fixed_text(-10.0, 0), "-10");
 }
+
+/// A take listed with its own reading shows that reading's figures, as
+/// the card would; with none, or for a test, it shows no figures. A
+/// position the take names in its own words keeps them, and how a take
+/// was kept or cut short is said last.
+#[test]
+fn a_takes_facts_read_show_its_own_reading() {
+    let t = Take {
+        name: "t".into(),
+        bytes: 0,
+        audio: false,
+        incomplete: true,
+        started_utc: None,
+        named_start: None,
+        duration_s: Some(3725.0),
+        positions: vec!["DU".into(), "Crown Left at 45°".into()],
+        at_end: None,
+        power_reserve: None,
+    };
+    let reading = Reading {
+        position: Some("DU".into()),
+        rate_s_per_day: Some(-2.04),
+        calibrated: true,
+        amplitude_deg: Some(265.4),
+        beat_error_ms: Some(0.06),
+        beat_error_source: Some(crate::session::BeatErrorSource::Unlock),
+        caveats: Vec::new(),
+        watch_heard: true,
+    };
+    let named = ["Dial Up, Crown Left at 45°", "1:02:05"];
+    let kept = ["Analysis Only", "Incomplete"];
+    assert_eq!(
+        t.facts_read(false, Some(&reading)),
+        [&named[..], &["-2.0 s/d", "265°", "0.06 ms"], &kept[..]].concat()
+    );
+    assert_eq!(t.facts_read(false, None), [&named[..], &kept[..]].concat());
+    assert_eq!(
+        t.facts_read(true, Some(&reading)),
+        [&["Positions Test"], &named[..], &kept[..]].concat()
+    );
+    // A Power Reserve run the watch didn't end says how it ended.
+    let run = Take {
+        power_reserve: Some(crate::power_reserve::Summary {
+            run_s: 5400.0,
+            ending: crate::power_reserve::Ending::ByHand,
+            position: "DU".into(),
+        }),
+        audio: true,
+        incomplete: false,
+        positions: vec!["DU".into()],
+        ..t
+    };
+    assert_eq!(
+        run.facts_read(false, Some(&reading)),
+        [
+            "Power Reserve 1 h 30 min",
+            "Stopped by hand while the watch still ran",
+            "Dial Up"
+        ]
+    );
+}
+
+/// A watch or take the library can't read is listed as unreadable, with
+/// the file and what is wrong with it, not left out without a word; the
+/// rest are listed as before.
+#[test]
+fn what_cant_be_read_is_listed_as_unreadable() {
+    let root = scratch("unreadable");
+    let mut lib = Library::create(&root).unwrap();
+    let good = lib.add(&Watch::new("Pepsi")).unwrap();
+    let nameless = lib.add(&Watch::new("Daytona")).unwrap();
+    let broken = lib.add(&Watch::new("Explorer II")).unwrap();
+    fs::write(nameless.join(WATCH_FILE), "id = \"x\"\nname = \"  \"\n").unwrap();
+    fs::write(broken.join(WATCH_FILE), "name = [").unwrap();
+    take(
+        &good.join(TAKES).join("2026-10-20 10.00 Dial Up"),
+        &[("take_part01-001.flac", "DU")],
+        1,
+        "2026-10-20T17:00:00Z",
+    );
+    let bad = good.join(TAKES).join("2026-10-21 10.00 Dial Down");
+    fs::create_dir_all(&bad).unwrap();
+    fs::write(bad.join(take::MANIFEST), "[[recording]\n").unwrap();
+    lib.scan();
+    let names: Vec<_> = lib.watches.iter().map(|e| e.watch.name.as_str()).collect();
+    assert_eq!(names, ["Pepsi"]);
+    assert_eq!(lib.watches[0].takes.len(), 1);
+    let mut said = lib.unreadable.clone();
+    said.sort();
+    assert_eq!(said.len(), 3, "{said:?}");
+    assert!(said.iter().any(|e| e.contains("the watch has no name")
+        && e.contains(&nameless.join(WATCH_FILE).display().to_string())));
+    assert!(said
+        .iter()
+        .any(|e| e.contains(&broken.join(WATCH_FILE).display().to_string())));
+    assert!(said
+        .iter()
+        .any(|e| e.contains(&bad.join(take::MANIFEST).display().to_string())));
+    // Put right, each is listed again, and nothing is left said.
+    fs::write(bad.join(take::MANIFEST), "bph = 28800\n").unwrap();
+    fs::remove_dir_all(&nameless).unwrap();
+    fs::remove_dir_all(&broken).unwrap();
+    lib.scan();
+    assert!(lib.unreadable.is_empty(), "{:?}", lib.unreadable);
+    assert_eq!(lib.watches[0].takes.len(), 2);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// Only a kept take beside the take, in this library, replaces it; the
+/// take is left as it was otherwise. A Positions Test's take is known by
+/// the results it keeps.
+#[test]
+fn only_a_kept_take_beside_it_replaces_a_take() {
+    let root = scratch("replace-refused");
+    let mut lib = Library::create(&root).unwrap();
+    let dir = lib.add(&Watch::new("Pepsi")).unwrap();
+    let t = dir.join(TAKES).join("2026-10-20 10.00 Dial Up");
+    take(
+        &t,
+        &[("take_part01-001.flac", "DU")],
+        1,
+        "2026-10-20T17:00:00Z",
+    );
+    lib.scan();
+    let kept_at = |p: &Path| {
+        fs::create_dir_all(p.join(crate::analysis_take::DIR)).unwrap();
+        fs::write(
+            p.join(crate::analysis_take::DIR)
+                .join(crate::analysis_take::HEADER),
+            "{}",
+        )
+        .unwrap();
+        fs::write(p.join("session.toml"), "audio = false\n").unwrap();
+    };
+    let elsewhere = scratch("replace-refused-elsewhere");
+    kept_at(&elsewhere);
+    let not_kept = t.with_file_name(".not-kept");
+    fs::create_dir_all(&not_kept).unwrap();
+    for kept in [&elsewhere, &not_kept] {
+        let e = lib.replace_take(&t, kept).unwrap_err();
+        assert!(e.contains("is not a kept take beside it"), "{e}");
+        assert!(t.join("take_part01-001.flac").is_file() && kept.exists());
+    }
+    assert!(lib
+        .replace_take(&root.join("elsewhere"), &not_kept)
+        .is_err());
+    assert!(!is_positions_test(&t));
+    fs::write(t.join(POSITIONS_TEST_FILE), "{}").unwrap();
+    assert!(is_positions_test(&t));
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&elsewhere);
+}
