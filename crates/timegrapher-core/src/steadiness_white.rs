@@ -307,7 +307,7 @@ mod tests {
                 .unwrap()
         };
         let close = |a: f64, b: f64| (a - b).abs() <= 1e-9 * a.abs().max(1.0);
-        for (n, step, window) in [(33, 1.0, 0), (40, 1.0, 0), (20, 360.0, 5)] {
+        for (n, step, window) in [(33, 1.0, 0), (40, 1.0, 0), (20, 360.0, 5), (40, 360.0, 5)] {
             let p = draw_point(n, step, point_seed(n, step));
             let s = shipped(window, n);
             assert_eq!((p.window, p.draws), (s.window, s.draws), "{n}");
