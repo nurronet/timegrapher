@@ -65,9 +65,10 @@ has, in this order:
 - **A rate difference that is the card's, not the watch's,** between two
   setups.
 - **Pauses and sleeps** in a long take, from the clock log.
-- **Disagreement** between the USB lines and a log or a kept correction
-  by more than 5 ppm: the app says so in a caveat, since one of them is
-  wrong.
+- **Disagreement** between the USB lines and the clock log, by more than
+  5 ppm and 2 of the log's standard errors, or between the USB lines and
+  a kept correction by more than 5 ppm: the app says so in a caveat,
+  since one of them is wrong.
 
 ## What It Can't Tell You
 

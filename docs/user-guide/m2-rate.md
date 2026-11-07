@@ -44,8 +44,7 @@ stretch whose beats span under 10 s gives no rate.
 
 - **A line through every beat** uses all of them. Timing one beat to the
   next would leave each rate at the mercy of two beats' jitter.
-- **The beat error in the line** stops it from reading as a rate. This is
-  the approach Witschi describes for its timegraphers.
+- **The beat error in the line** stops it from reading as a rate.
 - **Dropping beats far from the line** keeps a knock or a mis-found beat
   from pulling the rate.
 - **No line across a break:** after a pause, a jump or a turn of the

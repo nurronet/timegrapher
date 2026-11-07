@@ -22,8 +22,8 @@ There are two figures, timed from two sounds.
    the Tocks' into another (as for amplitude, M4).
 2. The unlock is found on each shape, and timed against the side's beat
    times.
-3. The window's beat error is the drop's beat error (below), plus the
-   Tick's unlock-to-beat time, less the Tock's.
+3. The window's beat error is the drop's beat error (below), less the
+   Tick's unlock-to-drop time, plus the Tock's.
 4. The reading is the **median** of its windows.
 
 **From the drop** (in the Beat Error card's hover):
@@ -37,7 +37,8 @@ drop's, with the chip **Beat Error from the Drop**.
 
 **Which side is Tick:** the sound can't tell which pallet stone is which.
 Each take starts positive: the side that comes late over the first few
-seconds is called Tick. A beat error that reads negative later has turned
+seconds is called Tick. With a beat error nearer zero than 0.1 ms, the
+first beat heard is Tick. A beat error that reads negative later has turned
 over during the take.
 
 ## Why This Way

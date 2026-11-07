@@ -37,10 +37,15 @@ A = 52 ÷ (2 × sin(π × 8.0 ÷ 250)) = 52 ÷ (2 × 0.1004) ≈ 259°
    averaged into one shape, and the Tocks' into another. Each side needs 3
    good beats. The average keeps the middle half of the beats at each
    moment, which ignores stray clicks.
-2. On each shape, the **drop** is where the sound first reaches half the
-   drop's height, and the **unlock** is where it first rises 2% of the
-   drop's height above the background (or 4 times the background's
-   noise, if that is more).
+2. On each shape, both edges are timed where a sound crosses half its
+   own height:
+   - **The drop** is where the rise into the drop's peak crosses half
+     the drop's height. It is found by walking back from the peak, at
+     most 2 ms, so an earlier sound near that height isn't taken for it.
+   - **The unlock:** the first sound is found as the first steady rise
+     above the background by 2% of the drop's height (or 4 times the
+     background's noise, if that is more). It is timed where it crosses
+     half its own height.
 3. Each window gives a Tick and a Tock amplitude. The window's amplitude is
    their mean. A window with one side missing is left out of the reading,
    and kept in that side's own figure.
@@ -48,8 +53,10 @@ A = 52 ÷ (2 × sin(π × 8.0 ÷ 250)) = 52 ÷ (2 × 0.1004) ≈ 259°
 
 ## Why This Way
 
-- **Rising edges, not peaks:** an edge's time is sharper and steadier
-  than a peak's, which moves with the sound's shape.
+- **Half-height crossings on rising edges, not peaks:** an edge's time is
+  sharper and steadier than a peak's, which moves with the sound's shape.
+  Taking each sound at half its own height keeps a quiet unlock from
+  being timed by the drop's loudness.
 - **Averaged beats:** a single beat's unlock is too faint to place.
   Averaging a few seconds of beats brings it out of the noise, while still
   following an amplitude that changes.
