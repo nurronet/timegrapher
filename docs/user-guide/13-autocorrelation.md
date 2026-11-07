@@ -62,4 +62,4 @@ touch the band, and the Ljung–Box p is 0.094.
 ---
 
 Previous: [Cycle](12-cycle.md) ·
-[Contents](README.md)
+Next: [Allan Deviation](14-allan-deviation.md)

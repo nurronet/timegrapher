@@ -33,11 +33,11 @@ written have no link.
 11. [Periods](11-periods.md): what the readings repeat at, matched to the wheels
 12. [Cycle](12-cycle.md): one repeat's shape and size
 13. [Autocorrelation](13-autocorrelation.md): whether each reading follows the last
-14. Allan Deviation
-15. CUSUM and Change Points
-16. FFT
-17. STFT Map
-18. Wavelet Map
+14. [Allan Deviation](14-allan-deviation.md): how the scatter of an average changes as it gets longer
+15. [CUSUM and Change Points](15-cusum-and-change-points.md): whether the level changed, and when
+16. [FFT](16-fft.md): the size of every period's swing over the whole take
+17. [STFT Map](17-stft-map.md): each period's size through the take, in 20-minute windows
+18. [Wavelet Map](18-wavelet-map.md): where and when each swing is, sharply
 
 **Tests and History**
 
@@ -62,9 +62,9 @@ you.
 - [M6. Averaging, Windows and Cuts](m6-averaging-windows-and-cuts.md)
 - [M7. The ± and Correlated Readings](m7-the-plus-minus.md)
 - M8. Positions Test Figures
-- M9. Steadiness Statistics
-- M10. Finding Cycles
-- M11. Time and Frequency Maps
+- [M9. Steadiness Statistics](m9-steadiness-statistics.md)
+- [M10. Finding Cycles](m10-finding-cycles.md)
+- [M11. Time and Frequency Maps](m11-time-and-frequency-maps.md)
 - M12. Isochronism and Rate against Amplitude
 
 **Beyond the App**
