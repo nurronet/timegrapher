@@ -957,7 +957,12 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
     let root = base.join("Timegrapher Data");
     let mut lib = library::Library::create(&root).unwrap();
     let a = lib.add(&library::Watch::new("Pepsi")).unwrap();
-    lib.add(&library::Watch::new("Daytona")).unwrap();
+    // Daytona has its own lift and beat rate: a take kept as its analysis
+    // alone, moved there, keeps those it was measured with (#1283).
+    let mut daytona = library::Watch::new("Daytona");
+    daytona.lift = Some(49.0);
+    daytona.bph = Some(21600);
+    lib.add(&daytona).unwrap();
     drop(lib);
     // A take with its sound, as the app saves one.
     let take_at = |dir: &Path| {
@@ -1071,8 +1076,8 @@ fn a_watchs_takes_are_kept_moved_deleted_and_added() {
         "{}",
         app.status_words()
     );
-    // Its session file names Daytona too, and keeps the lift and beat
-    // rate it was recorded with (#1283).
+    // Its session file names Daytona too, and, its sound gone, keeps the
+    // lift and beat rate it was measured with (#1283).
     let toml = std::fs::read_to_string(d.join(MANIFEST)).unwrap();
     assert!(
         toml.contains("watch = \"Daytona\"")
@@ -1162,6 +1167,116 @@ fn the_take_on_show_filed_from_unsorted_takes_the_bench_to_its_watch() {
     );
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take moved to a watch takes the calibre, lift angle and beat rate
+/// that watch has set, the calibre's own where the table gives them, and
+/// is read again with them when it is on show; what the watch leaves
+/// unset stays as recorded (#1283, Peter's call).
+#[test]
+fn a_moved_take_takes_its_new_watchs_settings() {
+    let base = std::env::temp_dir().join(format!("tg-app-move-settings-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    let pepsi = lib.add(&library::Watch::new("Pepsi")).unwrap();
+    let mut eta = library::Watch::new("Explorer");
+    eta.calibre = Some("ETA 2824-2".into());
+    lib.add(&eta).unwrap();
+    let mut own = library::Watch::new("Own");
+    own.lift = Some(49.0);
+    own.bph = Some(21600);
+    lib.add(&own).unwrap();
+    let id = |name: &str| lib.find(name).unwrap().watch.id.clone();
+    let (eta_id, own_id) = (id("Explorer"), id("Own"));
+    drop(lib);
+    let take = pepsi.join(library::TAKES).join("2026-10-20 10.00 Dial Up");
+    std::fs::create_dir_all(&take).unwrap();
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 20.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&take.join("take_part01-001.wav"), &audio).unwrap();
+    std::fs::write(
+        take.join(MANIFEST),
+        "# kept as written\nwatch = \"Pepsi\"\ncalibre = \"Old\"\nbph = 28800\nlift = 52\n\
+         lift_known = false\n\n[wheels]\nthird = 450.0\n\n[[recording]]\nfile = \".\"\n\
+         position = \"DU\"\n",
+    )
+    .unwrap();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let open = |app: &mut TimegrapherApp| {
+        let t = Instant::now();
+        while app.batch.is_some() && t.elapsed().as_secs() < 60 {
+            app.poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    app.take_action(Some(watches::TakeAction::Open(take.clone())));
+    open(&mut app);
+    assert_eq!(app.lift_deg, 52.0);
+
+    // Into a watch of a calibre the table knows: its lift and beat rate.
+    app.take_readings.wait();
+    app.move_take(&take, &eta_id);
+    let at = root
+        .join("Explorer")
+        .join(library::TAKES)
+        .join(file_name(&take));
+    let (lift, bph) = (
+        app.cal.lift("ETA 2824-2").unwrap(),
+        app.cal.bph("ETA 2824-2").unwrap(),
+    );
+    let m: Manifest = toml::from_str(&std::fs::read_to_string(at.join(MANIFEST)).unwrap()).unwrap();
+    assert_eq!(m.watch.as_deref(), Some("Explorer"));
+    assert_eq!(m.calibre.as_deref(), Some("ETA 2824-2"));
+    assert_eq!(
+        (m.lift, m.lift_known, m.bph),
+        (Some(lift), Some(true), Some(bph))
+    );
+    assert!(m.wheels.is_empty(), "the old calibre's wheels go with it");
+    assert!(std::fs::read_to_string(at.join(MANIFEST))
+        .unwrap()
+        .contains("# kept as written"));
+    // On show, it is read again with them.
+    assert!(app.batch.is_some(), "read again");
+    open(&mut app);
+    assert_eq!(app.take_on_show().as_ref(), Some(&at));
+    assert_eq!(app.lift_deg, lift);
+
+    // Into a watch of its own lift and beat rate and no calibre: those
+    // two, and the calibre stays.
+    app.take_readings.wait();
+    app.move_take(&at, &own_id);
+    let at = root.join("Own").join(library::TAKES).join(file_name(&take));
+    let m: Manifest = toml::from_str(&std::fs::read_to_string(at.join(MANIFEST)).unwrap()).unwrap();
+    assert_eq!(m.watch.as_deref(), Some("Own"));
+    assert_eq!(m.calibre.as_deref(), Some("ETA 2824-2"));
+    assert_eq!((m.lift, m.bph), (Some(49.0), Some(21600)));
+    open(&mut app);
+    assert_eq!(app.lift_deg, 49.0);
+    drop(app);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take whose lift its session file says wasn't known, moved to a
+/// watch of that same lift: the lift is the watch's now, so known, and
+/// the take is read again (#1283).
+#[test]
+fn a_moved_takes_lift_becomes_known_from_its_watch() {
+    let cal = crate::calibre_ui::Calibres::open(None);
+    let mut w = library::Watch::new("Own");
+    w.lift = Some(52.0);
+    let mut doc: toml_edit::DocumentMut = "lift = 52\nlift_known = false\n".parse().unwrap();
+    assert!(super::watches_pane::settings_of(&mut doc, &w, &cal));
+    assert_eq!(doc.get("lift_known").and_then(|i| i.as_bool()), Some(true));
+    // Already so: nothing changes, and nothing is read again.
+    assert!(!super::watches_pane::settings_of(&mut doc, &w, &cal));
 }
 
 /// A take with no session.toml, filed under a watch: it moves without an

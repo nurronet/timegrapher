@@ -466,20 +466,28 @@ impl TimegrapherApp {
         match moved {
             Ok(to) => {
                 self.take_moved(take, &to);
-                let name = self
+                let watch = self
                     .library
                     .as_ref()
                     .ok()
                     .and_then(|l| l.as_ref())
                     .and_then(|l| l.watch_of(&to))
-                    .map(|w| w.watch.name.clone())
-                    .unwrap_or_default();
-                if let Err(e) = name_watch_in_take(&to, &name) {
-                    return self.error(format!(
-                        "\"{}\" is in {name} now, but its session file still names the watch \
-                         it came from: {e}",
-                        file_name(&to)
-                    ));
+                    .map(|w| w.watch.clone());
+                let name = watch.as_ref().map(|w| w.name.clone()).unwrap_or_default();
+                let read_again = match watch.map(|w| file_take_under(&to, &w, &self.cal)) {
+                    Some(Err(e)) => {
+                        return self.error(format!(
+                            "\"{}\" is in {name} now, but its session file still says what \
+                             it was recorded with: {e}",
+                            file_name(&to)
+                        ))
+                    }
+                    Some(Ok(changed)) => changed,
+                    None => false,
+                };
+                // The take on show is read again with its new watch's settings.
+                if read_again && self.take_on_show().as_deref() == Some(to.as_path()) {
+                    self.open_recording(&to, false);
                 }
                 if filed {
                     self.info_msg(format!("Filed \"{}\" under {name}.", file_name(&to)));
@@ -1368,27 +1376,83 @@ impl TimegrapherApp {
     }
 }
 
-/// Name `watch` in the session.toml of the take at `take`, moved into
-/// that watch (#1283): only the watch's name changes, keeping the calibre,
-/// lift and beat rate it was recorded with, and the rest of the file as it
-/// was, comments too. A take with no session.toml, or no watch it went
-/// to, has no name to change.
-fn name_watch_in_take(take: &Path, watch: &str) -> Result<(), String> {
-    if watch.is_empty() {
-        return Ok(());
-    }
+/// Write into the session.toml of the take at `take`, moved into the
+/// watch `w`, what it is read with from now on (#1283, Peter's call):
+/// the watch's name, and the calibre, lift angle and beat rate the watch
+/// has set (the calibre's own where the table gives them, as a new take of
+/// it starts with), each in place of the take's. What the watch leaves
+/// unset stays as recorded, and so does the rest of the file, comments too.
+/// A take kept as its analysis alone keeps what it was measured with: its
+/// sound is gone, so it can't be read again. A take with no session.toml
+/// has nothing to change. Whether a setting changed, so the take is read
+/// again.
+fn file_take_under(
+    take: &Path,
+    w: &library::Watch,
+    cal: &crate::calibre_ui::Calibres,
+) -> Result<bool, String> {
     let file = take.join(MANIFEST);
     let text = match timegrapher_core::recorder::read_settled(&file) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(format!("{}: {e}", file.display())),
     };
     let mut doc: toml_edit::DocumentMut = text
         .parse()
         .map_err(|e| format!("Can't read {}: {e}", file.display()))?;
-    if doc.get("watch").and_then(|w| w.as_str()) == Some(watch) {
-        return Ok(());
+    if !w.name.is_empty() {
+        doc["watch"] = toml_edit::value(w.name.as_str());
     }
-    doc["watch"] = toml_edit::value(watch);
-    write_replacing(&file, &doc.to_string())
+    let mut changed = false;
+    if !timegrapher_core::analysis_take::is_analysis_only(take) {
+        changed = settings_of(&mut doc, w, cal);
+    }
+    if doc.to_string() != text {
+        write_replacing(&file, &doc.to_string())?;
+    }
+    Ok(changed)
+}
+
+/// [`file_take_under`]'s settings: the watch's calibre (with its own
+/// wheels), lift angle and beat rate, where it has them, put into `doc`.
+/// Whether any differed from the take's.
+pub(super) fn settings_of(
+    doc: &mut toml_edit::DocumentMut,
+    w: &library::Watch,
+    cal: &crate::calibre_ui::Calibres,
+) -> bool {
+    let number = |doc: &toml_edit::DocumentMut, key: &str| {
+        doc.get(key)
+            .and_then(|i| i.as_float().or(i.as_integer().map(|n| n as f64)))
+    };
+    let mut changed = false;
+    if let Some(c) = w.calibre.as_deref().filter(|c| !c.is_empty()) {
+        if doc.get("calibre").and_then(|i| i.as_str()) != Some(c) {
+            doc["calibre"] = toml_edit::value(c);
+            doc.remove("wheels");
+            if let Some(wheels) = cal.custom_wheels(c).filter(|w| !w.is_empty()) {
+                let mut t = toml_edit::Table::new();
+                for (n, p) in wheels {
+                    t.insert(&n, toml_edit::value(p));
+                }
+                doc["wheels"] = toml_edit::Item::Table(t);
+            }
+            changed = true;
+        }
+    }
+    if let Some(l) = cal.watch_lift(w) {
+        let known = doc.get("lift_known").and_then(|i| i.as_bool());
+        if number(doc, "lift") != Some(l) || known == Some(false) {
+            doc["lift"] = toml_edit::value(l);
+            doc["lift_known"] = toml_edit::value(true);
+            changed = true;
+        }
+    }
+    if let Some(b) = cal.watch_bph(w) {
+        if number(doc, "bph") != Some(f64::from(b)) {
+            doc["bph"] = toml_edit::value(i64::from(b));
+            changed = true;
+        }
+    }
+    changed
 }
