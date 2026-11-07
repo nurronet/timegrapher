@@ -1,0 +1,28 @@
+# Chapter 2: the first launch, with Set Up the Microphone over the Bench,
+# a watch already ticking on the stand.
+output = "mic-setup.png"
+
+# 1 the microphone menu and Rescan, 2 Show Every Input, 3 Input Level,
+# 4 Peak and its shaded band, 5 the sheet's status line, 6 Not Now and Done.
+marks = [[1, 1190, 448], [2, 1190, 478], [3, 1190, 597], [4, 1190, 626],
+         [5, 1190, 687], [6, 1190, 742]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["stand", "DU"], ["sleep", 8]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 80
+mode = "microphone"
+
+[wait]
+exact = 1
+
+[window]
+size = [1800, 1000]
+
+[settings]
+mic_set_up = false

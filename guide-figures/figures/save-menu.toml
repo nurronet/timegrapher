@@ -1,0 +1,29 @@
+# Chapter 2: a Quick Listen take stopped, with the Save menu open.
+output = "save-menu.png"
+
+# 1 the Save button, 2 Unsorted Takes, 3 Keep in a Watch, 4 Save in a Folder.
+marks = [[1, 669, 143], [2, 790, 213], [3, 790, 262], [4, 790, 316]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+# The watch on the stand, Listen, Stop after half a minute, then Save.
+actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 30],
+           ["click", 571, 107], ["sleep", 2], ["click", 620, 107], ["sleep", 1]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 80
+mode = "microphone"
+
+[wait]
+exact = 1
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
+overlays = [false, false, false]
