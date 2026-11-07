@@ -2125,3 +2125,61 @@ fn a_new_watch_for_a_recording_that_cant_be_added_is_taken_back() {
     }
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Open's question guesses when a recording started from when its file
+/// was last written, less its length, to the minute in this computer's
+/// time; the minute typed back reads as that time. A minute that isn't
+/// one reads as nothing, and no files give no guess.
+#[test]
+fn an_open_guesses_the_start_from_the_files_time_less_its_length() {
+    let dir = std::env::temp_dir().join(format!("tg-app-started-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let wav = dir.join("take.wav");
+    let audio = generate(
+        &SynthConfig {
+            duration_s: 90.0,
+            ..Default::default()
+        },
+        |_| 280.0,
+        |_| 0.0,
+    );
+    timegrapher_core::audio::write_wav(&wav, &audio).unwrap();
+    let ended = parse_local_minute(" 2026-10-22 14:31 ").expect("a minute");
+    std::fs::File::options()
+        .write(true)
+        .open(&wav)
+        .unwrap()
+        .set_modified(ended)
+        .unwrap();
+    let guess = started_guess(std::slice::from_ref(&wav)).expect("guessed");
+    assert_eq!(
+        guess.format("%Y-%m-%d %H:%M:%S").to_string(),
+        "2026-10-22 14:29:30"
+    );
+    assert_eq!(
+        parse_local_minute(&guess.format("%Y-%m-%d %H:%M").to_string()),
+        parse_local_minute("2026-10-22 14:29")
+    );
+    assert!(parse_local_minute("2026-10-22").is_none());
+    assert!(parse_local_minute("22 Oct 2026 14:30").is_none());
+    assert!(started_guess(&[]).is_none());
+    assert!(started_guess(&[dir.join("gone.wav")]).is_none());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A take's size on its row counts every file in its folder, in folders
+/// inside it too; a folder that can't be read counts as nothing.
+#[test]
+fn a_takes_size_counts_every_file_inside_it() {
+    let dir = std::env::temp_dir().join(format!("tg-app-folder-size-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("inner").join("deeper")).unwrap();
+    std::fs::write(dir.join("a"), [0u8; 10]).unwrap();
+    std::fs::write(dir.join("inner").join("b"), [0u8; 200]).unwrap();
+    std::fs::write(dir.join("inner").join("deeper").join("c"), [0u8; 3000]).unwrap();
+    assert_eq!(folder_size(&dir), 3210);
+    assert_eq!(folder_size(&dir.join("inner")), 3200);
+    assert_eq!(folder_size(&dir.join("missing")), 0);
+    std::fs::remove_dir_all(dir).unwrap();
+}

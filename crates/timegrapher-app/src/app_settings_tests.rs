@@ -1128,3 +1128,20 @@ fn a_kept_clocks_decimals_follow_its_plus_minus() {
     };
     assert_eq!(app.clock_words(None, Some(&typed)).value, "12.3 ppm slow");
 }
+
+/// The strip's width reads as typed (250, ±250 ms, ±2 s, 1,5 s) and as
+/// its field shows it, whatever the case; what isn't a number reads as
+/// nothing.
+#[test]
+fn the_strip_width_reads_as_typed_or_as_shown() {
+    assert_eq!(parse_width("250"), Some(250.0));
+    assert_eq!(parse_width(" ±250 ms "), Some(250.0));
+    assert_eq!(parse_width("±250 MS"), Some(250.0));
+    assert_eq!(parse_width("±2 s"), Some(2000.0));
+    assert_eq!(parse_width("2S"), Some(2000.0));
+    assert_eq!(parse_width("1,5 s"), Some(1500.0));
+    assert_eq!(parse_width("wide"), None);
+    for ms in [0.5, 250.0, 2000.0, 60_000.0] {
+        assert_eq!(parse_width(&width_label(ms)), Some(ms), "{ms}");
+    }
+}
