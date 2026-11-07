@@ -46,16 +46,25 @@ several tests do not add up to a false alarm. A peak of the
 autocorrelation carries no p-value, so in the pane it only refines a
 cycle the period search kept. Each test's own figures are given as they
 are. The target is a steady watch naming nothing on 95 takes in 100; on
-the seeded control scenario it names nothing on 192 takes in 200 (#723).
-On steady takes whose readings follow themselves (AR(1), 100 seeds a
-cell) it names nothing but the correlation on 95 or more from 2 h to
-24 h at ρ 0 to 0.7, and from 8 h at ρ 0.9; on 30 min it names something
-on 7, 6 and 30 in 100 at ρ 0, 0.5 and 0.9, and on 2 h at ρ 0.9 on 9
-(#916, #917). A level
-change alone is named on 7 in 100 at 30 min ρ 0.9 and 3 at 2 h (#917):
-about 2% a series at 30 min, a floor rather than a bias, because a take
-whose readings follow themselves that closely holds about 10 independent
-readings, too few to read their correlation closely. `long` (its text,
+the seeded 2 h control scenario it names nothing on 192 takes in 200
+(#723; `a_steady_watch_names_nothing_on_the_whole_pane` in
+`scenarios.rs`). On steady takes whose readings follow themselves
+(AR(1)), the counts below are the caps kept in
+`a_steady_watch_with_red_noise_names_little_on_the_whole_pane` and
+`long_steady_watches_with_red_noise_name_little_on_the_whole_pane`
+(`scenarios.rs`), set once the period search was calibrated (#1195) and
+the 2 s tiling made one (#636). They may only fall, and the tests are
+the source. On 30 min the pane names something other than the
+correlation (at ρ 0, where nothing correlates, a wander counts too) on
+20 of 300 takes at ρ 0, 0 and 1 of 100 at ρ 0.3 and 0.5,
+13 of 300 at ρ 0.7 and 20 of 100 at ρ 0.9; on 2 h, on 3 of 300 at ρ 0
+and at ρ 0.7, 2 and 3 of 100 at ρ 0.3 and 0.5, and 7 of 100 at ρ 0.9;
+on 8 h and 24 h, on at most 1 of 100 at any ρ (#916, #917). Takes of
+30 min at ρ 0 and 0.9, and 2 h at ρ 0.9, miss the target of 5 in 100.
+Part of the 30 min ρ 0.9 count is a level change named alone. That is
+a floor rather than a bias: a take whose readings follow themselves
+that closely holds about 10 independent readings, too few to read their
+correlation closely. `long` (its text,
 report and summary) and a session's cycles list the same lines: core
 decides the kept set once (`steadiness::hold_to_family`).
 
