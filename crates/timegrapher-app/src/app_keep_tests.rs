@@ -1341,6 +1341,10 @@ fn picking_another_watch_puts_the_take_on_show_away() {
     app.brush = Some(Position::DialDown);
     app.paint_position(0.0, 5.0);
     assert!(app.needs_save_confirmation());
+    // Its own watch: nothing to ask, and it stays.
+    app.pick_watch(&pepsi_id);
+    assert!(app.confirm.is_none());
+    assert_eq!(app.take_on_show().as_ref(), Some(&take));
     app.pick_watch(&daytona_id);
     assert!(matches!(&app.confirm, Some(Confirm::PickWatch(Some(i))) if *i == daytona_id));
     assert_eq!(app.take_on_show().as_ref(), Some(&take));
