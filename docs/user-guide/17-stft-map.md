@@ -1,6 +1,6 @@
 # 17. STFT Map (Short-Time Fourier Transform)
 
-![STFT Map of the rate's beat timing over the first hour of a long take, marks 1 to 9](images/steady-stft.png)
+![STFT Map of the rate's beat timing on the dB scale, over the first 12 hours of a run-down, marks 1 to 8](images/steady-stft.png)
 
 **What it shows:** the size of each period's swing at each time of the
 take. Up the side is the period, on a log scale, the longest at the top;
@@ -17,11 +17,8 @@ from one row to the next. Use it to see whether a wheel's swing held
 through a take, grew as the mainspring ran down, or stopped after a
 knock.
 
-The picture is the first hour of a 7-hour take on another watch, a
-Dandong 3285, which the app's calibre table gives the 3235's wheel
-periods (the project's [32xx train counts](../32xx-train-wheel-counts.md)
-cover 3230, 3235, 3255 and 3285): the 30-minute take of chapters 9 to 16
-has no 20 minutes without a reading missing.
+The picture is the first 12 hours of the Dandong 3235 run-down from
+chapter 8, with **dB Scale** on.
 
 ## The Toolbar
 
@@ -38,11 +35,26 @@ has no 20 minutes without a reading missing.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 4 | A line across | A swing at one period that holds through the take. Here the escape wheel's 5 s, in every window. |
-| 5 | A bright patch | A swing that comes and goes. Here at periods of about 3 to 7 minutes, in the windows centred from 25 to 35 minutes: the beat timing wandering slowly. |
-| 6 | An empty area | Not read. Each column is one 20-minute window, drawn 5 minutes wide at its middle; a window with any reading missing is left empty. Here a gap near 49 minutes empties every window that holds it. |
-| 7 | The key | What the colour measures and its unit: **Timing Swing (ms)** for the rate's map, **Amplitude Swing (°)**, **Beat Error Swing (ms)**. From 0 up to the size 99.5% of the cells read stay under, which the brightest colour shares with every size above it. |
-| 8 | A wheel's name | Short names in a lane right of the map, level with their lines: **4th Wheel**, **Esc Wheel**. The pointer on a wheel's line gives its full name and period, "Escape Wheel: 5 s". |
-| 9 | A cell under the pointer | Its size with its unit, its period and its time: "Timing Swing 0.003 ms · period 4 s · at 20:00". |
+| 5 | A bright patch | A swing that comes and goes. Here at periods of about 3 to 7 minutes: the beat timing wandering slowly, more in some hours than others. |
+| 6 | The key | What the colour measures and its unit: **Timing Swing (ms)** for the rate's map, **Amplitude Swing (°)**, **Beat Error Swing (ms)**. From 0 up to the size 99.5% of the cells read stay under, which the brightest colour shares with every size above it. With **dB Scale** on, as here, "Timing Swing (dB)", from −50 dB to 0 dB, and the size 0 dB stands for: "0 dB, 2.8 ms and above". |
+| 7 | A wheel's name | Short names in a lane right of the map, level with their lines: **4th Wheel**, **Esc Wheel**. |
+| 8 | The pointer on a wheel's line | The wheel's full name and period: "Escape Wheel: 5 s". On a cell, the pointer gives the cell's size with its unit, its period and its time: "Timing Swing 0.003 ms · period 4 s · at 20:00". |
+
+**An empty area** is not read. Each column is one 20-minute window,
+drawn 5 minutes wide at its middle; a window with any reading missing is
+left empty, so a gap empties every window that holds it. The take in the
+picture has none.
+
+**In the picture,** the escape wheel's line at 5 s runs unbroken from
+the first window to the last: a swing of the beat timing once every turn
+of the escape wheel, steady through 12 hours. On the plain scale it
+can't be seen at all: the slow wander at periods of minutes is many
+times bigger, and takes every bright colour. The dB scale gives each
+size its own step, so the small, steady line shows beside the large,
+restless top of the map. A fainter band near 20 s also runs right
+across. Periods (chapter 11) finds the 5 s line in the take as a whole;
+the map adds that it held hour after hour, rather than coming from one
+stretch of the take.
 
 **The rate's map is of the beat timing,** in ms, not of the rate in s/d:
 a swing of the timing at 5 s is far too fast for any rate reading to

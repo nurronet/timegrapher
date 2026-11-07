@@ -1,10 +1,15 @@
 # Chapter 17, STFT Map: the first 12 hours of a fully wound Dandong 3235,
-# dial up, the pane alone with the readings hidden.
+# dial up, the pane alone with the readings hidden, on the dB scale, the
+# pointer on the escape wheel's line.
 output = "steady-stft.png"
 
 actions = [["sleep", 150], ["click", 133, 90], ["sleep", 3], ["hover", 751, 690], ["sleep", 2]]
 
-marks = []
+# 1 the series control, left of the pane; 2 dB Scale, 3 Wheel Periods,
+# above them; 4 a line across, 5 a bright patch, 6 the key, 7 a wheel's
+# name, 8 the pointer on a wheel's line.
+marks = [[1, 28, 157], [2, 182, 129], [3, 216, 129], [4, 1000, 735], [5, 1110, 240],
+         [6, 590, 1009], [7, 1796, 780], [8, 950, 785]]
 
 layout = "SteadyStft"
 
