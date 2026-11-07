@@ -46,9 +46,10 @@ a reading, such as the escape wheel's 5 s.
 from chapter 8, with **Timing** on: the swing of the beat timing itself,
 from 1 s up. The floor rises from about 0.002 ms at a few seconds to
 about 1 ms at an hour: the slower the swing, the further the timing
-wanders, and the tallest peak, at 30 minutes, is that slow wander. Out of
-the floor at the short end rises one narrow line, exactly on the escape
-wheel's mark: 0.05 ms at 5 s, about twenty times its neighbours. It is
+wanders, and the tallest peak, at 30 minutes, is that slow wander. Of the
+narrow lines that rise out of the floor at the short end, the tallest
+sits exactly on the escape wheel's mark: 0.05 ms at 5 s, about twenty
+times its neighbours. The smaller spikes under 2 s match no wheel. It is
 the escape wheel, once a turn, steady enough over 12 hours to stand that
 clear, and far too fast for any rate reading to show. The fourth wheel's
 minute stands out too, about 0.2 ms, with a line at its half minute.
