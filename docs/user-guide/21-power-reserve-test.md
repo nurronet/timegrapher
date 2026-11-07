@@ -52,7 +52,11 @@ The take is kept in the watch's history, named by its local start time
 and "Power Reserve". The Watches view lists it as "Power Reserve 46 h
 12 min", adding how it ended when the watch didn't stop it: "Stopped by
 hand while the watch still ran", or "Reached the 80 h limit while the
-watch still ran".
+watch still ran". If the recording itself fails, for example on a full
+disk, the run ends there and reads "at least": "Power Reserve at least
+2 h 01 min · The recording failed while the watch still ran". Its hours
+so far are kept in the take, and the take keeps its sound even with
+Analysis Only picked.
 
 ## The Results
 
@@ -79,6 +83,10 @@ the same way, as in the picture. Its wind at the start isn't known, so
 its run is never called a power reserve: the line reads "Ran at least
 7 h 28 min from the take's start" and "Read from a long take, not a Power
 Reserve Test". Nothing is written into the take.
+
+The calibre card in the picture names Dandong 3235, while the status
+bar names the take's Dandong 3285: the app's calibre list files the 3285
+under the Dandong 3235 entry, which has the same train.
 
 **In the picture,** over the first four hours of a fully wound watch, the
 rate climbs from +7.1 to +10.0 s/d while the amplitude falls from 226° to
