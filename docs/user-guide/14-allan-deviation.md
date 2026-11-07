@@ -53,8 +53,9 @@ the least scatter is 2.39 s/d, for averages of 11 minutes, and averages
 of 20 to 40 minutes scatter more again, about 3 s/d, lifted by the slow
 changes Readings Over Time shows (chapter 10). What it means at the
 bench: on this watch, two readings taken one after the other, each
-averaged over 10 minutes, typically differ by about 3 s/d, and averaging
-longer doesn't narrow that.
+averaged over 11 minutes, differ by about 3.4 s/d (root mean square,
+√2 × 2.39), and averaging longer doesn't narrow that: over 20 to
+40 minutes they differ by about 4 s/d.
 
 **In the Info panel,** when the curve stands at least twice the dashed
 line at any averaging time with 8 or more independent pairs, the tests

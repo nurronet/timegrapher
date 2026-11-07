@@ -58,8 +58,8 @@ both sides in a slow wave, up near 4 and 8 to 9 minutes, down near 2
 and 6 minutes: the same rise and fall every few minutes that Cycle
 (chapter 12) folds. The Ljung–Box p is under 10⁻³⁰⁰. So a ± worked out
 as if each reading were a fresh draw would be far too small, which is
-why the app's ± allows for it (M7); a 10 s reading on this watch is not
-ten independent seconds' worth of evidence.
+why the app's ± allows for it (M7). By the lag-1 resemblance alone, the
+4317 readings carry about as much evidence as 1,700 independent ones.
 
 ## What It Can't Tell You
 
