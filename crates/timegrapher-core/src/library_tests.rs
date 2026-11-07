@@ -1358,9 +1358,20 @@ fn only_a_kept_take_beside_it_replaces_a_take() {
         assert!(e.contains("is not a kept take beside it"), "{e}");
         assert!(t.join("take_part01-001.flac").is_file() && kept.exists());
     }
-    assert!(lib
-        .replace_take(&root.join("elsewhere"), &not_kept)
-        .is_err());
+    // A take outside the library is refused though its kept take is
+    // beside it, and neither is touched.
+    let outside = elsewhere.join("2026-10-20 10.00 Dial Up");
+    take(
+        &outside,
+        &[("take_part01-001.flac", "DU")],
+        1,
+        "2026-10-20T17:00:00Z",
+    );
+    let beside = elsewhere.join(".kept");
+    kept_at(&beside);
+    let e = lib.replace_take(&outside, &beside).unwrap_err();
+    assert!(e.contains("is not a take of these watches"), "{e}");
+    assert!(outside.join("take_part01-001.flac").is_file() && beside.exists());
     assert!(!is_positions_test(&t));
     fs::write(t.join(POSITIONS_TEST_FILE), "{}").unwrap();
     assert!(is_positions_test(&t));
