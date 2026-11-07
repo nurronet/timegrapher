@@ -616,7 +616,10 @@ pub const LEAD_SCATTER_FLOOR: f64 = 0.0002;
 /// of the first window that is the watch's: its timing clearly regular
 /// (scatter under [`crate::beats::NOISE_DOUBT_FRACTION`] of a beat), the
 /// windows from it on clearly regular by their median, and its scatter
-/// at most [`LEAD_SCATTER_RATIO`] times theirs (#1418), with at least
+/// at most [`LEAD_SCATTER_RATIO`] times theirs, and the same of the next
+/// window that doesn't overlap it (#1418), with no found jump from the
+/// first's start to the second's end and every window between them on
+/// the grid present, with at least
 /// [`LEAD_WATCH_MIN_S`] from it to the end. `None` when the first window
 /// is the watch's or no such window is found. The whole
 /// stretch's median is not asked: a lead about as long as the watch can
@@ -634,14 +637,32 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
         |w: &[WindowFit]| crate::beats::timing_scatter_fraction(scatter_jitter_us(w), bph);
     let clear =
         |w: &[WindowFit]| fraction(w).is_some_and(|f| f < crate::beats::NOISE_DOUBT_FRACTION);
-    // A window is the watch's when it is clearly regular and scatters
-    // about as the windows after it do (#1418).
-    let watch = |k: usize| {
+    // A window passes when it is clearly regular and scatters about as
+    // the windows after it do (#1418).
+    let passes = |k: usize| {
         clear(&windows[k..=k])
             && clear(&windows[k..])
             && fraction(&windows[k..=k])
                 .zip(fraction(&windows[k..]))
                 .is_some_and(|(f, r)| f <= LEAD_SCATTER_RATIO * r.max(LEAD_SCATTER_FLOOR))
+    };
+    // It is the watch's when the next window clear of it (its confirmer)
+    // passes too: one window of noise can scatter as little as a watch's,
+    // two apart don't. The pair may not straddle a found jump, and every
+    // window on the grid from it to its confirmer must be there: a pair
+    // across the step onto the watch, or across a window missing there,
+    // would set noise beside the watch's own (#1418).
+    let watch = |k: usize| {
+        let Some(c) =
+            (k + 1..windows.len()).find(|&c| windows[c].start_s >= windows[k].end_s - 1e-9)
+        else {
+            return false;
+        };
+        let unbroken = windows[k..=c]
+            .windows(2)
+            .all(|p| p[1].start_s - p[0].start_s <= RATE_WINDOW_STEP_S + 1e-9);
+        let (from, to) = (windows[k].start_s, windows[c].end_s);
+        unbroken && !jumps.iter().any(|&j| j > from && j <= to) && passes(k) && passes(c)
     };
     let last_end = windows.last()?.end_s;
     if watch(0) {

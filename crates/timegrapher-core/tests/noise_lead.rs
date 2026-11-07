@@ -15,7 +15,14 @@ fn noise_then_watch(noise_s: f64, watch_s: f64) -> (Audio, Audio) {
 
 /// [`noise_then_watch`] at `bph`, the noise drawn from `seed`.
 fn noise_then(noise_s: f64, watch_s: f64, bph: u32, seed: u64) -> (Audio, Audio) {
-    let watch = generate(
+    let watch = watch_at(bph, watch_s);
+    let led = noise_before(noise_s, &watch, seed);
+    (watch, led)
+}
+
+/// `watch_s` of a watch at `bph`, +5 s/d and 270°.
+fn watch_at(bph: u32, watch_s: f64) -> Audio {
+    generate(
         &SynthConfig {
             duration_s: watch_s,
             bph,
@@ -25,17 +32,20 @@ fn noise_then(noise_s: f64, watch_s: f64, bph: u32, seed: u64) -> (Audio, Audio)
         },
         |_| 270.0,
         |_| 0.0,
-    );
+    )
+}
+
+/// `noise_s` of the synthetic stand noise drawn from `seed`, then `watch`.
+fn noise_before(noise_s: f64, watch: &Audio, seed: u64) -> Audio {
     let rms = noise_rms(SynthConfig::default().snr_db) * SCALE;
     let mut rng = Rng::new(seed);
     let n = (noise_s * watch.sample_rate as f64) as usize;
     let mut samples: Vec<f32> = (0..n).map(|_| (rms * rng.normal()) as f32).collect();
     samples.extend_from_slice(&watch.samples);
-    let led = Audio {
+    Audio {
         samples,
         sample_rate: watch.sample_rate,
-    };
-    (watch, led)
+    }
 }
 
 fn lead_left_out(c: &[Caveat]) -> Option<f64> {
@@ -129,23 +139,18 @@ fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
 /// `sd_frac` of a beat: each beat there is moved by a draw of that SD,
 /// cut at the midpoints between the beats `analyze` finds.
 fn rough_start(bph: u32, rough_s: f64, sd_frac: f64, seed: u64) -> Audio {
-    let watch = generate(
-        &SynthConfig {
-            duration_s: 120.0,
-            bph,
-            rate_s_per_day: 5.0,
-            beat_error_ms: 0.4,
-            ..Default::default()
-        },
-        |_| 270.0,
-        |_| 0.0,
-    );
+    scatter(&watch_at(bph, 120.0), bph, rough_s, sd_frac, seed)
+}
+
+/// `watch` with each beat before `upto_s` moved by a draw of `sd_frac`
+/// of a beat, cut at the midpoints between the beats `analyze` finds.
+fn scatter(watch: &Audio, bph: u32, upto_s: f64, sd_frac: f64, seed: u64) -> Audio {
     let fs = f64::from(watch.sample_rate);
-    let beats = analyze(&watch, &AnalysisConfig::default()).beats;
+    let beats = analyze(watch, &AnalysisConfig::default()).beats;
     let beat_s = 3600.0 / f64::from(bph);
     let mut rng = Rng::new(seed);
     let mut out = watch.samples.clone();
-    for b in beats.iter().filter(|b| b.time > beat_s && b.time < rough_s) {
+    for b in beats.iter().filter(|b| b.time > beat_s && b.time < upto_s) {
         let (a, z) = (
             ((b.time - beat_s / 2.0) * fs) as usize,
             ((b.time + beat_s / 2.0) * fs) as usize,
@@ -163,6 +168,37 @@ fn rough_start(bph: u32, rough_s: f64, sd_frac: f64, seed: u64) -> Audio {
     Audio {
         samples: out,
         sample_rate: watch.sample_rate,
+    }
+}
+
+/// A noise window can scatter under a watch's line when the watch
+/// scatters 0.1% of a beat: on this noise (seed 101) the window from 45 s
+/// reads 0.34% against a line of 0.40%, and the window after it holds
+/// no beat clear enough to fit, so the next window clear of it is the
+/// one across the step onto the watch at 60 s, which reads as the
+/// watch's (#1418). Such a pair is not taken as the watch's: the lead
+/// runs to the watch and the rate stays the watch's alone, guessed and
+/// set. With 0.05% of scatter, and every acceptance seed, the same.
+#[test]
+fn a_noise_window_paired_across_the_step_onto_the_watch_stays_in_the_lead() {
+    let bph = 18_000;
+    for (sd, seed) in [(0.001, 101), (0.0005, 101), (0.001, 2004), (0.001, 3001)] {
+        let what = format!("watch scattering {sd} of a beat after noise {seed}");
+        let watch = scatter(&watch_at(bph, 60.0), bph, 60.0 - 0.2, sd, 77);
+        let want = analyze(&watch, &AnalysisConfig::default()).summary;
+        let led = noise_before(60.0, &watch, seed);
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            assert!((55.0..70.0).contains(&lead), "{what}: lead {lead}");
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+        }
     }
 }
 
