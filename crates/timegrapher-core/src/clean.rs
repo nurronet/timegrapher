@@ -927,11 +927,6 @@ mod tests {
         assert!(cuts.clear(h.end_s, h.end_s + 10.0));
     }
 
-    /// A stretch starting at 12.3 s, just after a cut, whose first beat
-    /// lies past it: the tiling point before that beat (10 s) is before
-    /// the stretch's start, so the first window starts on the next one,
-    /// never before the stretch (#636), though beats before it would cover
-    /// a window from 10 s.
     /// A start on a tiling point, carrying float error just past it, stays
     /// on that point and keeps its window (Norm, #1250); a start truly past
     /// a point goes on to the next one, never back.
@@ -947,6 +942,11 @@ mod tests {
         assert_eq!(w.len(), 3);
     }
 
+    /// A stretch starting at 12.3 s, just after a cut, whose first beat
+    /// lies past it: the tiling point before that beat (10 s) is before
+    /// the stretch's start, so the first window starts on the next one,
+    /// never before the stretch (#636), though beats before it would cover
+    /// a window from 10 s.
     #[test]
     fn no_window_starts_before_its_stretch() {
         let beats: Vec<Beat> = (0..480)
