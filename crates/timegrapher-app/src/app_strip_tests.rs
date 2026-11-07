@@ -570,3 +570,43 @@ fn masked_beats_are_faint_under_the_hatching() {
     let last_masked = *masked.last().unwrap();
     assert!(last_masked < first_line && last_masked < first_full);
 }
+
+/// The take's span ends at its newest beat or its newest reading, whichever
+/// is later, with none before there is either; with Fit on, the strip's
+/// newest edge is that end and never past it (#1256).
+#[test]
+fn the_takes_span_ends_at_its_newest_beat_or_reading() {
+    let empty = TimegrapherApp::with_devices(Vec::new(), None);
+    assert_eq!(empty.take_span(), None);
+    let mut app = synthetic(40.0, 0.0);
+    let beat = app.latest_s();
+    assert!(beat > 30.0, "{beat}");
+    let reading = |t| TrendPoint {
+        t,
+        rate_s_per_day: Some(1.0),
+        amplitude_deg: Some(280.0),
+        amplitude_even_deg: None,
+        amplitude_odd_deg: None,
+        beat_error_unlock_ms: None,
+        beat_error_ms: None,
+        rate_error_s_per_day: None,
+        amplitude_error_deg: None,
+        beat_error_unlock_error_ms: None,
+        heard: true,
+    };
+    app.trend = vec![reading(beat - 10.0)];
+    assert_eq!(app.take_span(), Some((0.0, beat)));
+    app.trend = vec![reading(beat - 10.0), reading(beat + 5.0)];
+    assert_eq!(app.take_span(), Some((0.0, beat + 5.0)));
+
+    app.strip_fit = true;
+    app.strip_end = None;
+    assert_eq!(app.strip_end_s(), beat + 5.0);
+    app.strip_end = Some(1e9);
+    assert_eq!(app.strip_end_s(), beat + 5.0);
+    app.strip_end = Some(12.0);
+    assert_eq!(app.strip_end_s(), 12.0);
+    app.strip_fit = false;
+    app.strip_end = None;
+    assert_eq!(app.strip_end_s(), beat);
+}
