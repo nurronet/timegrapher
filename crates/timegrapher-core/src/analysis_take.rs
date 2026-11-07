@@ -969,7 +969,11 @@ pub fn save(dest: &Path, companions: &[(String, Vec<u8>)], stored: &Stored) -> i
         // since the caller may delete the take's sound next (#1336).
         sync_tree(&staged)?;
         crate::recorder::rename_settled(&staged, dest)?;
-        crate::recorder::sync_folder(parent)
+        // Its name not on the disk: the save fails and the take is kept,
+        // so the copy goes too, and a retry finds no twin in the way.
+        crate::recorder::sync_folder(parent).inspect_err(|_| {
+            let _ = fs::remove_dir_all(dest);
+        })
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&staged);
