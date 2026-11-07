@@ -102,6 +102,10 @@ pub struct Test {
     pub saved: Option<PathBuf>,
     /// Its take is being written.
     pub saving: bool,
+    /// Its results not yet written into its take after its recording
+    /// failed (the disk full, say): the take, and when the write last
+    /// failed, tried again a minute later (#1380).
+    pub unwritten: Option<(PathBuf, std::time::Instant)>,
 }
 
 impl Test {
@@ -118,6 +122,7 @@ impl Test {
             so_far: Vec::new(),
             saved: None,
             saving: false,
+            unwritten: None,
         }
     }
 

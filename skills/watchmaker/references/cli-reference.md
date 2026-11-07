@@ -197,7 +197,8 @@ server's `record_position` always takes a folder.
 Reserve Test: it records in the one position until the watch stops (the
 last beat heard before 10 minutes with none) or 80 hours pass, and
 writes the run, hour by hour, to the session folder's
-`power-reserve.json` (`ending`: `stopped`, `by_hand` or `limit`;
+`power-reserve.json` (`ending`: `stopped`, `by_hand` or `limit`; the
+app's tests can also end `recording_failed`, a run at least that long;
 `run_s` in true seconds; the silences of 30 s or more; `hours[]`, each
 measured as `session` measures a stretch). Without a FOLDER the folder
 is named by the date and time and "Power Reserve". The `--json` document

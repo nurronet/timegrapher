@@ -1098,6 +1098,15 @@ impl TimegrapherApp {
         }
         self.close_after_save = false;
         if streamed == Streamed::Yes {
+            // The promise holds only while the take records: once its
+            // recording has failed, nothing is tried again (#1380).
+            if self.session.recording_fault().is_some() {
+                return self.error(format!(
+                    "Couldn't add the sound to {}: {e}. The sound not yet added is kept in \
+                     the recovery folder.",
+                    dest.display()
+                ));
+            }
             self.stream_wait = Some(Instant::now());
             return self.error(format!(
                 "Couldn't add the sound to {}: {e}. It is kept here, and tried again in a \
@@ -1106,6 +1115,12 @@ impl TimegrapherApp {
             ));
         }
         self.error(format!("Saving the recording failed: {e}"))
+    }
+
+    /// [`Self::save_failed`] of a save into the take's folder, for tests.
+    #[cfg(test)]
+    pub(super) fn save_failed_for_test(&mut self, dest: &Path, e: String) {
+        self.save_failed(Streamed::Yes, dest, e);
     }
 
     /// While the session is being kept as its analysis alone, say so and
@@ -2147,6 +2162,11 @@ impl TimegrapherApp {
         }
     }
 
+    /// The recording failed (a full disk, say): listening stops, its sound
+    /// is left for recovery, and the take can't be saved again. A Power
+    /// Reserve Test running ends there, its results kept with that ending;
+    /// a save into the take's folder that failed before isn't tried again,
+    /// and the take's row in Watches reads what its folder holds (#1380).
     pub(super) fn recording_failed(&mut self, mut reason: String) {
         // Release the input before attempting any remaining close/flush work.
         self.release_capture();
@@ -2157,6 +2177,11 @@ impl TimegrapherApp {
             }
         }
         self.session.recording_failed(now, reason);
+        self.stream_wait = None;
+        self.reserve_failed();
+        if let Ok(Some(l)) = &mut self.library {
+            l.scan();
+        }
         if let Some(fault) = self.session.recording_fault() {
             self.error(fault.description());
         }
