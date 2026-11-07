@@ -121,9 +121,9 @@ minutes to read; the window shows the hours done and the time left.
 
 **Opening again is fast:** the beats found are kept in the system's
 cache folder, so a take opens again in seconds. The copy is used only
-for the same files (each one's name, length, time and samples taken
-through it), the same settings and the same build; anything else reads
-the sound again.
+for the same files (each one's place on disk, length, modified time and
+samples taken through it), the same settings and the same build;
+anything else, a take moved or renamed included, reads the sound again.
 
 ## What Is in a Take
 
