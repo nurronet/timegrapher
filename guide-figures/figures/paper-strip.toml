@@ -1,0 +1,30 @@
+# Chapter 6, The Paper Strip: an opened take, two minutes, with its
+# toolbar, track, Rate Line, guides and the amplitude drawn over it.
+output = "paper-strip.png"
+
+# 1 Draw Over the Strip, 2 Width, 3 Length, 4 Fit, 5 Centre and
+# Auto-Centre, 6 Rate Line and Parallel Guides, 7 Mask, 8 Position Brush,
+# 9 Direction, 10 Export, 11 the track, 12 Settling, 13 Tick and Tock,
+# 14 the amplitude drawn over the strip.
+marks = [[1, 110, 328], [2, 258, 328], [3, 410, 328], [4, 479, 328],
+         [5, 544, 328], [6, 626, 328], [7, 690, 328], [8, 748, 328],
+         [9, 910, 328], [10, 1007, 328], [11, 492, 352], [12, 330, 352],
+         [13, 175, 381], [14, 880, 640]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true

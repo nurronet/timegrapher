@@ -211,4 +211,5 @@ On a narrow window the cards also take smaller forms by themselves:
 
 ---
 
-Previous: [The Window](04-the-window.md)
+Previous: [The Window](04-the-window.md) ·
+Next: [The Paper Strip](06-paper-strip.md)

@@ -1,0 +1,27 @@
+# Chapter 6, The Paper Strip: the Mask tool on, and 15 s masked by a drag
+# along the strip.
+output = "mask.png"
+
+# 1 Mask, lit; 2 the masked stretch; 3 the amplitude line breaks there;
+# 4 the sparklines break too; 5 Changes not saved.
+marks = [[1, 690, 328], [2, 1205, 375], [3, 1150, 500], [4, 935, 200], [5, 595, 1030]]
+
+actions = [["sleep", 20], ["click", 641, 238], ["drag", 1051, 433, 1261, 433], ["sleep", 2]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+
+[data.session]
+calibre = "Dandong 3235"
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true

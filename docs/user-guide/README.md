@@ -22,9 +22,9 @@ written have no link.
 
 4. [The Window](04-the-window.md): the top row, Bench and Watches, panes, the status bar, menus and keys
 5. [The Readings Cards and the Calibre Card](05-the-readings-cards.md): the position, the calibre, Listen, the readings, their ± and chips
-6. Paper Strip
-7. Tick Tock Profile and Scope
-8. Charts and Distributions
+6. [The Paper Strip](06-paper-strip.md): reading the strip, moving around, the track, masking and the Position Brush
+7. [The Tick Tock Profile and the Scope](07-profile-and-scope.md): the average beat and its marks, and single beats
+8. [Charts and Distributions](08-charts-and-distributions.md): each reading over the take, and how its values spread
 
 **Steadiness**
 
