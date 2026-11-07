@@ -1949,7 +1949,7 @@ function distributionCards(d) {
     if (!e) return "";
     const [title, color, unit, hint] = DISTRIBUTIONS[key];
     return `<div class="card"><h2>${title}</h2><p class="hint">${hint}</p>
-      <p class="sub caption">${esc(e.summary || "")}</p>${probabilityChart(e, color, unit)}</div>`;
+      <p class="sub caption">${esc(e.screen_summary || "")}</p>${probabilityChart(e, color, unit)}</div>`;
   }).join("");
 }
 
