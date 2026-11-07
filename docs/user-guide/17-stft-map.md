@@ -1,4 +1,4 @@
-# 17. STFT Map
+# 17. STFT Map (Short-Time Fourier Transform)
 
 ![STFT Map of the rate's beat timing over the first hour of a long take, marks 1 to 9](images/steady-stft.png)
 
@@ -6,8 +6,8 @@
 take. Up the side is the period, on a log scale, the longest at the top;
 across is the time of the take. Each cell's colour is the size, from dark
 purple for the smallest to yellow for the largest. It is made from the
-**short-time Fourier transform** (STFT): the spectrum of each 20 minutes
-of readings, stepped 5 minutes.
+**Short-Time Fourier Transform** (STFT): the Fast Fourier Transform
+(FFT) of each 20 minutes of readings, stepped 5 minutes.
 
 **Why you'd use it:** the FFT (chapter 16) reads the whole take at once,
 so a swing that came and went, or one that drifted in period, is blurred

@@ -7,7 +7,8 @@ gravity acts on the balance differently in each. A **positions test**
 measures it in several positions and sums the differences in a few
 figures. The Positions Test pane (chapter 20) gives them, and so does
 `timegrapher session`. They follow the figures Witschi's timegraphers
-use and the Swiss standard NIHS 93-10 (the project's
+use and the Swiss standard NIHS 93-10 (NIHS: Normes de l'Industrie Horlogère
+Suisse, the Swiss watch industry's standards; the project's
 [math standards](../math-standards.md) list them).
 
 ## The Positions

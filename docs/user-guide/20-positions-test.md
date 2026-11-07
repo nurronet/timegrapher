@@ -30,7 +30,7 @@ menu.
 | | **Load Full-Wind Results…** | With no watch picked, loads the full-wind half from a file. | The same, without a watch. |
 | 1 | **Settle** | The seconds the watch settles after each turn before it is measured: 20 s unless set, 5 to 600 s. A field to type in, with a menu of 10, 20, 30 and 60 s. | A balance takes some seconds to steady after the watch is turned. |
 | 2 | **Each Position** | The seconds each position is measured: 60 s unless set, 20 to 3600 s, with a menu from 30 s to 5 min. | Longer gives a smaller ± (M7). |
-| 3 | **Save as CSV…** | Saves the watch, its calibre, beat rate and lift angle, when the test began, its settling and measuring times, and the tables. | For a spreadsheet or a service record. |
+| 3 | **Save as CSV…** (comma-separated values, which any spreadsheet opens) | Saves the watch, its calibre, beat rate and lift angle, when the test began, its settling and measuring times, and the tables. | For a spreadsheet or a service record. |
 | 4 | **Copy** | The same, on the clipboard, with tabs between the columns. | To paste elsewhere. |
 | | **Save Results for 24 Hours…** | After a test at full wind: saves its results for the test 24 hours later. Saving the session keeps them too. | To compare later. |
 
@@ -67,9 +67,9 @@ rows. Only the measured seconds in each position count.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 9 | A position's row | Its name with both codes ("Crown Left (CL, 6H)"), its rate, its rate less the average of the positions measured (**From Average**), its amplitude and its beat error (as a size). The position under way reads "Settling…", then "Measuring…", then its figures so far. |
-| 10 | **Average** | The mean rate, amplitude and beat error over the positions measured: X in M8. |
-| 11 | **Largest Difference** | The highest less the lowest of each: D for the rate. |
-| 12 | Vertical less horizontal | The mean of the crown positions less the mean of dial up and dial down, for rate and amplitude: DVH. |
+| 10 | **Average** | The mean rate, amplitude and beat error over the positions measured: X in M8, the usual letter for it on a timegrapher. |
+| 11 | **Largest Difference** | The highest less the lowest of each: D (for difference) for the rate. |
+| 12 | Vertical less horizontal | The mean of the crown positions less the mean of dial up and dial down, for rate and amplitude: DVH (difference, vertical less horizontal). |
 
 Lines below the table name any condition found in a position's sound: no
 regular beat, clipping, under 10 s of beats, or a beat error read as a

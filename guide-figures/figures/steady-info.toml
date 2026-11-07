@@ -1,24 +1,33 @@
-# Chapter 9, Steadiness: the whole 30-minute take opened, Readings Over
-# Time with all three series and the Info panel open.
+# Chapter 9, Steadiness: the first 12 hours of a fully wound Dandong 3235,
+# dial up, the pane alone with the readings hidden.
 output = "steady-info.png"
 
-actions = [["sleep", 60], ["click", 61, 508], ["click", 93, 508], ["sleep", 5], ["click", 1737, 508], ["sleep", 2]]
+actions = [["sleep", 150], ["click", 63, 90], ["sleep", 5], ["click", 1737, 90], ["sleep", 3]]
 
-# 1 the series switches, 2 Export, 3 Info, 4 a series' sentence, 5 its
-# statistics, 6 the key, 7 a stretch.
-marks = [[1, 118, 600], [2, 176, 600], [3, 1786, 600], [4, 1590, 676], [5, 1838, 768],
-         [6, 1380, 612], [7, 300, 645]]
+# 1 the series switches, left of the pane; 2 Export, 3 Info, 4 a series'
+# sentence and 5 its statistics, right of the window; 6 the key, 7 a
+# stretch.
+marks = [[1, 28, 157], [2, 206, 157], [3, 1755, 155], [4, 1872, 270], [5, 1872, 312],
+         [6, 1290, 210], [7, 180, 268]]
 
-layout = ["column", [0.35, "Strip"], [0.65, "SteadyReadings"]]
+layout = "SteadyReadings"
+
+[settings]
+show_readings = false
 
 [data]
-corpus = "dd3235_DU_30min"
-files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac"]
-start = 0
-seconds = 1800
+corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac"]
 
 [data.session]
+watch = "Dandong 3235"
 calibre = "Dandong 3235"
+bph = 28800
+lift = 55
+position = "DU"
 
 [window]
 size = [1800, 1000]
+
+[wait]
+at_most = 1200

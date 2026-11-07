@@ -35,7 +35,8 @@ and its cycle is what Cycle folds (chapter 12).
    down isn't scored as a long cycle.
 
 4. **Score.** The spectrum is divided by the shape the series' own
-   noise gives (AR(1) at its ρ for readings; a random walk plus white
+   noise gives (AR(1), a first-order autoregressive model in which each
+   reading carries a share ρ of the one before, for readings; a random walk plus white
    jitter for the beat timing) and by its local median, and each trial
    period sums its first **1, 2, 4 or 8 harmonics**:
 

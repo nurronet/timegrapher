@@ -75,7 +75,8 @@ Every other pane starts hidden.
 - **The arrangement is kept** between sessions.
 - **View > Reset Panes** puts them back as the app starts.
 - **Export…** (the share icon in most toolbars) saves the pane as a
-  picture: a PNG as it is on screen, or an SVG whose lines and text stay
+  picture: a PNG (Portable Network Graphics) as it is on screen, or an
+  SVG (Scalable Vector Graphics) whose lines and text stay
   sharp at any size. The file name's ending, .png or .svg, decides which.
   Use it to share a pane, or put it in a report.
 - **Every control has a hover hint.** Rest the pointer on any button or
@@ -173,7 +174,7 @@ In Watches, all but Bench and Watches are dimmed.
 
 | Key | Does |
 | --- | --- |
-| **1** to **6** | Sets the position: DU, DD, CU, CD, CL, CR. On the Bench, while listening or before anything is on show. Not while typing, behind a dialog, or while a Positions Test or Power Reserve Test runs. |
+| **1** to **6** | Sets the position: DU, DD, CU, CD, CL, CR (dial up, dial down, and crown up, down, left and right). On the Bench, while listening or before anything is on show. Not while typing, behind a dialog, or while a Positions Test or Power Reserve Test runs. |
 | **Esc** | Puts down the Position Brush or the Mask tool. |
 | **Ctrl+1**, **Ctrl+2** | Bench, Watches. |
 | **Ctrl+O** | Open Recording. |

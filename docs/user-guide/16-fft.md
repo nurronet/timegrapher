@@ -1,8 +1,10 @@
-# 16. FFT
+# 16. FFT (Fast Fourier Transform)
 
 ![FFT of the rate over a 30-minute take, marks 1 to 6](images/steady-fft.png)
 
-**What it shows:** the **amplitude spectrum** of each series: how big a
+**What it shows:** the **amplitude spectrum** of each series, worked out
+by the **Fast Fourier Transform** (FFT), the standard way to split a
+series into the regular swings it holds: how big a
 regular swing the readings hold at each period, in the series' own unit.
 Both axes are logarithmic. It is the view a commercial timegrapher's FFT
 gives.

@@ -15,7 +15,7 @@ This guide covers the **Swiss lever escapement** only.
 - The balance and hairspring swing to and fro. One swing from one end to
   the other is a **beat** (or vibration). Two beats make one full
   oscillation.
-- A 4 Hz balance makes 8 beats a second: **28,800 beats per hour (bph)**.
+- A 4 Hz (hertz: full oscillations a second) balance makes 8 beats a second: **28,800 beats per hour (bph)**.
 - Near the middle of each swing, the impulse pin enters the pallet fork.
   The balance unlocks the escapement, and the escape wheel gives the
   balance a push (the impulse) to keep it going.
@@ -62,7 +62,7 @@ Sources:
 **What it is:** how many beats an hour the movement is made to make, such
 as 28,800 bph.
 
-| Balance | Beat rate | Time between beats |
+| Balance | Beat rate | Time between beats (ms: milliseconds) |
 | --- | --- | --- |
 | 2.5 Hz | 18,000 bph | 200 ms |
 | 3 Hz | 21,600 bph | 166.7 ms |
@@ -75,7 +75,7 @@ steady strip at the wrong beat rate gives wrong readings.
 ### Rate
 
 **What it is:** how many seconds a day the watch would gain or lose if it
-kept running exactly as it is now. **+10 s/d** gains, **−10 s/d** loses.
+kept running exactly as it is now. **+10 s/d** (seconds a day) gains, **−10 s/d** loses.
 
 **Why it matters:** it is what the owner notices on the wrist. It changes
 with position, wind and temperature, so one reading describes one

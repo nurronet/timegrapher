@@ -1,32 +1,34 @@
-# Chapter 8, Charts and Distributions: the Distributions pane in front, on five
-# minutes of an opened take, the Rate plot alone (the pane opens so).
+# Chapter 8, Charts and Distributions: the Distributions pane alone, on
+# the first 12 hours of a 64 h 51 min take of a Dandong 3235, fully wound
+# and dial up, the Rate plot alone (the pane opens so).
 output = "distributions.png"
 
-actions = [["sleep", 25]]
+actions = [["sleep", 60]]
 
-# The toolbar's marks sit in the plot, each with a line up to its control:
-# under it is the summary line.
-# 1 the reading switches, 2 Show, 3 Values, 4 Export, 5 the summary line,
-# 6 the dashed line, 7 the percent scale, 8 a reading.
-marks = [[1, 150, 705, 112, 624], [2, 215, 705, 190, 624], [3, 280, 705, 224, 624],
-         [4, 345, 705, 258, 624], [5, 712, 643],
-         [6, 1500, 712], [7, 140, 828], [8, 380, 955]]
+# 1 the series switches, left of the pane; 2 Show, 3 Values, 4 Export,
+# above their controls; 5 the summary line, 6 the dashed line, 7 the
+# percent scale, 8 a reading in the fast tail.
+marks = [[1, 28, 157], [2, 190, 129], [3, 224, 129], [4, 258, 129],
+         [5, 780, 187], [6, 1265, 295], [7, 92, 562], [8, 1520, 398]]
 
-layout = ["column", [0.4, "Strip"], [0.6, ["tabs", "Distributions", "Sound", "Scope"]]]
+layout = "Distributions"
 
 [data]
-corpus = "dd3235_DU_30min"
-file = "take_part01-001.flac"
-start = 300
-seconds = 300
+corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac"]
 
 [data.session]
+watch = "Dandong 3235"
 calibre = "Dandong 3235"
+bph = 28800
+lift = 55
+position = "DU"
 
 [window]
 size = [1800, 1000]
 
-[settings]
-rate_line = true
-rate_guides = true
+[wait]
+at_most = 1200
 
+[settings]
+show_readings = false

@@ -21,7 +21,7 @@ measured again on another computer.
 | **Include the Sound** | Adds up to five minutes of the sound, cut without changing a sample: the last five minutes of a live session, or five minutes of the recording open, chosen with **Ends At**. | Without the sound a reading can't be checked. |
 | The handles | Drag either end of the waveform to keep only the part that shows the problem; **Play** plays it. | A shorter report, and only the part that matters. |
 | **I listened to this sound…** | Says you listened and it holds nothing private, such as voices. **Save Report…** waits for this tick when the sound is included. | The sound can hold a room's talk. |
-| **Offer it to the public test corpus** | Offers the excerpt to the test recordings anyone may use (CC0). | It helps test the app on more watches. Only the person who made the recording should tick it. |
+| **Offer it to the public test corpus** | Offers the excerpt to the test recordings anyone may use (CC0, Creative Commons Zero: given to the public domain). | It helps test the app on more watches. Only the person who made the recording should tick it. |
 | **Save Report…** | Saves the zip where you pick (it starts at Downloads), then opens its folder and the GitHub form. | Drag the zip into the form. |
 
 **The app sends nothing.** You attach the zip to the issue yourself,

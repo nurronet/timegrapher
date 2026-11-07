@@ -446,12 +446,16 @@ def make(name, fig, corpus, clips, keep):
     os.makedirs(shelf, exist_ok=True)
     target = os.path.join(shelf, folder)
     if os.path.isdir(source) and "session" in data and "seconds" not in data:
-        # A whole take with no session file of its own: its audio, and
-        # one written from [data.session].
+        # A whole take with no session file of its own: its audio (only
+        # `files`, when given, so a long take's first hours open without
+        # cutting a copy), and one written from [data.session].
         os.makedirs(target)
         for entry in sorted(os.listdir(source)):
-            if entry.lower().endswith((".flac", ".wav")):
+            if entry.lower().endswith((".flac", ".wav")) and entry in data.get("files", [entry]):
                 os.symlink(os.path.join(source, entry), os.path.join(target, entry))
+        # The take's clock log, so its rates are on the true clock (M3).
+        if os.path.exists(os.path.join(source, "clock.csv")):
+            os.symlink(os.path.join(source, "clock.csv"), os.path.join(target, "clock.csv"))
         session = data["session"]
         lines = [f"{k} = {json.dumps(session[k], ensure_ascii=False)}" for k in ("watch", "calibre", "bph", "lift") if k in session]
         lines += ["", "[[recording]]", 'file = "."', f"position = {json.dumps(session.get('position', 'DU'))}"]
@@ -484,7 +488,10 @@ def make(name, fig, corpus, clips, keep):
 def shoot(name, fig, work, home, args, data, keep):
     env = dict(os.environ, DISPLAY=DISPLAY, HOME=home,
                XDG_DATA_HOME=os.path.join(home, ".local", "share"),
-               XDG_CONFIG_HOME=os.path.join(home, ".config"))
+               XDG_CONFIG_HOME=os.path.join(home, ".config"),
+               # The beats found are kept across figures, so a long take
+               # is read once for all the figures that open it.
+               XDG_CACHE_HOME=os.path.join(CACHE, "app-cache"))
     env.pop("WAYLAND_DISPLAY", None)
     procs = []
     pulse = None

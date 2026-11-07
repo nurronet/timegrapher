@@ -1,4 +1,4 @@
-# 15. CUSUM and Change Points
+# 15. CUSUM (Cumulative Sum) and Change Points
 
 ![CUSUM of the rate over a 30-minute take, marks 1 to 3](images/steady-cusum.png)
 

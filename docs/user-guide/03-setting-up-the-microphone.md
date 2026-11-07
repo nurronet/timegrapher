@@ -41,7 +41,7 @@ Settings…** (**Timegrapher > Settings…** on a Mac), or **Ctrl+,**
     desktop's sound settings.
   - An input marked **(direct)** goes straight to the sound card. It
     can't open while the desktop's sound server holds the card.
-- The app asks for 48 kHz, mixes to mono, and takes 16-bit samples where
+- The app asks for 48 kHz (48,000 samples a second), mixes to mono, and takes 16-bit samples where
   the device offers them. The status bar says what the input opened at.
 
 ## Setting the Level
@@ -49,7 +49,7 @@ Settings…** (**Timegrapher > Settings…** on a Mac), or **Ctrl+,**
 **Why:** too quiet, and the unlock is lost in the noise. Too loud, and
 the tops of the ticks are cut off (clipped), which moves the drop.
 
-- The Peak meter reads in **dBFS**: 0 dBFS is the loudest the input can
+- The Peak meter reads in **dBFS** (decibels relative to full scale): 0 dBFS is the loudest the input can
   record. −6 dBFS is half of that; −10 dBFS is about a third.
 - **Aim for peaks in the shaded band**, −10 to −6 dBFS. That is loud
   enough to time the unlock, with room for a louder tick.
@@ -103,7 +103,7 @@ automatic gain changes that shape from one tick to the next.
 - **The rate** is the least affected, since it comes from the time
   between many beats, but the rest of the take is not to be trusted.
 
-A cheap USB stand often arrives with automatic gain on and its level at
+A cheap USB (Universal Serial Bus) stand often arrives with automatic gain on and its level at
 the top. With it off, every tick is heard at the same gain, the one
 **Input Level** sets.
 
@@ -116,7 +116,7 @@ the top. With it off, every tick is heard at the same gain, the one
   stands turn it back on each time they are plugged in.
 - If the microphone reports a different setting, the row says so.
 - **In the system:** on Windows, the input's Properties in the Sound
-  control panel can show an AGC tickbox, and some sound drivers add
+  control panel can show an AGC (automatic gain control) tickbox, and some sound drivers add
   their own; on Linux, the sound card's mixer can have an automatic gain
   switch, which the app's switch sets where it can reach it. Turn off
   noise suppression, echo cancelling and any "voice" or "enhancement"
@@ -168,7 +168,7 @@ every rate by 1 to 4 s/d.
 it again after changing the microphone or sound card behind an input's
 name.
 
-**What it needs:** the computer's clock kept by internet time (NTP). A
+**What it needs:** the computer's clock kept by internet time (NTP, the Network Time Protocol). A
 busy computer delivers sound less evenly, so the offer can come later.
 
 ## Placing the Watch

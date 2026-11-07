@@ -38,7 +38,7 @@ starts listening at once, so you can see the watch as you set it up.
 | 1 | **Microphone** menu and **Rescan** | Picks the input to listen to. Rescan looks for inputs again. | To pick the microphone the watch sits on. Rescan after plugging one in. |
 | 2 | **Show Every Input** | Lists every input the system offers, with its id. | When your microphone is missing from the short list. |
 | 3 | **Input Level** | The microphone's gain, where the app can set it. | To bring the peaks into the shaded band. |
-| 4 | **Peak** and its shaded band | How loud the latest ticks reach, against −10 to −6 dBFS. | Peaks in the band are loud enough to time the quiet unlock, with room to spare before clipping. |
+| 4 | **Peak** and its shaded band | How loud the latest ticks reach, against −10 to −6 dBFS (decibels below the loudest the input can record; chapter 3). | Peaks in the band are loud enough to time the quiet unlock, with room to spare before clipping. |
 | 5 | Status line | What the app is doing, or why the input failed. | To see at once if the input won't open. |
 | 6 | **Not Now** and **Done** | Done keeps listening, and from then on the app listens as soon as it opens. Not Now stops listening, and the sheet doesn't come back by itself. | Done for a microphone you'll use every day. |
 
@@ -116,8 +116,9 @@ watches and saving in full.
 
 ## No Microphone? Open a Recording
 
-- **File > Open Recording…** opens a WAV or FLAC file and analyses all
-  of it at once.
+- **File > Open Recording…** opens a WAV or FLAC file (two common sound
+  file formats; FLAC, the Free Lossless Audio Codec, keeps every sample
+  in less space) and analyses all of it at once.
 - **File > Open Folder…** opens a saved take, or a folder of recordings
   of one long run.
 - The public [test corpus](https://github.com/peterhudson/timegrapher-corpus)

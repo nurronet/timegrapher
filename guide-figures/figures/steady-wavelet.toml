@@ -1,25 +1,29 @@
-# Chapter 18, Wavelet Map: the first hour of a 7-hour take (a Dandong 3285)
-# opened, the rate in the Steadiness view.
+# Chapter 18, Wavelet Map: the first 12 hours of a fully wound Dandong 3235,
+# dial up, the pane alone with the readings hidden.
 output = "steady-wavelet.png"
 
 actions = [["sleep", 150]]
 
-marks = [[1, 1484, 800, 1440, 881], [2, 300, 690], [3, 1484, 955], [4, 1000, 612, 900, 650], [5, 1569, 700, 1569, 860], [6, 545, 1008], [7, 1800, 905]]
+marks = []
 
-layout = ["column", [0.35, "Strip"], [0.65, "SteadyWavelet"]]
+layout = "SteadyWavelet"
+
+[settings]
+show_readings = false
 
 [data]
-corpus = "pepsi3285_DU_7h"
-file = "take_part01-001.flac"
-start = 0
-seconds = 3600
+corpus = "ym42_DU_65h"
+files = ["take_part01-001.flac", "take_part01-002.flac", "take_part01-003.flac", "take_part01-004.flac", "take_part01-005.flac", "take_part01-006.flac", "take_part01-007.flac", "take_part01-008.flac", "take_part01-009.flac", "take_part01-010.flac", "take_part01-011.flac", "take_part01-012.flac"]
 
 [data.session]
-watch = "Dandong 3285"
-calibre = "Dandong 3285"
+watch = "Dandong 3235"
+calibre = "Dandong 3235"
 bph = 28800
 lift = 55
 position = "DU"
 
 [window]
 size = [1800, 1000]
+
+[wait]
+at_most = 1200

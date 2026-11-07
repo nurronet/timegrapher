@@ -5,8 +5,11 @@
 **What it shows:** like the STFT Map (chapter 17), the size of each
 period's swing at each time of the take: period up the side, on a log
 scale, time across, size as colour. It is made from a **wavelet
-transform**, which reads each period over a time to suit it: short
-periods over a short time, long ones over a long time.
+transform**. A wavelet is a short burst of a wave, a few swings long;
+the transform slides one along the readings at each period, stretched
+to fit, and records how well it matches. So it reads each period over
+a time to suit it: short periods over a short time, long ones over a
+long time.
 
 **Why you'd use it:** to see sharply **where and when** a swing is. A
 fast swing is placed to within seconds, not to within a 20-minute window,

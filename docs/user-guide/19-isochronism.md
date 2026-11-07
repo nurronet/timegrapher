@@ -1,6 +1,6 @@
 # 19. Isochronism
 
-![Isochronism, the Curve view, over 7 h 28 min of a fully wound watch, marks 1 to 7](images/isochronism.png)
+![Isochronism, the Curve view, over a whole run-down from full wind to a stop, marks 1 to 7](images/isochronism.png)
 
 **What it shows:** the rate at each amplitude. As the mainspring lets
 down, the balance swings less, and a watch's rate moves with it. The pane
@@ -17,26 +17,32 @@ at which amplitude it changes least. After an adjustment to the
 hairspring, the balance or the escapement, compare it with a take from
 before.
 
-The picture is a whole 7 h 28 min take of a Dandong 3285 in Dial Up,
-fully wound at the start, opened in the app. The calibre card names Dandong 3235
-because the app's calibre list files the 3285 under that entry, which has
-the same train.
+The picture is a whole take of a Dandong 3235, fully wound and left dial
+up until it stopped 59.8 hours later, opened in the app. Its amplitude
+fell from 255° to under 130°, so the pane sees the rate across more than
+a hundred degrees.
 
 | Mark | Part | What it does or shows |
 | --- | --- | --- |
 | 1 | **View** | **Curve** (this view) or **Walk** (below). Kept between runs. |
 | 2 | **Export…** | Saves the pane as a picture, PNG or SVG. |
-| 3 | The slope | "Between 209° and 233° the rate goes with the amplitude by −0.03 ± 0.01 s/d per degree": a straight line through every reading. |
+| 3 | The slope | "Between 145° and 251° the rate goes with the amplitude by −0.23 ± 0.01 s/d per degree": a straight line through every reading. |
 | 4 | The ends | The median rate in the lowest and the highest 2° step. |
 | 5 | Where it changes least | The amplitude where the curve turns, when that is inside the range. A vertical line marks it. |
 | 6 | A dot and its bar | The median rate in one 2° step of amplitude, and a bar over the middle half of its readings. |
 | 7 | The curve | A quadratic through the dots, each weighted by its readings. |
 
-**In the picture,** the straight line through every reading gives
-−0.03 ± 0.01 s/d per degree, yet the end steps read +8.8 s/d at 209° and
-+9.5 s/d at 233°. The curve shows why: the rate rises to about +10 s/d
-near 221° and falls on either side, so one slope sums it up poorly. That
-is why the pane gives the curve and the turn beside the slope.
+**In the picture,** from 251° down to about 211° the dots fall in a
+smooth line, from −58 to about −105 s/d: this watch loses about 1.2 s/d
+more for each degree of amplitude it loses. That is its isochronism over
+the first 40 hours or so of the wind, and the figure an adjustment of
+the hairspring or the escapement would aim to flatten. Below 211° the
+dots break from the curve: at about 207° and again at about 175° the
+rate jumps faster by 15 to 30 s/d within a few degrees, and below 173°
+it stays near −36 s/d. The single slope, −0.23 s/d per degree, and the
+quadratic both sum that up poorly. The ends, −36.4 s/d at 145° and
+−57.6 s/d at 251°, and the turn at 213° are worked out as below; the
+Walk view shows when the jumps came.
 
 ## The Walk View
 
@@ -56,14 +62,21 @@ dot gives its time and figures.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 1 | The start | A ring at the first 5 minutes, labelled "Start". |
-| 2 | The end | A large dot at the last, with its hour: "7.4 h". |
+| 2 | The end | A large dot at the last, with its hour: "58 h". |
 | 3 | The trail | Dot to dot in time order, shading from each dot's colour to the next's. |
-| 4 | The key | The colours from 0 h to the take's end, "7.4 h since start". |
+| 4 | The key | The colours from 0 h to the take's end, "58 h since start". |
 
-**In the picture,** the rate climbs from about +5 s/d at the start to
-about +11 s/d at the end, purple to yellow, while the amplitude moves
-back and forth over about 213° to 232° from one 5 minutes to the next. The
-Curve view sorts those same readings by amplitude and so hides the climb.
+**In the picture,** the watch starts at 255° and −40 s/d, top right,
+and for the first 44 hours walks down and to the left: less amplitude,
+a slower rate, the smooth part of the curve, with the 12 h, 24 h and
+36 h rings along it. Then the walk turns twice almost straight up: near
+207° (at about 44 hours) and near 174° (at about 51 hours) the rate
+gains 15 to 30 s/d while the amplitude hardly moves. Those jumps don't
+follow the amplitude: something else changed the rate at those
+moments, and the Curve view, which has no time in it, can't tell them
+apart from it. From about 52 hours the rate holds near −36 s/d down to
+140°, and the walk ends at 124° at 58 hours. Charts (chapter 8) and the
+Paper Strip show what happened at those hours.
 
 Use it to see the path the watch took: a steady walk down in amplitude,
 a step after a knock, or a return to where it was. Both views span the
