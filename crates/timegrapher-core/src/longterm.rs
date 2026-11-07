@@ -1520,6 +1520,24 @@ mod tests {
         assert_eq!(r.search.null.misfit_limit, residual);
     }
 
+    /// A strong line is flagged beyond the simulated range on a search held
+    /// to the simulated null (2 s readings, which the table holds), and not
+    /// on one read against the plain trials count (3 s readings, which it
+    /// doesn't), however strong (#1243).
+    #[test]
+    fn only_a_calibrated_search_flags_a_line_beyond_its_range() {
+        let tau = std::f64::consts::TAU;
+        for (step, calibrated) in [(2.0, true), (3.0, false)] {
+            let n = (1800.0 / step) as usize;
+            let g = series(n, step, |t| 3.0 * (tau * t / 60.0).sin(), 0.5, 21);
+            let r = analyse(&g, &LongConfig::default());
+            assert_eq!(r.search.null.calibrated, calibrated, "step {step}");
+            let c = &r.components[0];
+            assert!(c.significance > 4.0, "step {step}: {}", c.significance);
+            assert_eq!(c.beyond_simulated, calibrated, "step {step}");
+        }
+    }
+
     /// Past p 0.0003 a calibrated search's false alarm is said to lie
     /// beyond the simulated range; within it, or from the plain trials
     /// count, its number is shown (#1243).
