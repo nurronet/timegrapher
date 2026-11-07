@@ -19,7 +19,7 @@ vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HI
   constant("SWITCH_DEFAULTS"), constant("viewSwitches"),
   ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard"].map(definition)].join("\n"), context);
 
-const rate = { series: "rate", unit: "s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
+const rate = { series: "rate", unit: "s/d", unit_text: " s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
   headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak" };
 const doc = { duration_s: 1800, series: [rate] };
 
@@ -67,8 +67,8 @@ test("a series' own caveat shows once, on that series, in the server's words", (
     ...["esc", "num", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard", "limitsCard", "seriesView"].map(definition)].join("\n"), c);
   // The sentence core's PeriodMayBeNoise gives; the view draws it as sent.
   const noise = "On a take this short with its 2 s windows this correlated (ρ 0.74 from one to the next, over 30 min), the period search names a cycle in noise alone about 1 time in 24, not 1 in 100: this cycle may be noise.";
-  const series = [rate, { ...rate, series: "amplitude", unit: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },
-    { ...rate, series: "beat_error", unit: "ms" }];
+  const series = [rate, { ...rate, series: "amplitude", unit: "deg", unit_text: "°", caveats: [{ code: "period_may_be_noise", rho: 0.74, span_s: 1800 }] },
+    { ...rate, series: "beat_error", unit: "ms", unit_text: " ms" }];
   const take = [{ where: null, text: "The beat error is given as a size." }];
   const out = c.seriesView({ duration_s: 1800, series }, null, take, [[], [noise], []]);
   assert.equal(out.split(noise).length - 1, 1, "said once");

@@ -447,6 +447,7 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
     let mut views = Vec::new();
     if let Some(series) = doc.get_mut("series").and_then(Value::as_array_mut) {
         for s in series {
+            add_unit_text(s);
             views.push(
                 s.as_object_mut()
                     .and_then(|o| o.remove("views"))
@@ -462,6 +463,10 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
         .as_object_mut()
         .and_then(|o| o.remove("spectra"))
         .unwrap_or(Value::Null);
+    let mut spectra = spectra;
+    for s in spectra.as_array_mut().into_iter().flatten() {
+        add_unit_text(s);
+    }
     if let Some(spectra) = spectra.as_array() {
         // Keep availability context model-side while large chart arrays move
         // to metadata. Missing legacy support remains explicitly unknown.
@@ -480,6 +485,10 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
         .as_object_mut()
         .and_then(|o| o.remove("time_frequency"))
         .unwrap_or(Value::Null);
+    let mut maps = maps;
+    for m in maps.as_array_mut().into_iter().flatten() {
+        add_unit_text(m);
+    }
     if let Some(maps) = maps.as_array() {
         doc["time_frequency_maps"] = maps.iter().map(map_outline).collect();
     }
@@ -536,6 +545,22 @@ pub fn take_series_charts(doc: &mut Value) -> Value {
         "views": views, "period_span": period_span, "spectra": spectra, "points": points,
         "maps": maps, "walk": walk_view,
     })
+}
+
+/// Adds `unit_text`, the unit as it follows a number with its gap
+/// ("°", " ms", " s/d"), by core's [`unit_after`], so the view writes
+/// units by the same rule as core's sentences and the app (#1428).
+///
+/// [`unit_after`]: timegrapher_core::steadiness::unit_after
+fn add_unit_text(item: &mut Value) {
+    let Some(unit) = item.get("unit").and_then(Value::as_str) else {
+        return;
+    };
+    let text = match timegrapher_core::steadiness::unit_after(unit) {
+        (_, "") => String::new(),
+        (gap, unit) => format!("{gap}{unit}"),
+    };
+    item["unit_text"] = Value::String(text);
 }
 
 /// The walk as the card draws it: core's view of it, merged to the card's
@@ -899,6 +924,34 @@ mod tests {
     }
 
     #[test]
+    fn each_series_carries_its_unit_as_core_writes_it() {
+        let mut doc = json!({ "series": [
+            { "series": "rate", "unit": "s/d" },
+            { "series": "amplitude", "unit": "deg" },
+            { "series": "beat_error", "unit": "ms" },
+            { "series": "rate", "unit": "" },
+            { "series": "rate" },
+        ] });
+        take_series_charts(&mut doc);
+        let text: Vec<_> = doc["series"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.get("unit_text").cloned())
+            .collect();
+        assert_eq!(
+            text,
+            [
+                Some(json!(" s/d")),
+                Some(json!("°")),
+                Some(json!(" ms")),
+                Some(json!("")),
+                None
+            ]
+        );
+    }
+
+    #[test]
     fn fft_support_remains_model_visible_when_arrays_move_to_charts() {
         let description = "FFT input: 128 of 256 grid samples available. With samples missing, each size is a sine fitted to the samples present (Lomb–Scargle); nothing is filled in.";
         for support in [
@@ -911,6 +964,8 @@ mod tests {
             }
             let mut doc = json!({"schema":"timegrapher.series/2", "spectra":[spectrum.clone()], "series":[{"series":"rate","headline":"Rate"}]});
             let charts = take_series_charts(&mut doc);
+            // The view writes the unit as core does (#1428).
+            spectrum["unit_text"] = json!(" ms");
             assert_eq!(
                 charts["spectra"][0], spectrum,
                 "all chart arrays and support unchanged"
@@ -1042,6 +1097,9 @@ mod tests {
                 "t_s": [5.0], "coherence": [[0.9]], "phase_deg": [[10.0]], "noise_95": [0.4] }],
         });
         let charts = take_series_charts(&mut doc);
+        // The view writes the unit as core does, degrees with no gap (#1428).
+        let mut map = map;
+        map["unit_text"] = json!("°");
         assert_eq!(charts["maps"], json!([map]));
         assert!(doc.get("time_frequency").is_none());
         assert_eq!(

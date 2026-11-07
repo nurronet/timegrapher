@@ -21,6 +21,22 @@ pub const MIN_BEAT_FRACTION: f64 = 0.95;
 /// The 60% rule is defined in math-standards.md, section 7.
 pub const MIN_WINDOW_COVERAGE: f64 = 0.6;
 
+/// Below this share of nominal kept windows a window figure is withheld,
+/// not read (#1429): a median of a
+/// handful of stray windows in a stretch the watch was barely heard in is
+/// not a reading of it. Between this share and [`MIN_WINDOW_COVERAGE`] the
+/// figure stands and names its limited coverage. Same denominator as the
+/// 60% rule, math-standards.md section 7.
+pub const MIN_WINDOW_SHARE: f64 = 0.1;
+
+/// Whether `used` windows of the `in_span` nominal kept windows are too
+/// few to give a window figure: fewer than [`MIN_WINDOW_SHARE`] of them.
+/// The share alone: [`MIN_VALUES`] is the floor for a ±, not for a
+/// figure, so a short reading whose few cells are read keeps its figure.
+pub fn too_few_windows(used: usize, in_span: usize) -> bool {
+    (used as f64) < MIN_WINDOW_SHARE * in_span as f64
+}
+
 /// Windows supporting one figure, and nominal windows within its kept time.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Coverage {
@@ -968,5 +984,22 @@ mod tests {
         assert!((a - b).abs() < 1e-9, "{a} vs {b}");
         assert!((a - 0.3f64.cos()).abs() < 0.05, "{a}");
         assert_eq!(lag_one(&[1.0, 2.0]), None);
+    }
+}
+
+#[cfg(test)]
+mod window_floor_tests {
+    use super::*;
+
+    #[test]
+    fn too_few_windows_is_under_a_tenth() {
+        assert!(too_few_windows(2, 1800));
+        assert!(too_few_windows(179, 1800));
+        assert!(!too_few_windows(180, 1800));
+        // A short reading's few cells: the share alone decides.
+        assert!(!too_few_windows(2, 3));
+        assert!(!too_few_windows(1, 10));
+        assert!(too_few_windows(2, 30));
+        assert!(!too_few_windows(3, 30));
     }
 }

@@ -40,7 +40,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const nan = null;
 // Windows at 600, 900 and 1500 s: the one at 1200 s was left out (tfmap.rs's test).
 const map = {
-  series: "amplitude", method: "stft", unit: "deg", step_s: 2, window_s: 1200, hop_s: 300,
+  series: "amplitude", method: "stft", unit: "deg", unit_text: "°", step_s: 2, window_s: 1200, hop_s: 300,
   period_s: [100, 10, 1], t_s: [600, 900, 1500],
   values: [[1, 2, nan], [0, 4, 4], [nan, nan, 2]],
   scale: { linear: { lo: 0, hi: 4 }, log: { lo: 4 / 300, hi: 4 } },
@@ -84,8 +84,11 @@ test("the STFT and Wavelet Maps draw each series' map or say why not", () => {
   assert.ok(drawn.includes('canvas class="map" data-map="0" width="4" height="3"'), drawn);
   // The key: the unit in its title, bare numbers on the scale.
   assert.ok(drawn.includes("<span>Amplitude Swing (°)</span><span>0.000</span>") && drawn.includes("<span>4.0 and above</span>"), drawn);
-  assert.equal(context.mapKeyTitle({ series: "rate", unit: "ms" }), "Timing Swing (ms)");
-  assert.equal(context.mapKeyTitle({ series: "beat_error", unit: "ms" }), "Beat Error Swing (ms)");
+  assert.equal(context.mapKeyTitle({ series: "rate", unit: "ms", unit_text: " ms" }), "Timing Swing (ms)");
+  assert.equal(context.mapKeyTitle({ series: "beat_error", unit: "ms", unit_text: " ms" }), "Beat Error Swing (ms)");
+  // The readout's size, the unit as core writes it: degrees with no gap (#1428).
+  assert.equal(context.mapSize({ unit_text: "°" }, 3.1), "3.1°");
+  assert.equal(context.mapSize({ unit_text: " ms" }, 0.12), "0.12 ms");
   assert.ok(drawn.includes(">4th Wheel<"), "named by its short name");
   assert.equal(context.mapPaints.length, 1);
   assert.ok(context.steadyPlot({ series: "amplitude" }, "wavelet", doc).includes("needs a longer stretch of unbroken readings"));
