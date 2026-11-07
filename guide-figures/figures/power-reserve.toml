@@ -3,7 +3,7 @@
 # stopped, 59.8 h in; the last 5 h are the stand with no watch.
 output = "power-reserve.png"
 
-actions = [["sleep", 240], ["scroll", 251, 883, 40], ["sleep", 3]]
+actions = [["sleep", 600]]
 
 # 1 the position, 2 Keep Sound, 3 New Test, 4 Save as CSV, 5 Copy, above
 # the toolbar; 6 the result line, 7 the rate, 8 the amplitude, 9 the

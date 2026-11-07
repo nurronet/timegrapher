@@ -1,6 +1,6 @@
 # 21. Power Reserve Test
 
-![Power Reserve filled from a 60-hour take that ran until the watch stopped, marks 1 to 9](images/power-reserve.png)
+![Power Reserve filled from a 60-hour take that ran until the watch stopped, the Paper Strip above, marks 1 to 9](images/power-reserve.png)
 
 **What it shows:** how long the watch runs from full wind until it stops,
 in one position, and how its rate, amplitude and beat error change hour
@@ -67,9 +67,15 @@ Analysis Only picked.
 | 8 | The amplitude | The amplitude against the same hours. |
 | 9 | The hour table | Each hour: its rate (s/d), median amplitude (°), beat error (ms) from the unlock, and how much of the hour its whole 10 s readings cover (Read %). The last hour is as long as is left. |
 
-A beat error from the drop, where the unlock isn't found, or whose source
-wasn't recorded, is drawn grey, with a key over the table ("Grey beat
-errors: from the drop, or source not recorded."), and each beat error's hover names its source.
+Grey in the table marks a figure that stands on less than the rest, and
+the key over the table says so. A beat error from the drop, where the
+unlock isn't found, or whose source wasn't recorded, is grey, and its
+hover names its source. An amplitude read from under 60% of the hour's
+2 s windows is grey too, and its hover says how many ("read from 459 of
+1798 windows"). An amplitude read from under a tenth of them isn't given
+at all: the cell shows a dash, and the amplitude chart stops before that
+hour. A few windows are too few to stand for an hour; the figure they
+give can be far from the truth.
 Scrolled down, the table's titles stay at the top.
 
 While a test runs, about once a minute the hour in progress is measured
@@ -93,16 +99,31 @@ stand and recorded until it stopped: "Ran 59 h 46 min from the take's
 start · The watch stopped". The Paper Strip above it shows the whole
 take, the amplitude line falling to the right and the beats ending
 before the take does. Hour by hour, the amplitude falls from 253° in
-the first hour to about 210° at 42 hours, then faster, to under 130° in
-the last hours: the steady fall and the late drop of a mainspring
-letting down. The rate is −49 s/d in the first hour, near −65 s/d from
+the first hour to about 210° at 42 hours, then faster, to 124° in the
+57–58 h hour: the steady fall and the late drop of a mainspring letting
+down. The amplitude chart stops there; the table's last hours, below,
+say why. The rate is −49 s/d in the first hour, near −65 s/d from
 then to 12 hours, about −100 s/d at 42 hours, then climbs to about
 −40 s/d from 52 to 57 hours, and falls to −140 s/d in the last part
 hour. So this watch's rate moves by 60 s/d over its reserve: what it
 keeps on the wrist depends on how far down it is allowed to run.
-The amplitude's last point, near 290°, is not a rise: in the watch's
-last minutes its beats are too faint for the unlock to be found
-reliably, and that figure is wrong.
+
+![The hour table scrolled to the run's last hours, marks 1 to 3](images/power-reserve-end.png)
+
+| Mark | Part | What it shows |
+| --- | --- | --- |
+| 1 | The key | What grey means in each column. |
+| 2 | A grey amplitude | Read from under 60% of the hour's windows; the hover gives the count. |
+| 3 | A dash | An amplitude withheld: under a tenth of the hour's windows gave one. The beat error beside it is from the drop, so grey. |
+
+**Scrolled to its end,** the same table shows the watch's last hours.
+From 56 hours the beats grow faint, and the unlock that the amplitude is
+timed from is found in fewer of the hour's windows: 134° and 124° are
+grey. In the last two hours it is found in too few to give a figure,
+and the cells show a dash. The rate, timed from the whole beat, is still
+read: −54.4 s/d, then −144.0 s/d in the last part hour as the watch
+stops. Without the floor, those few windows gave an amplitude near 290°
+for the last hour, a rise that never happened.
 
 ## What to Look For
 
