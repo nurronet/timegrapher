@@ -13,8 +13,8 @@ look past.
 | Mark | Part | What it shows |
 | --- | --- | --- |
 | 1 | A reading | One dot. For the rate, a 10 s reading; for the amplitude and the beat error, a 2 s window. |
-| 2 | A stretch's level | A solid line at the mean of a stretch of constant level, from the change finder (chapter 15). Drawn only when the tests name a level change. |
-| 3 | A change | Where one stretch ends and the next begins. In the picture, the rate steps up by about 3 s/d after 8 minutes. |
+| 2 | A stretch's level | A solid line at the mean of a stretch of constant level, from the change finder (chapter 15). Drawn when the tests name a level change, or a slide, which is drawn as its steps. |
+| 3 | A change | Where one stretch ends and the next begins. In the picture the headline names a slide, "Rate changes slowly", and the two stretches are its steps. |
 | 4 | The key | What a dot is, and how many are drawn: "10 s readings (178)". |
 | 5 | The time axis | Time from the take's start. With positions marked, it is time in the position on show, its stretches joined end to end, and the axis says so ("Time in DU"). |
 
