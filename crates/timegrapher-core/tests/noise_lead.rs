@@ -10,9 +10,15 @@ use timegrapher_core::{analyze, take, AnalysisConfig};
 /// `noise_s` of the synthetic stand noise (as the live tests make it),
 /// then `watch_s` of a watch at +5 s/d and 270°.
 fn noise_then_watch(noise_s: f64, watch_s: f64) -> (Audio, Audio) {
+    noise_then(noise_s, watch_s, 28_800, 5)
+}
+
+/// [`noise_then_watch`] at `bph`, the noise drawn from `seed`.
+fn noise_then(noise_s: f64, watch_s: f64, bph: u32, seed: u64) -> (Audio, Audio) {
     let watch = generate(
         &SynthConfig {
             duration_s: watch_s,
+            bph,
             rate_s_per_day: 5.0,
             beat_error_ms: 0.4,
             ..Default::default()
@@ -21,7 +27,7 @@ fn noise_then_watch(noise_s: f64, watch_s: f64) -> (Audio, Audio) {
         |_| 0.0,
     );
     let rms = noise_rms(SynthConfig::default().snr_db) * SCALE;
-    let mut rng = Rng::new(5);
+    let mut rng = Rng::new(seed);
     let n = (noise_s * watch.sample_rate as f64) as usize;
     let mut samples: Vec<f32> = (0..n).map(|_| (rms * rng.normal()) as f32).collect();
     samples.extend_from_slice(&watch.samples);
@@ -67,6 +73,45 @@ fn a_watch_after_a_long_noise_lead_reads_as_the_watch_with_the_lead_named() {
             0.03,
             "beat error",
         );
+    }
+}
+
+/// At 18,000 and 19,800 bph a 10 s window of the noise can scatter under
+/// the doubt line (0.7% of a beat), far more than the watch after it
+/// (#1418): the lead runs on to where the scatter drops to the watch's,
+/// not to the first such noise window, and the noise's beats stay out of
+/// the rate. With the rate set too, as the guess is the same.
+#[test]
+fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
+    for (bph, noise_s, seed) in [
+        (18_000, 49.0, 5),
+        (18_000, 60.0, 5),
+        (18_000, 60.0, 21),
+        (19_800, 60.0, 5),
+        (19_800, 60.0, 9),
+        (19_800, 49.0, 5),
+    ] {
+        let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
+        let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
+        let want = analyze(&alone, &AnalysisConfig::default()).summary;
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            // Within a 5 s window step of the watch's start before it and
+            // two after: the windows step 5 s, and none spans the jump
+            // onto the watch's beats. The rate says the noise is out.
+            assert!(
+                (noise_s - 5.0..noise_s + 10.0).contains(&lead),
+                "{what}: lead {lead}"
+            );
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+        }
     }
 }
 
