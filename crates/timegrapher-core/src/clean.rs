@@ -481,13 +481,20 @@ pub fn covered(beats: &[Beat], start: f64, end: f64, part: f64) -> bool {
     })
 }
 
+/// How far past a tiling point, as a share of a step, a time can be and
+/// still count as on it ([`on_tiling`]): float error only.
+pub const TILING_TOLERANCE: f64 = 1e-9;
+
 /// The first time at or after `t` that is a whole number of `step`s from
 /// the take's first sample (true time 0): where the one tiling (#636)
 /// starts a window. Never before `t`, so a window snapped onto it never
-/// reaches back into settling or a cut.
+/// reaches back into settling or a cut; but a `t` on a tiling point
+/// whose float error puts it a hair past (`30.000000000004` after a clock
+/// map) stays on that point, within [`TILING_TOLERANCE`] of a step,
+/// rather than losing a whole step.
 pub fn on_tiling(t: f64, step: f64) -> f64 {
     if step > 0.0 && step.is_finite() && t.is_finite() {
-        (t / step).ceil() * step
+        (t / step - TILING_TOLERANCE).ceil() * step
     } else {
         t
     }
@@ -918,6 +925,21 @@ mod tests {
         assert_eq!(h.kind, HoleKind::ClockStep);
         assert!(!cuts.clear(h.start_s - 5.0, h.end_s + 5.0));
         assert!(cuts.clear(h.end_s, h.end_s + 10.0));
+    }
+
+    /// A start on a tiling point, carrying float error just past it, stays
+    /// on that point and keeps its window (Norm, #1250); a start truly past
+    /// a point goes on to the next one, never back.
+    #[test]
+    fn a_start_on_the_tiling_keeps_its_point_through_float_error() {
+        assert_eq!(on_tiling(30.000000000004, 5.0), 30.0);
+        assert_eq!(on_tiling(30.0, 5.0), 30.0);
+        assert_eq!(on_tiling(29.99, 5.0), 30.0);
+        assert_eq!(on_tiling(30.0001, 5.0), 35.0);
+        assert_eq!(on_tiling(0.0, 2.0), 0.0);
+        let w: Vec<_> = nominal_windows(30.000000000004, 50.0, 10.0, 5.0).collect();
+        assert_eq!(w.first(), Some(&(30.0, 40.0)));
+        assert_eq!(w.len(), 3);
     }
 
     /// A stretch starting at 12.3 s, just after a cut, whose first beat
