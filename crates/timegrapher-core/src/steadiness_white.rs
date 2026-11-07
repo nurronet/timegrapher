@@ -1,35 +1,43 @@
-//! The white null the Ljung–Box test is held to (#1199): white readings
-//! with the take's own gaps, detrended exactly as the take is. Their mean
-//! correlation at each lag is what the detrend (and the mean) take out of
-//! independent readings, and their Q's mean and variance give the scaled
-//! χ² the take's Q is read against. On 4,000 white takes of 30 min in 10 s
+//! The white null the Ljung–Box test is held to (#1199): white readings,
+//! detrended exactly as the take is. Their mean correlation at each lag is
+//! what the detrend (and the mean) take out of independent readings, and
+//! their Q's mean, variance and skew give the shifted, scaled χ² the
+//! take's Q is read against. On 4,000 white takes of 30 min in 10 s
 //! readings the plain χ² named 73 at p 0.01 (40 expected): a running
 //! median's lag bias, about −0.7 over its window, and Q's own excess
 //! spread on short takes.
+//!
+//! The nulls are drawn once, offline, into `data/white-null.json`
+//! ([`write_white_null_table`](super::tests) writes it), on gap-free white
+//! readings: a take with gaps is read against the null of its present
+//! readings, which held on fresh seeds for scattered, single and block
+//! gaps. The table is read by the readings' count and the detrend's
+//! window, interpolated in log n (and in the window's share of the take);
+//! outside it, or for another number of Ljung–Box lags, the plain χ².
 
-use super::{acf_pairs, gamma_q, MIN_PAIRS};
+#[cfg(test)]
+use super::acf_pairs;
+use super::{gamma_q, MIN_PAIRS};
 use crate::longterm::{self, Grid};
+use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
-/// Readings drawn for each null, shared among its white series: the
-/// series number is this over the readings each carries, from
-/// [`MIN_DRAWS`] to [`MAX_DRAWS`]. Every take of one length and gap
-/// pattern shares one null, so the error in its Q's variance is the
-/// same for all of them: 200 series (about 12% in the variance) read 71 of
-/// 1,000 white takes of 1 h at p 0.05; 1,000 or more hold it to about
-/// 4%. p is read from the scaled χ² they fit, not counted from them.
-const DRAW_BUDGET: usize = 1_500_000;
-const MIN_DRAWS: usize = 200;
-const MAX_DRAWS: usize = 4000;
+/// The Ljung–Box lags the table's Q is read over.
+#[cfg(test)]
+pub(super) const TABLE_LB_LAGS: usize = 10;
 
-/// Past this span the draws carry only the first readings (and their
-/// gaps): the running median's window is fixed from 2 h on, and past
-/// 720 readings the plain χ² holds, so a longer draw changes nothing but
-/// its cost.
-const DRAW_SPAN_S: f64 = 4.0 * 3600.0;
+/// The lags each point's bias is kept to: past it a lag is read as it is.
+#[cfg(test)]
+pub(super) const TABLE_LAGS: usize = 128;
+
+/// Past this span a take's null is the one of its first readings: the
+/// running median's window is fixed from 2 h on, and past 720 readings
+/// the plain χ² holds.
+pub(super) const DRAW_SPAN_S: f64 = 4.0 * 3600.0;
 
 /// What white readings read once detrended: the mean correlation at each
-/// lag (0 at lag 0), and the mean and variance of their Ljung–Box Q.
-#[derive(Debug, Clone)]
+/// lag (0 at lag 0), and the mean, variance and skew of their Ljung–Box Q.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct WhiteNull {
     pub bias: Vec<f64>,
     pub q_mean: f64,
@@ -60,6 +68,120 @@ impl WhiteNull {
         }
         gamma_q(nu / 2.0, (q - a) / b / 2.0)
     }
+
+    /// `self` and `other` blended, `t` of the way to `other`; the bias to
+    /// the lags both hold.
+    fn blend(&self, other: &WhiteNull, t: f64) -> WhiteNull {
+        let mix = |a: f64, b: f64| a + (b - a) * t;
+        WhiteNull {
+            bias: self
+                .bias
+                .iter()
+                .zip(&other.bias)
+                .map(|(&a, &b)| mix(a, b))
+                .collect(),
+            q_mean: mix(self.q_mean, other.q_mean),
+            q_var: mix(self.q_var, other.q_var),
+            q_skew: mix(self.q_skew, other.q_skew),
+        }
+    }
+}
+
+/// One drawn null: `n` gap-free readings detrended with a quadratic
+/// (`window` 0) or a running median of `window` readings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct Point {
+    pub n: usize,
+    pub window: usize,
+    pub draws: usize,
+    pub null: WhiteNull,
+}
+
+/// `data/white-null.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct Table {
+    pub note: String,
+    pub lb_lags: usize,
+    /// By n.
+    pub quadratic: Vec<Point>,
+    /// By window, then n.
+    pub median: Vec<Point>,
+}
+
+const DATA: &str = include_str!("../data/white-null.json");
+
+fn table() -> &'static Table {
+    static T: OnceLock<Table> = OnceLock::new();
+    T.get_or_init(|| serde_json::from_str(DATA).expect("white-null.json"))
+}
+
+/// The white null for a take of `n` present readings `step` apart, with
+/// Q over `lb_lags`: the table's, interpolated; None outside it.
+pub(super) fn white_null(n: usize, step: f64, lb_lags: usize) -> Option<WhiteNull> {
+    lookup(table(), n, step, lb_lags)
+}
+
+/// [`white_null`] from `t`.
+pub(super) fn lookup(t: &Table, n: usize, step: f64, lb_lags: usize) -> Option<WhiteNull> {
+    if lb_lags != t.lb_lags || n < 2 {
+        return None;
+    }
+    let n = n.min(((DRAW_SPAN_S / step).round() as usize).max(1));
+    let g = Grid {
+        t0: 0.0,
+        step,
+        y: vec![0.0; n],
+    };
+    match longterm::detrend_window(&g, longterm::DETREND_S) {
+        None => along(&t.quadratic, (n as f64).ln(), false, |p| (p.n as f64).ln()),
+        Some(w) => {
+            // Each window's row by the take's share of the window (4 to 8:
+            // a quarter of the take up to 2 h, then 30 min of up to 4 h),
+            // then across the windows either side in log window.
+            let ratio = n as f64 / w as f64;
+            let rows: Vec<(f64, WhiteNull)> = windows(&t.median)
+                .into_iter()
+                .filter_map(|wr| {
+                    let row: Vec<Point> = t
+                        .median
+                        .iter()
+                        .filter(|p| p.window == wr)
+                        .cloned()
+                        .collect();
+                    along(&row, ratio, true, |p| p.n as f64 / p.window as f64)
+                        .map(|v| ((wr as f64).ln(), v))
+                })
+                .collect();
+            let lw = (w as f64).ln();
+            let i = rows.iter().position(|r| r.0 >= lw - 1e-12)?;
+            if (rows[i].0 - lw).abs() < 1e-12 {
+                return Some(rows[i].1.clone());
+            }
+            let (a, b) = (rows.get(i.checked_sub(1)?)?, &rows[i]);
+            Some(a.1.blend(&b.1, (lw - a.0) / (b.0 - a.0)))
+        }
+    }
+}
+
+/// The distinct windows of `points`, in order.
+fn windows(points: &[Point]) -> Vec<usize> {
+    let mut w: Vec<usize> = points.iter().map(|p| p.window).collect();
+    w.sort_unstable();
+    w.dedup();
+    w
+}
+
+/// The null at `x` along `points` (in order of `key`), blended between
+/// the two either side; outside them the end's when `clamp`, else None.
+fn along(points: &[Point], x: f64, clamp: bool, key: impl Fn(&Point) -> f64) -> Option<WhiteNull> {
+    let (first, last) = (points.first()?, points.last()?);
+    if x <= key(first) || x >= key(last) {
+        let end = if x <= key(first) { first } else { last };
+        return ((key(end) - x).abs() < 1e-12 || clamp).then(|| end.null.clone());
+    }
+    let i = points.iter().position(|p| key(p) >= x)?;
+    let (a, b) = (&points[i - 1], &points[i]);
+    Some(a.null.blend(&b.null, (x - key(a)) / (key(b) - key(a))))
 }
 
 /// The Ljung–Box Q over `lags` of correlations `r` read from `pairs`
@@ -81,58 +203,27 @@ pub(super) fn q_lags(r: &[f64], pairs: &[usize], most: usize) -> Vec<usize> {
         .collect()
 }
 
-/// [`WhiteNull`] for `g`, to `max_lag` lags, with Q over up to `lb_lags`.
-/// The seed comes only from the readings' count and where the gaps are, so
-/// one take always gives one p. Kept per thread ([`CACHED`]).
-pub(super) fn white_null(g: &Grid, max_lag: usize, lb_lags: usize) -> WhiteNull {
-    let len =
-        g.y.len()
-            .min(((DRAW_SPAN_S / g.step).round() as usize).max(1));
-    let present: Vec<bool> = g.y[..len].iter().map(|v| v.is_finite()).collect();
-    let mut seed = 0xcbf2_9ce4_8422_2325u64 ^ len as u64;
-    for (i, _) in present.iter().enumerate().filter(|(_, p)| !**p) {
-        seed = (seed ^ i as u64).wrapping_mul(0x0100_0000_01b3);
-    }
-    let key = (len, g.step.to_bits(), seed, max_lag, lb_lags);
-    let hit = CACHE.with(|c| c.borrow().iter().find(|e| e.0 == key).map(|e| e.1.clone()));
-    if let Some(w) = hit {
-        return w;
-    }
-    let w = drawn_null(&present, g.step, seed, max_lag, lb_lags);
-    CACHE.with(|c| {
-        let mut c = c.borrow_mut();
-        if c.len() >= CACHED {
-            c.remove(0);
-        }
-        c.push((key, w.clone()));
-    });
-    w
-}
+/// Readings drawn for each point of the table: the series number is this
+/// over the readings each carries, from [`MIN_DRAWS`] to [`MAX_DRAWS`].
+/// 200 series (about 12% in Q's variance) read 71 of 1,000 white takes of
+/// 1 h at p 0.05, as every take of one shape shares its null.
+#[cfg(test)]
+pub(super) const DRAW_BUDGET: usize = 8_000_000;
+#[cfg(test)]
+const MIN_DRAWS: usize = 200;
+#[cfg(test)]
+const MAX_DRAWS: usize = 20_000;
 
-/// Nulls kept per thread: the rate, amplitude and beat error of one take
-/// share their readings' count and gaps.
-const CACHED: usize = 16;
-
-type Key = (usize, u64, u64, usize, usize);
-
-thread_local! {
-    static CACHE: std::cell::RefCell<Vec<(Key, WhiteNull)>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// [`white_null`], drawn: white readings where `present`, detrended as a
-/// take on that grid is.
-fn drawn_null(present: &[bool], step: f64, seed: u64, max_lag: usize, lb_lags: usize) -> WhiteNull {
-    let len = present.len();
-    let n = present.iter().filter(|&&p| p).count();
-    let count = (DRAW_BUDGET / len.max(1)).clamp(MIN_DRAWS, MAX_DRAWS);
+/// One point of the table, drawn: white gap-free readings, `n` of them
+/// `step` apart, detrended as a take on that grid is, from `seed`.
+#[cfg(test)]
+pub(super) fn draw_point(n: usize, step: f64, seed: u64) -> Point {
+    let count = (DRAW_BUDGET / n.max(1)).clamp(MIN_DRAWS, MAX_DRAWS);
+    let max_lag = TABLE_LAGS.min(n / 3);
     let draws: Vec<(Vec<f64>, Vec<usize>)> = (0..count as u64)
         .map(|s| {
             let mut z = crate::synth::Rng::new(seed.wrapping_add(s));
-            let y = present
-                .iter()
-                .map(|&p| if p { z.normal() } else { f64::NAN })
-                .collect();
+            let y = (0..n).map(|_| z.normal()).collect();
             let d = longterm::detrend(&Grid { t0: 0.0, step, y }, longterm::DETREND_S);
             acf_pairs(&d.y, max_lag)
         })
@@ -140,26 +231,38 @@ fn drawn_null(present: &[bool], step: f64, seed: u64, max_lag: usize, lb_lags: u
     let mut bias = vec![0.0; max_lag + 1];
     for (r, _) in &draws {
         for (b, v) in bias.iter_mut().zip(r).skip(1) {
-            if v.is_finite() {
-                *b += v / count as f64;
-            }
+            *b += v / count as f64;
         }
     }
     let qs: Vec<f64> = draws
         .iter()
         .map(|(r, pairs)| {
             let r: Vec<f64> = r.iter().zip(&bias).map(|(v, b)| v - b).collect();
-            ljung_q(&r, pairs, n, &q_lags(&r, pairs, lb_lags))
+            ljung_q(&r, pairs, n, &q_lags(&r, pairs, TABLE_LB_LAGS))
         })
         .collect();
     let q_mean = qs.iter().sum::<f64>() / qs.len() as f64;
     let q_var = qs.iter().map(|q| (q - q_mean).powi(2)).sum::<f64>() / (qs.len() - 1) as f64;
-    let q_skew =
-        qs.iter().map(|q| (q - q_mean).powi(3)).sum::<f64>() / qs.len() as f64 / q_var.powf(1.5);
-    WhiteNull {
-        bias,
-        q_mean,
-        q_var,
-        q_skew,
+    // Under 31 readings no lag has the pairs Q needs, and Q is 0.
+    let q_skew = if q_var > 0.0 {
+        qs.iter().map(|q| (q - q_mean).powi(3)).sum::<f64>() / qs.len() as f64 / q_var.powf(1.5)
+    } else {
+        0.0
+    };
+    let g = Grid {
+        t0: 0.0,
+        step,
+        y: vec![0.0; n],
+    };
+    Point {
+        n,
+        window: longterm::detrend_window(&g, longterm::DETREND_S).unwrap_or(0),
+        draws: count,
+        null: WhiteNull {
+            bias,
+            q_mean,
+            q_var,
+            q_skew,
+        },
     }
 }

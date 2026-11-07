@@ -123,12 +123,13 @@ For each series:
   median) taken out first, so a rate drifting as the mainspring runs down
   is not counted as memory (a quadratic on a take under 20 minutes).
   Each lag is given less the correlation that taking the trend out
-  leaves in white readings with the same gaps (about −3/n at lag one
+  leaves in white readings of the same count (about −3/n at lag one
   after the quadratic, #828; about −0.7 over the window after the median),
   so independent readings read about 0 and stay inside ±1.96/√n at every
   lag. The Ljung–Box test combines the first 10 lags into one p-value,
   each lag weighed by the pairs it is read from, and reads it against
-  what those white readings give, not the plain χ² (#1199). `memory_s`
+  what those white readings give, not the plain χ² (#1199; drawn offline
+  into `data/white-null.json`). `memory_s`
   is the lag where the correlation falls below 1/e. `repeat_lag_s` is
   the first lag where the correlation rises back to a peak after falling,
   which means the readings repeat. Where gaps leave fewer pairs of

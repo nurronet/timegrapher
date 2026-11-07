@@ -252,7 +252,7 @@ pub fn detrend_fit_terms(g: &Grid, window_s: f64) -> Option<usize> {
 /// The running median's window [`detrend`] uses on `g`, in whole steps (at
 /// least 3): `window_s` or a quarter of the run, whichever is shorter;
 /// `None` under 20 min, where it fits a quadratic instead.
-fn detrend_window(g: &Grid, window_s: f64) -> Option<usize> {
+pub(crate) fn detrend_window(g: &Grid, window_s: f64) -> Option<usize> {
     let span = g.span();
     (span >= MEDIAN_FROM_S).then(|| ((window_s.min(span / 4.0) / g.step).round() as usize).max(3))
 }

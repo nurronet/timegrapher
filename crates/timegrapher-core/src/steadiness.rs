@@ -851,15 +851,21 @@ fn band_at_lag(pairs: f64, lag: f64, n: f64) -> Option<f64> {
 }
 
 /// [`autocorrelation_less`] of `g` less its slow change, taken out as the
-/// period search takes it out, each lag less what white readings with the
-/// same gaps read once detrended the same way, and the Ljung–Box test held
-/// to those readings ([`white::white_null`], #1199). That bias is about
-/// −3/n at lag one after the quadratic of a run under 20 minutes (#828),
-/// and about −0.7/window under a running median.
-fn detrended_autocorrelation(g: &Grid, cfg: &Config) -> Autocorrelation {
+/// period search takes it out. With `held`, for a series whose p goes to
+/// Holm's correction, each lag is read less what white readings of its
+/// count read once detrended the same way, and the Ljung–Box test is held
+/// to those readings ([`white::white_null`], #1199; outside its table, the
+/// plain χ²): that bias is about
+/// −3/n at lag one after the quadratic of a run under 20 minutes (#828)
+/// and about −0.7/window under a running median. Without (the 2 s windows
+/// a repeat is looked for in, whose p nothing reads), the plain χ².
+fn detrended_autocorrelation(g: &Grid, held: bool, cfg: &Config) -> Autocorrelation {
     let d = longterm::detrend(g, longterm::DETREND_S);
-    let null = white::white_null(g, max_lag(g.y.len(), g.step, cfg), cfg.ljung_box_lags);
-    autocorrelation_less(&d.y, g.step, Some(&null), cfg)
+    let n = g.y.iter().filter(|v| v.is_finite()).count();
+    let null = held
+        .then(|| white::white_null(n, g.step, cfg.ljung_box_lags))
+        .flatten();
+    autocorrelation_less(&d.y, g.step, null.as_ref(), cfg)
 }
 
 /// The longest lag the autocorrelation is read to.
@@ -1031,7 +1037,7 @@ pub fn check_series(
     let nf = n as f64;
     // The slow trend taken out first, as the period search does: a rate
     // drifting as the mainspring runs down would otherwise read as memory.
-    out.autocorrelation = Some(detrended_autocorrelation(&g, cfg));
+    out.autocorrelation = Some(detrended_autocorrelation(&g, true, cfg));
 
     // Allan deviation with the line independent readings would follow.
     let ad = allan(y, g.step);
