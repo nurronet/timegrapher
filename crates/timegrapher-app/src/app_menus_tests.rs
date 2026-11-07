@@ -54,6 +54,7 @@ fn each_shortcut_is_one_command_key_of_its_own() {
         MenuCommand::ResetPanes,
         MenuCommand::NewWatch,
         MenuCommand::FindInWatches,
+        MenuCommand::UserGuide,
         MenuCommand::CheckForUpdates,
         MenuCommand::ReportProblem,
     ] {
@@ -97,6 +98,7 @@ fn the_menus_list_their_items_and_shortcuts() {
     assert!(watches.contains("New Watch…"), "{watches}");
     assert!(watches.contains("Find in Watches…"), "{watches}");
     let help = drawn(&mut app, &ctx, TimegrapherApp::help_menu);
+    assert!(help.contains("User Guide"), "{help}");
     assert!(help.contains("Check for Updates…"), "{help}");
     assert!(help.contains("Report a Problem…"), "{help}");
     assert!(!help.contains("Checking"), "{help}");
@@ -251,4 +253,25 @@ fn report_a_problem_opens_its_window() {
     assert!(!shown(&mut app));
     app.run_menu_command(&ctx, MenuCommand::ReportProblem);
     assert!(shown(&mut app));
+}
+
+/// Help > User Guide opens the manual in the browser: a test build has
+/// no installed copy beside it, so it opens the copy on GitHub.
+#[test]
+fn user_guide_opens_the_manual() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let ctx = themed();
+    let out = ctx.run(screen(), |ctx| {
+        app.run_menu_command(ctx, MenuCommand::UserGuide);
+    });
+    let urls: Vec<String> = out
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            egui::OutputCommand::OpenUrl(u) => Some(u.url.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(urls, [crate::guide::ONLINE]);
 }

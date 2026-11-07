@@ -166,6 +166,7 @@ In Watches, all but Bench and Watches are dimmed.
 
 | Item | What it does | Why you'd use it |
 | --- | --- | --- |
+| **User Guide** | Opens this manual in your browser. It comes with the app, so it opens without an internet connection; a build without its copy opens the one on GitHub. | To look up a button, pane or reading while you work. |
 | **Check for Updates…** | Asks GitHub whether a newer version is published, and says what it found. Nothing downloads or installs itself. | To see if there is a newer build. |
 | **Report a Problem…** | Makes a zip of what went wrong, with up to five minutes of the sound, to attach to a GitHub issue. The app sends nothing itself. | When something looks wrong. See chapter 27. |
 | **Add to Applications Menu** (Linux) | Puts the app and its icon in the desktop's applications menu. | So you can start it like any other app. |

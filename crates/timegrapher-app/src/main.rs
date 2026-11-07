@@ -22,6 +22,7 @@ mod calibre_ui;
 mod desktop;
 mod export;
 mod fields;
+mod guide;
 mod guided;
 mod help;
 mod icons;

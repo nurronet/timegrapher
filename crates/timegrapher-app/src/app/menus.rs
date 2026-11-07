@@ -25,6 +25,7 @@ pub(super) enum MenuCommand {
     ResetPanes,
     NewWatch,
     FindInWatches,
+    UserGuide,
     CheckForUpdates,
     ReportProblem,
 }
@@ -189,6 +190,7 @@ impl TimegrapherApp {
             }
             MenuCommand::NewWatch => self.open_new_watch_form(),
             MenuCommand::FindInWatches => self.find_in_watches(),
+            MenuCommand::UserGuide => ctx.open_url(egui::OpenUrl::new_tab(crate::guide::url())),
             MenuCommand::CheckForUpdates => self.updates.start(ctx, true),
             MenuCommand::ReportProblem => self.open_report(),
         }
@@ -406,6 +408,15 @@ impl TimegrapherApp {
     }
 
     fn help_menu(&mut self, ui: &mut egui::Ui) {
+        self.menu_item(
+            ui,
+            MenuCommand::UserGuide,
+            "User Guide",
+            "Open the manual in your browser: every button, pane and reading, what it does and \
+             when to use it. It comes with the app, so it opens without an internet connection.",
+            "",
+        );
+        ui.separator();
         self.menu_item(
             ui,
             MenuCommand::CheckForUpdates,

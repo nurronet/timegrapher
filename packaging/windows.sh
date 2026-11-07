@@ -30,6 +30,9 @@ folder="$work/Timegrapher $version"
 mkdir -p "$folder/Command Line"
 cp -R "$docs/." "$folder/"
 cp "$bin/timegrapher-app.exe" "$folder/Timegrapher.exe"
+# Help > User Guide opens the manual beside Timegrapher.exe
+# (crates/timegrapher-app/src/guide.rs).
+test -f "$folder/User Guide/index.html"
 cp "${cli[@]}" "$folder/Command Line/"
 
 # The Claude Desktop extension (see macos.sh)
