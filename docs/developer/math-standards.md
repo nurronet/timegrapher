@@ -275,7 +275,7 @@ What each figure needs before it is shown today, and what happens when data is m
 
 ## 9. Uncertainty
 
-**Rule:** every ± is `confidence::standard_error` of the values in time order. Scatter from successive differences (1.4826 MAD / √2), lag-one correlation off a fitted line, effective count n(1 − ρ)/(1 + ρ), then 1.2533 s / √(1 − ρ) / √n_eff. Full model: `docs/measurement-precision.md`.
+**Rule:** every ± is `confidence::standard_error` of the values in time order. Scatter from successive differences (1.4826 MAD / √2), lag-one correlation off a fitted line, effective count n(1 − ρ)/(1 + ρ), then 1.2533 s / √(1 − ρ) / √n_eff. Full model: `docs/research/measurement-precision.md`.
 
 **Lives in:** `confidence.rs:129`. Rate uses every other 10 s window today (`confidence.rs:144`); decided (R1, #636), the ± is read from the tiling of 2 s cells. Live scales it to Average Over (`measure.rs:415`).
 

@@ -7,12 +7,12 @@ on its own; other agents should read it before starting.
 
 The full guides are in the repository, and they win over this summary:
 
-- `docs/architecture.md`: where each decision lives, from the sound to the screen.
+- `docs/developer/architecture.md`: where each decision lives, from the sound to the screen.
   Section 11 is the checklist for any change to a figure. Section 12 is code shape.
-- `docs/math-standards.md`: one definition of each statistic. Section 14 is the
+- `docs/developer/math-standards.md`: one definition of each statistic. Section 14 is the
   checklist for any change to how a figure is computed.
-- `docs/agent-interface.md`: the CLI's JSON contract.
-- `docs/design/design-guide.md`: how the desktop app looks and words things.
+- `docs/reference/agent-interface.md`: the CLI's JSON contract.
+- `docs/developer/design/design-guide.md`: how the desktop app looks and words things.
 
 ## How work reaches you, and how review works
 
@@ -79,7 +79,7 @@ and measures rate, amplitude and beat error. It is a Rust workspace:
 ## Changes to a figure or to the math
 
 A change to how a figure is computed (an average, fit, window, gate, test, ± or
-rounding) must pass the checklist in section 14 of `docs/math-standards.md`. In
+rounding) must pass the checklist in section 14 of `docs/developer/math-standards.md`. In
 the PR body:
 
 - name the rule from the guide that the change follows;
@@ -122,7 +122,7 @@ checks (tests on Linux and macOS, Windows tests in two halves, the MCP renderer
 and three corpus regression checks) and takes about 12 minutes. If one fails, fix the cause.
 
 Do not change `Cargo.toml`, `Cargo.lock`, `.github/`, any `main.rs` or `lib.rs`, or
-`docs/agent-interface.md` unless your brief lists them. If you must, explain why
+`docs/reference/agent-interface.md` unless your brief lists them. If you must, explain why
 under **Shared files**.
 
 ## The pull request body

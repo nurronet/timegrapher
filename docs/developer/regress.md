@@ -13,7 +13,7 @@ timegrapher regress timegrapher-corpus --fetch --smoke --baseline regress/baseli
 The first argument is a folder of takes. Each take folder (up to three levels
 down) holds a `session.toml` whose readings carry tg's numbers for that file
 (`reference = { rate, amplitude, beat_error, source }`, see
-[sessions](sessions.md)).
+[sessions](../reference/sessions.md)).
 
 tg reads the same recording on the sound card's own clock, so a take whose
 references are all on that clock (`clock = "sound_card"`, or no `clock`) is
@@ -90,7 +90,7 @@ judged against tg alone.
 Each reading's rate (the fit over every beat), amplitude and beat error
 from the unlock are compared with tg, and with the baseline: the same
 readings measured by the engine the baseline was written with
-([`regress/baseline.json`](../regress/baseline.json)). A value fails when it is
+([`regress/baseline.json`](../../regress/baseline.json)). A value fails when it is
 further from tg than the baseline was by more than its margin. Moving
 closer to tg always passes, so does crossing tg at the same distance.
 
@@ -121,7 +121,7 @@ The JSON reports these checks as `unreadable`, `missing_sessions`,
 `missing_readings` and `recording_mismatches`, independently of numerical rows.
 
 A reading also fails when its median amplitude is over 330° and so raises `session`'s
-amplitude check (docs/sessions.md): no take in the corpus does, and one
+amplitude check (docs/reference/sessions.md): no take in the corpus does, and one
 that starts to is a sign the engine reads amplitude high. The JSON lists
 such readings in `amplitude_high`, as `take #reading`. The beat error from the drop has no tg counterpart: when it moves by
 more than 0.03 ms it is listed as changed, without failing.

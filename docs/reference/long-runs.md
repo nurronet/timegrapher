@@ -237,7 +237,7 @@ take with `long`, `series` or `session`.
    This scale, even when displayed with ±, is not a confidence interval for
    the fitted period; gaps, noise and the number of observed cycles matter.
 
-The [precision and period-search assumptions](measurement-precision.md)
+The [precision and period-search assumptions](../research/measurement-precision.md)
 include reproducible model probes and their limits. A score is evidence of
 repetition under the search model, not the probability that a particular
 wheel is faulty. Slow drift and periodic variation can be real watch

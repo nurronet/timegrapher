@@ -47,10 +47,10 @@ recreate the missing historical build provenance. Floating-point, dependency
 or engine changes may change results. Do not turn the archived counts into
 mandatory tolerances or update them silently to match a new run.
 
-- [precision-model-probe.rs](../../crates/timegrapher-core/examples/precision-model-probe.rs)
+- [precision-model-probe.rs](../../../crates/timegrapher-core/examples/precision-model-probe.rs)
   directly probes the median SE model with stationary, unit-variance Gaussian
   AR(1) input. [Historical output](precision-model-probe-output.txt).
-- [scientific-statistics-probe.rs](../../crates/timegrapher-core/examples/scientific-statistics-probe.rs)
+- [scientific-statistics-probe.rs](../../../crates/timegrapher-core/examples/scientific-statistics-probe.rs)
   probes missing-grid FFT heights and the default period search on bounded
   synthetic null series. Its AR(1) recursion starts at zero with unscaled
   innovations, unlike the precision probe. [Historical output](scientific-statistics-probe.csv).

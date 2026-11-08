@@ -1,6 +1,6 @@
 //! Report a Problem: a zip a person can open, check and attach to a GitHub
 //! issue, in the same `timegrapher.report/1` shape `timegrapher report`
-//! writes, so a maintainer reads and replays both alike (docs/reports.md).
+//! writes, so a maintainer reads and replays both alike (docs/reference/reports.md).
 //!
 //! The sound comes from what the app already has: the live session, which
 //! is kept on disk as it goes, or the recording that was opened. Up to five

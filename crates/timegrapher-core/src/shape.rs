@@ -3,7 +3,7 @@
 //! Each beat has three sounds, 1 unlock, 2 impulse and 3 drop, and beats
 //! alternate between the two pallet stones. This module measures the
 //! spacing, levels and separation of these sounds, and the sound around
-//! them, on each stone (see `docs/fault-signatures.md` for what each
+//! them, on each stone (see `docs/reference/fault-signatures.md` for what each
 //! measure is).
 //!
 //! As for amplitude, single beats are too noisy to read, so the shape is

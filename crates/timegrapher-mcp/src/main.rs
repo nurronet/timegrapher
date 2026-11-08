@@ -1,5 +1,5 @@
 //! `timegrapher-mcp`: the timegrapher as an MCP server over stdio, for chat
-//! apps that cannot run a command line (docs/mcp.md). Every tool runs the
+//! apps that cannot run a command line (docs/reference/mcp.md). Every tool runs the
 //! `timegrapher` program with `--json` and returns its document unchanged,
 //! so this server and the command line give the same answers.
 

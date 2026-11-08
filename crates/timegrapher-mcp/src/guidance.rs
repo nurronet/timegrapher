@@ -110,28 +110,28 @@ pub const DOCS: &[Doc] = &[
         "agent-interface",
         "JSON Contract",
         "Every field of the JSON documents the tools return.",
-        "docs/agent-interface.md"
+        "docs/reference/agent-interface.md"
     ),
     doc!(
         "timegrapher://docs/sessions",
         "sessions",
         "Multi-Position Sessions",
         "session.toml, positions, characteristic values and session finding codes.",
-        "docs/sessions.md"
+        "docs/reference/sessions.md"
     ),
     doc!(
         "timegrapher://docs/series",
         "series",
         "Steadiness",
         "What each steadiness result describes and the evidence behind it.",
-        "docs/series.md"
+        "docs/reference/series.md"
     ),
     doc!(
         "timegrapher://docs/fault-signatures",
         "fault-signatures",
         "Fault Signatures",
         "Escapement faults and how they show in the beat's shape.",
-        "docs/fault-signatures.md"
+        "docs/reference/fault-signatures.md"
     ),
 ];
 

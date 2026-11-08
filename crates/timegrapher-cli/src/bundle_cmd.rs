@@ -1,7 +1,7 @@
 //! `timegrapher report`: a zip a person can open, check and attach to an
 //! issue, holding what a maintainer needs to reproduce a problem; and
 //! `report --replay`, which runs the bundle's commands again with the
-//! current build and says what moved. See docs/reports.md.
+//! current build and says what moved. See docs/reference/reports.md.
 //!
 //! Nothing here opens the sound input: a microphone check goes in only as
 //! the recording and sidecar `doctor --save` already wrote.

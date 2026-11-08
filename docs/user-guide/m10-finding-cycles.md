@@ -123,7 +123,7 @@ and its cycle is what Cycle folds (chapter 12).
   differently; the timing-misfit caveat says when the beat timing
   doesn't fit its model.
 
-The project's [long-run notes](../long-runs.md#how-the-search-works) give
+The project's [long-run notes](../reference/long-runs.md#how-the-search-works) give
 the search in full.
 
 ---

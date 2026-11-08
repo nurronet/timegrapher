@@ -3,7 +3,7 @@
 Ready-made downloads are on the
 [Releases page](https://github.com/peterhudson/timegrapher/releases).
 If it lists no version yet, none has been published: build from source as
-[building.md](building.md) describes. Each release has one download for
+[building.md](../developer/building.md) describes. Each release has one download for
 each system, and `SHA256SUMS.txt` to check a download:
 
 | System | Download |
@@ -128,14 +128,14 @@ with the line in `SHA256SUMS.txt`.
 ## Building from source
 
 Use Rust 1.90.0 or later and the checked-in lockfile. See
-[building from source](building.md) for per-package features, Linux system
+[building from source](../developer/building.md) for per-package features, Linux system
 requirements and the scope of the compiler/packaging checks. For the desktop
 app, start with `cargo run --release --locked -p timegrapher-app`.
 
 ## Making a release
 
 For maintainers. Releases are built by
-[.github/workflows/release.yml](../.github/workflows/release.yml), never on
+[.github/workflows/release.yml](../../.github/workflows/release.yml), never on
 a personal computer.
 
 1. A draft can be made from main at any time, with no version bump. The

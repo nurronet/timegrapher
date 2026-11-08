@@ -3,7 +3,7 @@
 Most people who use this tool will have an AI agent to help them: to get
 the microphone working, run tests and explain what the numbers mean. The
 command-line tool is that agent's interface. This page is the contract.
-The [watchmaker skill](../skills/watchmaker/SKILL.md) builds on it.
+The [watchmaker skill](../../skills/watchmaker/SKILL.md) builds on it.
 
 ## Rules
 
@@ -15,7 +15,7 @@ The [watchmaker skill](../skills/watchmaker/SKILL.md) builds on it.
   kept in `crates/timegrapher-cli/tests/json_shapes/`, and a field
   renamed or removed fails the tests.
 - Exit codes: `0` success, `1` error (message on stderr), `3` from
-  `regress` when the engine moved away from tg ([regress](regress.md)).
+  `regress` when the engine moved away from tg ([regress](../developer/regress.md)).
   `record` exits 0 for every take it keeps, which is every take. `doctor`
   exits `0` whatever it detects.
 - Nothing listens unless asked: `doctor` and `record` open the microphone
@@ -46,7 +46,7 @@ added, never renamed or removed; a change that would break a reader bumps the
 version. `analyze`, `doctor`, `record`, `series`, `session` and
 `regress-holdout` are at version 2: it removed their grades, verdicts,
 named faults and advice (the software reports what it measured and
-detected; the [watchmaker skill](../skills/watchmaker/SKILL.md) interprets
+detected; the [watchmaker skill](../../skills/watchmaker/SKILL.md) interprets
 it), and `record/2` keeps every take. Other kinds are at version 1. `input.files[].recording` appears when the recording has a
 provenance sidecar (`take.wav.json`, written by `doctor --save`), carrying
 the device, its configuration and the mixer settings at the time.
@@ -384,7 +384,7 @@ the id or name from `devices`), or reads `--file`, and reports in `check`:
 | `clipped_samples` | samples at full scale, plus flat tops below it (clipping before the converter) |
 | `bph`, `beats_expected`, `beats_found` | the beat rate used and the beats found |
 | `tick_level_dbfs`, `noise_level_dbfs`, `tick_to_noise_db` | ticks against the background between them (high-passed at 1.5 kHz) |
-| `signal_x` | median beat peak over the median envelope, the desktop app's "signal N×"; pure noise reads about 2× (see [validation.md](validation.md#signal-above-noise-signal_x-what-the-added-noise-tests-showed)) |
+| `signal_x` | median beat peak over the median envelope, the desktop app's "signal N×"; pure noise reads about 2× (see [validation.md](../research/validation.md#signal-above-noise-signal_x-what-the-added-noise-tests-showed)) |
 | `gap_rise_db` | background late in the gap over early in it, dB |
 | `rate_s_per_day`, `beat_error_ms` | from a few seconds, on the sound card's clock |
 | `suggested_gain_change_db` | the change `--apply` makes: it sets the peak to about −10 dBFS (a −6 dB step when clipped) |

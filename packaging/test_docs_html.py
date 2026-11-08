@@ -39,7 +39,7 @@ class Outputs(unittest.TestCase):
             self.assertTrue(dest in ("Start Here.html", "LICENSE.txt")
                             or dest.startswith(("User Guide/", "Reference/")), dest)
         for page in docs_html.REFERENCE:
-            self.assertEqual(mapping[page], "Reference/" + page[len("docs/"):-3] + ".html")
+            self.assertEqual(mapping[page], "Reference/" + page.rsplit("/", 1)[1][:-3] + ".html")
 
     def test_nothing_else_in_docs_is_carried(self):
         mapping = docs_html.outputs("linux")
@@ -58,7 +58,8 @@ class Outputs(unittest.TestCase):
         for page in docs_html.REFERENCE:
             out = docs_html.rewrite_links(f'<a href="../{page[len("docs/"):]}#x">x</a>',
                                           chapter, mapping[chapter], mapping, REF)
-            self.assertIn(f'href="../Reference/{page[len("docs/"):-3]}.html#x"', out)
+            name = page.rsplit("/", 1)[1][:-3]
+            self.assertIn(f'href="../Reference/{name}.html#x"', out)
 
     def test_the_documentation_stays_small(self):
         # Each download carries it.

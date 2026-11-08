@@ -53,7 +53,7 @@ set of measures.
 
 Reading these figures against the faults above, and Witschi's timing
 diagram patterns, is interpretation: it lives in the
-[watchmaker skill](../skills/watchmaker/SKILL.md), not in the program.
+[watchmaker skill](../../skills/watchmaker/SKILL.md), not in the program.
 
 ## Calibre 3235 notes
 

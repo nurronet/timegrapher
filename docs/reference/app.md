@@ -13,8 +13,8 @@ cargo run --release -p timegrapher-app -- rec.flac  # analyse a recording
 
 On Linux, building it needs the ALSA headers (`sudo apt install libasound2-dev`).
 
-The app's look and behaviour are set by the [Design Guide](design/design-guide.md),
-and how its parts fit together by [App Structure](design/app-structure.md).
+The app's look and behaviour are set by the [Design Guide](../developer/design/design-guide.md),
+and how its parts fit together by [App Structure](../developer/design/app-structure.md).
 Where today's app differs from them, the app changes.
 
 ## The screen
@@ -521,7 +521,7 @@ bounds on total error or measures of the watch's true variation. Window
 readings that follow one another are counted as fewer independent ones,
 from their lag-one correlation; memory of another shape can still make
 the estimates too small. The
-[precision assumptions and probes](measurement-precision.md) explain what
+[precision assumptions and probes](../research/measurement-precision.md) explain what
 is calculated and what has been checked. The amplitude's and beat error's ± are the
 standard errors of their 2 s windows in the averaging time. The rate's ±
 comes from the scatter of 10 s windows over the run so far (back to a

@@ -195,7 +195,7 @@ enum Command {
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// Clock log for calibrating the sound card: audio position against
-        /// NTP-synced system time (see `docs/long-runs.md`).
+        /// NTP-synced system time (see `docs/reference/long-runs.md`).
         #[arg(long)]
         clock: Option<PathBuf>,
         /// Without a clock log: correct with the clock error stored for

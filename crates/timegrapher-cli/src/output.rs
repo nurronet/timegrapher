@@ -4,7 +4,7 @@
 //! The `schema` field names the kind of document and its version
 //! (`timegrapher.analyze/2`). Within a version, fields are only ever added;
 //! a change that would break a reader bumps the version. See
-//! `docs/agent-interface.md`.
+//! `docs/reference/agent-interface.md`.
 
 use serde::Serialize;
 use serde_json::{json, Value};

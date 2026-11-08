@@ -13,7 +13,7 @@ measurement assumes a Swiss lever's unlock and drop.
 
 ## DD32xx and JH32xx empirical lift setting
 
-The [2026-11-03 DD3285 optical study](../../../docs/dd32xx-optical-amplitude-validation.md)
+The [2026-11-03 DD3285 optical study](../../../docs/research/dd32xx-optical-amplitude-validation.md)
 supports a maintainer-selected **59°** default, replacing 55° in `Dandong 3235`
 and `JH3235`. All their existing DD/JH 3230, 3235, 3255, 3285 and 32xx aliases
 inherit it, including `VS3235` under the Dandong row. Four blind video/audio takes
@@ -162,7 +162,7 @@ is left out rather than guessed.
 
 ## Microscope photo contributions
 
-[32xx train counts](../../../docs/32xx-train-wheel-counts.md) contain nine
+[32xx train counts](../../../docs/research/32xx-train-wheel-counts.md) contain nine
 numbered images, six original photographs, and the complete ratio checks.
 Peter Hudson contributed the photos and confirmed applicability to all
 genuine Rolex, Dandong and Jinghe 32xx on 2026-10-19. The covered rows,
@@ -177,7 +177,7 @@ covered 4 Hz derivatives also have separate evidence below. Future
 contributions must state which makers and variants they cover rather than
 propagate counts by a shared calibre number alone.
 
-[4130 train and chronograph counts](../../../docs/4130-train-wheel-counts.md)
+[4130 train and chronograph counts](../../../docs/research/4130-train-wheel-counts.md)
 contain twelve numbered figures and ten originals from a DD4130, contributed
 by Peter Hudson on 2026-10-19. He reports matching counts and periods for
 genuine Rolex 4130 and SH4130; the latter now has its own entry. The train
@@ -193,7 +193,7 @@ explicit manufacturer. Rolex, Dandong and SH4130 all specify **52°** lift:
 Rolex publishes this value, and Peter separately confirms the same angle
 for all 4130 variants. It is not inferred from tooth counts.
 
-[31xx train counts](../../../docs/31xx-train-wheel-counts.md) contain nine
+[31xx train counts](../../../docs/research/31xx-train-wheel-counts.md) contain nine
 numbered figures and five originals from the VR31xx photo set, contributed
 by Peter Hudson on 2026-10-19. He reports applicability to genuine Rolex,
 DD/VS and VR31xx, including 3130, 3135, 3186 and 3187; SH31xx is excluded.
@@ -287,7 +287,7 @@ taken from any other timegrapher program.
 
 ## ETA 2824 microscope contribution
 
-See [the evidence and coverage audit](../../../docs/2824-train-wheel-counts.md)
+See [the evidence and coverage audit](../../../docs/research/2824-train-wheel-counts.md)
 for the 28,800 bph counts, exact fractional second/barrel periods, cannon
 mesh inference, and source-labelled transfers to 39 catalogue rows.
 Three-hertz, Power+ and ambiguous clone identities are excluded.
@@ -302,14 +302,14 @@ Eterna 12824 52°, ETA 2824 at 21,600 bph 53°), and their notes give his
 
 ## VR32xx microscope contribution
 
-[VR32xx evidence](../../../docs/vr32xx-train-wheel-counts.md) establishes the
+[VR32xx evidence](../../../docs/research/vr32xx-train-wheel-counts.md) establishes the
 100 / 80:20 / 99:12 / 120:11 train and five-hour barrel. The 20:10 escape pair
 is the contributor-accepted standard specification, supported by both
 comparison families. Its source note records that it was not photographed. VR and SH aliases are separated.
 
 ## Seiko and Miyota manufacturer-document research
 
-[Research and limitations](../../../docs/seiko-miyota-train-research.md)
+[Research and limitations](../../../docs/research/seiko-miyota-train-research.md)
 records illustrated escape counts and exact part-identity transfers for
 42 catalogue rows. Fifteen escape teeth at 21,600 bph and twenty at
 28,800 bph both give five seconds. The source manifest audits all 182
@@ -324,7 +324,7 @@ lift angles are retained.
 
 ## DD324 and Peacock SL1258 microscope contribution
 
-[DD324 evidence and ratio checks](../../../docs/dd324-train-wheel-counts.md)
+[DD324 evidence and ratio checks](../../../docs/research/dd324-train-wheel-counts.md)
 contains eight unchanged originals and numbered count figures contributed
 by Peter Hudson on 2026-10-21. The complete photographed train is barrel 93,
 second 60/18, third 90 with 10 leaves on each face, fourth 84/9 and escape
@@ -344,7 +344,7 @@ DD324 retains the existing 52° lift setting; SL1258 remains unspecified.
 
 ## Patek 240 clone photographs
 
-The [Patek 240 clone count record](../../../docs/pp240-clone-train-wheel-counts.md)
+The [Patek 240 clone count record](../../../docs/research/pp240-clone-train-wheel-counts.md)
 preserves six original photographs and ten numbered figures. All six rotation
 periods derive from the counted train and the contributor-confirmed 21,600 vph
 beat rate. The second wheel has 15 leaves on its near section and 16 on its far
@@ -354,7 +354,7 @@ The maker is Shanghai, per the contributor; lift angle remains unconfirmed.
 
 ## AP3120 clone microscope contribution
 
-[AP3120 clone counts and mesh checks](../../../docs/ap3120-clone-train-wheel-counts.md)
+[AP3120 clone counts and mesh checks](../../../docs/research/ap3120-clone-train-wheel-counts.md)
 extends the existing SA3120 entry from six Peter Hudson photographs and
 bench confirmations. The 21,600 bph train is barrel 104, simple intermediate
 40 (physically confirmed to have no pinion), centre 80/13, third 75/10,

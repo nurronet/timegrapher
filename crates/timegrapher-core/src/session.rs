@@ -2018,7 +2018,7 @@ pub struct RecordingEntry {
     /// Hours since the watch was fully wound; 0 or left out means full.
     pub wind_h: Option<f64>,
     pub date: Option<String>,
-    /// Clock log for this recording (see docs/long-runs.md).
+    /// Clock log for this recording (see docs/reference/long-runs.md).
     pub clock: Option<String>,
     /// Start of this reading, seconds into the file or folder; left out
     /// means its start. With `end_s`, one continuous take that moved

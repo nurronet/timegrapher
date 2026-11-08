@@ -247,7 +247,7 @@ fn click(at: egui::Pos2) -> Vec<egui::Event> {
     vec![egui::Event::PointerMoved(at), press(true), press(false)]
 }
 
-/// The search menu's rules (Peter, 5 Nov; docs/design/design-guide.md,
+/// The search menu's rules (Peter, 5 Nov; docs/developer/design/design-guide.md,
 /// "Search menus"): a click in its field keeps it open with the caret
 /// there; Esc clears the text first and only then closes it; each open
 /// starts with an empty search; ↓ and Enter pick from the list.

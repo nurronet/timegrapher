@@ -6,7 +6,7 @@ recordings, explain the numbers and guide you through testing a watch. It
 speaks the [Model Context Protocol](https://modelcontextprotocol.io) over
 stdio. Agents that do have a command line (Claude Code, Codex and the like)
 should use the `timegrapher` program and the [watchmaker
-skill](../skills/watchmaker/SKILL.md) directly instead; see
+skill](../../skills/watchmaker/SKILL.md) directly instead; see
 [agent-interface.md](agent-interface.md).
 
 Every tool runs the `timegrapher` program with `--json` and returns its
@@ -42,7 +42,7 @@ Claude Desktop says so when installing it; that is expected.
 ### From source
 
 To build both programs yourself, use the supported Rust 1.90.0 or later
-([package and platform requirements](building.md)):
+([package and platform requirements](../developer/building.md)):
 
 ```sh
 git clone https://github.com/peterhudson/timegrapher

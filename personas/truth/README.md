@@ -35,7 +35,7 @@ against it. Interpretation belongs to the helper and the watchmaker skill,
 and must be sourced.
 
 When interpreting, grade amplitude only against Witschi's tolerances, the table the program and
-the watchmaker skill use (`docs/sessions.md`, "Findings"): fully wound, 260–320°
+the watchmaker skill use (`docs/reference/sessions.md`, "Findings"): fully wound, 260–320°
 dial up or down (horizontal) and 240–280° crown up, down, left or right
 (vertical), with over 330° overbanking. Make no per-calibre amplitude claim
 ("a 3235 should be above 250°") without a source. The Yacht-Master 42's

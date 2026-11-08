@@ -77,7 +77,7 @@ weighted by their counts.
 - **Weights matching the rate's fit:** a median or a plain mean of the
   windows moves less than the rate does in a short event, and biases the
   slope by about 10% on a rub of 8 s in 10 (the project's
-  [series notes](../series.md)).
+  [series notes](../reference/series.md)).
 - **The walk:** the curve throws time away; the walk keeps it, so a step
   or a return shows.
 

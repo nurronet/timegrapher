@@ -2,7 +2,7 @@
 //! an agent reading it relies on. A field renamed or removed fails here;
 //! a field added does too, until its path is added to the command's file
 //! in `tests/json_shapes/` (run with `UPDATE_JSON_SHAPES=1` to write them).
-//! docs/agent-interface.md promises additive JSON, so a path leaving a
+//! docs/reference/agent-interface.md promises additive JSON, so a path leaving a
 //! file is a change for that page and the schema version, not a refresh.
 use serde_json::Value;
 use std::collections::BTreeSet;

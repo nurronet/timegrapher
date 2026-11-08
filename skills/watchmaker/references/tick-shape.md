@@ -160,7 +160,7 @@ How to report what they find:
   amplitude beside it, it supports a service-soon verdict.
 - **Give the owner the words to pass on**: the shape in Witschi's words,
   the side (Tick or Tock) and the position, so the watchmaker knows where
-  to look. The repository's docs/fault-signatures.md has the diagrams.
+  to look. The repository's docs/reference/fault-signatures.md has the diagrams.
 
 ## Before you believe a shape
 

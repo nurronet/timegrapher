@@ -64,11 +64,11 @@ compiler/dependency diagnostic before changing this policy.
 
 ## What packaging checks leave for a person
 
-The [release procedure](install.md#making-a-release) gates the exact candidate
+The [release procedure](../reference/install.md#making-a-release) gates the exact candidate
 on CI and exercises extracted CLI/MCP binaries with a deterministic synthetic
 recording and stdio calls. This checks delivered-program operability, not new
 physical accuracy or statistical calibration. The
-[archived model probes](model-probes/README.md) concern their stated mathematical
+[archived model probes](../research/model-probes/README.md) concern their stated mathematical
 models; reproducing them does not validate a microphone or calibrate a watch.
 
 Before publishing, a person still needs to check the downloaded package on the

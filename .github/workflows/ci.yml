@@ -18,7 +18,7 @@ on:
 # merge to main cancels main's push run still in progress, so runners go to the
 # newest commit only. A run started by hand (workflow_dispatch) is never
 # cancelled. The Release gate needs a green run on the exact commit it builds,
-# which is main's newest commit when a release starts (docs/install.md).
+# which is main's newest commit when a release starts (docs/reference/install.md).
 concurrency:
   group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && 'main') || github.run_id }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
@@ -98,7 +98,7 @@ jobs:
           done
       # Exercise the supported compiler floor without another build/job.
       # Keep this version aligned with workspace.package.rust-version and
-      # docs/building.md. Other hosts continue checking current stable.
+      # docs/developer/building.md. Other hosts continue checking current stable.
       - uses: dtolnay/rust-toolchain@stable
         if: steps.changes.outputs.full != 'false'
         with:
@@ -186,7 +186,7 @@ jobs:
       - name: Copied code
         run: python3 .github/ci/literal_ratchet.py copies
 
-  # The public corpus's takes (docs/regress.md), read three ways side by
+  # The public corpus's takes (docs/developer/regress.md), read three ways side by
   # side, each in its own job so none waits for another:
   #   engine: the engine against tg and the baseline, plus its smoke takes,
   #           and the analyze/session equivalence on real takes.
@@ -210,7 +210,7 @@ jobs:
     env:
       # As in the test job: no debug info in CI's release builds.
       CARGO_PROFILE_RELEASE_DEBUG: "0"
-      # Reviewed with the engine baseline; update through docs/regress.md.
+      # Reviewed with the engine baseline; update through docs/developer/regress.md.
       CORPUS_REVISION: 738010e6a6ca244ddd14a9893754af6c0a1d7acb
       TIMEGRAPHER_CORPUS: ${{ github.workspace }}/corpus
       TIMEGRAPHER_REQUIRE_CORPUS: "1"

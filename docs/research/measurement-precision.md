@@ -9,7 +9,7 @@ does them.
 ## What the ± estimates
 
 For time-ordered window values `x[0] … x[n−1]`,
-[`confidence::standard_error`](../crates/timegrapher-core/src/confidence.rs)
+[`confidence::standard_error`](../../crates/timegrapher-core/src/confidence.rs)
 computes:
 
 ```text
@@ -29,7 +29,7 @@ for independent values. `n_eff` is the AR(1) effective number of readings
 are worth fewer independent ones. A negative `rho` is taken as 0, so it never
 narrows the ±. With `rho` 0 the formula is the independent-noise one,
 `1.2533 × s / sqrt(n)`. The same
-[`confidence::effective_readings`](../crates/timegrapher-core/src/confidence.rs)
+[`confidence::effective_readings`](../../crates/timegrapher-core/src/confidence.rs)
 gives `series`' rate-amplitude `effective_readings`, there with the product of
 the two series' lag-one correlations. One function serves every reading unit
 and every interface: the app, `analyze`, `session`, the live screen and the
@@ -38,13 +38,13 @@ MCP server all read the ± from it.
 Amplitude uses the available means of 2 s amplitude windows; unlock beat error
 uses the available unlock-error values. Rate uses every other available 10 s
 window, then filters non-finite rates before applying the same function
-([`confidence`](../crates/timegrapher-core/src/confidence.rs)). Taking every other
+([`confidence`](../../crates/timegrapher-core/src/confidence.rs)). Taking every other
 window removes ordinary 5 s overlap; the correlation the watch, stand or input
 leaves between the windows taken is what `rho` allows for. Missing windows also
 affect which observations are adjacent in the input to the estimator.
 
 For the live averaging-time display,
-[`measure::rate_se_over`](../crates/timegrapher-core/src/measure.rs) further uses:
+[`measure::rate_se_over`](../../crates/timegrapher-core/src/measure.rs) further uses:
 
 ```text
 m = ceil(number of supplied rate windows / 2)
@@ -109,7 +109,7 @@ three correlations between 55% and 85%. Sources, original output and reproductio
 
 ## Period-search reference model
 
-[`longterm`](../crates/timegrapher-core/src/longterm.rs) removes a slow trend,
+[`longterm`](../../crates/timegrapher-core/src/longterm.rs) removes a slow trend,
 centers finite grid values and replaces missing values by zero after centering
 (the finite-data mean before centering). Its power spectrum is divided by a
 local-median estimate of the noise level, using `median / ln(2)` because an
@@ -131,7 +131,7 @@ estimated noise floor, zero padding, harmonic sums and the running median's
 own shape near its window all move them. So since #1195 the search is held to
 a simulated null of its own pipeline, `data/period-null.json`, generated with
 fixed seeds by `write_period_null_table` in
-[`longterm/null_tests.rs`](../crates/timegrapher-core/src/longterm/null_tests.rs):
+[`longterm/null_tests.rs`](../../crates/timegrapher-core/src/longterm/null_tests.rs):
 
 - Two noise models. Readings (amplitude, beat error) are AR(1), indexed by
   the ρ the spectrum is whitened with. The beats' timing is a random walk
@@ -178,7 +178,7 @@ Default acceptance also requires a folded component to explain at least 0.5%
 of the detrended variance; up to four components are sought. The search refines
 periods using folds and subtracts them before further searches. These additional
 steps are part of the algorithm, not independent confirmations of the score.
-The [long-run guide](long-runs.md#how-the-search-works) describes the workflow.
+The [long-run guide](../reference/long-runs.md#how-the-search-works) describes the workflow.
 
 The reported `period² / run length` is a nominal resolution scale derived from
 frequency spacing. It is not a fitted-period confidence interval, even where
@@ -211,7 +211,7 @@ second bin missing, and 1.816707781 with the middle half missing. This illustrat
 the zero-filled, full-window normalization's dependence on support, which the
 spectrum used then; it is not a test of the period-search significance model.
 The spectrum now reads a grid with samples missing by Hann-weighted Lomb–Scargle, nothing
-filled in (#652; [FFT guide](series.md)).
+filled in (#652; [FFT guide](../reference/series.md)).
 
 These are historical model observations assessed against
 `009dcc6d54638ff4df51563941935ddc1c654a74`, retained with source and output hashes.

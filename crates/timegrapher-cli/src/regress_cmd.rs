@@ -8,7 +8,7 @@
 //! further from tg than the baseline was by more than its margin; moving
 //! closer to tg always passes. A reading also fails when it gains or loses beats or
 //! a value it had. Values with no tg number are reported when they change,
-//! without failing. See docs/regress.md.
+//! without failing. See docs/developer/regress.md.
 
 use crate::session_cmd::{self, Ctx, MANIFEST};
 use serde::{Deserialize, Serialize};
@@ -866,7 +866,7 @@ pub fn run(o: &Options) -> Result<bool, String> {
 }
 
 /// How far a holdout reading may be from tg, against tg alone (research's
-/// margins, docs/regress.md). Amplitude is 8° because the engine and tg
+/// margins, docs/developer/regress.md). Amplitude is 8° because the engine and tg
 /// place the unlock differently on some movements: on the referenced takes
 /// the engine sits within 8° of tg on 93% of readings, offset by movement
 /// and mount, so a reading further out shows something new.

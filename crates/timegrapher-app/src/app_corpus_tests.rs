@@ -48,7 +48,7 @@ fn corpus_and_cli() -> Option<(PathBuf, PathBuf)> {
 
 /// The takes the corpus lists that have a session.toml, by id, but for its
 /// holdout takes: their audio is fetched only for `regress --holdout`, and
-/// their readings stay sealed (docs/regress.md, "Holdout takes").
+/// their readings stay sealed (docs/developer/regress.md, "Holdout takes").
 fn takes(root: &Path) -> Vec<String> {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("corpus.json")).unwrap()).unwrap();
