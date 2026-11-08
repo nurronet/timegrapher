@@ -273,5 +273,5 @@ fn user_guide_opens_the_manual() {
             _ => None,
         })
         .collect();
-    assert_eq!(urls, [crate::guide::ONLINE]);
+    assert_eq!(urls, [crate::guide::online()]);
 }

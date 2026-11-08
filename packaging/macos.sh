@@ -51,7 +51,6 @@ iconutil -c icns -o "$app/Contents/Resources/timegrapher.icns" "$iconset"
 # The manual inside the app too, so Help > User Guide opens it offline
 # once the app is in Applications (crates/timegrapher-app/src/guide.rs).
 cp -R "$docs" "$app/Contents/Resources/Documentation"
-test -f "$app/Contents/Resources/Documentation/User Guide/index.html"
 # Ad-hoc signature: free, needs no Apple account, and lets macOS remember
 # the microphone permission. Not notarised, so the first launch of each
 # version needs Open Anyway (docs/install.md).

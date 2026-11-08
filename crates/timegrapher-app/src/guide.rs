@@ -6,12 +6,28 @@
 use std::path::{Path, PathBuf};
 
 /// The manual on GitHub, for a build that has no copy beside it (one run
-/// from the source tree, or a copy someone moved out of its folder).
-pub const ONLINE: &str =
-    "https://github.com/peterhudson/timegrapher/blob/main/docs/user-guide/README.md";
+/// from the source tree, or a copy someone moved out of its folder): at
+/// the commit a release build was made from, so it matches the app, else
+/// on main.
+pub fn online() -> String {
+    online_at(option_env!("TIMEGRAPHER_COMMIT").filter(|c| !c.is_empty()))
+}
 
-/// The rendered manual's contents page, inside the folder that holds it.
+fn online_at(commit: Option<&str>) -> String {
+    format!(
+        "https://github.com/peterhudson/timegrapher/blob/{}/docs/user-guide/README.md",
+        commit.unwrap_or("main")
+    )
+}
+
+/// The rendered manual's contents page, inside the folder that holds it:
+/// packaging/docs_html.py's GUIDE_OUT folder and its index.html (a test
+/// below holds the two to each other).
 const INDEX: &str = "User Guide/index.html";
+/// Where macos.sh and linux.sh put the rendered pages, from the folder
+/// holding the executable (tested against the scripts below).
+const MAC_DOCS: &str = "../Resources/Documentation";
+const LINUX_DOCS: &str = "../share/timegrapher";
 
 /// Where an installed build's manual may be, best first, for the app at
 /// `exe` and, on Linux, the AppImage file at `appimage`:
@@ -28,8 +44,8 @@ fn candidates(exe: &Path, appimage: Option<&Path>) -> Vec<PathBuf> {
         out.push(folder.join(INDEX));
     }
     out.push(dir.join(INDEX));
-    out.push(dir.join("../Resources/Documentation").join(INDEX));
-    out.push(dir.join("../share/timegrapher").join(INDEX));
+    out.push(dir.join(MAC_DOCS).join(INDEX));
+    out.push(dir.join(LINUX_DOCS).join(INDEX));
     out
 }
 
@@ -66,9 +82,9 @@ fn file_url(path: &Path) -> String {
     url
 }
 
-/// What Help > User Guide opens: the installed manual, else [`ONLINE`].
+/// What Help > User Guide opens: the installed manual, else [`online`].
 pub fn url() -> String {
-    installed().map_or_else(|| ONLINE.to_string(), |p| file_url(&p))
+    installed().map_or_else(online, |p| file_url(&p))
 }
 
 #[cfg(test)]
@@ -118,6 +134,36 @@ mod tests {
             page.canonicalize().unwrap()
         );
         std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    /// The fallback opens the manual at the commit built, else on main.
+    #[test]
+    fn online_copy_is_pinned_to_the_commit_built() {
+        assert_eq!(
+            online_at(Some("0123abc")),
+            "https://github.com/peterhudson/timegrapher/blob/0123abc/docs/user-guide/README.md"
+        );
+        assert!(online_at(None).contains("/blob/main/docs/user-guide/README.md"));
+    }
+
+    /// The folder and page looked for are the ones packaging renders and
+    /// copies: docs_html.py's GUIDE_OUT with its index.html, and the
+    /// places macos.sh and linux.sh copy the pages to.
+    #[test]
+    fn looks_where_packaging_puts_the_manual() {
+        let packaging = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging");
+        let read = |f: &str| std::fs::read_to_string(packaging.join(f)).unwrap();
+        let (folder, page) = INDEX.split_once('/').unwrap();
+        let py = read("docs_html.py");
+        assert!(
+            py.contains(&format!("GUIDE_OUT = \"{folder}\"")),
+            "GUIDE_OUT"
+        );
+        assert!(py.contains(&format!("{{GUIDE_OUT}}/{page}")), "index page");
+        let mac = format!("$app/Contents/{}", MAC_DOCS.trim_start_matches("../"));
+        assert!(read("macos.sh").contains(&mac), "{mac}");
+        let linux = format!("$app/usr/{}", LINUX_DOCS.trim_start_matches("../"));
+        assert!(read("linux.sh").contains(&linux), "{linux}");
     }
 
     #[test]

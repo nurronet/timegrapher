@@ -47,7 +47,6 @@ cp "$here/linux/AppRun" "$app/AppRun"
 # AppImage is moved out of its folder (crates/timegrapher-app/src/guide.rs).
 mkdir -p "$app/usr/share"
 cp -R "$docs" "$app/usr/share/timegrapher"
-test -f "$app/usr/share/timegrapher/User Guide/index.html"
 chmod +x "$app/AppRun"
 ARCH="$arch" "${APPIMAGETOOL:-appimagetool}" --no-appstream \
   ${APPIMAGE_RUNTIME:+--runtime-file "$APPIMAGE_RUNTIME"} "$app" "$folder/Timegrapher.AppImage"
