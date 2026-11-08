@@ -22,7 +22,7 @@ From `timegrapher analyze --json` (field names in
 - **Tick and Tock amplitudes** (`amplitude_even_deg`, `amplitude_odd_deg`:
   the even beats are the Tick, the odd the Tock) often differ.
   On clean corpus recordings the split runs from under 1° to about 19°,
-  and it does not predict how far the mean is off (docs/validation.md,
+  and it does not predict how far the mean is off (docs/research/validation.md,
   "Tick and Tock amplitudes apart"), so quote `amplitude_deg` (the headline
   figure: the median over 2 s windows, which can sit a little off the
   midpoint of the two sides) and don't treat a split as a fault on its

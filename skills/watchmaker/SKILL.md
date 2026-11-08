@@ -114,7 +114,7 @@ from the microphone check to six positions fully wound and the same six
 - For a proper check, six positions in the desktop app's order: dial
   up, dial down, crown down, crown left, crown up, crown right (its
   Positions Test settles 20 s and measures 60 s each unless its Settle
-  and Measure settings are changed; docs/app.md).
+  and Measure settings are changed; docs/reference/app.md).
   Witschi's 2010 training course (p. 53) measures the verticals first
   (6H, 9H, 12H, 3H), then dial up and dial down; its 2025 *Testing
   methods* (doc. D40e, about p. 33; the page is approximate) starts dial
@@ -130,7 +130,7 @@ For several positions, name each file after its position (`watch_DU.flac`,
 `timegrapher session FOLDER --lift L --json`, or `timegrapher session
 --init FOLDER` to write a `session.toml` to fill in (calibre, wind
 state). It gives per-position readings and the characteristic values
-(X, D, DV, DH, DVH, Di, isochronism) that docs/sessions.md defines, and
+(X, D, DV, DH, DVH, Di, isochronism) that docs/reference/sessions.md defines, and
 `findings[]`: what it detected in the sound (`no_regular_beat`,
 `clipping`, `cycle_wheel`, ...), with no severity, advice or tolerance.
 [findings.md](references/findings.md#session-the-positions-test) gives
@@ -158,7 +158,7 @@ Work through them in this order. The reasons are in
    bph ÷ 3600), a jitter that isn't enormous, a Tick and Tock
    amplitude split of up to about 20°, which was common on the
    project's clean recordings and is not a fault on its own
-   (docs/validation.md, "Tick and Tock amplitudes apart"; quote
+   (docs/research/validation.md, "Tick and Tock amplitudes apart"; quote
    `amplitude_deg`, the headline figure; `profile` shows each side's
    sound), the beat rate one the calibre
    actually runs at. If not, back to set-up. If the signal is clean but
@@ -192,7 +192,7 @@ Work through them in this order. The reasons are in
    unlock figure. `overall.beat_error_ms` is measured from the drop; the two
    differ when Tick and Tock take different times from unlock to drop.
    Where they disagree, treat the drop figure as unreliable: it can
-   swing between stretches of one file (docs/validation.md has the
+   swing between stretches of one file (docs/research/validation.md has the
    case).
    Witschi's training course gives 0.0–0.5 ms as acceptable; ETA's
    2824-2 sheet 0.8 ms (Standard, Elaboré) or 0.6 ms (Top, Chronometer)
@@ -235,7 +235,7 @@ gives the four verdicts: **fine**, **keep an eye on it**, **service soon**,
   trace jumps or doubles and you can sometimes hear a double tick. That
   wants a watchmaker; it can damage the escapement. An ETA in a plastic
   holder already reads 320–332° without knocking
-  (docs/fault-signatures.md), and Witschi's training course (p. 15) names 330°
+  (docs/reference/fault-signatures.md), and Witschi's training course (p. 15) names 330°
   as the amplitude that causes knocking. So never raise knocking below
   330°, treat a higher reading first as a reason to check the mount and
   the lift angle, and call it knocking only when the trace jumps.
@@ -337,7 +337,7 @@ the program can reproduce it.
 
    The home folder, user name and host name are removed. It never opens
    the microphone, so it is safe to run while something else is recording.
-   [docs/reports.md](../../docs/reports.md) in the repository is the
+   [docs/reference/reports.md](../../docs/reference/reports.md) in the repository is the
    reference.
 3. **Have them listen to the excerpt** (`audio/excerpt.flac` in the zip)
    before it goes anywhere. A sensitive microphone hears the room. If it

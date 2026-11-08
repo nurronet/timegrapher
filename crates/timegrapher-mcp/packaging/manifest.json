@@ -15,7 +15,7 @@
     "url": "https://github.com/peterhudson/timegrapher"
   },
   "homepage": "https://github.com/peterhudson/timegrapher",
-  "documentation": "https://github.com/peterhudson/timegrapher/blob/main/docs/mcp.md",
+  "documentation": "https://github.com/peterhudson/timegrapher/blob/main/docs/reference/mcp.md",
   "support": "https://github.com/peterhudson/timegrapher/issues",
   "icon": "icon.png",
   "server": {

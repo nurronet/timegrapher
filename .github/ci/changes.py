@@ -27,10 +27,10 @@ import sys
 
 # Markdown under docs/ that crates/timegrapher-mcp/src/guidance.rs compiles in.
 MCP_DOCS = {
-    "docs/agent-interface.md",
-    "docs/sessions.md",
-    "docs/series.md",
-    "docs/fault-signatures.md",
+    "docs/reference/agent-interface.md",
+    "docs/reference/sessions.md",
+    "docs/reference/series.md",
+    "docs/reference/fault-signatures.md",
 }
 # Markdown here is compiled in (the skill) or read by packaging's tests.
 FULL_PREFIXES = ("skills/", "packaging/")

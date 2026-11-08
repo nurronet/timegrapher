@@ -40,7 +40,7 @@ CI's `regress (engine)` job checks out the reviewed corpus revision, authenticat
 inputs and compares eligible reference/baseline readings using the documented
 margins. This is a comparison with stored tg references and historical engine
 baselines, not a fresh execution of tg or proof of physical accuracy. Coverage,
-exclusions and baseline-update rules are in [regress](regress.md).
+exclusions and baseline-update rules are in [regress](../developer/regress.md).
 
 The corpus watches named on this page are replicas with clone movements:
 the Yacht-Master 42 replica (Dandong 3235 movement), the Daytona replica
@@ -111,7 +111,7 @@ contract before any attempt to make them pass. No detector change, tolerance
 relaxation or new regularity policy follows from this disposition.
 
 For a deliberate real diagnostic, first use the pinned checkout/fetch procedure
-in [regress](regress.md), then supply both variables below with the corpus's
+in [regress](../developer/regress.md), then supply both variables below with the corpus's
 absolute path. The helper authenticates all four exact manifest members. Do not
 count an absent-corpus skip as a diagnostic run:
 

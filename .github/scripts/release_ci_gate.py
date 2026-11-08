@@ -1,7 +1,7 @@
 """Require successful CI for the exact commit before release-capable builds.
 
 Read-only Actions API access; no release, tag or rerun operations. Keep the job
-and step contract below synchronized with ci.yml and docs/install.md.
+and step contract below synchronized with ci.yml and docs/reference/install.md.
 """
 
 import json

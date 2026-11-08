@@ -73,7 +73,7 @@ you.
 
 ## Other Documents
 
-- [Installing and updating](../install.md)
-- [The desktop app reference](../app.md): every detail of the app, for
+- [Installing and updating](../reference/install.md)
+- [The desktop app reference](../reference/app.md): every detail of the app, for
   checking a specific behaviour.
-- [The agent interface](../agent-interface.md): the command line's JSON.
+- [The agent interface](../reference/agent-interface.md): the command line's JSON.

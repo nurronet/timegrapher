@@ -5,7 +5,7 @@
 //! the Positions Test, cycles) reads from it as from the sound; only
 //! measuring the sound again, the waveform and replaying it are gone.
 //!
-//! The layout is documented in `docs/sessions.md`.
+//! The layout is documented in `docs/reference/sessions.md`.
 
 use crate::amplitude::AmplitudeWindow;
 use crate::audio::{self, AudioError};

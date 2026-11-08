@@ -86,9 +86,9 @@ class Tree(unittest.TestCase):
         ("crates/timegrapher-cli/src/synth_cmd.rs", "README.md"),
         # Page names and existence checks; the text is read only when the
         # Release workflow renders the pages.
-        ("packaging/docs_html.py", "docs/install.md"),
-        ("packaging/docs_html.py", "docs/mcp.md"),
-        ("packaging/docs_html.py", "docs/agent-interface.md"),
+        ("packaging/docs_html.py", "docs/reference/install.md"),
+        ("packaging/docs_html.py", "docs/reference/mcp.md"),
+        ("packaging/docs_html.py", "docs/reference/agent-interface.md"),
         ("packaging/test_docs_html.py", "README.md"),
     }
 
@@ -131,22 +131,22 @@ class Tree(unittest.TestCase):
         self.assertLessEqual(self.NOT_READ, self.named_markdown())
 
     def test_the_scan_sees_each_kind_of_reference(self):
-        forms = {"a.rs": 'include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/app.md"))',
-                 "b.rs": 'const ICON: &[u8] = include_bytes!("/docs/app.md");',
-                 "c.rs": 'doc!("timegrapher://docs/app", "app", "App", "x", "docs/app.md")',
-                 "d.rs": 'let text = fs::read_to_string("docs/app.md").unwrap();',
-                 "e.cjs": "const text = fs.readFileSync('docs/app.md', 'utf8');",
-                 "f.py": 'TEXT = (ROOT / "docs/app.md").read_text()'}
+        forms = {"a.rs": 'include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/reference/app.md"))',
+                 "b.rs": 'const ICON: &[u8] = include_bytes!("/docs/reference/app.md");',
+                 "c.rs": 'doc!("timegrapher://docs/app", "app", "App", "x", "docs/reference/app.md")',
+                 "d.rs": 'let text = fs::read_to_string("docs/reference/app.md").unwrap();',
+                 "e.cjs": "const text = fs.readFileSync('docs/reference/app.md', 'utf8');",
+                 "f.py": 'TEXT = (ROOT / "docs/reference/app.md").read_text()'}
         with tempfile.TemporaryDirectory() as tmp:
             sources = []
             for name, line in forms.items():
                 (pathlib.Path(tmp) / name).write_text(line + "\n", encoding="utf-8")
                 sources.append(pathlib.Path(tmp) / name)
             found = self.named_markdown(sources)
-        self.assertEqual(found, {(name, "docs/app.md") for name in forms})
-        # docs/app.md is plain Markdown, so a real line like these would fail
+        self.assertEqual(found, {(name, "docs/reference/app.md") for name in forms})
+        # docs/reference/app.md is plain Markdown, so a real line like these would fail
         # test_every_markdown_file_the_code_names_is_full.
-        self.assertTrue(changes.light([("M", "docs/app.md")]))
+        self.assertTrue(changes.light([("M", "docs/reference/app.md")]))
 
 
 if __name__ == "__main__":

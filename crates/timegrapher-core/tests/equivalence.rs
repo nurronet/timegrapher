@@ -1,7 +1,7 @@
 //! Cross-pipeline comparisons for defined inputs and measurement intervals.
 //! `analyze` and `session` share the chunked file beat pipeline; live pushed
 //! audio and replayed logs have their own settlement and latest-piece semantics.
-//! See docs/validation.md for the scope and disposition of each ignored case.
+//! See docs/research/validation.md for the scope and disposition of each ignored case.
 //!
 //! Synthetic cases run everywhere. Real cases require all four named fixtures
 //! when `TIMEGRAPHER_CORPUS` is supplied. With neither it nor
@@ -115,7 +115,7 @@ fn analyze_vs_session(s: &Summary, m: &Measurement) -> Vec<String> {
 
 /// A live reading against analyze, beat errors by size: the live analyser
 /// may lock on the other beat first, which flips the sign (see the sign
-/// note in docs/agent-interface.md).
+/// note in docs/reference/agent-interface.md).
 fn live_vs_analyze(r: &LiveReading, s: &Summary) -> Vec<String> {
     [
         close(
@@ -241,7 +241,7 @@ fn chunk_size_does_not_change_the_readings() {
 }
 
 #[test]
-#[ignore = "gap 2: unresolved stronger timestamp invariant; historical observation: chunk sizes moved beats by up to 34 µs while readings agreed within margins; current cause and magnitude not remeasured (docs/validation.md)"]
+#[ignore = "gap 2: unresolved stronger timestamp invariant; historical observation: chunk sizes moved beats by up to 34 µs while readings agreed within margins; current cause and magnitude not remeasured (docs/research/validation.md)"]
 fn chunk_size_does_not_change_the_beat_times() {
     let a = watch(8);
     let path = on_disk(&a, "t2b");
@@ -276,7 +276,7 @@ fn analyze_vs_session_log(a: &BeatLog, b: &BeatLog) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "gap 3: unresolved live block-size invariant; historical counts: 1,432, 1,435 and 1,436 beats of 1,440 for blocks of 480, 4,096 and 48,000 samples; not remeasured (docs/validation.md)"]
+#[ignore = "gap 3: unresolved live block-size invariant; historical counts: 1,432, 1,435 and 1,436 beats of 1,440 for blocks of 480, 4,096 and 48,000 samples; not remeasured (docs/research/validation.md)"]
 fn push_size_does_not_change_the_live_beats() {
     let a = watch(9);
     let counts: Vec<usize> = [480, 4096, 48_000]
@@ -327,7 +327,7 @@ fn a_replayed_take_matches_session() {
 }
 
 #[test]
-#[ignore = "gap 4: real live/whole-file interval, settlement and tracking equivalence unresolved; historical observations, not remeasured: (Daytona beat error from the unlock 0.19 against 0.36 ms; ETA holder amplitude 324° against 332° at lift 52°, measured before analyze shared the stream's beats, beat error from the drop 0.56 against 0.13 ms; Patek both beat errors' signs flipped); comparator already uses beat-error magnitudes (docs/validation.md)"]
+#[ignore = "gap 4: real live/whole-file interval, settlement and tracking equivalence unresolved; historical observations, not remeasured: (Daytona beat error from the unlock 0.19 against 0.36 ms; ETA holder amplitude 324° against 332° at lift 52°, measured before analyze shared the stream's beats, beat error from the drop 0.56 against 0.13 ms; Patek both beat errors' signs flipped); comparator already uses beat-error magnitudes (docs/research/validation.md)"]
 fn live_matches_analyze_on_real_takes() {
     for path in corpus_files() {
         let a = load(&path).unwrap();
@@ -338,7 +338,7 @@ fn live_matches_analyze_on_real_takes() {
 }
 
 #[test]
-#[ignore = "gap 5: replay latest-piece and session whole-selection are distinct quantities/cut contexts; historical ETA holder rates 11.49 against 11.14 s/d, not remeasured; universal equality is not the supported contract (docs/validation.md)"]
+#[ignore = "gap 5: replay latest-piece and session whole-selection are distinct quantities/cut contexts; historical ETA holder rates 11.49 against 11.14 s/d, not remeasured; universal equality is not the supported contract (docs/research/validation.md)"]
 fn a_replayed_real_take_matches_session() {
     for path in corpus_files() {
         let log = stream(&path, 47.0);

@@ -5,7 +5,7 @@ it has not heard before. Every recording we are sent becomes a test case.
 Each new engine build has to read it without crashing. Once
 [tg](https://github.com/vacaboja/tg) has been run on the same file at the same lift
 angle, every new build is also checked against tg's reading of it, as
-`timegrapher regress` does today ([regress](regress.md)).
+`timegrapher regress` does today ([regress](../developer/regress.md)).
 
 There are two ways to send a recording:
 

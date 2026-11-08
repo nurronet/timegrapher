@@ -1,6 +1,6 @@
 //! Report a Problem as a person meets it: the form each kind opens, the
 //! sound the dialog shows, what Save Report… waits on, the handles, and
-//! what saving says (docs/reports.md).
+//! what saving says (docs/reference/reports.md).
 
 use super::*;
 use eframe::egui::{Event, FullOutput, PointerButton, Pos2, Rect};

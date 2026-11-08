@@ -20,14 +20,14 @@
     {
       "original_filename": "precision-model-probe-output.txt",
       "original_sha256": "c5b32c89e05490c86ad9fedaefea197f31004dbb22e02ec961e1350d56f22a4c",
-      "repository_path": "docs/model-probes/precision-model-probe-output.txt",
+      "repository_path": "docs/research/model-probes/precision-model-probe-output.txt",
       "repository_sha256": "c5b32c89e05490c86ad9fedaefea197f31004dbb22e02ec961e1350d56f22a4c",
       "transformation": "byte-for-byte copy"
     },
     {
       "original_filename": "scientific-statistics-probe.csv",
       "original_sha256": "f6cb804bec88d2ffd85ecab8b7e40430ab46b7091ed16bf406c99e2743bc224b",
-      "repository_path": "docs/model-probes/scientific-statistics-probe.csv",
+      "repository_path": "docs/research/model-probes/scientific-statistics-probe.csv",
       "repository_sha256": "f6cb804bec88d2ffd85ecab8b7e40430ab46b7091ed16bf406c99e2743bc224b",
       "transformation": "byte-for-byte copy"
     }

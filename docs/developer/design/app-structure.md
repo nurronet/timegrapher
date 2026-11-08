@@ -156,7 +156,7 @@ For the Desktop app:
    - They are off in the Watches view and while any text field has focus.
    - ⌘1 and ⌘2 pick the view. ⌘⇧1 to ⌘⇧3 stay free (the Bench layouts are parked).
    - A test proves ⌘1 changes the view and not the position.
-9. docs/app.md: the Watches pane section becomes the Watches view, and Quick Listen's description drops "shows Unsorted Takes in the Watches pane".
+9. docs/reference/app.md: the Watches pane section becomes the Watches view, and Quick Listen's description drops "shows Unsorted Takes in the Watches pane".
 
 Unchanged: the library on disk, `watch.toml`, take folders, Unsorted, the CLI and MCP, and every action listed in the addendum's table.
 

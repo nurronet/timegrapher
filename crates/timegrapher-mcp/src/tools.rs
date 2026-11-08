@@ -1,5 +1,5 @@
 //! The tools: each one runs a `timegrapher` command with `--json` and
-//! hands back its document unchanged (docs/agent-interface.md is the
+//! hands back its document unchanged (docs/reference/agent-interface.md is the
 //! contract). A tool is a table of parameters, each mapped to the
 //! command's argument, so the schema the agent sees and the command line
 //! built from its call cannot drift apart.
@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     /// The microphone is used by exactly the tools that say so, as
-    /// docs/mcp.md decides: recording a position and the live check.
+    /// docs/reference/mcp.md decides: recording a position and the live check.
     #[test]
     fn only_the_listening_tools_use_the_mic() {
         let mut listening: Vec<&str> = TOOLS

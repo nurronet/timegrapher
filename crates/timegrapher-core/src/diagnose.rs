@@ -30,7 +30,7 @@ const SILENT_PEAK: f64 = 1e-4;
 pub const GAP_RISE_DB: f64 = 3.0;
 
 /// Below this `signal_x` the `no_ticks` condition is named: pure noise
-/// reads about 2× (see `docs/validation.md`).
+/// reads about 2× (see `docs/research/validation.md`).
 pub const NO_TICKS_SIGNAL_X: f64 = 3.0;
 
 /// Whether a signal figure shows the ticks too faint over the noise: under

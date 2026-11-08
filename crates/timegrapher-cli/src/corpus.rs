@@ -4,7 +4,7 @@
 //! take. `--fetch` downloads what the run needs and checks it by SHA-256;
 //! `--smoke` runs the takes that have no tg reference through the engine,
 //! which passes unless the engine panics, or hears a watch in a take
-//! recorded without one. See docs/regress.md.
+//! recorded without one. See docs/developer/regress.md.
 
 use crate::archive::sha256_hex;
 use serde::{Deserialize, Serialize};

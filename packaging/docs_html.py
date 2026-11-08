@@ -36,7 +36,7 @@ PLATFORMS = ("linux", "macos", "windows")
 # pages it links to for installing, the MCP server and the JSON contract.
 GUIDE = "docs/user-guide"
 GUIDE_OUT = "User Guide"
-REFERENCE = ("docs/install.md", "docs/mcp.md", "docs/agent-interface.md")
+REFERENCE = ("docs/reference/install.md", "docs/reference/mcp.md", "docs/reference/agent-interface.md")
 REFERENCE_OUT = "Reference"
 
 STYLE = """

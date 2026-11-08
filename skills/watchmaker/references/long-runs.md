@@ -65,7 +65,7 @@ every minute, `timegrapher synth syn.wav --duration 1800 --rate 8 --snr
 amplitude line is a third of that 60 s cycle and matches no wheel. The 60 s amplitude swing reads low,
 11.4° against the 15° put in, because the amplitude's average cycle is
 kept to two harmonics, which round off a short dip; the repository's
-`docs/long-runs.md` explains why.)
+`docs/reference/long-runs.md` explains why.)
 
 - **Clean percentage.** Beats matched well. Under about 95% (the
   project's rule of thumb), something
@@ -139,7 +139,7 @@ better than a few s/d, it does.
 NTP-synchronised system clock against how much audio had been captured,
 one line every minute or so. The program fits one against the other and
 corrects every beat. The `Clock` line then says how far off the sound card
-was. Format details are in the project's `docs/long-runs.md`; a simple
+was. Format details are in the project's `docs/reference/long-runs.md`; a simple
 logger is in [setup-and-microphone.md](setup-and-microphone.md#recording).
 
 ## Worked example: a Rolex 3235 over two hours

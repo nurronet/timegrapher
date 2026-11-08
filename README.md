@@ -14,7 +14,7 @@ possible that no open-source tool offers today:
 - **Tick-shape measurement.** Each beat has three sounds (unlock,
   impulse, drop). Their timing, levels and separation are measured on each
   pallet stone and reported as figures (see
-  [docs/fault-signatures.md](docs/fault-signatures.md)).
+  [docs/reference/fault-signatures.md](docs/reference/fault-signatures.md)).
 
 The software is a measuring tool: it reports what it measured and the
 conditions it detected (clipping, a short take, an unknown lift angle, no
@@ -27,7 +27,7 @@ Status: early. The per-beat engine and a command-line tool analyse
 recordings, from a few minutes (`analyze`, `shape`) to days (`long`), and
 read a multi-position test (`session`). A
 desktop app (egui) shows a watch live from a microphone, with the classic
-paper-strip trace; see [docs/app.md](docs/app.md).
+paper-strip trace; see [docs/reference/app.md](docs/reference/app.md).
 
 ## Install
 
@@ -35,10 +35,10 @@ Download the desktop app and the command line tool for Linux, macOS or
 Windows from the
 [Releases page](https://github.com/peterhudson/timegrapher/releases).
 The builds are not signed, so macOS and Windows ask once per version before
-opening them: [docs/install.md](docs/install.md) has the steps. If the
+opening them: [docs/reference/install.md](docs/reference/install.md) has the steps. If the
 Releases page lists no version yet, or to build from source instead, use
 Rust 1.90.0 or later and see the
-[package and platform requirements](docs/building.md).
+[package and platform requirements](docs/developer/building.md).
 
 ## Desktop app
 
@@ -99,7 +99,7 @@ readings: the place to look when those readings seem wrong.
 bounded memory: rate and amplitude over time, the sound card calibrated
 against NTP, and periodic changes found, named after the wheel they match,
 and shown as an average cycle and a raster in an HTML report. See
-[docs/long-runs.md](docs/long-runs.md).
+[docs/reference/long-runs.md](docs/reference/long-runs.md).
 
 `timegrapher devices` lists the sound inputs. `timegrapher doctor` records
 a few seconds and checks level, clipping, automatic gain, noise and whether
@@ -110,7 +110,7 @@ ticks are heard; it names the exact mixer setting to change (on Linux, the
 
 Every command but `synth` takes `--json` and prints one document on a versioned schema
 with the software version and the input it read. See
-[docs/agent-interface.md](docs/agent-interface.md). The
+[docs/reference/agent-interface.md](docs/reference/agent-interface.md). The
 [watchmaker skill](skills/watchmaker/SKILL.md) teaches an agent to run the
 tool and interpret the figures it reports.
 
@@ -119,7 +119,7 @@ positions (and states of wind) into a multi-position report in the style
 of Witschi's SEQ mode: rate, amplitude and beat error per position, and
 the characteristic values X, D, DV, DH, DVH, Di, Im and Ie, with the
 measurements behind each. `--init` writes a
-`session.toml` to edit. See [docs/sessions.md](docs/sessions.md).
+`session.toml` to edit. See [docs/reference/sessions.md](docs/reference/sessions.md).
 
 `timegrapher synth out.wav` writes a synthetic recording with known rate,
 beat error and amplitude, for testing; `--fault-period 60` adds a fault
@@ -150,27 +150,27 @@ that repeats like a bad tooth.
 6. **Periodicity.** `analyze` bins timing residuals and amplitude to 1 s,
    detrends them and searches with a Lomb–Scargle periodogram. `long` and
    `series` use uniform grids and the FFT-based harmonic search described in
-   [long runs](docs/long-runs.md#how-the-search-works). Periods near a wheel's
+   [long runs](docs/reference/long-runs.md#how-the-search-works). Periods near a wheel's
    turn can be labelled with it; the association is not a fault diagnosis.
-   See the [model assumptions](docs/measurement-precision.md).
+   See the [model assumptions](docs/research/measurement-precision.md).
 
-Validation against tg is in [docs/validation.md](docs/validation.md).
+Validation against tg is in [docs/research/validation.md](docs/research/validation.md).
 
 Numbered microscope photographs and gear-ratio calculations for the Rolex,
 Dandong and Jinghe 32xx train are in
-[docs/32xx-train-wheel-counts.md](docs/32xx-train-wheel-counts.md).
-The [4130 evidence](docs/4130-train-wheel-counts.md) covers the Rolex, Dandong
+[docs/research/32xx-train-wheel-counts.md](docs/research/32xx-train-wheel-counts.md).
+The [4130 evidence](docs/research/4130-train-wheel-counts.md) covers the Rolex, Dandong
 and SH4130 train and chronograph drive, with directly counted and inferred
 teeth distinguished.
-The [31xx evidence](docs/31xx-train-wheel-counts.md) covers Rolex, DD/VS and
+The [31xx evidence](docs/research/31xx-train-wheel-counts.md) covers Rolex, DD/VS and
 VR31xx, excluding SH31xx, and distinguishes the 36-minute second wheel from
 the one-hour cannon pinion.
 
-The [ETA 2824 evidence](docs/2824-train-wheel-counts.md) records the 28,800 bph
+The [ETA 2824 evidence](docs/research/2824-train-wheel-counts.md) records the 28,800 bph
 train, its separate one-hour cannon wheel, and an explicit variant/clone
 coverage audit.
 
-The [VR32xx evidence](docs/vr32xx-train-wheel-counts.md) records its separate
+The [VR32xx evidence](docs/research/vr32xx-train-wheel-counts.md) records its separate
 five-hour barrel, corrected third/fourth photo labels, and explicitly
 inferred escape pair; SH32xx remains separate.
 
@@ -179,8 +179,15 @@ inferred escape pair; SH32xx remains separate.
 Open an [issue](https://github.com/peterhudson/timegrapher/issues/new/choose):
 there are forms for a wrong reading, a bug, an idea and for contributing a
 recording of a watch to the public test corpus. A wrong reading can only be
-fixed with the sound it came from; [docs/contributing-recordings.md](docs/contributing-recordings.md)
+fixed with the sound it came from; [docs/reference/contributing-recordings.md](docs/reference/contributing-recordings.md)
 says what to record and how to cut it to size.
+
+## Documentation
+
+The [User Guide](docs/user-guide/README.md) explains every part of the app
+and how each number is made. [docs/README.md](docs/README.md) maps the
+rest: reference pages for the command line and agents, developer guides,
+and the research behind the engine.
 
 ## Licence
 

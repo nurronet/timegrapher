@@ -35,7 +35,7 @@ The Linux zip has no extension. Any chat app that runs local MCP
 (Model Context Protocol) servers (VS Code, Goose, LM Studio and others) can use
 `timegrapher-mcp` from the **Command Line** folder: give it the
 program's full path as the command, with no arguments.
-[The MCP page](../mcp.md#install) gives the steps, and how to add it to
+[The MCP page](../reference/mcp.md#install) gives the steps, and how to add it to
 Claude Desktop by hand.
 
 ## What It Can Do

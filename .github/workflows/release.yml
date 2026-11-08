@@ -7,7 +7,7 @@ name: Release
 # made when the draft is published), or push a tag vX.Y.Z. Run by hand
 # without the tick, or on a pull request touching the packaging, it builds the same files as workflow
 # artifacts and releases nothing.
-# Steps for cutting a release: docs/install.md, "Making a release".
+# Steps for cutting a release: docs/reference/install.md, "Making a release".
 on:
   push:
     tags: ["v*"]
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Draft a release of main from this run (it takes the next version; see docs/install.md)
+        description: Draft a release of main from this run (it takes the next version; see docs/reference/install.md)
         type: boolean
         default: false
 
@@ -366,7 +366,7 @@ jobs:
           if [ -f "$notes" ]; then
             cat "$notes" > "$body"
           else
-            echo "Downloads and first-launch steps for each platform: [docs/install.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/install.md)." > "$body"
+            echo "Downloads and first-launch steps for each platform: [docs/reference/install.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/reference/install.md)." > "$body"
             read -r prev_name prev_sha < <(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=1" \
               --jq '.[0] | "\(.name | gsub(" "; "_")) \(.target_commitish)"' || true) || true
             if [ -n "${prev_sha:-}" ] && git merge-base --is-ancestor "$prev_sha" "$GITHUB_SHA" 2>/dev/null; then

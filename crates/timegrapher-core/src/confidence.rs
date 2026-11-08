@@ -7,7 +7,7 @@
 //! kind of serial correlation, or a measure of true watch variation.
 //! Accuracy also rests on the lift angle and sound card's clock; these are
 //! stated as conditions ([`Doubts`] and [`crate::measure`]), not folded into
-//! the ±. See docs/measurement-precision.md for the model and its limits.
+//! the ±. See docs/research/measurement-precision.md for the model and its limits.
 
 use crate::amplitude::AmplitudeWindow;
 use crate::timing::WindowFit;
@@ -843,7 +843,7 @@ mod tests {
     fn standard_error_allows_for_correlated_readings() {
         // One SE either side should hold the true centre about 68% of the
         // time. Under independent readings the old figure held 70% of 2,000
-        // series, at ρ 0.5 37.5% and at ρ 0.9 7% (docs/model-probes).
+        // series, at ρ 0.5 37.5% and at ρ 0.9 7% (docs/research/model-probes).
         for rho in [0.0, 0.5, 0.9] {
             let c = coverage(rho, 300, 600);
             assert!((0.55..=0.85).contains(&c), "ρ {rho}: {c}");

@@ -839,7 +839,7 @@ pub struct Session<'a> {
     /// Name and version of this layout; bumped when a field changes meaning.
     pub schema: String,
     /// Name, version and platform of the software, as in every `--json`
-    /// document (see docs/agent-interface.md).
+    /// document (see docs/reference/agent-interface.md).
     pub software: serde_json::Value,
     /// The recordings read and the settings used.
     pub input: serde_json::Value,

@@ -9,7 +9,7 @@ take.
 
 - **The app** for your computer, from the
   [Releases page](https://github.com/peterhudson/timegrapher/releases/latest).
-  [Installing and updating](../install.md) has the details for macOS,
+  [Installing and updating](../reference/install.md) has the details for macOS,
   Windows and Linux.
 - **A timegrapher microphone:** a contact microphone in a watch holder.
   An ordinary microphone often hears the loud drop but misses the quiet

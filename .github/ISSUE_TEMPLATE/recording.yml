@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you. Recordings from many watches, microphones and rooms are how the engine gets tested. [Contributing recordings](https://github.com/peterhudson/timegrapher/blob/main/docs/contributing-recordings.md) says what helps most and how to cut a file to GitHub's 25 MB limit.
+        Thank you. Recordings from many watches, microphones and rooms are how the engine gets tested. [Contributing recordings](https://github.com/peterhudson/timegrapher/blob/main/docs/reference/contributing-recordings.md) says what helps most and how to cut a file to GitHub's 25 MB limit.
   - type: input
     id: watch
     attributes:

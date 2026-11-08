@@ -9,7 +9,7 @@ figures. The Positions Test pane (chapter 20) gives them, and so does
 `timegrapher session`. They follow the figures Witschi's timegraphers
 use and the Swiss standard NIHS 93-10 (NIHS: Normes de l'Industrie Horlogère
 Suisse, the Swiss watch industry's standards; the project's
-[math standards](../math-standards.md) list them).
+[math standards](../developer/math-standards.md) list them).
 
 ## The Positions
 

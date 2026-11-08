@@ -33,7 +33,7 @@ In words:
 2. **The correlation, `ρ`,** is how much each reading resembles the next.
    Watch readings do: on the project's test recordings, neighbouring 2 s
    amplitude windows correlate by anywhere from 0.01 to 0.90 (the
-   [Math Standards Guide](../math-standards.md#12-method-audit),
+   [Math Standards Guide](../developer/math-standards.md#12-method-audit),
    section 12).
 3. **The effective count, `n_eff`,** counts correlated readings as fewer
    independent ones. At ρ = 0.5, 30 readings are worth 10.
@@ -96,7 +96,7 @@ up to five minutes, then scaled to the Average Over time. It needs about
 - **A guarantee.** It is an estimate under a model of the noise, not a
   bound on the error.
 
-The project's [precision notes](../measurement-precision.md) give the
+The project's [precision notes](../research/measurement-precision.md) give the
 model, its sources and the tests behind it.
 
 ---

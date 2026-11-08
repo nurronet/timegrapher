@@ -17,7 +17,7 @@ Every download holds it, in a folder named **Command Line**, beside
 
 | System | How to run it |
 | --- | --- |
-| Mac | `/Applications/Timegrapher.app/Contents/MacOS/timegrapher`. [Installing](../install.md#macos) shows how to make `timegrapher` run by name. |
+| Mac | `/Applications/Timegrapher.app/Contents/MacOS/timegrapher`. [Installing](../reference/install.md#macos) shows how to make `timegrapher` run by name. |
 | Windows | Open a terminal in the **Command Line** folder and run `.\timegrapher.exe --help`. |
 | Linux | `"Command Line/timegrapher"` in the unpacked folder, or `./Timegrapher.AppImage cli` followed by the command. |
 
@@ -54,7 +54,7 @@ gives one command's options. `timegrapher --version` gives the version.
 | `calibres` | The calibre table, with what the app added (chapter 24). `--search "dd 3235"` finds one; a name prints its entry. | To check a calibre's beat rate, lift angle and wheels. |
 | `report` | Makes a zip to attach to an issue (chapter 27). | When something looks wrong. |
 | `update` | Asks GitHub whether a newer release is out. Nothing is downloaded. | To check by hand. |
-| `regress ROOT` | Measures every reading of every take under a folder again (holdout takes are left out; `--holdout` reads only them, against tg, as counts) and compares it with the figures tg, another open-source timegrapher, gave for the same file, and with a stored baseline; exits 3 when one moved beyond its margin. `--fetch` downloads the public test recordings' sound first, each checked by its SHA-256 (Secure Hash Algorithm) fingerprint, and refuses the whole list if any name in it is a path. | To check that a new build still reads the test recordings as before ([Regression check](../regress.md)). |
+| `regress ROOT` | Measures every reading of every take under a folder again (holdout takes are left out; `--holdout` reads only them, against tg, as counts) and compares it with the figures tg, another open-source timegrapher, gave for the same file, and with a stored baseline; exits 3 when one moved beyond its margin. `--fetch` downloads the public test recordings' sound first, each checked by its SHA-256 (Secure Hash Algorithm) fingerprint, and refuses the whole list if any name in it is a path. | To check that a new build still reads the test recordings as before ([Regression check](../developer/regress.md)). |
 | `synth` | Writes a synthetic watch recording. | For the project's own testing. |
 
 ## Options Most Commands Share
@@ -112,7 +112,7 @@ gives the uncorrected figure too.
 - No command grades a watch or gives advice; each reports what it
   measured.
 
-[The agent interface](../agent-interface.md) gives every JSON field.
+[The agent interface](../reference/agent-interface.md) gives every JSON field.
 
 ## What It Can't Tell You
 

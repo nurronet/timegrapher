@@ -2352,7 +2352,7 @@ pub fn icon_button(
 }
 
 /// A searchable menu: a search field at its top over a list it filters,
-/// kept as one behaviour for every such menu (docs/design/design-guide.md,
+/// kept as one behaviour for every such menu (docs/developer/design/design-guide.md,
 /// "Search menus"):
 /// - each open starts with an empty search and the caret in the field;
 /// - a click in the field never closes the menu: its popup is built with

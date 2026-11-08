@@ -7,12 +7,12 @@ Commands: `update`, `devices`, `doctor`, `calibres`, `watches`, `record`,
 `analyze`, `shape`, `profile`, `long`, `series`, `session`, `clock`,
 `report`, `regress`, `synth`. `session` (the
 multi-position report) is documented in the repository's
-`docs/sessions.md`, `series` in `docs/series.md`. How to read what
+`docs/reference/sessions.md`, `series` in `docs/reference/series.md`. How to read what
 `doctor`, `session` and `series` measure, and what to do about it, is in
 [findings.md](findings.md). The program states what it measured and
 gives no verdict, grade, severity, advice or fault name (schema version
 2 of `analyze`, `doctor`, `record`, `series` and `session` removed
-them). docs/agent-interface.md's row for each command is the
+them). docs/reference/agent-interface.md's row for each command is the
 authoritative list of fields; this page covers what an agent reads.
 
 **Calibres** (from this version; `timegrapher --help` shows whether a
@@ -416,7 +416,7 @@ and `Conditions` lines say the same. `--views` (with `--json`) adds the
 chart data the app's Steadiness pane draws; `--maps` (with `--json`)
 adds `time_frequency[]`, an STFT and a synchrosqueezed wavelet map of
 each series against time (about 1.6 MB on a 2 h take; the repository's
-`docs/series.md`).
+`docs/reference/series.md`).
 How to read the statistics: [findings.md](findings.md#series-and-long-is-it-steady).
 
 ## report
@@ -450,7 +450,7 @@ and `bug` without. `--json` prints the manifest.
 `--replay` checks the bundle's hashes, reruns the excerpt's `analyze` with
 this build, and marks each command `Same`, `Moved` (with each value then and
 now) or `Not run`. `--json` gives `timegrapher.replay/1`. Reference: the
-repository's `docs/reports.md`.
+repository's `docs/reference/reports.md`.
 
 ## synth
 
@@ -476,4 +476,4 @@ the analysis should find. The app, `series` and `long` open it like a
 recording. `--scenario list` names them; `--seed` (default 1) changes
 the noise and the beat-to-beat variation drawn (their sizes stay the
 same), and the same command always writes the same sound. Reference:
-the repository's `docs/synthetic-takes.md`.
+the repository's `docs/developer/synthetic-takes.md`.

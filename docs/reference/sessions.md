@@ -145,7 +145,7 @@ calibrated headline rate are unchanged. The JSON gives each reading's
 A recording on a corpus holdout take may also carry
 `fault = { id = "...", side = "Tick", source = "bench: ..." }`, the fault a
 watchmaker confirmed; `session` reads past it, and `regress --holdout`
-checks it (see [regress.md](regress.md#holdout-takes)).
+checks it (see [regress.md](../developer/regress.md#holdout-takes)).
 
 `escape_teeth` (default 15 when the calibre gives none) sets the escape
 wheel's turn period, and
@@ -551,4 +551,4 @@ in six positions and two states of wind with known rates, amplitudes and
 beat errors, and checks the readings, X, XH, XV, D, DV, DVH, Di, Im, Ie
 and that every finding is one of the codes above. Comparison with
 The bench timegrapher on the bench watches goes in
-[validation.md](validation.md) as the recordings land.
+[validation.md](../research/validation.md) as the recordings land.

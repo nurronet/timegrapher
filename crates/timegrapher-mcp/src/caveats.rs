@@ -1,5 +1,5 @@
 //! What limits the readings, in words. `analyze` and each `session`
-//! reading carry `caveats[]` (docs/agent-interface.md); this turns them into
+//! reading carry `caveats[]` (docs/reference/agent-interface.md); this turns them into
 //! plain facts for the result's lead (summary.rs) and for the views, so both say the
 //! same thing, with no grades or advice. A position's caveats are grouped across the positions that
 //! share them, so a caveat every take has is said once.

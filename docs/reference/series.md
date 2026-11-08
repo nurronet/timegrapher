@@ -549,7 +549,7 @@ log-log axes, and the CUSUM with lines at ±1.36.
 
 `timegrapher synth --scenario NAME FOLDER` writes a take with one known
 variation hidden in it, to check what each view shows; see
-[synthetic-takes.md](synthetic-takes.md).
+[synthetic-takes.md](../developer/synthetic-takes.md).
 
 ## On the stored takes
 

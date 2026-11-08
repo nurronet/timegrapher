@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A Claude Desktop extension (.mcpb) of the MCP server for one platform: a
 # zip holding manifest.json, the icon, and the server with the timegrapher
-# program beside it (docs/mcp.md).
+# program beside it (docs/reference/mcp.md).
 #
 #   crates/timegrapher-mcp/packaging/mcpb.sh BINDIR OUTFILE
 #

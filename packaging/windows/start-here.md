@@ -50,6 +50,6 @@ browser without an internet connection.
 
 The **Reference** folder holds three more pages:
 
-- [Installing and updating](../../docs/install.md)
-- [The MCP server](../../docs/mcp.md), for AI chat apps
-- [The agent interface](../../docs/agent-interface.md): the command line's JSON
+- [Installing and updating](../../docs/reference/install.md)
+- [The MCP server](../../docs/reference/mcp.md), for AI chat apps
+- [The agent interface](../../docs/reference/agent-interface.md): the command line's JSON

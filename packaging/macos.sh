@@ -53,7 +53,7 @@ iconutil -c icns -o "$app/Contents/Resources/timegrapher.icns" "$iconset"
 cp -R "$docs" "$app/Contents/Resources/Documentation"
 # Ad-hoc signature: free, needs no Apple account, and lets macOS remember
 # the microphone permission. Not notarised, so the first launch of each
-# version needs Open Anyway (docs/install.md).
+# version needs Open Anyway (docs/reference/install.md).
 codesign --force --deep --sign - "$app"
 codesign --verify --verbose "$app"
 
