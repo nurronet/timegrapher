@@ -54,8 +54,8 @@ starts listening at once, so you can see the watch as you set it up.
 
 1. **Put the watch on the holder, dial up.** Make the contact firm and
    repeatable. Stop a loose bracelet rattling against the holder.
-2. **Press Listen** (the blue ▶ on the **Listen** card). It becomes a
-   ■ Stop button while the app listens.
+2. Look at the **Listen** card. If it shows **■ Stop**, the app is
+   already listening. If it shows **▶ Listen**, press it to start.
 3. **Wait about half a minute.** The first readings come after a few
    seconds of beats. They steady as more beats arrive.
 4. **Leave the watch and the table alone.** A knock shows as a jump.
@@ -71,8 +71,9 @@ starts listening at once, so you can see the watch as you set it up.
 - **Lift 52°:** with no calibre set, the app assumes 52°. Pick the
   calibre on the Calibre card to use its own lift angle. Until then,
   treat the amplitude as a rough figure.
-- **The Paper Strip:** one dot per beat. A steady watch draws two flat,
-  parallel lines.
+- **The Paper Strip:** one dot per beat. A steady rate gives straight tracks. Their
+  slope shows gain or loss. Flat tracks mean the watch is on rate. The
+  gap between Tick and Tock reflects beat error timed from the drop.
 - **The Tick Tock Profile:** the average sound of a Tick and of a Tock,
   with the Unlock and Drop marks the readings are timed from.
 - **The status bar:** "Quick Listen · No watch · Listening", whether the

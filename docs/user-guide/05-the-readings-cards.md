@@ -162,6 +162,24 @@ a repeat under the same conditions: its standard error.
 - [M7, The ± and Correlated Readings](m7-the-plus-minus.md) explains it
   in full.
 
+### When Amplitude Differs from Your Bench Timegrapher
+
+First check that both instruments use the movement's beat rate and lift
+angle. Compare the watch in the same position and state of wind, let it
+settle on each holder, and use the same averaging time where possible.
+Then look at the **Tick Tock Profile**. On each side, does the Unlock
+mark fall on the first sound and the Drop mark on the later, louder one?
+A holder that muffles the unlock can give a repeatable amplitude with a
+small ± even when the two instruments disagree.
+
+For scale, on 90 readings of the same recordings at the same lift angle,
+the median absolute difference between Timegrapher and the software
+timegrapher **tg** was 2.8°. On the ETA 2824 recordings, Timegrapher
+read 7° to 21° higher. These figures describe agreement between two
+acoustic methods. The project also checked balance travel directly on
+video for individual movements. See the [comparison with tg](../developer/regress.md#holdout-takes)
+and the [optical comparisons and their limits](../research/validation.md#optical-amplitude-comparison).
+
 ### Chips
 
 A chip beside a card's ? names, as a plain fact, something the ± can't
