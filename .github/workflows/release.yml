@@ -149,6 +149,9 @@ jobs:
           echo "PY=$py" >> "$GITHUB_ENV"
           # The build date in --version is the commit's, not the runner's.
           echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          # Help > User Guide's online fallback opens the manual at the
+          # commit built (crates/timegrapher-app/src/guide.rs).
+          echo "TIMEGRAPHER_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           # The programs released; the MCP server once the workspace has it.
           pkgs="-p timegrapher-cli -p timegrapher-app"
           [ -d crates/timegrapher-mcp ] && pkgs="$pkgs -p timegrapher-mcp"

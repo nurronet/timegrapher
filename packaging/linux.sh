@@ -43,6 +43,10 @@ cp "$bin/timegrapher-app" "${cli[@]}" "$app/usr/bin/"
 cp "$here/linux/timegrapher.desktop" "$app/"
 cp "$here/icon.png" "$app/timegrapher.png"
 cp "$here/linux/AppRun" "$app/AppRun"
+# The manual inside the AppImage too, for Help > User Guide when the
+# AppImage is moved out of its folder (crates/timegrapher-app/src/guide.rs).
+mkdir -p "$app/usr/share"
+cp -R "$docs" "$app/usr/share/timegrapher"
 chmod +x "$app/AppRun"
 ARCH="$arch" "${APPIMAGETOOL:-appimagetool}" --no-appstream \
   ${APPIMAGE_RUNTIME:+--runtime-file "$APPIMAGE_RUNTIME"} "$app" "$folder/Timegrapher.AppImage"
