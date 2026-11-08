@@ -127,7 +127,9 @@ pub static POSITION: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
             .into(),
         "Looking at a take, or during a Positions Test or a Power Reserve Test, the buttons \
      only show the position: the one at the strip's latest beat on show, or the one the \
-     test set. A take's positions can't be changed afterwards."
+     test set. To correct a stretch, use the Paper Strip's Position Brush. Removing \
+     the painted stretch reveals its recorded position. The brush is unavailable during a \
+     Power Reserve Test and during or after a Positions Test."
             .into(),
         format!(
             "Changing it while listening marks a new stretch on the strip and the charts, and the \
