@@ -21,6 +21,15 @@ fn temp_wav(tag: &str) -> PathBuf {
     ))
 }
 
+/// The beat log of a synthetic watch at `amp` degrees, read as a file.
+fn log_of(cfg: &SynthConfig, amp: f64, tag: &str) -> timegrapher_core::stream::BeatLog {
+    let path = temp_wav(tag);
+    write_wav(&path, &generate(cfg, |_| amp, |_| 0.0)).unwrap();
+    let log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();
+    std::fs::remove_file(&path).ok();
+    log
+}
+
 fn reading(position: Position, wind_h: f64, rate: f64, amp: f64, beat_error: f64) -> Reading {
     let cfg = SynthConfig {
         duration_s: 60.0,
@@ -29,10 +38,7 @@ fn reading(position: Position, wind_h: f64, rate: f64, amp: f64, beat_error: f64
         snr_db: 26.0,
         ..Default::default()
     };
-    let path = temp_wav(position.code());
-    write_wav(&path, &generate(&cfg, |_| amp, |_| 0.0)).unwrap();
-    let log = analyze_file(&path, &StreamConfig::default(), |_| {}).unwrap();
-    std::fs::remove_file(&path).ok();
+    let log = log_of(&cfg, amp, position.code());
     Reading {
         bph_set: Some(cfg.bph),
         label: format!("{}.wav", position.code()),
@@ -1415,4 +1421,168 @@ fn a_cycle_beyond_the_simulated_range_says_so() {
     assert!(!five.contains("1e-87"), "{five}");
     let seven = other.iter().find(|e| e.contains("every 7.30 s")).unwrap();
     assert!(seven.contains("false-alarm chance 1e-8"), "{seven}");
+}
+
+/// Clipped beats in a masked stretch are left out with its other beats.
+#[test]
+fn a_mask_leaves_out_its_clipped_beats() {
+    let cfg = SynthConfig {
+        duration_s: 30.0,
+        ..Default::default()
+    };
+    let mut log = log_of(&cfg, 280.0, "mask-clipped");
+    log.clipped_beats = vec![5.0, 15.0, 25.0];
+    session::mask_log(&mut log, &[(10.0, 20.0)]);
+    assert_eq!(log.clipped_beats, vec![5.0, 25.0]);
+}
+
+/// States of wind 0.1 h apart are two states, as the wind is keyed to
+/// tenths of an hour.
+#[test]
+fn states_of_wind_a_tenth_of_an_hour_apart_are_kept_apart() {
+    let a = reading(Position::CH, 0.0, 2.0, 280.0, 0.1);
+    let b = Reading {
+        wind_h: Some(0.1),
+        ..a.clone()
+    };
+    let rep = evaluate(&[a, b]);
+    let winds: Vec<f64> = rep.states.iter().map(|s| s.wind_h).collect();
+    assert_eq!(winds, vec![0.0, 0.1]);
+}
+
+/// The largest isochronism leaves crown right (12H) out (NIHS 93-10);
+/// the largest over all positions takes it in.
+#[test]
+fn the_largest_isochronism_leaves_crown_right_out() {
+    let at = |p: Position, wind_h: f64, rate: f64| {
+        let mut r = reading(p, wind_h, 2.0, 280.0, 0.1);
+        r.measurement.rate_s_per_day = Some(rate);
+        r
+    };
+    let readings = [
+        at(Position::CH, 0.0, 2.0),
+        at(Position::CH, 24.0, 5.0),
+        at(Position::H12, 0.0, 2.0),
+        at(Position::H12, 24.0, 12.0),
+    ];
+    let rep = evaluate(&readings);
+    assert!(close(rep.im, 3.0, 1e-9), "{:?}", rep.im);
+    assert!(close(rep.im_all, 10.0, 1e-9), "{:?}", rep.im_all);
+}
+
+/// The unlock's coverage is listed under 60% of windows, not at 70%.
+#[test]
+fn unlock_coverage_is_listed_under_sixty_percent() {
+    let base = reading(Position::CH, 0.0, 2.0, 280.0, 0.1);
+    let listed = |c: f64| {
+        let mut r = base.clone();
+        r.measurement.unlock_coverage = Some(c);
+        evaluate(&[r])
+            .findings
+            .iter()
+            .any(|f| f.code == "unlock_unreliable")
+    };
+    assert!(listed(0.5));
+    assert!(!listed(0.7));
+}
+
+/// Under 40 s measured after settling is listed; 40 s is not.
+#[test]
+fn a_measurement_under_forty_seconds_is_listed() {
+    let base = reading(Position::CH, 0.0, 2.0, 280.0, 0.1);
+    let short = |s: f64| {
+        let mut r = base.clone();
+        r.measurement.end_s = r.measurement.start_s + s + r.measurement.masked_s;
+        evaluate(&[r])
+            .findings
+            .into_iter()
+            .find(|f| f.code == "measurement_short")
+            .map(|f| f.title)
+    };
+    assert_eq!(short(30.0).as_deref(), Some("30 s measured"));
+    assert_eq!(short(40.0), None);
+}
+
+/// A finding names the recording by its file name, from a Windows path
+/// too, and says the hours after winding only when there are some.
+#[test]
+fn a_finding_names_the_file_and_any_hours_after_winding() {
+    let mut r = reading(Position::CH, 0.0, 2.0, 280.0, 0.1);
+    r.measurement.unlock_coverage = Some(0.2);
+    let evidence = |label: &str, wind_h: Option<f64>| {
+        let r = Reading {
+            label: label.into(),
+            wind_h,
+            ..r.clone()
+        };
+        let rep = evaluate(&[r]);
+        let f = rep.findings.iter().find(|f| f.code == "unlock_unreliable");
+        f.unwrap().evidence.clone()
+    };
+    let e = evidence("C:\\takes\\du.wav", Some(0.0));
+    assert!(e.contains("Dial Up (CH) (du.wav)"), "{e}");
+    assert!(!e.contains("after winding"), "{e}");
+    let e = evidence("takes/du.wav", None);
+    assert!(e.contains("(du.wav)"), "{e}");
+    let e = evidence("takes/du.wav", Some(24.0));
+    assert!(e.contains("(du.wav, 24 h after winding)"), "{e}");
+}
+
+/// The unlock is said to be as loud as the drop from a ratio of 1, not
+/// at 0.9.
+#[test]
+fn an_unlock_as_loud_as_the_drop_is_said_from_a_ratio_of_one() {
+    let side = |ratio13: f64| session::ShapeSide {
+        i12_ms: None,
+        i13_ms: None,
+        ratio13: Some(ratio13),
+        ratio23: None,
+        noise_ratio: None,
+        sound1_found: 1.0,
+        extra_pre: Vec::new(),
+        extra_post: Vec::new(),
+    };
+    let base = reading(Position::CH, 0.0, 2.0, 280.0, 0.1);
+    let loud = |even: f64| {
+        let r = Reading {
+            shape: Some(session::ShapeSummary {
+                from_s: None,
+                measured_s: 40.0,
+                even: side(even),
+                odd: side(0.5),
+            }),
+            ..base.clone()
+        };
+        let rep = evaluate(&[r]);
+        rep.findings
+            .iter()
+            .filter(|f| f.code == "shape_unlock_loud")
+            .count()
+    };
+    assert_eq!(loud(1.0), 1);
+    assert_eq!(loud(0.9), 0);
+}
+
+/// A position marked past the end of the take is read to its end.
+#[test]
+fn a_position_marked_past_the_end_is_read_to_it() {
+    let cfg = SynthConfig {
+        duration_s: 30.0,
+        ..Default::default()
+    };
+    let log = log_of(&cfg, 280.0, "past-end");
+    let t = session::positions_table(
+        &log,
+        None,
+        &[],
+        &[],
+        &[(Position::CH, 2.0, 200.0)],
+        session::POSITION_MIN_S,
+    );
+    let du = &t.rows[0];
+    assert!(
+        (du.duration_s - (log.duration_s - 2.0)).abs() < 1e-9,
+        "{}",
+        du.duration_s
+    );
 }

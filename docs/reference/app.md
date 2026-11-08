@@ -1474,6 +1474,14 @@ anything, the app says why in the log and, on Windows and macOS, in a
 message box, and exits with an error. An error that ends the window after it
 has drawn is reported the same way.
 
+**User Guide.** **User Guide** in the Help menu opens the manual
+([docs/user-guide](user-guide/README.md)) in the browser. Each download
+carries it as pages, and the app carries its own copy: inside the app on
+macOS (Contents/Resources/Documentation), in the folder beside
+Timegrapher.exe on Windows, and on Linux in the folder beside the AppImage,
+else inside the AppImage. A build with no copy (one run from the source
+tree) opens the manual on GitHub.
+
 **Report a Problem.** **Report a Problem…** in the Help menu
 makes the same zip as `timegrapher report` (see [reports.md](reports.md)) to
 attach to a GitHub issue. Choose what kind of problem it is (Bug, Reading,

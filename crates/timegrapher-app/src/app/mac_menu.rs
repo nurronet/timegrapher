@@ -309,6 +309,8 @@ fn build(ctx: &egui::Context) -> muda::Result<Bar> {
     items.plain(&watches, "Find in Watches…", MenuCommand::FindInWatches)?;
 
     let help = Submenu::new("Help", true);
+    items.plain(&help, "User Guide", MenuCommand::UserGuide)?;
+    help.append(&line())?;
     items.plain(&help, "Check for Updates…", MenuCommand::CheckForUpdates)?;
     help.append(&line())?;
     items.plain(&help, "Report a Problem…", MenuCommand::ReportProblem)?;
