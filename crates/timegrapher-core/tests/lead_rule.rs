@@ -120,3 +120,11 @@ fn a_clean_watchs_first_window_is_held_to_the_floor() {
     assert_eq!(with_first(&[0.0006]), None);
     assert_eq!(with_first(&[0.001, 0.001]), Some(10.0));
 }
+
+/// The watch starts at a jump only between its first window and the one
+/// before: a jump back in the noise is not where it starts.
+#[test]
+fn a_jump_in_the_noise_is_not_where_the_watch_starts() {
+    let mid = [(35.0, 0.02), (40.0, 0.02), (45.0, 0.02)];
+    assert_eq!(watch_lead_s(&lead(&mid, 50.0), BPH, &[12.0]), Some(50.0));
+}
