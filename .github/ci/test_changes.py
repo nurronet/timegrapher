@@ -86,10 +86,10 @@ class Tree(unittest.TestCase):
         ("crates/timegrapher-cli/src/synth_cmd.rs", "README.md"),
         # Page names and existence checks; the text is read only when the
         # Release workflow renders the pages.
-        ("packaging/docs_html.py", "README.md"),
+        ("packaging/docs_html.py", "docs/install.md"),
+        ("packaging/docs_html.py", "docs/mcp.md"),
+        ("packaging/docs_html.py", "docs/agent-interface.md"),
         ("packaging/test_docs_html.py", "README.md"),
-        ("packaging/test_docs_html.py", "docs/app.md"),
-        ("packaging/test_docs_html.py", "docs/mcp.md"),
     }
 
     def sources(self):

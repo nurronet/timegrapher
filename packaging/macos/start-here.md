@@ -9,7 +9,8 @@ and Intel Macs with macOS 11 (Big Sur) or later.
 | **Applications** | A shortcut to your Applications folder, to drag the app onto |
 | **Command Line** | `timegrapher`, the command line tool, and `timegrapher-mcp`, the server that lets AI chat apps use it |
 | **Claude Desktop** | `Timegrapher.mcpb`, the Claude Desktop extension |
-| **Documentation** | The guides, as pages that open in your browser |
+| **User Guide** | The manual, as pages that open in your browser |
+| **Reference** | Installing, the MCP server and the command line's JSON |
 | **LICENSE.txt** | The licence (GPL-3.0) |
 
 ## Open the App
@@ -54,11 +55,20 @@ Terminal window, and press Return.
 
 Double-click **Claude Desktop/Timegrapher.mcpb**, or drag it into Claude
 Desktop's window, and choose **Install**. It holds both programs, so nothing
-else needs installing. See [the MCP server guide](../../docs/mcp.md).
+else needs installing. See [Claude Desktop](../../docs/user-guide/26-claude-desktop.md) in the User Guide.
 
-## Learn More
+## Read the User Guide
+
+The **User Guide** folder holds the manual, as pages that open in your
+browser without an internet connection.
+
+- [Contents](../../docs/user-guide/README.md): every button, pane and
+  function, what it does, and why you'd use it
+- [Your First Take](../../docs/user-guide/02-your-first-take.md): from
+  opening the app to a saved take
+
+The **Reference** folder holds three more pages:
 
 - [Installing and updating](../../docs/install.md)
-- [The desktop app](../../docs/app.md)
-- [Read Me](../../README.md): what the software measures, and the command line
-- [All documentation](../../docs/index.md)
+- [The MCP server](../../docs/mcp.md), for AI chat apps
+- [The agent interface](../../docs/agent-interface.md): the command line's JSON
