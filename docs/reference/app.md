@@ -1475,7 +1475,7 @@ message box, and exits with an error. An error that ends the window after it
 has drawn is reported the same way.
 
 **User Guide.** **User Guide** in the Help menu opens the manual
-([docs/user-guide](user-guide/README.md)) in the browser. Each download
+([docs/user-guide](../user-guide/README.md)) in the browser. Each download
 carries it as pages, and the app carries its own copy: inside the app on
 macOS (Contents/Resources/Documentation), in the folder beside
 Timegrapher.exe on Windows, and on Linux in the folder beside the AppImage,
