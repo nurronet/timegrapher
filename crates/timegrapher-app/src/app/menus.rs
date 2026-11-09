@@ -123,7 +123,6 @@ impl TimegrapherApp {
             | MenuCommand::CompactReadings
             | MenuCommand::Pane(_)
             | MenuCommand::ResetPanes => self.view == View::Bench,
-            MenuCommand::CheckForUpdates => !self.updates.checking(),
             _ => true,
         }
     }
@@ -139,16 +138,12 @@ impl TimegrapherApp {
         }
     }
 
-    /// `c`'s name now, for the two whose name changes: Save's and Check
-    /// for Updates'.
+    /// The current label for items named by the app on both menu bars.
     pub(super) fn menu_name(&self, c: MenuCommand) -> Option<&'static str> {
         match c {
             MenuCommand::Save if self.marks_unsaved() => Some("Save"),
             MenuCommand::Save if self.session.saved_to().is_some() => Some("Save Again"),
             MenuCommand::Save => Some("Save…"),
-            MenuCommand::CheckForUpdates if self.updates.checking() => {
-                Some("Checking for Updates…")
-            }
             MenuCommand::CheckForUpdates => Some("Check for Updates…"),
             _ => None,
         }
@@ -191,7 +186,10 @@ impl TimegrapherApp {
             MenuCommand::NewWatch => self.open_new_watch_form(),
             MenuCommand::FindInWatches => self.find_in_watches(),
             MenuCommand::UserGuide => ctx.open_url(egui::OpenUrl::new_tab(crate::guide::url())),
-            MenuCommand::CheckForUpdates => self.updates.start(ctx, true),
+            MenuCommand::CheckForUpdates => {
+                self.updates.start(ctx, true);
+                self.update_dialog = Some(dialogs::UpdateDialog::Checking);
+            }
             MenuCommand::ReportProblem => self.open_report(),
         }
     }

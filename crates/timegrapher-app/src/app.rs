@@ -1936,6 +1936,7 @@ pub struct TimegrapherApp {
     /// Report a Problem.
     report: ReportDialog,
     updates: crate::update::Updates,
+    update_dialog: Option<dialogs::UpdateDialog>,
     /// The Positions Test, while it runs and once finished, until a new
     /// test or a new session.
     guided: Option<guided::Test>,
@@ -2576,6 +2577,7 @@ impl TimegrapherApp {
             kept_delete_ask: None,
             report: ReportDialog::default(),
             updates: Default::default(),
+            update_dialog: None,
             guided: None,
             reserve: None,
             reserve_keep_sound: true,
@@ -4091,6 +4093,7 @@ impl TimegrapherApp {
     /// bottom and the readings and panes between, all on the window colour
     /// with the content in cards.
     fn panels(&mut self, ctx: &egui::Context) {
+        self.poll_updates(ctx);
         if std::mem::take(&mut self.gutter_fresh) {
             theme::reset_time_gutter(ctx);
         }
@@ -4171,6 +4174,7 @@ impl TimegrapherApp {
                 View::Watches => self.watches_view(ui),
             });
         self.settings_window(ctx);
+        self.show_update_dialog(ctx);
     }
 }
 
@@ -4241,12 +4245,6 @@ impl eframe::App for TimegrapherApp {
         // A microphone that opened is one set up.
         if self.running() && self.session.mic() && !self.setup_sheet {
             self.mic_set_up = true;
-        }
-        if std::mem::take(&mut self.check_pending) {
-            self.updates.start(ctx, false);
-        }
-        if let Some(m) = self.updates.poll() {
-            self.info_msg(m);
         }
         // What the readings rest on: a calibre's lift angle and a measured
         // clock.

@@ -2,6 +2,12 @@
 
 use super::*;
 
+pub(super) enum UpdateDialog {
+    Checking,
+    Message(String),
+    Available,
+}
+
 impl TimegrapherApp {
     /// The question before throwing away unsaved sound.
     pub(super) fn confirm_dialog(&mut self, ctx: &egui::Context) {
@@ -625,6 +631,49 @@ impl TimegrapherApp {
             let _ = lib.remove_empty(&id);
         }
         added
+    }
+
+    pub(super) fn poll_updates(&mut self, ctx: &egui::Context) {
+        if std::mem::take(&mut self.check_pending) {
+            self.updates.start(ctx, false);
+        }
+        let message = self.updates.poll();
+        if matches!(self.update_dialog, Some(UpdateDialog::Checking)) && !self.updates.checking() {
+            self.update_dialog =
+                Some(message.map_or(UpdateDialog::Available, UpdateDialog::Message));
+        }
+    }
+
+    /// A check from Help shows its progress and keeps its answer until closed.
+    pub(super) fn show_update_dialog(&mut self, ctx: &egui::Context) {
+        if self.update_dialog.is_none() {
+            return;
+        }
+        let modal = egui::Modal::new(egui::Id::new("check for updates")).show(ctx, |ui| {
+            ui.set_width(360.0);
+            ui.shrink_height_to_current();
+            match &self.update_dialog {
+                Some(UpdateDialog::Checking) => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Checking for Updates…");
+                    });
+                }
+                Some(UpdateDialog::Message(message)) => {
+                    ui.label(message);
+                }
+                Some(UpdateDialog::Available) => {
+                    self.update_notice(ui);
+                    return self.updates.notice.is_none();
+                }
+                None => return true,
+            }
+            ui.add_space(8.0);
+            theme::dialog_buttons(ui, &[DialogButton::new(Role::Default, "Close", "")]).is_some()
+        });
+        if modal.inner || modal.should_close() {
+            self.update_dialog = None;
+        }
     }
 
     /// A newer release is published: its version and a button to its page.
