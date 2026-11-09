@@ -23,11 +23,15 @@ those figures against a watch's tolerances is left to the person, or to an
 AI assistant using the [watchmaker skill](skills/watchmaker/SKILL.md),
 which cites a source for each judgement.
 
-Status: early. The per-beat engine and a command-line tool analyse
-recordings, from a few minutes (`analyze`, `shape`) to days (`long`), and
-read a multi-position test (`session`). A
-desktop app (egui) shows a watch live from a microphone, with the classic
-paper-strip trace; see [docs/reference/app.md](docs/reference/app.md).
+Version 1. A desktop app shows a watch live from a microphone, with the
+classic paper-strip trace, keeps every take in a history of your watches,
+and runs a guided Positions Test and Power Reserve Test. A command line
+tool analyses recordings from a few minutes (`analyze`, `shape`) to days
+(`long`) and reads a multi-position test (`session`). An MCP (Model
+Context Protocol) server lets AI chat apps such as Claude Desktop run the
+same measurements. The
+[User Guide](docs/user-guide/README.md) explains every part of the app;
+the app opens it from **Help > User Guide**.
 
 ## Install
 
@@ -35,9 +39,9 @@ Download the desktop app and the command line tool for Linux, macOS or
 Windows from the
 [Releases page](https://github.com/peterhudson/timegrapher/releases).
 The builds are not signed, so macOS and Windows ask once per version before
-opening them: [docs/reference/install.md](docs/reference/install.md) has the steps. If the
-Releases page lists no version yet, or to build from source instead, use
-Rust 1.90.0 or later and see the
+opening them: [docs/reference/install.md](docs/reference/install.md) has
+the steps. To build from source instead, use Rust 1.90.0 or later and see
+the
 [package and platform requirements](docs/developer/building.md).
 
 ## Desktop app

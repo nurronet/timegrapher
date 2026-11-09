@@ -208,12 +208,12 @@ it lacks. Existing help/version, signature and archive checks remain in
 place.
 
 The documentation pages come from the Release workflow's `docs` job:
-`packaging/docs_html.py` renders `README.md`, `docs/` and the watchmaker
-skill with pandoc, and each platform's **Start Here** page from
-`packaging/PLATFORM/start-here.md`. The calibre train-count research and its
-photographs (over 200 MB) stay out of the download. Links between the files
-it carries point at the pages beside them; links to the research and to
-other repository files go to GitHub at the commit built. A link to a file the
+`packaging/docs_html.py` renders the User Guide (`docs/user-guide/`), three
+reference pages (installing, the MCP server and the agent interface) and each
+platform's **Start Here** page (`packaging/PLATFORM/start-here.md`) with
+pandoc. Nothing else from `docs/` goes in the download. Links between the
+files it carries point at the pages beside them; links to any other page or
+repository file go to GitHub at the commit built. A link to a file the
 repository lacks fails `docs_html.py check`.
 
 Each pair generates the existing deterministic 40-second synthetic-watch recipe
