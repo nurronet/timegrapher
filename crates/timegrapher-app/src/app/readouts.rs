@@ -1026,6 +1026,9 @@ impl TimegrapherApp {
                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show(|ui| {
                     ui.set_width(440.0);
+                    // Size to the notice's contents on each frame. Otherwise its
+                    // rows can consume the previous popup height plus their margins.
+                    ui.shrink_height_to_current();
                     body(ui);
                 });
         };

@@ -6,6 +6,85 @@ use crate::app::tests::{
     append_save_test_second, painted_text, save_failure_fixture, screen, synthetic, themed,
 };
 
+#[test]
+fn help_shows_the_check_and_its_result_even_during_a_startup_check() {
+    use timegrapher_core::update::{compare, Release};
+
+    let release = |version: &str| Release {
+        version: version.into(),
+        url: "https://example.org/release".into(),
+        published_at: None,
+        notes: String::new(),
+    };
+    for (reply, expected, action) in [
+        (
+            Ok(compare("1.0.0", release("1.0.0"))),
+            "Timegrapher 1.0.0 is up to date",
+            "Close",
+        ),
+        (
+            Ok(compare("1.0.0", release("1.0.1"))),
+            "Timegrapher 1.0.1 is available",
+            "Download",
+        ),
+        (
+            Err("offline".into()),
+            "Couldn't check for updates: offline",
+            "Close",
+        ),
+    ] {
+        let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+        app.updates.notice = Some(release("1.0.1"));
+        let ctx = themed();
+        let tx = app.updates.pending_for_test();
+        let mut frame =
+            |events| ctx.run(egui::RawInput { events, ..screen() }, |ctx| app.panels(ctx));
+        frame(vec![]);
+        let bar = frame(vec![]);
+        assert!(!painted_text(&bar).contains("Checking for Updates…"));
+        frame(click_text(&bar, "Help"));
+        frame(vec![]);
+        let menu = frame(vec![]);
+        frame(click_text(&menu, "Check for Updates…"));
+        frame(vec![]);
+        assert!(painted_text(&frame(vec![])).contains("Checking for Updates…"));
+        tx.send(reply).unwrap();
+        frame(vec![]);
+        let result = frame(vec![]);
+        assert!(painted_text(&result).contains(expected));
+        assert!(ctx.memory(|m| m.top_modal_layer().is_some()));
+        let out = frame(click_text(&result, action));
+        let opened_release = out.platform_output.commands.iter().any(|cmd| {
+            matches!(cmd, egui::OutputCommand::OpenUrl(page) if page.url == "https://example.org/release")
+        });
+        assert_eq!(opened_release, action == "Download");
+        frame(vec![]);
+        assert!(!painted_text(&frame(vec![])).contains(expected));
+        assert_eq!(app.updates.notice.is_some(), expected.contains("offline"));
+    }
+}
+
+/// Click the painted label, so the test uses the menu's actual hit target.
+fn click_text(out: &egui::FullOutput, label: &str) -> Vec<egui::Event> {
+    let pos = out
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == label => {
+                Some(t.visual_bounding_rect().center())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("missing {label}"));
+    let button = |pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    vec![egui::Event::PointerMoved(pos), button(true), button(false)]
+}
+
 /// Draw `menu` on its own in one frame, as its drop-down shows it, and
 /// give back the text painted.
 fn drawn(

@@ -21,12 +21,22 @@ pub struct Updates {
 }
 
 impl Updates {
+    /// A startup check whose reply is supplied by the headless menu test.
+    #[cfg(test)]
+    pub(crate) fn pending_for_test(&mut self) -> std::sync::mpsc::Sender<Result<Check, String>> {
+        let (tx, rx) = channel();
+        self.job = Some((false, rx));
+        tx
+    }
+
     pub fn checking(&self) -> bool {
         self.job.is_some()
     }
 
     pub fn start(&mut self, ctx: &egui::Context, asked: bool) {
-        if self.job.is_some() {
+        if let Some((manual, _)) = &mut self.job {
+            // Help can use the request already under way at startup.
+            *manual |= asked;
             return;
         }
         let (tx, rx) = channel();
@@ -43,23 +53,32 @@ impl Updates {
     pub fn poll(&mut self) -> Option<String> {
         let (asked, rx) = self.job.as_ref()?;
         let asked = *asked;
-        let result = rx.try_recv().ok()?;
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err("the update check stopped before returning a result".into())
+            }
+        };
         self.job = None;
         match result {
             Ok(c) if c.update_available => {
                 self.notice = Some(c.latest);
                 None
             }
-            Ok(c) => asked.then(|| {
-                if c.latest.version == c.current {
-                    format!("Timegrapher {} is up to date", c.current)
-                } else {
-                    format!(
-                        "Timegrapher {} is up to date (the latest release is {})",
-                        c.current, c.latest.version
-                    )
-                }
-            }),
+            Ok(c) => {
+                self.notice = None;
+                asked.then(|| {
+                    if c.latest.version == c.current {
+                        format!("Timegrapher {} is up to date", c.current)
+                    } else {
+                        format!(
+                            "Timegrapher {} is up to date (the latest release is {})",
+                            c.current, c.latest.version
+                        )
+                    }
+                })
+            }
             Err(e) => asked.then(|| format!("Couldn't check for updates: {e}")),
         }
     }
