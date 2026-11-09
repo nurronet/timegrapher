@@ -5,6 +5,73 @@
 use super::tests::{queued_capture, save_failure_fixture, synthetic, themed};
 use super::*;
 
+#[test]
+fn update_popup_keeps_download_in_place_and_opens_the_release() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let url = "https://example.org/releases/v1.0.1";
+    app.updates.notice = Some(timegrapher_core::update::Release {
+        version: "1.0.1".into(),
+        url: url.into(),
+        published_at: None,
+        notes: String::new(),
+    });
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(800.0, 600.0));
+    let mut frame = |events| {
+        ctx.run(
+            egui::RawInput {
+                events,
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::TopBottomPanel::bottom("status").show(ctx, |ui| app.status_bar(ui));
+            },
+        )
+    };
+    let text_rect = |out: &egui::FullOutput, text: &str| {
+        out.shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(t) if t.galley.text() == text => {
+                    let rect = t.visual_bounding_rect();
+                    assert!(
+                        shape.clip_rect.intersect(screen).contains_rect(rect),
+                        "{text}: {rect:?}"
+                    );
+                    Some(rect)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing {text}"))
+    };
+    let click = |pos| {
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        vec![egui::Event::PointerMoved(pos), button(true), button(false)]
+    };
+    frame(vec![]);
+    let link = text_rect(&frame(vec![]), "Timegrapher 1.0.1 Available…");
+    frame(click(link.center()));
+    // Let the popup measure itself and settle above the status bar.
+    frame(vec![]);
+    let out = frame(vec![]);
+    let actions = |out: &egui::FullOutput| [text_rect(out, "Download"), text_rect(out, "Dismiss")];
+    let start = actions(&out);
+    for _ in 0..30 {
+        assert_eq!(actions(&frame(vec![])), start);
+    }
+    let out = frame(click(start[0].center()));
+    assert!(out.platform_output.commands.iter().any(|command| {
+        matches!(command, egui::OutputCommand::OpenUrl(page) if page.url == url)
+    }));
+    assert!(app.updates.notice.is_none());
+}
+
 /// No banner ever pushes the window down: a crash last time, sound
 /// kept from an earlier session, a newer release and an error are each
 /// a word in the status bar, and the readings stay where they were.
