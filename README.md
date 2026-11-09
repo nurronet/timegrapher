@@ -27,8 +27,9 @@ Version 1. A desktop app shows a watch live from a microphone, with the
 classic paper-strip trace, keeps every take in a history of your watches,
 and runs a guided Positions Test and Power Reserve Test. A command line
 tool analyses recordings from a few minutes (`analyze`, `shape`) to days
-(`long`) and reads a multi-position test (`session`). An MCP server lets
-AI chat apps such as Claude Desktop run the same measurements. The
+(`long`) and reads a multi-position test (`session`). An MCP (Model
+Context Protocol) server lets AI chat apps such as Claude Desktop run the
+same measurements. The
 [User Guide](docs/user-guide/README.md) explains every part of the app;
 the app opens it from **Help > User Guide**.
 
