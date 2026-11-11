@@ -203,6 +203,59 @@ impl Counted {
     }
 }
 
+/// Why a beat error comes from the drop ([`Caveat::BeatErrorFromDrop`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropWhy {
+    /// The unlock was not found (or in too few windows).
+    #[default]
+    UnlockNotFound,
+    /// The unlock's beat errors disagree in sign more than their spread
+    /// allows ([`crate::confidence::unlock_inconsistent`], #1439).
+    UnlockInconsistent,
+}
+
+impl DropWhy {
+    /// The reason saved readings from before #1439 carry: none written.
+    pub fn is_not_found(&self) -> bool {
+        *self == Self::UnlockNotFound
+    }
+
+    /// The reason in a few words, as the command line gives it beside a
+    /// beat error from the drop.
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::UnlockNotFound => "unlock not found",
+            Self::UnlockInconsistent => "the unlock's signs disagree beyond their spread",
+        }
+    }
+
+    /// The reason `caveats` give for a beat error from the drop; not found
+    /// where they give none.
+    pub fn of(caveats: &[Caveat]) -> Self {
+        caveats
+            .iter()
+            .find_map(|c| match c {
+                Caveat::BeatErrorFromDrop { why } => Some(*why),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
+    /// The caveat's sentence for this reason, as a reading's hover gives it.
+    pub fn sentence(self) -> &'static str {
+        match self {
+            Self::UnlockNotFound => {
+                "The unlock was not found; the beat error is measured from the drop."
+            }
+            Self::UnlockInconsistent => {
+                "The unlock's beat errors disagree in sign more than their spread allows; \
+                 the beat error is measured from the drop."
+            }
+        }
+    }
+}
+
 /// Something that limits how far a measurement can be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -265,8 +318,12 @@ pub enum Caveat {
     /// ([`crate::timing::sign_turns`]), so it is given as a size, positive,
     /// rather than signed.
     BeatErrorAsSize,
-    /// The unlock was not found; the selected beat error comes from the drop.
-    BeatErrorFromDrop,
+    /// The selected beat error comes from the drop, for the reason `why`:
+    /// the unlock not found, or found inconsistent (#1439).
+    BeatErrorFromDrop {
+        #[serde(default, skip_serializing_if = "DropWhy::is_not_found")]
+        why: DropWhy,
+    },
     /// Saved readings of unknown event were excluded from a pooled figure.
     BeatErrorUnknownSource { readings: usize },
     /// Only readings from the selected event entered the beat-error statistic.
@@ -321,6 +378,11 @@ pub enum Caveat {
 }
 
 impl Caveat {
+    /// The beat error from the drop because the unlock was not found.
+    pub const FROM_DROP: Caveat = Caveat::BeatErrorFromDrop {
+        why: DropWhy::UnlockNotFound,
+    };
+
     /// The caveat in a few words, for a line of conditions or a mark beside
     /// a reading, as the app words it: "2 breaks", "input clock not
     /// corrected". `lift_deg` is the lift angle the amplitude used, and
@@ -346,7 +408,7 @@ impl Caveat {
             Caveat::BeatErrorUnknownSource { readings } => {
                 format!("{readings} beat-error readings with no recorded source left out")
             }
-            Caveat::BeatErrorFromDrop => "beat error from the drop".to_string(),
+            Caveat::BeatErrorFromDrop { .. } => "beat error from the drop".to_string(),
             Caveat::SetRateDisagrees { heard } => format!("{heard} bph heard"),
             Caveat::ShortSpan { span_s } => format!("{span_s:.0} s of beats"),
             Caveat::Clipped { fraction } => format!("{:.0}% clipped", fraction * 100.0),
@@ -399,9 +461,7 @@ impl Caveat {
                 format!("The beat error uses the {source} in {used} of {readings} {c}; {c} from the other event were left out.", c = counted.plural()),
             Caveat::BeatErrorUnknownSource { readings } =>
                 format!("The beat-error aggregate leaves out {readings} reading{} whose source was not recorded.", plural(*readings)),
-            Caveat::BeatErrorFromDrop => {
-                "The unlock was not found; the beat error is measured from the drop.".to_string()
-            }
+            Caveat::BeatErrorFromDrop { why } => why.sentence().to_string(),
             Caveat::SetRateDisagrees { heard } => {
                 format!("The beat rate set differs from the {heard} bph heard.")
             }
@@ -540,7 +600,7 @@ impl Caveat {
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
-            Caveat::BeatErrorFromDrop => 16,
+            Caveat::BeatErrorFromDrop { .. } => 16,
             Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::BeatErrorUnknownSource { .. } => 19,
             Caveat::ReadingWindows { .. } => 17,
@@ -783,6 +843,31 @@ pub fn assess(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A beat error from the drop because the unlock was not found writes
+    /// no reason, so saved readings stay as they were and read back as not
+    /// found; one whose unlock was inconsistent writes its reason (#1439).
+    #[test]
+    fn a_drop_caveat_writes_its_reason_only_when_inconsistent() {
+        let json = |c: &Caveat| serde_json::to_string(c).unwrap();
+        let inconsistent = Caveat::BeatErrorFromDrop {
+            why: DropWhy::UnlockInconsistent,
+        };
+        assert_eq!(
+            json(&Caveat::FROM_DROP),
+            r#"{"code":"beat_error_from_drop"}"#
+        );
+        assert_eq!(
+            json(&inconsistent),
+            r#"{"code":"beat_error_from_drop","why":"unlock_inconsistent"}"#
+        );
+        let read = |s: &str| serde_json::from_str::<Caveat>(s).unwrap();
+        assert_eq!(
+            read(r#"{"code":"beat_error_from_drop"}"#),
+            Caveat::FROM_DROP
+        );
+        assert_eq!(read(&json(&inconsistent)), inconsistent);
+    }
 
     fn heard() -> Context {
         Context {
@@ -1218,7 +1303,7 @@ mod tests {
             "The beat-error aggregate leaves out 1 reading whose source was not recorded.",
         ),
         (
-            Caveat::BeatErrorFromDrop,
+            Caveat::FROM_DROP,
             "beat error from the drop",
             "The unlock was not found; the beat error is measured from the drop.",
         ),
@@ -1436,7 +1521,7 @@ mod tests {
             Caveat::BeatErrorAsSize,
             Caveat::Positions { count: 6 },
             Caveat::LeadLeftOut { seconds: 31.6 },
-            Caveat::BeatErrorFromDrop,
+            Caveat::FROM_DROP,
             Caveat::ReadingWindows {
                 reading: confidence::Figure::Rate,
                 windows_used: 3,

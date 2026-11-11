@@ -965,7 +965,11 @@ fn print_summary(r: &LongReport, clock_note: Option<&str>) {
     if let Some(f) = &r.overall {
         println!(
             "Beat error   {}",
-            crate::beat_error_text(r.beat_error_unlock_ms, f.beat_error_ms)
+            crate::beat_error_text(
+                r.beat_error_unlock_ms,
+                f.beat_error_ms,
+                timegrapher_core::measure::DropWhy::of(&r.caveats)
+            )
         );
     }
     for (label, line) in caveat_lines(&r.caveats) {

@@ -37,6 +37,86 @@ pub fn too_few_windows(used: usize, in_span: usize) -> bool {
     (used as f64) < MIN_WINDOW_SHARE * in_span as f64
 }
 
+/// The most the unlock beat errors' sign agreement may fall short of what
+/// their spread predicts before the unlock beat error is withheld
+/// ([`unlock_inconsistent`], #1439). Set on the corpus's 319 healthy
+/// readings (largest shortfall 0.127) against a run-down's two hours whose
+/// faint Tock unlock was found on noise (0.206 and 0.250); math-standards.md
+/// section 7.
+pub const MAX_SIGN_SHORTFALL: f64 = 0.18;
+
+/// The standard normal distribution function, Φ(x): Abramowitz and Stegun
+/// 7.1.26, within 1.5e-7.
+pub fn normal_cdf(x: f64) -> f64 {
+    let z = x.abs() / std::f64::consts::SQRT_2;
+    let t = 1.0 / (1.0 + 0.327_591_1 * z);
+    let poly = ((((1.061_405_429 * t - 1.453_152_027) * t + 1.421_413_741) * t - 0.284_496_736)
+        * t
+        + 0.254_829_592)
+        * t;
+    let erf = 1.0 - poly * (-z * z).exp();
+    0.5 * (1.0 + erf.copysign(x))
+}
+
+/// How a reading's unlock beat errors `values` agree in sign: the share
+/// that the spread predicts on the median's side, Φ(|median| / robust SD),
+/// the share observed there, and the line the shortfall must pass to call
+/// them inconsistent, `max(MAX_SIGN_SHORTFALL, 3 √(q(1 − q)/n))`, q the
+/// predicted or the observed share, whichever varies more, so a few windows
+/// never trip it on noise alone. None with fewer than
+/// [`MIN_VALUES`] or no spread.
+pub fn sign_agreement(values: &[f64]) -> Option<SignAgreement> {
+    let v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
+    let n = v.len();
+    if n < MIN_VALUES {
+        return None;
+    }
+    let med = crate::dsp::median(&mut v.clone());
+    let sd = crate::dsp::robust_sd(&v);
+    if sd <= 0.0 {
+        return None;
+    }
+    let predicted = normal_cdf(med.abs() / sd);
+    let side = |x: f64| x.partial_cmp(&0.0) == med.partial_cmp(&0.0);
+    let observed = v.iter().filter(|&&x| side(x)).count() as f64 / n as f64;
+    // The share's own noise, by the larger of its variance at the
+    // predicted share and at the observed: a tight cluster predicts nearly
+    // 1, and one stray window of five must not trip it.
+    let var = (predicted * (1.0 - predicted)).max(observed * (1.0 - observed));
+    let line = MAX_SIGN_SHORTFALL.max(3.0 * (var / n as f64).sqrt());
+    Some(SignAgreement {
+        predicted,
+        observed,
+        line,
+    })
+}
+
+/// [`sign_agreement`]'s figures.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SignAgreement {
+    pub predicted: f64,
+    pub observed: f64,
+    pub line: f64,
+}
+
+impl SignAgreement {
+    /// The predicted share less the observed.
+    pub fn shortfall(self) -> f64 {
+        self.predicted - self.observed
+    }
+}
+
+/// Whether a reading's unlock beat errors `values` disagree in sign more
+/// than their spread allows (#1439): fewer of them sit on the median's
+/// side than Φ(|median| / robust SD) predicts, by more than the line
+/// ([`sign_agreement`]). A faint unlock found on noise in part of the
+/// windows reads so: a cluster far from zero and another on the far side
+/// of it. A watch whose beat error is near zero predicts little agreement
+/// and is not judged by it.
+pub fn unlock_inconsistent(values: &[f64]) -> bool {
+    sign_agreement(values).is_some_and(|a| a.shortfall() > a.line)
+}
+
 /// Windows supporting one figure, and nominal windows within its kept time.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Coverage {
@@ -1001,5 +1081,100 @@ mod window_floor_tests {
         assert!(!too_few_windows(1, 10));
         assert!(too_few_windows(2, 30));
         assert!(!too_few_windows(3, 30));
+    }
+}
+
+#[cfg(test)]
+mod sign_agreement_tests {
+    use super::*;
+
+    /// `n` values about `centre`, spread evenly over ±`half`.
+    fn spread(centre: f64, half: f64, n: usize) -> Vec<f64> {
+        (0..n)
+            .map(|i| centre - half + 2.0 * half * (i as f64 + 0.5) / n as f64)
+            .collect()
+    }
+
+    #[test]
+    fn normal_cdf_matches_its_table() {
+        for (x, p) in [
+            (0.0, 0.5),
+            (1.0, 0.841_344_7),
+            (-1.96, 0.024_997_9),
+            (3.0, 0.998_650_1),
+        ] {
+            assert!((normal_cdf(x) - p).abs() < 2e-7, "{x}");
+        }
+    }
+
+    /// The YM42 run-down's hour 56 (#1439): 79% of its unlock windows near
+    /// −5 ms, the rest near the watch's +0.6 ms. The cluster is tight, so
+    /// nearly all should share the median's sign, and a fifth do not.
+    #[test]
+    fn a_far_cluster_with_a_fifth_across_zero_is_inconsistent() {
+        let mut v = spread(-4.9, 0.8, 1286);
+        v.extend(spread(0.6, 0.1, 342));
+        let a = sign_agreement(&v).unwrap();
+        assert!(a.predicted > 0.999, "{a:?}");
+        assert!((a.observed - 0.79).abs() < 0.01, "{a:?}");
+        assert!(unlock_inconsistent(&v));
+    }
+
+    /// The line sits at 0.18, above the 0.127 the healthy corpus reaches
+    /// (#1439): many windows with 15% across zero, where the spread
+    /// predicts almost none, are not judged inconsistent.
+    #[test]
+    fn a_shortfall_below_the_line_is_consistent() {
+        let mut v = spread(-4.9, 0.8, 1700);
+        v.extend(spread(0.6, 0.1, 300));
+        let a = sign_agreement(&v).unwrap();
+        assert!((a.shortfall() - 0.15).abs() < 0.01, "{a:?}");
+        assert_eq!(a.line, MAX_SIGN_SHORTFALL, "{a:?}");
+        assert!(!unlock_inconsistent(&v), "{a:?}");
+    }
+
+    /// A steady watch, and one whose beat error is near zero: its windows
+    /// fall either side as their spread predicts, and neither is judged
+    /// inconsistent.
+    #[test]
+    fn a_steady_or_near_zero_beat_error_is_consistent() {
+        assert!(!unlock_inconsistent(&spread(0.5, 0.06, 1800)));
+        let near_zero = spread(0.01, 0.3, 300);
+        let a = sign_agreement(&near_zero).unwrap();
+        assert!(a.predicted < 0.6, "{a:?}");
+        assert!(!unlock_inconsistent(&near_zero));
+    }
+
+    /// The line widens for few windows, to 3 √(q(1 − q)/n), so a short
+    /// reading is not judged on noise alone: 10 values with 4 across zero
+    /// predict p ≈ 0.69, and their line is ≈ 0.44, where 1,000 of the same
+    /// shape have 0.18.
+    #[test]
+    fn the_line_widens_for_few_windows() {
+        let shape = |n: usize| {
+            let k = n * 6 / 10;
+            let mut v = spread(1.0, 0.6, k);
+            v.extend(spread(-0.6, 0.2, n - k));
+            sign_agreement(&v).unwrap()
+        };
+        let (few, many) = (shape(10), shape(1000));
+        let var = |p: f64| p * (1.0 - p);
+        let wide = 3.0 * (var(few.predicted).max(var(few.observed)) / 10.0).sqrt();
+        assert!((few.line - wide).abs() < 1e-12, "{few:?}");
+        assert!(few.line > 0.4, "{few:?}");
+        assert_eq!(many.line, MAX_SIGN_SHORTFALL, "{many:?}");
+        // A tight cluster with one stray of 5 (a live 10 s reading) or 2
+        // of 10 is not judged inconsistent: the line follows the observed
+        // share's noise too (Norm's HOLD on #1458).
+        for (n, stray) in [(5, 1), (10, 2)] {
+            let mut v = spread(0.5, 0.02, n - stray);
+            v.extend(vec![-0.4; stray]);
+            let a = sign_agreement(&v).unwrap();
+            assert!(a.shortfall() > MAX_SIGN_SHORTFALL, "{a:?}");
+            assert!(!unlock_inconsistent(&v), "{n}: {a:?}");
+        }
+        // Too few values, or no spread, are not judged.
+        assert!(sign_agreement(&[1.0, -1.0]).is_none());
+        assert!(sign_agreement(&[0.5; 20]).is_none());
     }
 }

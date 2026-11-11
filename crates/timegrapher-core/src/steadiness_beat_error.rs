@@ -229,7 +229,7 @@ mod tests {
         assert!(g.y[5..].iter().all(|&v| v == 8.0));
         assert!(matches!(
             selected.caveats().as_slice(),
-            [crate::measure::Caveat::BeatErrorFromDrop]
+            [crate::measure::Caveat::FROM_DROP]
         ));
     }
     #[test]

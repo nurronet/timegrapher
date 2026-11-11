@@ -4511,7 +4511,7 @@ fn shown_on(c: &Caveat, title: &str) -> bool {
         | Caveat::LiftUnknown
         | Caveat::ClockUnknown => false,
         Caveat::Clipped { .. } => matches!(title, "Amplitude" | "Beat Error"),
-        Caveat::SidesByCount { .. } | Caveat::BeatErrorFromDrop => title == "Beat Error",
+        Caveat::SidesByCount { .. } | Caveat::BeatErrorFromDrop { .. } => title == "Beat Error",
         _ => true,
     }
 }

@@ -611,6 +611,30 @@ fn thin(h: &power_reserve::Hour, figure: Figure) -> Option<String> {
         .and_then(|c| c.long(None))
 }
 
+/// The hour's beat error's hover and whether it is grey: its source in
+/// words, then core's word on why it is from the drop where it is (the
+/// unlock not found, or inconsistent, #1439), then its coverage caveat
+/// when thin ([`thin`]).
+fn beat_error_hover(h: &power_reserve::Hour) -> (String, bool) {
+    let src = h.beat_error_source;
+    let mut words = vec![beat_error_source_label(src).to_string()];
+    words.extend(
+        h.caveats
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    timegrapher_core::measure::Caveat::BeatErrorFromDrop { .. }
+                )
+            })
+            .filter_map(|c| c.long(None)),
+    );
+    let thin = thin(h, Figure::BeatError);
+    let grey = thin.is_some() || beat_error_dimmed(src);
+    words.extend(thin);
+    (words.join(". "), grey)
+}
+
 /// Whether any of the hour's amplitude or beat error is thin ([`thin`]).
 fn any_thin(h: &power_reserve::Hour) -> bool {
     [Figure::Amplitude, Figure::BeatError]
@@ -705,7 +729,6 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
     let rows: Vec<[Cell; 5]> = hours
         .iter()
         .map(|h| {
-            let src = h.beat_error_source;
             [
                 (hour_label(h), part_hour_hover(h)),
                 plain(cell(h.rate_s_per_day, |v| {
@@ -721,12 +744,10 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                     cell(h.beat_error_ms.map(f64::abs), |v| {
                         figure(v, None, base_digits::BEAT_ERROR, false)
                     }),
-                    // Its source in words, and its coverage caveat
-                    // when thin (#1439).
-                    Some(match thin(h, Figure::BeatError) {
-                        Some(w) => (format!("{}. {w}", beat_error_source_label(src)), true),
-                        None => (beat_error_source_label(src).into(), beat_error_dimmed(src)),
-                    }),
+                    // Its source in words, why it is from the drop
+                    // where it is, and its coverage caveat when thin
+                    // (#1439).
+                    Some(beat_error_hover(h)),
                 ),
                 // A dash says why in its hover (Walter's walk of #1084).
                 (

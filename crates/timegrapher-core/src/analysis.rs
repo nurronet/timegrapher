@@ -129,7 +129,7 @@ impl Summary {
         self.beat_error_unlock_ms = None;
         self.beat_error_source = None;
         self.caveats
-            .retain(|c| *c != crate::measure::Caveat::BeatErrorFromDrop);
+            .retain(|c| !matches!(c, crate::measure::Caveat::BeatErrorFromDrop { .. }));
         self.rate_p05 = None;
         self.rate_p95 = None;
         self.amplitude_deg = None;
@@ -328,7 +328,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         caveats,
         shape,
     };
-    settle_beat_error(&mut summary);
+    settle_beat_error(&mut summary, fits.figures.unlock_inconsistent);
     Analysis {
         summary,
         beats,
@@ -594,8 +594,9 @@ fn periods(
 }
 
 /// Withholds the readings where no watch is heard, and chooses the beat
-/// error shown, with its caveat.
-fn settle_beat_error(summary: &mut Summary) {
+/// error shown, with its caveat: why it is from the drop where it is, the
+/// unlock found `inconsistent` or not found (#1439).
+fn settle_beat_error(summary: &mut Summary, inconsistent: bool) {
     if !summary.watch_heard {
         summary.withhold_readings();
     }
@@ -606,7 +607,7 @@ fn settle_beat_error(summary: &mut Summary) {
     .map(|(_, source)| source);
     if let Some(caveat) = summary
         .beat_error_source
-        .and_then(crate::session::BeatErrorSource::caveat)
+        .and_then(|s| s.caveat_why(inconsistent))
     {
         crate::measure::add(&mut summary.caveats, caveat);
     }
@@ -726,6 +727,50 @@ mod tests {
         assert_eq!(summary.amplitude_deg, m.amplitude_deg);
         assert_eq!(summary.beat_error_unlock_ms, m.beat_error_unlock_ms);
     }
+    /// A take whose unlock reads −0.9 ms in three windows of five and the
+    /// watch's +0.6 ms in the rest (#1439): `analyze`, as session does,
+    /// gives the drop's beat error and says the unlock was inconsistent,
+    /// not that it was not found (Trevor's mutant on #1458).
+    #[test]
+    fn analyze_says_an_inconsistent_unlock_falls_back_to_the_drop() {
+        use crate::measure::{Caveat, DropWhy};
+        use crate::session::BeatErrorSource;
+        let take = |even_unlock_lead_s: f64| {
+            let cfg = SynthConfig {
+                duration_s: 90.0,
+                beat_error_ms: 0.6,
+                even_unlock_lead_s,
+                ..Default::default()
+            };
+            generate(&cfg, |_| 270.0, |_| 0.0)
+        };
+        let (far, near) = (take(0.0015), take(0.0));
+        let fs = far.sample_rate as f64;
+        // Spliced between beats, 6 s of every 10 from the far take.
+        let samples = (0..far.samples.len())
+            .map(|i| match (i as f64 / fs - 0.1125).rem_euclid(10.0) < 6.0 {
+                true => far.samples[i],
+                false => near.samples[i],
+            })
+            .collect();
+        let audio = Audio {
+            sample_rate: far.sample_rate,
+            samples,
+        };
+        let cfg = AnalysisConfig {
+            bph: Some(28800),
+            ..Default::default()
+        };
+        let s = analyze(&audio, &cfg).summary;
+        assert_eq!(s.beat_error_unlock_ms, None, "{s:?}");
+        assert_eq!(s.beat_error_source, Some(BeatErrorSource::Drop));
+        assert!((s.overall.unwrap().beat_error_ms - 0.6).abs() < 0.05);
+        assert!(s.caveats.contains(&Caveat::BeatErrorFromDrop {
+            why: DropWhy::UnlockInconsistent
+        }));
+        assert!(!s.caveats.contains(&Caveat::FROM_DROP));
+    }
+
     /// The timing's periods are searched on the good beats alone: moving
     /// the faint beats of a quiet stretch (−20 dB, 12 s) by 10 ms leaves
     /// them as they are, and the watch's 10 s swing in rate is found.
