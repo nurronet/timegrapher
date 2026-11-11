@@ -127,10 +127,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 22.04 so the Linux build runs on distributions from 2022 on.
-          - { platform: linux, os: ubuntu-22.04 }
-          - { platform: macos, os: macos-latest }
-          - { platform: windows, os: windows-latest }
+          # 22.04 so the Linux builds run on distributions from 2022 on.
+          # `name` keeps each build's information file apart; `arch` is
+          # the AppImage tool and runtime each Linux build fetches.
+          - { platform: linux, name: linux-x86_64, arch: x86_64, os: ubuntu-22.04 }
+          # 64-bit ARM: Raspberry Pi 4 and 5, CM4 handhelds, ARM laptops
+          # and boards. Built natively on GitHub's ARM runner.
+          - { platform: linux, name: linux-aarch64, arch: aarch64, os: ubuntu-22.04-arm }
+          - { platform: macos, name: macos, os: macos-latest }
+          - { platform: windows, name: windows, os: windows-latest }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -172,18 +177,31 @@ jobs:
 
       - name: Build (Linux)
         if: matrix.platform == 'linux'
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
           sudo apt-get update && sudo apt-get install -y libasound2-dev
           cargo build --release --locked $PKGS
           # Fixed releases of the AppImage tool and the runtime it puts at
           # the front of the AppImage, checked by hash; without a runtime
           # file the tool fetches its newest one.
+          # The runner's own architecture is the one built.
+          [ "$(uname -m)" = "$ARCH" ]
+          case "$ARCH" in
+            x86_64)
+              tool_sha=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+              runtime_sha=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d ;;
+            aarch64)
+              tool_sha=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+              runtime_sha=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444 ;;
+            *) echo "no AppImage tool listed for $ARCH" >&2; exit 1 ;;
+          esac
           curl -sSfL -o "$RUNNER_TEMP/appimagetool" \
-            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-$ARCH.AppImage"
           curl -sSfL -o "$RUNNER_TEMP/appimage-runtime" \
-            https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
-          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  $RUNNER_TEMP/appimagetool" | sha256sum -c -
-          echo "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
+            "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-$ARCH"
+          echo "$tool_sha  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          echo "$runtime_sha  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/appimagetool"
           APPIMAGE_EXTRACT_AND_RUN=1 APPIMAGETOOL="$RUNNER_TEMP/appimagetool" \
             APPIMAGE_RUNTIME="$RUNNER_TEMP/appimage-runtime" \
@@ -297,12 +315,12 @@ jobs:
       # The compiler and runner image, for the draft's notes.
       - name: Build information
         env:
-          PLATFORM: ${{ matrix.platform }}
+          NAME: ${{ matrix.name }}
         run: |
-          echo "- $PLATFORM: $(rustc -V), runner $ImageOS $ImageVersion" > "buildinfo-$PLATFORM.txt"
+          echo "- $NAME: $(rustc -V), runner $ImageOS $ImageVersion" > "buildinfo-$NAME.txt"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: buildinfo-${{ matrix.platform }}.txt
+          path: buildinfo-${{ matrix.name }}.txt
           archive: false
           if-no-files-found: error
 

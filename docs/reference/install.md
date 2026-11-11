@@ -11,6 +11,7 @@ each system, and `SHA256SUMS.txt` to check a download:
 | macOS 11 or later, Apple silicon and Intel | `timegrapher-<version>-macos.dmg` |
 | Windows 10 or 11, 64-bit | `timegrapher-<version>-windows-x64.zip` |
 | Linux, 64-bit Intel and AMD, distributions from 2022 on | `timegrapher-<version>-linux-x86_64.zip` |
+| Linux, 64-bit ARM (Raspberry Pi 4 and 5, CM4 and other ARM boards), distributions from 2022 on | `timegrapher-<version>-linux-aarch64.zip` |
 
 The Windows and Linux zips each hold one folder,
 **Timegrapher &lt;version&gt;**, and the macOS disk image holds the same
@@ -71,13 +72,16 @@ and run `.\timegrapher.exe --help`.
 ## Linux
 
 For 64-bit Intel and AMD PCs with a distribution from 2022 or later
-(Ubuntu 22.04, Debian 12, Fedora 36 or newer). Unpack the zip (most file
+(Ubuntu 22.04, Debian 12, Fedora 36 or newer), take the `x86_64` zip. For
+64-bit ARM (a Raspberry Pi 4 or 5 or another ARM board running a 64-bit
+system: `uname -m` says `aarch64`), take the `aarch64` zip; a 32-bit
+Raspberry Pi OS can't run it. The two are used the same way. Unpack the zip (most file
 managers: right-click, **Extract Here**) and open the
 **Timegrapher &lt;version&gt;** folder. **Timegrapher.AppImage** is the
 desktop app in one file: double-click it, or from a terminal:
 
 ```sh
-unzip timegrapher-*-linux-x86_64.zip
+unzip timegrapher-*-linux-*.zip
 cd "Timegrapher "*/
 ./Timegrapher.AppImage
 "Command Line/timegrapher" --version
