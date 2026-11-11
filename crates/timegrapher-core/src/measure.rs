@@ -844,6 +844,31 @@ pub fn assess(
 mod tests {
     use super::*;
 
+    /// A beat error from the drop because the unlock was not found writes
+    /// no reason, so saved readings stay as they were and read back as not
+    /// found; one whose unlock was inconsistent writes its reason (#1439).
+    #[test]
+    fn a_drop_caveat_writes_its_reason_only_when_inconsistent() {
+        let json = |c: &Caveat| serde_json::to_string(c).unwrap();
+        let inconsistent = Caveat::BeatErrorFromDrop {
+            why: DropWhy::UnlockInconsistent,
+        };
+        assert_eq!(
+            json(&Caveat::FROM_DROP),
+            r#"{"code":"beat_error_from_drop"}"#
+        );
+        assert_eq!(
+            json(&inconsistent),
+            r#"{"code":"beat_error_from_drop","why":"unlock_inconsistent"}"#
+        );
+        let read = |s: &str| serde_json::from_str::<Caveat>(s).unwrap();
+        assert_eq!(
+            read(r#"{"code":"beat_error_from_drop"}"#),
+            Caveat::FROM_DROP
+        );
+        assert_eq!(read(&json(&inconsistent)), inconsistent);
+    }
+
     fn heard() -> Context {
         Context {
             watch_heard: true,
