@@ -505,21 +505,42 @@ pub struct WindowFigures {
     pub amplitude_odd_deg: Option<f64>,
     /// Signed, as [`timing::median_signed`] gives it.
     pub beat_error_unlock_ms: Option<f64>,
+    /// The unlock beat errors disagree in sign more than their spread
+    /// allows, so no unlock beat error is given ([`unlock_inconsistent`],
+    /// #1439).
+    pub unlock_inconsistent: bool,
 }
 
 /// [`WindowFigures`] of `wins`: the medians of their amplitude, Tick's and
 /// Tock's, and of their unlock beat error, taken as sizes where `turned`
-/// ([`timing::sign_turns`] over the stretch's beats).
+/// ([`timing::sign_turns`] over the stretch's beats). No unlock beat error
+/// where its windows disagree in sign more than their spread allows
+/// ([`unlock_inconsistent`], #1439): the drop's is used.
 pub fn window_figures(wins: &[&AmplitudeWindow], turned: bool) -> WindowFigures {
+    let inconsistent = unlock_inconsistent(wins, turned);
     WindowFigures {
         amplitude_deg: median_of(wins.iter().filter_map(|w| w.mean())),
         amplitude_even_deg: median_of(wins.iter().filter_map(|w| w.even_deg)),
         amplitude_odd_deg: median_of(wins.iter().filter_map(|w| w.odd_deg)),
-        beat_error_unlock_ms: timing::median_signed(
-            wins.iter().filter_map(|w| w.beat_error_unlock_ms),
-            turned,
-        ),
+        beat_error_unlock_ms: (!inconsistent)
+            .then(|| {
+                timing::median_signed(wins.iter().filter_map(|w| w.beat_error_unlock_ms), turned)
+            })
+            .flatten(),
+        unlock_inconsistent: inconsistent,
     }
+}
+
+/// Whether the unlock beat errors of `wins`, as the figure takes them
+/// (sizes where `turned`), disagree in sign more than their spread allows
+/// ([`crate::confidence::unlock_inconsistent`], #1439).
+pub fn unlock_inconsistent(wins: &[&AmplitudeWindow], turned: bool) -> bool {
+    let v: Vec<f64> = wins
+        .iter()
+        .filter_map(|w| w.beat_error_unlock_ms)
+        .map(|x| if turned { x.abs() } else { x })
+        .collect();
+    crate::confidence::unlock_inconsistent(&v)
 }
 
 /// The 2 s cells of the take's one tiling on true time (#636), from 0 to
@@ -555,6 +576,7 @@ pub fn floor_figures(
         beat_error_unlock_ms: keep(figures.beat_error_unlock_ms, |w| {
             w.beat_error_unlock_ms.is_some()
         }),
+        unlock_inconsistent: figures.unlock_inconsistent,
     }
 }
 
@@ -790,7 +812,20 @@ impl std::fmt::Display for BeatErrorSource {
 impl BeatErrorSource {
     /// The factual caveat for falling back to the drop.
     pub fn caveat(self) -> Option<crate::measure::Caveat> {
-        (self == Self::Drop).then_some(crate::measure::Caveat::BeatErrorFromDrop)
+        self.caveat_why(false)
+    }
+
+    /// [`Self::caveat`], naming why: the unlock found `inconsistent`
+    /// ([`WindowFigures::unlock_inconsistent`], #1439), else not found.
+    pub fn caveat_why(self, inconsistent: bool) -> Option<crate::measure::Caveat> {
+        use crate::measure::{Caveat, DropWhy};
+        (self == Self::Drop).then_some(Caveat::BeatErrorFromDrop {
+            why: if inconsistent {
+                DropWhy::UnlockInconsistent
+            } else {
+                DropWhy::UnlockNotFound
+            },
+        })
     }
 }
 
@@ -1124,7 +1159,10 @@ pub fn measure_masked(
             }
         }
     }
-    if let Some(caveat) = m.beat_error_source.and_then(BeatErrorSource::caveat) {
+    if let Some(caveat) = m
+        .beat_error_source
+        .and_then(|s| s.caveat_why(figures.unlock_inconsistent))
+    {
         crate::measure::add(&mut m.caveats, caveat);
     }
     m
@@ -2490,6 +2528,34 @@ mod reading_coverage_tests {
             } => Some((*windows_used, *windows_in_span)),
             _ => None,
         })
+    }
+
+    /// The YM42 run-down's hour 56 in small (#1439): four in five unlock
+    /// windows read about −5 ms and the rest the watch's +0.6 ms. The
+    /// unlock beat error is withheld, the drop's is shown, and the caveat
+    /// says the unlock was inconsistent, with no ± for it.
+    #[test]
+    fn an_inconsistent_unlock_falls_back_to_the_drop() {
+        use crate::measure::{Caveat, DropWhy};
+        let mut log = log();
+        for (i, w) in log.amplitude_windows.iter_mut().enumerate() {
+            let k = i as f64 * 0.01;
+            w.beat_error_unlock_ms = Some(if i % 5 == 4 { 0.6 + k } else { -5.0 - k });
+        }
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.beat_error_unlock_ms, None);
+        assert_eq!(m.beat_error_source, Some(BeatErrorSource::Drop));
+        assert!(m.beat_error_ms.is_some());
+        assert!(m.caveats.contains(&Caveat::BeatErrorFromDrop {
+            why: DropWhy::UnlockInconsistent
+        }));
+        assert_eq!(m.confidence.unwrap().beat_error.se, None);
+        // Its windows' own values, consistent, keep the unlock.
+        for (i, w) in log.amplitude_windows.iter_mut().enumerate() {
+            w.beat_error_unlock_ms = Some(0.6 + i as f64 * 0.001);
+        }
+        let m = measure(&log, None, 0.0, 60.0);
+        assert_eq!(m.beat_error_source, Some(BeatErrorSource::Unlock));
     }
 
     /// Power Reserve's last hour of the YM42 65 h take (#1429): 2 stray

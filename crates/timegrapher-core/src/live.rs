@@ -1013,7 +1013,9 @@ impl LiveAnalyzer {
         let beat_error_source =
             crate::session::chosen_beat_error(beat_error_unlock_ms, beat_error_ms)
                 .map(|(_, source)| source);
-        if let Some(caveat) = beat_error_source.and_then(crate::session::BeatErrorSource::caveat) {
+        if let Some(caveat) =
+            beat_error_source.and_then(|s| s.caveat_why(figures.unlock_inconsistent))
+        {
             measure::add(&mut caveats, caveat);
         }
         if masked_s > 0.0 {
@@ -1887,18 +1889,18 @@ mod tests {
         let unlock = live.reading_at(50.0, 20.0);
         assert_eq!(unlock.beat_error_source, Some(BeatErrorSource::Unlock));
         assert_eq!(unlock.beat_error_unlock_ms, Some(0.2));
-        assert!(!unlock.caveats.contains(&Caveat::BeatErrorFromDrop));
+        assert!(!unlock.caveats.contains(&Caveat::FROM_DROP));
         for w in &mut live.amp {
             w.beat_error_unlock_ms = None;
         }
         let drop = live.reading_at(50.0, 20.0);
         assert_eq!(drop.beat_error_source, Some(BeatErrorSource::Drop));
         assert_eq!(drop.beat_error_ms, unlock.beat_error_ms);
-        assert!(drop.caveats.contains(&Caveat::BeatErrorFromDrop));
+        assert!(drop.caveats.contains(&Caveat::FROM_DROP));
         assert_eq!(drop.beat_error_unlock_error_ms, None);
         let empty = LiveAnalyzer::new(48000, LiveConfig::default()).reading(20.0);
         assert_eq!(empty.beat_error_source, None);
-        assert!(!empty.caveats.contains(&Caveat::BeatErrorFromDrop));
+        assert!(!empty.caveats.contains(&Caveat::FROM_DROP));
     }
 
     /// A take's clock that drifts corrects each reading by its error over

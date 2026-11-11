@@ -129,7 +129,7 @@ impl Summary {
         self.beat_error_unlock_ms = None;
         self.beat_error_source = None;
         self.caveats
-            .retain(|c| *c != crate::measure::Caveat::BeatErrorFromDrop);
+            .retain(|c| !matches!(c, crate::measure::Caveat::BeatErrorFromDrop { .. }));
         self.rate_p05 = None;
         self.rate_p95 = None;
         self.amplitude_deg = None;
@@ -328,7 +328,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
         caveats,
         shape,
     };
-    settle_beat_error(&mut summary);
+    settle_beat_error(&mut summary, fits.figures.unlock_inconsistent);
     Analysis {
         summary,
         beats,
@@ -594,8 +594,9 @@ fn periods(
 }
 
 /// Withholds the readings where no watch is heard, and chooses the beat
-/// error shown, with its caveat.
-fn settle_beat_error(summary: &mut Summary) {
+/// error shown, with its caveat: why it is from the drop where it is, the
+/// unlock found `inconsistent` or not found (#1439).
+fn settle_beat_error(summary: &mut Summary, inconsistent: bool) {
     if !summary.watch_heard {
         summary.withhold_readings();
     }
@@ -606,7 +607,7 @@ fn settle_beat_error(summary: &mut Summary) {
     .map(|(_, source)| source);
     if let Some(caveat) = summary
         .beat_error_source
-        .and_then(crate::session::BeatErrorSource::caveat)
+        .and_then(|s| s.caveat_why(inconsistent))
     {
         crate::measure::add(&mut summary.caveats, caveat);
     }

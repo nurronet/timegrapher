@@ -238,7 +238,7 @@ pub fn notes(doc: &Value) -> Vec<String> {
 mod tests {
     #[test]
     fn live_limits_use_the_readings_core_caveats_once() {
-        let caveat = timegrapher_core::measure::Caveat::BeatErrorFromDrop;
+        let caveat = timegrapher_core::measure::Caveat::FROM_DROP;
         let doc = serde_json::json!({"schema": "timegrapher.live/1", "reading": {
             "beat_error_source": "drop", "clipped_fraction": 0.5,
             "caveats": [caveat]

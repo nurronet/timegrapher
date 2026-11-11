@@ -136,7 +136,7 @@ fn a_beat_error_says_where_its_sides_were_named_by_count() {
 
 #[test]
 fn a_drop_beat_error_caveat_belongs_only_on_beat_error() {
-    let caveats = [Caveat::BeatErrorFromDrop];
+    let caveats = [Caveat::FROM_DROP];
     let be = reading_limits("Beat Error", &caveats, 52.0, 30);
     assert_eq!(be.len(), 1);
     assert_eq!(be[0].0, "beat error from the drop");

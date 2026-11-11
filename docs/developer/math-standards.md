@@ -241,6 +241,8 @@ What each figure needs before it is shown today, and what happens when data is m
 | Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs:353` |
 | Amplitude reading | 1 window | No figure | `session.rs:583` |
 | Any ± | 3 values | No ± | `confidence.rs:129` |
+| Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` |
+| Unlock beat error, sign agreement | its windows' share on the median's side no more than max(0.18, 3 √(p(1 − p)/n)) short of p = Φ(\|median\| / robust SD); not judged with under 3 windows or no spread (#1439) | No unlock figure: the drop's beat error, its caveat saying the unlock was inconsistent | `confidence::unlock_inconsistent` |
 | Beats found | 95% of expected | Caveat, figure kept | `confidence.rs:18` |
 | Span heard | 10 s | Caveat, figure kept | `measure.rs:33` |
 | Positions Test row | 10 s in position | No row | `session.rs:1026` |

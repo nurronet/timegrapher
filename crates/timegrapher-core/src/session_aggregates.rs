@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(s.d_beat_error, Some(0.4));
         assert!(matches!(
             s.caveats.as_slice(),
-            [crate::measure::Caveat::BeatErrorFromDrop]
+            [crate::measure::Caveat::FROM_DROP]
         ));
     }
     #[test]

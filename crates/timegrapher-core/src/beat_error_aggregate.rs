@@ -140,10 +140,7 @@ mod tests {
             BeatErrorSources { unlock: 0, drop: 2 }
         );
         assert_eq!(selected.values, vec![(0, 0.6), (1, 0.8)]);
-        assert!(matches!(
-            selected.caveats().as_slice(),
-            [Caveat::BeatErrorFromDrop]
-        ));
+        assert!(matches!(selected.caveats().as_slice(), [Caveat::FROM_DROP]));
     }
 
     #[test]
