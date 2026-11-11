@@ -20,6 +20,32 @@ through the case and not through the air.
 | **A stand with its own amplifier box** | An audio output from the box, into the computer's line-in or microphone jack, often through an adapter cable. | Check the cable's wiring before you plug it in (below). |
 | **A desk, podcast, headset or laptop microphone** | Sound through the air. | It often hears the drop but not the unlock, so the rate works and the amplitude doesn't, and many apply voice processing to what they hear. Not a timegrapher microphone. |
 
+![A USB timegrapher stand: a contact pickup over a clamp that holds the watch, on a frame, with a USB cable](images/usb-stand.jpg)
+
+**A USB stand.** The pickup sits over a clamp that holds the watch
+against it, on a frame that sets the clamp at an angle. One USB cable
+carries both its power and its sound; the computer lists it as a
+microphone.
+
+![A USB cradle: a small block with a clip that holds the watch against the pickup, and a USB cable](images/usb-cradle.jpg)
+
+**A USB cradle.** A pickup in a small block, with a clip that holds the
+watch against it. It connects the same way as the stand.
+
+![A stand with its own timegrapher box, its cable split in two: one leg to the box, the other through an extension to a cable ending in a 3.5 mm plug](images/stand-box-line-in.jpg)
+
+**A stand with its own box,** here a "1900"-type timegrapher. The box
+powers the stand through the same cable that carries its sound, so the
+box stays connected and switched on. A splitter on the stand's cable
+sends the sound both to the box and, through a short extension, to a
+cable ending in a 3.5 mm plug for the computer's line-in jack.
+
+![The three cables: a splitter with one plug and two sockets, a cable from a socket to a 3.5 mm mono plug, and a short extension with a plug at each end](images/stand-adapter-cables.jpg)
+
+**The cables,** left to right: the splitter, the adapter to a 3.5 mm
+mono plug, and the extension. The adapter is the one to check before
+it goes near the computer.
+
 **Before you plug in an adapter cable** from a stand's own connector to
 an audio plug, check its wiring against the stand maker's diagram, or
 with a meter, rather than guessing:
