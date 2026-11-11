@@ -7,6 +7,42 @@ that gives a steady rate can still give a poor amplitude.
 The aim: firm contact, enough level, no clipping, and no processing of
 the sound on its way in.
 
+## Choosing a Microphone or Stand
+
+**What it has to do:** hear the quiet unlock as well as the loud drop.
+That takes the watch pressed against the pickup, so the sound travels
+through the case and not through the air.
+
+| Kind | What you get | Why it matters |
+| --- | --- | --- |
+| **A timegrapher stand or cradle** with a contact (piezo) pickup | The watch clamped against the pickup, held the same way each time, and turned to each of the six positions. | The setup this guide assumes. It hears the unlock, and the positions test (chapter 20) needs the clamp. |
+| **A USB stand** | Shows up as a microphone, by its name. | The easiest to connect. A cheap one often arrives with automatic gain on: turn it off (below). |
+| **A stand with its own amplifier box** | An audio output from the box, into the computer's line-in or microphone jack, often through an adapter cable. | Check the cable's wiring before you plug it in (below). |
+| **A desk, podcast, headset or laptop microphone** | Sound through the air. | It often hears the drop but not the unlock, so the rate works and the amplitude doesn't, and many apply voice processing to what they hear. Not a timegrapher microphone. |
+
+**Before you plug in an adapter cable** from a stand's own connector to
+an audio plug, check its wiring against the stand maker's diagram, or
+with a meter, rather than guessing:
+
+- Some stands carry their power on one pin of the same connector. Wired
+  to the plug's tip, it sends a steady voltage into the computer's input
+  and no ticks.
+- Only the stand's signal and its ground belong on the plug: the signal
+  on the tip, the ground on the sleeve.
+- A tip-and-sleeve (mono) plug in a stereo jack puts the signal on the
+  left channel, and the right channel can pick up hum. The app mixes the
+  channels to mono, so that hum is added to every tick: a low signal
+  figure, or hum in the Tick Tock Profile, can come from it.
+- On Linux, unplugging and replugging a jack can switch the sound card to
+  a different input, such as the rear microphone jack. If the stand goes
+  silent after a replug, check which input the desktop's sound settings
+  show before you check the wiring.
+
+**Check it works:** Quick Listen (chapter 2) with the watch on the stand.
+The signal figure (below) should be well above 4×, and the Tick Tock
+Profile (chapter 7) should show the quiet unlock as well as the drop. `timegrapher
+doctor` (below) gives the same checks from the command line.
+
 ## Settings > Microphone
 
 Open Settings with the gear at the right of the top row, **Edit >
