@@ -1633,20 +1633,21 @@ function steadinessCard(doc) {
   // (core's `summary`), the whole of it on hover.
   const name = (s) => (SERIES[s.series] || [s.series])[0];
   const titleLine = (s) => {
-    const t = s.summary ? `${name(s)} · ${s.summary}` : name(s);
-    return `<p class="series-name" title="${esc(t)}">${esc(name(s))}${s.summary ? `<span class="summary"> · ${esc(s.summary)}</span>` : ""}</p>`;
+    const sum = s.screen_summary || s.summary;
+    const t = sum ? `${name(s)} · ${sum}` : name(s);
+    return `<p class="series-name" title="${esc(t)}">${esc(name(s))}${sum ? `<span class="summary"> · ${esc(sum)}</span>` : ""}</p>`;
   };
   // The Info panel, as the app's: the view's description, then each
   // series' full headline and statistics, and how long was tested.
   const info = showInfo || !drawn
     ? `<div class="info">${drawn ? `<p class="hint">${esc(hint)}</p>` : ""}${series.map((s) => `<p class="series-name">${esc(name(s))}</p>
-      <p class="headline">${esc(s.headline || "")}</p>
+      <p class="headline">${esc(s.screen_headline || s.headline || "")}</p>
       <p class="stats">${esc(steadyStats(s))}</p>`).join("")}<p class="sub off">${esc(status)}</p></div>`
     : "";
   // A series' own caveats, in the server's (core's) words, under its title.
   const caveats = (s) => s.limits && s.limits.length
     ? s.limits.map((t) => `<p class="series-caveat">${esc(t)}</p>`).join("") : "";
-  const plots = drawn ? series.map((s) => `${titleLine(s)}${caveats(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.headline || "")}</p>`}`).join("") : "";
+  const plots = drawn ? series.map((s) => `${titleLine(s)}${caveats(s)}${tested(s) ? steadyPlot(s, steadyView, doc) : `<p class="headline">${esc(s.screen_headline || s.headline || "")}</p>`}`).join("") : "";
   return `<div class="card"><h2>Steadiness</h2><p class="hint">How the rate, amplitude and beat error each move over the session: what was detected in each (a cycle, two levels, level changes, a trend, or none), with the statistics behind it</p>
     ${drawn ? `<div class="seg" role="group" aria-label="View">${offered.map(([key, label]) => `<button data-steady="${key}" aria-pressed="${key === steadyView}">${esc(label)}</button>`).join("")}</div>
     <div class="seg" role="group" aria-label="Switches">${steadySwitch()}<button data-switch="info" aria-pressed="${showInfo}" title="${esc(INFO_HINT)}">Info</button></div>` : ""}${info}${plots}</div>`;
