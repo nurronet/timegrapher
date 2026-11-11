@@ -221,6 +221,27 @@ impl DropWhy {
         *self == Self::UnlockNotFound
     }
 
+    /// The reason in a few words, as the command line gives it beside a
+    /// beat error from the drop.
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::UnlockNotFound => "unlock not found",
+            Self::UnlockInconsistent => "the unlock's signs disagree beyond their spread",
+        }
+    }
+
+    /// The reason `caveats` give for a beat error from the drop; not found
+    /// where they give none.
+    pub fn of(caveats: &[Caveat]) -> Self {
+        caveats
+            .iter()
+            .find_map(|c| match c {
+                Caveat::BeatErrorFromDrop { why } => Some(*why),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+
     /// The caveat's sentence for this reason, as a reading's hover gives it.
     pub fn sentence(self) -> &'static str {
         match self {

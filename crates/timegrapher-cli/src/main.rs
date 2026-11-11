@@ -1489,8 +1489,14 @@ fn opt(v: Option<f64>, digits: usize) -> String {
     v.map_or("-".into(), |x| fixed_text(x, digits))
 }
 
-/// Beat error from the unlock as the headline, with the drop's alongside.
-pub fn beat_error_text(unlock_ms: Option<f64>, drop_ms: f64) -> String {
+/// Beat error from the unlock as the headline, with the drop's alongside;
+/// from the drop, why (`why`, core's reason: the unlock not found, or its
+/// signs disagreeing, #1439).
+pub fn beat_error_text(
+    unlock_ms: Option<f64>,
+    drop_ms: f64,
+    why: timegrapher_core::measure::DropWhy,
+) -> String {
     match unlock_ms {
         Some(u) => format!(
             "{} ms (from the unlock; {} ms from the drop)",
@@ -1498,8 +1504,9 @@ pub fn beat_error_text(unlock_ms: Option<f64>, drop_ms: f64) -> String {
             fixed_text(drop_ms.abs(), base_digits::BEAT_ERROR)
         ),
         None => format!(
-            "{} ms from the drop (unlock not found)",
-            fixed_text(drop_ms.abs(), base_digits::BEAT_ERROR)
+            "{} ms from the drop ({})",
+            fixed_text(drop_ms.abs(), base_digits::BEAT_ERROR),
+            why.words()
         ),
     }
 }
@@ -1613,7 +1620,11 @@ fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, Stri
             ),
             _ => println!(
                 "Beat error   {}",
-                beat_error_text(s.beat_error_unlock_ms, f.beat_error_ms)
+                beat_error_text(
+                    s.beat_error_unlock_ms,
+                    f.beat_error_ms,
+                    timegrapher_core::measure::DropWhy::of(&s.caveats)
+                )
             ),
         }
     } else {
@@ -2016,6 +2027,26 @@ mod numeric_input_tests {
             "--no-audio"
         ])
         .is_ok());
+    }
+}
+
+#[cfg(test)]
+mod beat_error_wording {
+    use super::*;
+    use timegrapher_core::measure::{Caveat, DropWhy};
+
+    #[test]
+    fn a_beat_error_from_the_drop_says_why() {
+        let inconsistent = [Caveat::BeatErrorFromDrop {
+            why: DropWhy::UnlockInconsistent,
+        }];
+        let why = DropWhy::of(&inconsistent);
+        assert_eq!(why, DropWhy::UnlockInconsistent);
+        let text = beat_error_text(None, 0.45, why);
+        assert!(text.contains(DropWhy::UnlockInconsistent.words()), "{text}");
+        assert!(!text.contains(DropWhy::UnlockNotFound.words()), "{text}");
+        let text = beat_error_text(None, 0.45, DropWhy::of(&[Caveat::FROM_DROP]));
+        assert!(text.contains(DropWhy::UnlockNotFound.words()), "{text}");
     }
 }
 
