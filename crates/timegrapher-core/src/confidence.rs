@@ -1120,6 +1120,19 @@ mod sign_agreement_tests {
         assert!(unlock_inconsistent(&v));
     }
 
+    /// The line sits at 0.18, above the 0.127 the healthy corpus reaches
+    /// (#1439): many windows with 15% across zero, where the spread
+    /// predicts almost none, are not judged inconsistent.
+    #[test]
+    fn a_shortfall_below_the_line_is_consistent() {
+        let mut v = spread(-4.9, 0.8, 1700);
+        v.extend(spread(0.6, 0.1, 300));
+        let a = sign_agreement(&v).unwrap();
+        assert!((a.shortfall() - 0.15).abs() < 0.01, "{a:?}");
+        assert_eq!(a.line, MAX_SIGN_SHORTFALL, "{a:?}");
+        assert!(!unlock_inconsistent(&v), "{a:?}");
+    }
+
     /// A steady watch, and one whose beat error is near zero: its windows
     /// fall either side as their spread predicts, and neither is judged
     /// inconsistent.
