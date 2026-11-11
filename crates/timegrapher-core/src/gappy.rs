@@ -205,15 +205,10 @@ fn weights(y: &[f64], stretch: &[usize]) -> Vec<f64> {
     w
 }
 
-/// The Lomb–Scargle periodogram of the finite readings of `g`, from four
-/// readings' period to a third of the span, with its peaks named after
-/// `wheels`. `None` with fewer than 20 readings or no band.
-pub fn spectrum(
-    g: &Grid,
-    series: &'static str,
-    unit: &'static str,
-    wheels: &[Wheel],
-) -> Option<GappySpectrum> {
+/// The finite readings of `g`: their times, values and stretch numbers.
+/// A stretch is a run of readings with no gap between them, numbered
+/// from 0; a gap starts the next.
+fn readings(g: &Grid) -> (Vec<f64>, Vec<f64>, Vec<usize>) {
     let (mut t, mut y, mut stretch) = (Vec::new(), Vec::new(), Vec::new());
     let mut k = 0;
     let mut prev_finite = false;
@@ -228,6 +223,19 @@ pub fn spectrum(
         }
         prev_finite = v.is_finite();
     }
+    (t, y, stretch)
+}
+
+/// The Lomb–Scargle periodogram of the finite readings of `g`, from four
+/// readings' period to a third of the span, with its peaks named after
+/// `wheels`. `None` with fewer than 20 readings or no band.
+pub fn spectrum(
+    g: &Grid,
+    series: &'static str,
+    unit: &'static str,
+    wheels: &[Wheel],
+) -> Option<GappySpectrum> {
+    let (t, y, stretch) = readings(g);
     let n = t.len();
     if n < 20 {
         return None;
@@ -451,5 +459,198 @@ mod tests {
             s.peaks[0]
         );
         assert!(s.peaks[0].false_alarm < 1e-3, "{:?}", s.peaks[0]);
+    }
+
+    // The rules below were each left unpinned by a mutant run (#1421).
+
+    fn noise(seed: u64, n: usize) -> Grid {
+        let mut rng = Rng::new(seed);
+        grid(10.0, n, |_| rng.normal())
+    }
+
+    #[test]
+    fn twenty_readings_are_the_least_for_a_spectrum() {
+        assert!(spectrum(&noise(1, 19), "rate", "s/d", &[]).is_none());
+        let s = spectrum(&noise(1, 20), "rate", "s/d", &[]).unwrap();
+        assert_eq!(s.readings, 20);
+        // Gaps don't count: 30 slots with 11 empty are 19 readings.
+        let mut g = noise(1, 30);
+        g.y[5..16].iter_mut().for_each(|v| *v = f64::NAN);
+        assert!(spectrum(&g, "rate", "s/d", &[]).is_none());
+    }
+
+    #[test]
+    fn the_band_runs_from_a_third_of_the_span_to_four_readings_longest_first() {
+        let g = noise(2, 2000);
+        let s = spectrum(&g, "rate", "s/d", &[]).unwrap();
+        let span = 1999.0 * 10.0;
+        assert_eq!(s.span_s, span);
+        // The longest period is three cycles over the span exactly.
+        assert!(
+            (s.period_s[0] / (span / 3.0) - 1.0).abs() < 1e-9,
+            "{}",
+            s.period_s[0]
+        );
+        // The shortest is four readings' period, within one slice of the
+        // thinned log axis.
+        let last = *s.period_s.last().unwrap();
+        assert!((last / 40.0 - 1.0).abs() < 0.02, "{last}");
+        assert!(s.period_s.len() <= MAX_POINTS);
+        assert!(s.period_s.windows(2).all(|p| p[0] > p[1]));
+        assert_eq!(s.power.len(), s.period_s.len());
+        assert_eq!(s.window.len(), s.period_s.len());
+    }
+
+    #[test]
+    fn thinning_keeps_each_slices_strongest_point() {
+        // A 60 s line sits where many frequencies share a slice of the
+        // log axis; the thinned curve must still hold its top.
+        let mut rng = Rng::new(3);
+        let g = grid(10.0, 2000, |t| {
+            (std::f64::consts::TAU * t / 60.0).sin() + 0.5 * rng.normal()
+        });
+        let s = spectrum(&g, "rate", "s/d", &[]).unwrap();
+        assert!((s.peaks[0].period_s / 60.0 - 1.0).abs() < 0.01);
+        let top = s.power.iter().copied().fold(0.0, f64::max);
+        assert_eq!(top, s.peaks[0].power);
+    }
+
+    #[test]
+    fn noise_keeps_eight_peaks_strongest_first() {
+        let s = spectrum(&noise(4, 2000), "rate", "s/d", &[]).unwrap();
+        assert_eq!(s.peaks.len(), 8);
+        assert!(s.peaks.windows(2).all(|p| p[0].power >= p[1].power));
+    }
+
+    #[test]
+    fn a_peaks_window_power_is_the_highest_within_one_resolution_width() {
+        let mut rng = Rng::new(5);
+        let g = grid(10.0, 4320, |t| {
+            if t % 1800.0 < 300.0 {
+                f64::NAN
+            } else {
+                rng.normal()
+            }
+        });
+        let s = spectrum(&g, "rate", "s/d", &[]).unwrap();
+        let (t, _, _) = readings(&g);
+        let t: Vec<f64> = t.iter().map(|v| v - t[0]).collect();
+        let (fmin, fmax) = (3.0 / s.span_s, 1.0 / 40.0);
+        let df = 1.0 / (OVERSAMPLE * s.span_s);
+        let nf = ((fmax - fmin) / df).floor() as usize + 1;
+        let win = window(&t, fmin, df, nf);
+        let width = OVERSAMPLE.round() as usize;
+        let mut wider = 0;
+        for p in &s.peaks {
+            let k = ((1.0 / p.period_s - fmin) / df).round() as usize;
+            let near = win[k - width..=(k + width).min(nf - 1)]
+                .iter()
+                .copied()
+                .fold(0.0, f64::max);
+            assert_eq!(p.window_power, near, "{p:?}");
+            assert_eq!(p.on_window_line, near >= WINDOW_LINE);
+            wider += (near > win[k]) as usize;
+        }
+        // The test means something only if the width matters somewhere.
+        assert!(wider > 0);
+    }
+
+    #[test]
+    fn the_false_alarm_matches_baluevs_formula_by_hand() {
+        // n = 50 readings 10 s apart, equal weights, z = 0.3.
+        let n = 50;
+        let t: Vec<f64> = (0..n).map(|i| 10.0 * i as f64).collect();
+        let w = vec![1.0 / n as f64; n];
+        // One frequency (fmax = 0, so no band): (1 - z)^((n - 3) / 2)
+        // = 0.7^23.5.
+        let single = false_alarm(0.3, n, 0.0, &t, &w);
+        assert!((single / 0.7f64.powf(23.5) - 1.0).abs() < 1e-12, "{single}");
+        assert!((single - 2.289_833_687_6e-4).abs() < 1e-13, "{single}");
+        // Over a band to 0.01 Hz: var(t) = 100 (n^2 - 1) / 12 = 20825 s^2,
+        // W = fmax sqrt(4 pi var(t)), gamma from ln Gamma(24.5) and
+        // ln Gamma(24), tau = gamma W 0.7^23 sqrt(24.5 z) = 0.0037373,
+        // and 1 - (1 - single) e^-tau. Worked in Python's math module.
+        let band = false_alarm(0.3, n, 0.01, &t, &w);
+        assert!((band - 0.003_958_444_382_75).abs() < 1e-12, "{band}");
+        // Too few readings for the bound: 1.
+        assert_eq!(false_alarm(0.9, 4, 0.01, &t[..4], &w[..4]), 1.0);
+    }
+
+    #[test]
+    fn a_gap_starts_a_new_stretch() {
+        let mut g = noise(6, 12);
+        for i in [0, 4, 5, 9] {
+            g.y[i] = f64::NAN;
+        }
+        let (t, y, stretch) = readings(&g);
+        // Each reading at its slot's middle.
+        assert_eq!(t, vec![15.0, 25.0, 35.0, 65.0, 75.0, 85.0, 105.0, 115.0]);
+        assert_eq!(y.len(), 8);
+        assert_eq!(stretch, vec![0, 0, 0, 1, 1, 1, 2, 2]);
+    }
+
+    #[test]
+    fn a_jump_in_level_across_a_gap_is_not_scatter() {
+        // Two stretches of the same noise; lifting the second by 1000
+        // must leave every weight as it was.
+        let mut rng = Rng::new(7);
+        let mut y: Vec<f64> = (0..200).map(|_| rng.normal()).collect();
+        // The step across the gap is 0 unlifted, below every median, so
+        // read as scatter the lift would move the weights near the gap.
+        y[100] = y[99];
+        let stretch: Vec<usize> = (0..200).map(|i| (i >= 100) as usize).collect();
+        let lifted: Vec<f64> = y
+            .iter()
+            .zip(&stretch)
+            .map(|(v, &k)| v + 1000.0 * k as f64)
+            .collect();
+        // Equal but for rounding: 1000 + x carries fewer of x's digits.
+        let (a, b) = (weights(&y, &stretch), weights(&lifted, &stretch));
+        for (u, v) in a.iter().zip(&b) {
+            assert!((u / v - 1.0).abs() < 1e-9, "{u} {v}");
+        }
+    }
+
+    #[test]
+    fn a_reading_with_few_neighbours_takes_the_median_weight() {
+        // A long stretch whose steps are all 0.2, then a stretch of four
+        // readings (three steps, under five) whose steps are 1. The four
+        // have too few steps for a scatter of their own, so they take the
+        // long stretch's weight, and every weight is 1 / n.
+        let mut y: Vec<f64> = (0..60)
+            .map(|i| if i % 2 == 0 { 0.0 } else { 0.2 })
+            .collect();
+        y.extend([5.0, 6.0, 5.0, 6.0]);
+        let stretch: Vec<usize> = (0..64).map(|i| (i >= 60) as usize).collect();
+        let w = weights(&y, &stretch);
+        for v in &w {
+            assert!((v - 1.0 / 64.0).abs() < 1e-15, "{w:?}");
+        }
+    }
+
+    #[test]
+    fn for_take_reads_rate_amplitude_and_beat_error_in_that_order() {
+        let s = crate::scenarios::find("rub").unwrap();
+        let log = crate::scenarios::beat_log(&s, 1);
+        let lc = crate::longterm::LongConfig {
+            wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+            ..Default::default()
+        };
+        let long = crate::longrun::analyse(&log, None, &lc);
+        let out = for_take(&log, long.clock.as_ref(), &long, &lc, 10.0);
+        let names: Vec<(&str, &str)> = out.iter().map(|s| (s.series, s.unit)).collect();
+        assert_eq!(
+            names,
+            [("rate", "s/d"), ("amplitude", "deg"), ("beat_error", "ms")]
+        );
+        // Each is read from its own grid.
+        let grids =
+            crate::steadiness::reading_grids(&log, long.clock.as_ref(), &long.breaks, 10.0).0;
+        for (s, g) in out.iter().zip(&grids) {
+            let d = crate::longterm::detrend(g, lc.detrend_s);
+            let direct = spectrum(&d, s.series, s.unit, &lc.wheels).unwrap();
+            assert_eq!(s.readings, direct.readings, "{}", s.series);
+            assert_eq!(s.power, direct.power, "{}", s.series);
+        }
     }
 }
