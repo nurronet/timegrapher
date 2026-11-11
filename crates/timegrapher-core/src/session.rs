@@ -2530,19 +2530,19 @@ mod reading_coverage_tests {
         })
     }
 
-    /// The YM42 run-down's hour 56 in small (#1439): four in five unlock
-    /// windows read about −5 ms and the rest the watch's +0.6 ms. The
-    /// unlock beat error is withheld, the drop's is shown, and the caveat
-    /// says the unlock was inconsistent, with no ± for it.
+    /// The YM42 run-down's hour 56 in small (#1439): over 10 minutes, four
+    /// in five unlock windows read about −5 ms and the rest the watch's
+    /// +0.6 ms. The unlock beat error is withheld, the drop's is shown, and
+    /// the caveat says the unlock was inconsistent, with no ± for it.
     #[test]
     fn an_inconsistent_unlock_falls_back_to_the_drop() {
         use crate::measure::{Caveat, DropWhy};
-        let mut log = log();
+        let mut log = long_log(10);
         for (i, w) in log.amplitude_windows.iter_mut().enumerate() {
-            let k = i as f64 * 0.01;
+            let k = i as f64 * 0.001;
             w.beat_error_unlock_ms = Some(if i % 5 == 4 { 0.6 + k } else { -5.0 - k });
         }
-        let m = measure(&log, None, 0.0, 60.0);
+        let m = measure(&log, None, 0.0, 600.0);
         assert_eq!(m.beat_error_unlock_ms, None);
         assert_eq!(m.beat_error_source, Some(BeatErrorSource::Drop));
         assert!(m.beat_error_ms.is_some());
@@ -2554,7 +2554,7 @@ mod reading_coverage_tests {
         for (i, w) in log.amplitude_windows.iter_mut().enumerate() {
             w.beat_error_unlock_ms = Some(0.6 + i as f64 * 0.001);
         }
-        let m = measure(&log, None, 0.0, 60.0);
+        let m = measure(&log, None, 0.0, 600.0);
         assert_eq!(m.beat_error_source, Some(BeatErrorSource::Unlock));
     }
 

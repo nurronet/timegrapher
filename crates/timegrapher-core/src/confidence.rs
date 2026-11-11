@@ -61,8 +61,9 @@ pub fn normal_cdf(x: f64) -> f64 {
 /// How a reading's unlock beat errors `values` agree in sign: the share
 /// that the spread predicts on the median's side, Φ(|median| / robust SD),
 /// the share observed there, and the line the shortfall must pass to call
-/// them inconsistent, `max(MAX_SIGN_SHORTFALL, 3 √(p(1 − p)/n))` so a few
-/// windows never trip it on noise alone. None with fewer than
+/// them inconsistent, `max(MAX_SIGN_SHORTFALL, 3 √(q(1 − q)/n))`, q the
+/// predicted or the observed share, whichever varies more, so a few windows
+/// never trip it on noise alone. None with fewer than
 /// [`MIN_VALUES`] or no spread.
 pub fn sign_agreement(values: &[f64]) -> Option<SignAgreement> {
     let v: Vec<f64> = values.iter().copied().filter(|x| x.is_finite()).collect();
@@ -78,7 +79,11 @@ pub fn sign_agreement(values: &[f64]) -> Option<SignAgreement> {
     let predicted = normal_cdf(med.abs() / sd);
     let side = |x: f64| x.partial_cmp(&0.0) == med.partial_cmp(&0.0);
     let observed = v.iter().filter(|&&x| side(x)).count() as f64 / n as f64;
-    let line = MAX_SIGN_SHORTFALL.max(3.0 * (predicted * (1.0 - predicted) / n as f64).sqrt());
+    // The share's own noise, by the larger of its variance at the
+    // predicted share and at the observed: a tight cluster predicts nearly
+    // 1, and one stray window of five must not trip it.
+    let var = (predicted * (1.0 - predicted)).max(observed * (1.0 - observed));
+    let line = MAX_SIGN_SHORTFALL.max(3.0 * (var / n as f64).sqrt());
     Some(SignAgreement {
         predicted,
         observed,
@@ -1127,7 +1132,7 @@ mod sign_agreement_tests {
         assert!(!unlock_inconsistent(&near_zero));
     }
 
-    /// The line widens for few windows, to 3 √(p(1 − p)/n), so a short
+    /// The line widens for few windows, to 3 √(q(1 − q)/n), so a short
     /// reading is not judged on noise alone: 10 values with 4 across zero
     /// predict p ≈ 0.69, and their line is ≈ 0.44, where 1,000 of the same
     /// shape have 0.18.
@@ -1140,10 +1145,21 @@ mod sign_agreement_tests {
             sign_agreement(&v).unwrap()
         };
         let (few, many) = (shape(10), shape(1000));
-        let wide = 3.0 * (few.predicted * (1.0 - few.predicted) / 10.0).sqrt();
+        let var = |p: f64| p * (1.0 - p);
+        let wide = 3.0 * (var(few.predicted).max(var(few.observed)) / 10.0).sqrt();
         assert!((few.line - wide).abs() < 1e-12, "{few:?}");
         assert!(few.line > 0.4, "{few:?}");
         assert_eq!(many.line, MAX_SIGN_SHORTFALL, "{many:?}");
+        // A tight cluster with one stray of 5 (a live 10 s reading) or 2
+        // of 10 is not judged inconsistent: the line follows the observed
+        // share's noise too (Norm's HOLD on #1458).
+        for (n, stray) in [(5, 1), (10, 2)] {
+            let mut v = spread(0.5, 0.02, n - stray);
+            v.extend(vec![-0.4; stray]);
+            let a = sign_agreement(&v).unwrap();
+            assert!(a.shortfall() > MAX_SIGN_SHORTFALL, "{a:?}");
+            assert!(!unlock_inconsistent(&v), "{n}: {a:?}");
+        }
         // Too few values, or no spread, are not judged.
         assert!(sign_agreement(&[1.0, -1.0]).is_none());
         assert!(sign_agreement(&[0.5; 20]).is_none());
