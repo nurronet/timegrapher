@@ -29,6 +29,12 @@ with a meter, rather than guessing:
   and no ticks.
 - Only the stand's signal and its ground belong on the plug: the signal
   on the tip, the ground on the sleeve.
+- **An example:** the inexpensive "1900"-type timegrapher stands, with a
+  three-pin GX16 connector between the stand and its box, carry +8 V on
+  pin 1, the signal on pin 2 and ground on pin 3. An adapter to a 3.5 mm
+  plug takes pin 2 to the tip and pin 3 to the sleeve, and leaves pin 1
+  unconnected. Measure your own stand's pins before you rely on this: a
+  different stand can differ.
 - A tip-and-sleeve (mono) plug in a stereo jack puts the signal on the
   left channel, and the right channel can pick up hum. The app mixes the
   channels to mono, so that hum is added to every tick: a low signal
