@@ -532,6 +532,7 @@ fn no_direction_is_named_within_the_noise_or_without_a_pm() {
         .collect();
     let f = fit(&quiet, None).unwrap();
     assert!(!clear(&f.wave.size));
+    assert!(!f.wave_clear);
     assert!(
         f.short_text.contains("not clear of the noise"),
         "{}",
@@ -673,6 +674,7 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
         [Caveat::AmplitudeWave { .. }]
     ));
     assert!(clear(&f.wave.size));
+    assert!(f.wave_clear, "the JSON flag agrees with the words");
     assert!((f.wave.size.value - 44.4).abs() < 0.05, "{}", f.text);
     assert!((f.wave.peak_deg.value - 217.0).abs() < 0.5, "{}", f.text);
     assert!(
