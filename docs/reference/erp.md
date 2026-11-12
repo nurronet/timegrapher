@@ -59,7 +59,7 @@ Each position's figures come from the summary and are rounded to six decimals, s
 | Position name (`Dial Up`, `Crown Left`, ...) | The reading's position, named by core's `Position` |
 | `rate_s_per_day`, `amplitude_deg` | The reading's measurement |
 | `beat_error_ms` | Core's `beat_error_size` over the unlock and drop figures: from the unlock where found, as a size |
-| `duration_seconds` | Core's `measured_seconds`: the stretch measured, less what was masked |
+| `duration_seconds` | The stretch measured, less what was masked (`end_s - start_s - masked_s`, as core's `Measurement::measured_s`) |
 | `beat_frequency_bph` | The reading's beat rate |
 | `lift_angle_deg` | The session's lift angle, when it has one |
 

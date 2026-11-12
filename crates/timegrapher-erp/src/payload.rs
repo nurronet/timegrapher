@@ -2,9 +2,11 @@
 //! `timegrapher session` summary.
 //!
 //! Every figure comes from core: the summary's own numbers, the beat error
-//! by core's rule ([`session::beat_error_size`]), the seconds measured by
-//! core's subtraction ([`session::measured_seconds`]) and the position's
-//! name from core's [`Position`]. Nothing here compares a reading with a
+//! by core's rule ([`session::beat_error_size`]), the seconds measured
+//! ([`measured_seconds`], which repeats what core's
+//! `Measurement::measured_s` does, so this crate builds against core as
+//! it is) and the position's name from core's [`Position`]. Nothing here
+//! compares a reading with a
 //! limit; the ERP does that against the QA standard.
 //!
 //! The ERP rebuilds the signed bytes from the numbers it parses, so each
@@ -99,6 +101,17 @@ pub struct Context {
     pub measurement_type: String,
     /// UTC, `2026-11-11T09:30:00Z`.
     pub timestamp_iso: String,
+}
+
+/// The seconds measured, from a reading's `start_s`, `end_s` and
+/// `masked_s` as the session JSON gives them: the stretch read, less what
+/// was masked out. `masked_s` is left out of the JSON when it is zero, so
+/// the caller passes 0. This repeats core's `Measurement::measured_s`
+/// (`end_s - start_s - masked_s`) because a program that holds only the
+/// JSON has no `Measurement` to ask. Keep the two the same: the tests below
+/// pin the arithmetic, with and without `masked_s`.
+fn measured_seconds(start_s: f64, end_s: f64, masked_s: f64) -> f64 {
+    end_s - start_s - masked_s
 }
 
 /// `x` as it reads when written with six decimals, so that the number signed
@@ -232,7 +245,7 @@ fn one_reading(
         ));
     }
     let number = |key: &str| m[key].as_f64();
-    let measured = session::measured_seconds(
+    let measured = measured_seconds(
         number("start_s").unwrap_or(0.0),
         number("end_s").unwrap_or(0.0),
         number("masked_s").unwrap_or(0.0),
@@ -289,6 +302,18 @@ mod tests {
         json!({"start_s": 20.0, "end_s": 80.0, "masked_s": 10.0, "beats": 100,
                "rate_s_per_day": rate, "beat_error_ms": -0.25, "beat_error_unlock_ms": -0.4,
                "amplitude_deg": 285.5, "watch_heard": true})
+    }
+
+    #[test]
+    fn the_seconds_measured_are_the_stretch_less_what_was_masked() {
+        assert_eq!(measured_seconds(20.0, 80.0, 10.0), 50.0);
+        // masked_s is left out of the JSON when zero, so 0 is passed
+        assert_eq!(measured_seconds(20.0, 80.0, 0.0), 60.0);
+        // a reading that gave no masked_s is read the same as a zero one
+        let mut m = full(1.0);
+        m.as_object_mut().unwrap().remove("masked_s");
+        let figures = read_summary(&summary(vec![reading("3H", m)])).unwrap();
+        assert_eq!(figures.results[0].duration_seconds, Some(60.0));
     }
 
     #[test]
