@@ -53,8 +53,8 @@ pub enum Ending {
     /// still ran ([`from_long_take`]).
     TakeEnded,
     /// A take that isn't a Power Reserve Test, read while still being
-    /// heard, the watch still running at its last sound
-    /// ([`Results::still_listening`]): the run so far.
+    /// heard, with no stop found yet ([`STOP_AFTER_S`] of silence not yet
+    /// passed; [`Results::still_listening`]): the run so far.
     Listening,
     /// The recording failed (a full disk, say) while the watch still ran:
     /// the run is at least as long as heard, never a stop of the watch.
@@ -75,7 +75,7 @@ impl Ending {
                 limit_text()
             ),
             Ending::TakeEnded => "The take ended while the watch still ran".to_string(),
-            Ending::Listening => "Still listening, the watch still running".to_string(),
+            Ending::Listening => "Still listening, no stop found yet".to_string(),
             Ending::RecordingFailed => "The recording failed while the watch still ran".to_string(),
         }
     }
@@ -743,8 +743,8 @@ mod tests {
         assert_eq!(
             r.sentence("DU"),
             format!(
-                "Ran at least {} in DU from the take's start. Still listening, the watch \
-                 still running. Read from a long take, not a Power Reserve Test.",
+                "Ran at least {} in DU from the take's start. Still listening, no stop \
+                 found yet. Read from a long take, not a Power Reserve Test.",
                 run_text(r.run_s)
             )
         );
