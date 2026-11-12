@@ -157,8 +157,9 @@ lead of noise and the sound where it starts is another rate, it reads the
 recording again at that rate; when no watch is heard, it guesses again as
 `session` reads a file, afresh at each 47 s chunk's sound until a watch is
 heard, and reads the recording at that rate. Either way it keeps the second
-reading only when it hears a watch, so a long lead of stand noise before a
-slow watch does not set the rate (#1423). It
+reading only when it hears a watch and the first does not, or both do and
+its rate fit's residuals (robust SD) are smaller, so a long lead of stand
+noise before a slow watch does not set the rate (#1423). It
 uses 52° and a 15-tooth escape wheel for its search, and
 names no periodic component after a wheel unless `--escape-teeth` gives
 the escape wheel. The calibre and

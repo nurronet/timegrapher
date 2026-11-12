@@ -268,10 +268,31 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     }
     let again = read_take(audio, cfg, Some(settled));
     let again = analyze_read(audio, cfg, &env, again, (settled, settled));
-    if again.summary.watch_heard {
+    if reads_better(&again.summary, &first.summary) {
         again
     } else {
         first
+    }
+}
+
+/// Whether a second read of a recording (`again`, at another rate) is
+/// kept over the first (#1423): when it hears a watch and the first does
+/// not, or both do and its rate fit's residuals (robust SD, seconds,
+/// over the beats kept) are smaller. A read at a harmonic of the watch's
+/// rate sets beats on the wrong sound or between beats, so its residuals
+/// are larger. A tie keeps the first.
+pub fn reads_better(again: &Summary, first: &Summary) -> bool {
+    if !again.watch_heard {
+        return false;
+    }
+    if !first.watch_heard {
+        return true;
+    }
+    let sd = |s: &Summary| s.overall.map(|f| f.jitter_us);
+    match (sd(again), sd(first)) {
+        (Some(a), Some(f)) => a < f,
+        (Some(_), None) => true,
+        _ => false,
     }
 }
 

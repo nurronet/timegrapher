@@ -4,8 +4,9 @@
 
 use timegrapher_core::audio::Audio;
 use timegrapher_core::measure::{Caveat, RATE_WINDOW_STEP_S};
+use timegrapher_core::stream::StreamConfig;
 use timegrapher_core::synth::{generate, noise_rms, Rng, SynthConfig, SCALE};
-use timegrapher_core::{analyze, take, AnalysisConfig};
+use timegrapher_core::{analysis::reads_better, analyze, take, AnalysisConfig};
 
 /// `noise_s` of the synthetic stand noise (as the live tests make it),
 /// then `watch_s` of a watch at +5 s/d and 270°.
@@ -285,25 +286,33 @@ fn an_entrys_lead_is_counted_from_its_own_start() {
 /// the noise's end, plus one lead window step and 0.5 s: at 14,400 after
 /// 120 s it runs to 141 s, where the watch's first 21 s, in a chunk that
 /// opens on noise, track too loosely to be kept. Its rate is still the
-/// watch's. Seeds 5 and 33 are the ones the lead work was built on.
-/// Seeds 3011 to 3019 were run once after the change; 3012 found a jump
-/// in the noise taken as the watch's start, across windows missing
-/// there. Seeds 3031 to 3039 were run once after that fix.
+/// watch's. Seeds 5 and 33 are the ones the lead work was built on and
+/// keep the bounds read off them. Each later set was run once: 3011 to
+/// 3019 found a jump in the noise taken as the watch's start (3012),
+/// 3031 to 3039 a watch read at the noise's rate (3034), and 3071 to
+/// 3079 and 3091 to 3099, at 120 s and one per rate at 60 to 90 s,
+/// passed.
 #[test]
 fn a_long_noise_lead_does_not_set_the_rate() {
+    // The seeds the lead work was built on keep the bounds read off them.
     let mut cases = vec![
-        (14_400, 120.0, 5),
-        (18_000, 120.0, 5),
-        (19_800, 120.0, 5),
-        (14_400, 90.0, 33),
+        (14_400, 120.0, 5, 141.5),
+        (18_000, 120.0, 5, 130.0),
+        (19_800, 120.0, 5, 130.0),
+        (14_400, 90.0, 33, 100.0),
     ];
+    let chunk_s = StreamConfig::default().chunk_s;
+    let bound = |noise_s: f64| (noise_s / chunk_s).ceil() * chunk_s + RATE_WINDOW_STEP_S + 0.5;
     for (i, bph) in [14_400, 18_000, 19_800].into_iter().enumerate() {
-        for first in [3011, 3031] {
-            cases.extend((0..3).map(|k| (bph, 120.0, first + 3 * i as u64 + k)));
+        let noise_s = [60.0, 75.0, 90.0][i];
+        for first in [3071, 3091] {
+            cases.push((bph, noise_s, first + 3 * i as u64, bound(noise_s)));
+        }
+        for first in [3011, 3031, 3071, 3091] {
+            cases.extend((0..3).map(|k| (bph, 120.0, first + 3 * i as u64 + k, bound(120.0))));
         }
     }
-    for (bph, noise_s, seed) in cases {
-        let lead_to = (noise_s / CHUNK_S).ceil() * CHUNK_S + RATE_WINDOW_STEP_S + 0.5;
+    for (bph, noise_s, seed, lead_to) in cases {
         let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
         let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
         let want = analyze(&alone, &AnalysisConfig::default()).summary;
@@ -328,9 +337,6 @@ fn a_long_noise_lead_does_not_set_the_rate() {
     }
 }
 
-/// The stream's chunk, in seconds: `analyze` guesses again from each.
-const CHUNK_S: f64 = 47.0;
-
 /// Stand noise alone, with no rate set, is still no watch and names no
 /// lead: guessing again (#1423) gives the noise a second chance.
 #[test]
@@ -350,5 +356,31 @@ fn stand_noise_alone_is_no_watch_when_guessed_again() {
             assert!(!got.watch_heard, "{what}: {:?}", got.caveats);
             assert!(lead_left_out(&got.caveats).is_none(), "{what}");
         }
+    }
+}
+
+/// A read at a harmonic of the watch's rate loses to the read at its own
+/// rate whichever comes first (#1423): its fit's residuals are larger.
+#[test]
+fn a_read_at_a_harmonic_loses_to_the_watchs_own_rate() {
+    for (bph, wrong) in [
+        (18_000, 12_000),
+        (18_000, 36_000),
+        (28_800, 14_400),
+        (28_800, 21_600),
+    ] {
+        let watch = watch_at(bph, 60.0);
+        let read = |r: u32| {
+            let cfg = AnalysisConfig {
+                bph: Some(r),
+                ..Default::default()
+            };
+            analyze(&watch, &cfg).summary
+        };
+        let (right, harmonic) = (read(bph), read(wrong));
+        let what = format!("{bph} read at {wrong}");
+        assert!(right.watch_heard, "{what}");
+        assert!(reads_better(&right, &harmonic), "{what}");
+        assert!(!reads_better(&harmonic, &right), "{what}");
     }
 }
