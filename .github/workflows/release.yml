@@ -109,7 +109,7 @@ jobs:
           # Links to source files go to GitHub at the commit built.
           REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          command -v pandoc >/dev/null || { sudo apt-get update && sudo apt-get install -y pandoc; }
+          command -v pandoc >/dev/null || .github/ci/apt-install.sh pandoc
           pandoc --version | head -1
           for p in linux macos windows; do
             python3 packaging/docs_html.py render "docs-html/$p" "$p" --ref "$REF"
@@ -180,7 +180,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
         run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev
+          .github/ci/apt-install.sh libasound2-dev
           cargo build --release --locked $PKGS
           # Fixed releases of the AppImage tool and the runtime it puts at
           # the front of the AppImage, checked by hash; without a runtime

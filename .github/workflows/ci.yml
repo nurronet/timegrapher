@@ -90,7 +90,7 @@ jobs:
         env:
           REF: ${{ github.event.pull_request.head.sha }}
         run: |
-          command -v pandoc >/dev/null || { sudo apt-get update && sudo apt-get install -y pandoc; }
+          command -v pandoc >/dev/null || .github/ci/apt-install.sh pandoc
           pandoc --version | head -1
           for p in linux macos windows; do
             python3 packaging/docs_html.py render "$RUNNER_TEMP/docs-html/$p" "$p" --ref "$REF"
@@ -110,7 +110,7 @@ jobs:
           save-if: ${{ matrix.part != '2/2' }}
       - name: ALSA headers for sound input
         if: runner.os == 'Linux' && steps.changes.outputs.full != 'false'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: .github/ci/apt-install.sh libasound2-dev
       - run: cargo fmt --check
         if: matrix.part != '2/2' && steps.changes.outputs.full != 'false'
       - run: cargo clippy --locked --all-targets -- -D warnings
@@ -333,7 +333,7 @@ jobs:
       # `timegrapher session` reads, to the bit.
       - name: ALSA headers for the app
         if: matrix.check == 'app' && steps.changes.outputs.full != 'false'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: .github/ci/apt-install.sh libasound2-dev
       - name: App against session on every corpus take
         if: matrix.check == 'app' && steps.changes.outputs.full != 'false'
         # Each take is also opened whole, for its panes against series and

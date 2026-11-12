@@ -1069,3 +1069,45 @@ fn just_open_it_called_off_leaves_the_watch_of_the_take_heard() {
     assert_eq!(app.mic_setup, Some(WatchSetup::default()));
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// Settings > General > Run After Saving a Take runs once the take is
+/// whole: not on a Save while listening, nor on the saves of a take
+/// recording into its folder as it goes, which over a long take would run
+/// it hundreds of times; on the Stop's save, once (Trevor on #1478).
+#[cfg(not(windows))]
+#[test]
+fn the_command_set_runs_once_listening_stops_not_on_saves_as_it_goes() {
+    let (mut app, base, _capture) = listening("after-save-gate");
+    let log = base.join("ran.txt");
+    app.after_save_command = format!(
+        "printf '%s\\n' \"$TIMEGRAPHER_TAKE\" >> '{}'; true",
+        log.display()
+    );
+    // A Save while listening: Streamed::No, but listening goes on.
+    app.save_again();
+    app.wait_for_save();
+    assert!(app.running());
+    let rec = app.session.recorder.as_mut().unwrap();
+    rec.write(&silence(6, 3)).unwrap();
+    app.stream_tick();
+    assert_eq!(app.saving.as_ref().map(|s| s.streamed), Some(Streamed::Yes));
+    app.wait_for_save();
+    app.stop_listening();
+    app.run_after_save();
+    app.wait_for_save();
+    assert!(!app.running());
+    let take = app.session.saved_to().expect("kept").to_path_buf();
+    let began = std::time::Instant::now();
+    while !log.exists() && began.elapsed() < std::time::Duration::from_secs(20) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // Any run of the earlier saves would have started first; give the
+    // Stop's a moment to finish its line.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        format!("{}\n", take.display()),
+        "the command ran on a save other than the Stop's"
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}

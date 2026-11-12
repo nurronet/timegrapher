@@ -808,7 +808,12 @@ A take opened whole that isn't a Power Reserve Test, in one position, with
 six hours or more from its first beat heard to its last (core
 `power_reserve::from_long_take`), fills the pane the same way: the stop
 found as a test finds it, else "The take ended while the watch still
-ran", then the same charts and table. Its wind at the start is not known,
+ran", then the same charts and table. So does a take still listening,
+once it passes six hours in one position, as the Positions Test pane
+fills while listening: its run so far is read in the background once a
+minute of take, "Still listening, no stop found yet" in place of
+the take's end (core `Results::still_listening`), and once more where
+listening stops; a second position clears it. Its wind at the start is not known,
 so its run is never called a power reserve: the line reads "Ran 40 h 12
 min from the take's start" ("Ran at least…" when the take ended first),
 adding "Read from a long take, not a Power Reserve Test", and Save as
@@ -1444,7 +1449,7 @@ direction, width and length and what is drawn over it, the profile's
 layout, scale and Time From, the panes shown and their arrangement,
 whether the Readings show, the distribution settings, the averaging time,
 folded groups in the Watches view, the appearance, Keep Awake, Listen
-When the App Opens and whether the microphone has been set up, the last
+When the App Opens, the command Run After Saving a Take runs, and whether the microphone has been set up, the last
 microphone (used again when it is plugged in) and the window's size and
 place. Nothing about the watch is kept: the lift angle, beat rate and
 position start fresh, since the next watch on the pickup may differ.
@@ -1563,7 +1568,16 @@ that can't be set, the microphone reporting its automatic gain otherwise)
 takes that row's caption, in the same space, so no row grows.
 **General**: Appearance (Auto, Light or Dark); **Listening**, with
 **Listen When the App Opens**, on unless switched off, and **Keep
-Awake**; **Updates**, with Check for Updates at Start. **Microphone**:
+Awake**; **After Saving**, with **Run After Saving a Take** (a command
+of the user's own, empty unless set, run through the system's shell, `sh` or
+`cmd`, each time a save of a take is written with listening stopped: a
+Stop, Save…, Save As… or Save Again, not the saves of a take written into
+its folder as it goes; the take's folder is its last argument, quoted, and
+is in `TIMEGRAPHER_TAKE`; the app doesn't wait for it and logs what it
+exits with, a failure included, only there, and it may outlive the app; on
+Windows, read the folder from `%TIMEGRAPHER_TAKE%` where its name may hold
+`%`, which `cmd` expands even in quotes); **Updates**, with
+Check for Updates at Start. **Microphone**:
 the **Microphone** group (the microphone menu and **Rescan** on their own
 line under the row's name, the group's width for every device, a name
 too long for it cut in the middle with "…" so its end shows, whole in its

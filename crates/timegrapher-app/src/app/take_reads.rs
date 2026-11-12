@@ -110,6 +110,11 @@ pub(super) struct Background {
     /// A long take's run for the Power reserve pane, once it is wanted:
     /// `Some(None)` until its reading starts (#1014).
     pub(super) reserve: Option<Option<Job<Revision, Option<reserve::Test>>>>,
+    /// While listening, a long take's run so far being read, keyed by
+    /// the take's second it was asked for at.
+    pub(super) reserve_live: Option<Job<f64, Option<reserve::Test>>>,
+    /// The take's second the run so far was last asked for at.
+    pub(super) reserve_live_s: f64,
 }
 
 /// A Positions Test table being read in the background, and what from.
@@ -454,16 +459,24 @@ impl TimegrapherApp {
     /// [`Self::reserve_from_long_take`] for the window, read in the
     /// background once a take has opened, so a take of many hours doesn't
     /// hold the window as it lands (#1014). It is read again if what it
-    /// rests on changes before it comes, and let go when listening starts
-    /// or the pane gets a test of its own.
+    /// rests on changes before it comes, and let go when the pane gets a
+    /// test of its own. While listening, the run so far is read once a
+    /// minute ([`Self::long_reserve_listening`]), and once more where
+    /// listening stops.
     fn long_reserve_shown(&mut self, ctx: &egui::Context) {
+        if self.reserve_is_test() {
+            self.bg.reserve = None;
+            self.bg.reserve_live = None;
+            return;
+        }
+        if self.running() {
+            self.long_reserve_listening(ctx);
+            return;
+        }
+        self.bg.reserve_live = None;
         let Some(wanted) = &self.bg.reserve else {
             return;
         };
-        if self.running() || self.reserve.is_some() {
-            self.bg.reserve = None;
-            return;
-        }
         let key = self.rev;
         match wanted.as_ref().filter(|j| j.key == key).map(Job::done) {
             Some(Ok(t)) => {
@@ -478,5 +491,43 @@ impl TimegrapherApp {
                     .map(|read| Some(Job::start(key, ctx, read)));
             }
         }
+    }
+
+    /// While listening, a take of [`power_reserve::LONG_TAKE_S`] or more
+    /// that isn't a test fills the Power reserve pane as an opened one
+    /// does, as the Positions Test pane fills while listening: its run so
+    /// far, read in the background once a minute, the last reading kept
+    /// until the next comes. A take that goes into a second position
+    /// leaves the pane as before a test. Where listening stops, it is
+    /// read once more ([`Self::long_reserve_shown`]).
+    fn long_reserve_listening(&mut self, ctx: &egui::Context) {
+        self.bg.reserve = Some(None);
+        if let Some(job) = &self.bg.reserve_live {
+            match job.done() {
+                Ok(t) => {
+                    self.reserve = t;
+                    self.bg.reserve_live = None;
+                }
+                Err(true) => return,
+                Err(false) => self.bg.reserve_live = None,
+            }
+        }
+        let now = self.live.as_ref().map_or(0.0, |l| l.duration_s());
+        if now < power_reserve::LONG_TAKE_S
+            || (0.0..power_reserve::READ_AGAIN_S).contains(&(now - self.bg.reserve_live_s))
+        {
+            return;
+        }
+        self.bg.reserve_live_s = now;
+        // Read as a run so far: the take hasn't ended.
+        self.bg.reserve_live = self.long_take_reader().map(|read| {
+            Job::start(now, ctx, move || {
+                read().map(|mut t| {
+                    t.results = t.results.map(power_reserve::Results::still_listening);
+                    t.ending = t.results.as_ref().map(|r| r.ending);
+                    t
+                })
+            })
+        });
     }
 }

@@ -1998,6 +1998,8 @@ pub struct TimegrapherApp {
     keep_awake: bool,
     /// Listen to the microphone as soon as the app opens.
     listen_at_open: bool,
+    /// The command run after a take is saved ([`crate::after_save`]).
+    after_save_command: String,
     /// The inputs whose automatic gain is left on (Settings > Microphone).
     agc_on: Vec<String>,
     /// The selected input's automatic gain switch as last read back, when
@@ -2421,6 +2423,7 @@ impl TimegrapherApp {
             settings_section: self.settings_last.key().into(),
             agc_on: self.agc_on.clone(),
             watch_list_shows: self.watch_list_shows.clone(),
+            after_save_command: self.after_save_command.clone(),
         }
     }
 
@@ -2475,20 +2478,18 @@ impl TimegrapherApp {
             settings_section,
             agc_on,
             watch_list_shows,
+            after_save_command,
         } = s;
-        self.watch_list_shows = watch_list_shows;
+        (self.watch_list_shows, self.after_save_command) = (watch_list_shows, after_save_command);
         self.settings_last = Tab::from_key(&settings_section);
         self.listen_at_open = listen_at_open;
-        self.mic_set_up = mic_set_up;
-        self.setup_declined = setup_declined;
+        (self.mic_set_up, self.setup_declined) = (mic_set_up, setup_declined);
         self.agc_on = agc_on;
         // A layout from before the panes moved starts afresh.
         let panes = panes.filter(|_| layout >= LAYOUT);
         self.library_dir = library;
-        self.check_at_start = check_updates;
-        self.keep_awake = keep_awake;
-        self.show_readings = show_readings;
-        self.readings_pinned = readings_pinned;
+        (self.check_at_start, self.keep_awake) = (check_updates, keep_awake);
+        (self.show_readings, self.readings_pinned) = (show_readings, readings_pinned);
         // One Average Over for every pane; a pane's own time, saved by an
         // older app, is read and left out.
         if AVERAGES.contains(&average_s) {
@@ -2502,10 +2503,8 @@ impl TimegrapherApp {
         strip.set_half_width(strip.half_width_ms);
         strip.set_span(strip.span_s);
         self.strip = strip;
-        self.rate_line = rate_line;
-        self.rate_guides = rate_guides;
-        self.overlays = overlays;
-        self.follow = follow;
+        (self.rate_line, self.rate_guides) = (rate_line, rate_guides);
+        (self.overlays, self.follow) = (overlays, follow);
         // One left on is kept: a pane with none shown would be empty.
         let some = |s: [bool; 3]| if s.contains(&true) { s } else { RATE_ONLY };
         self.chart_series = some(chart_series);
@@ -2610,6 +2609,7 @@ impl TimegrapherApp {
             check_at_start: true,
             keep_awake: true,
             listen_at_open: true,
+            after_save_command: String::new(),
             mic_set_up: false,
             setup_declined: false,
             setup_sheet: false,
