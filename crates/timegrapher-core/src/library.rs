@@ -38,7 +38,8 @@
 //! `.library.lock` at its top while it has it open. Another copy opens it
 //! read-only: it lists the watches but changes nothing, not even the
 //! cache. The system lets go of the lock when the app ends, however it
-//! ends.
+//! ends. The command line's changes take the same lock, but for adding a
+//! take ([`Library::open_to_add`]), which needs none.
 
 use crate::session::{Manifest, Position};
 use crate::take;
@@ -129,7 +130,9 @@ pub struct Field {
 /// field left out (`None`) is one the user removed or never filled.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Watch {
-    /// Random, made when the watch is added; never shown.
+    /// Random, made when the watch is added; never shown in the app, and
+    /// given in `watches list` and `show` JSON so a program can find the
+    /// watch again after a rename.
     pub id: String,
     /// Shown everywhere, unique in the library.
     pub name: String,
@@ -152,6 +155,44 @@ pub struct Watch {
 }
 
 impl Watch {
+    /// Set the added field `label` (ignoring case) to `value`, or add it
+    /// as text at the end when the watch has none of that label.
+    pub fn set_field(&mut self, label: &str, value: &str) -> Result<(), String> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err("a field needs a label".into());
+        }
+        match self
+            .fields
+            .iter_mut()
+            .find(|f| f.label.eq_ignore_ascii_case(label))
+        {
+            Some(f) => f.value = value.to_string(),
+            None => self.fields.push(Field {
+                label: label.to_string(),
+                kind: FieldKind::Text,
+                value: value.to_string(),
+            }),
+        }
+        Ok(())
+    }
+
+    /// Remove the added field `label` (ignoring case): an error when the
+    /// watch has none.
+    pub fn remove_field(&mut self, label: &str) -> Result<(), String> {
+        let before = self.fields.len();
+        self.fields
+            .retain(|f| !f.label.eq_ignore_ascii_case(label.trim()));
+        if self.fields.len() == before {
+            return Err(format!(
+                "\"{}\" has no field \"{}\"",
+                self.name,
+                label.trim()
+            ));
+        }
+        Ok(())
+    }
+
     /// A new watch of this name, with a fresh id.
     pub fn new(name: &str) -> Watch {
         Watch {
@@ -902,6 +943,9 @@ pub struct Library {
     pub read_only: Option<String>,
     /// The lock held while the library is open here, shared by clones.
     lock: Option<std::sync::Arc<fs::File>>,
+    /// Opened with [`Library::open_to_add`] without the lock: takes may
+    /// be added, nothing else changed.
+    adding: bool,
 }
 
 /// A take's fingerprint for the cache: the bytes and newest change of
@@ -953,6 +997,19 @@ impl Library {
         Library::open_as(root, false)
     }
 
+    /// The library at `root`, to add takes to even while a copy of the app
+    /// has it open: with the lock when it is free, so anything can be
+    /// changed, else without it, and then only [`Library::add_take`]
+    /// works. A take is put together beside its place and moved in whole,
+    /// a new folder nothing else writes, so the app reads it at its next
+    /// scan; a watch's details, which the app may be writing, are left
+    /// alone. For the command line.
+    pub fn open_to_add(root: &Path) -> Result<Library, String> {
+        let mut lib = Library::open(root)?;
+        lib.adding = lib.lock.is_none();
+        Ok(lib)
+    }
+
     fn open_as(root: &Path, locked: bool) -> Result<Library, String> {
         let p = root.join(LIBRARY_FILE);
         let text = fs::read_to_string(&p).map_err(|e| {
@@ -986,6 +1043,7 @@ impl Library {
             unreadable: Vec::new(),
             read_only,
             lock,
+            adding: false,
         };
         lib.scan();
         Ok(lib)
@@ -1376,7 +1434,9 @@ impl Library {
         watch_id: &str,
         keep_original: bool,
     ) -> Result<(PathBuf, Option<String>), String> {
-        self.writable()?;
+        if !self.adding {
+            self.writable()?;
+        }
         if !(from.join(take::MANIFEST).is_file() || from.join(take::RECORD).is_file()) {
             return Err(format!(
                 "{} is not a take folder (it has no session.toml or session.json)",
@@ -1741,6 +1801,20 @@ pub fn is_image(p: &Path) -> bool {
             e.to_ascii_lowercase().as_str(),
             "jpg" | "jpeg" | "png" | "heic" | "heif" | "tif" | "tiff"
         )
+    })
+}
+
+/// Bytes in the files under `dir`, all the way down (links not followed
+/// nor counted): a take's size, before and after Keep Analysis Only.
+pub fn folder_bytes(dir: &Path) -> u64 {
+    fs::read_dir(dir).map_or(0, |d| {
+        d.filter_map(|e| e.ok())
+            .map(|e| match e.file_type() {
+                Ok(t) if t.is_dir() => folder_bytes(&e.path()),
+                Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
+                _ => 0,
+            })
+            .sum()
     })
 }
 

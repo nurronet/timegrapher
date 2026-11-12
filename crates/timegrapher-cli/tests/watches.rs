@@ -122,7 +122,13 @@ fn watches_lists_and_shows_the_library_as_json() {
     assert!(w["lift_deg"].is_null());
     assert_eq!(w["takes"], 1);
     assert_eq!(w["newest_started_utc"], "2026-10-20T21:32:00Z");
-    assert!(w.get("id").is_none());
+    // Its id, as its watch.toml keeps it: stays when the watch is renamed.
+    let id = w["id"].as_str().unwrap();
+    assert!(
+        std::fs::read_to_string(root.join("Pepsi").join(library::WATCH_FILE))
+            .unwrap()
+            .contains(&format!("id = \"{id}\""))
+    );
     // It took no lock and wrote nothing, not even the cache.
     assert!(!root.join(CACHE_FILE).exists());
     drop(app);
