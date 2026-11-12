@@ -29,6 +29,8 @@ fn take(dir: &Path, secs: f64) -> Source {
         live: false,
         end_s: secs,
         about: Value::Null,
+        cfg: None,
+        kept: None,
     }
 }
 
@@ -258,6 +260,8 @@ fn a_long_recording_offers_ends_at() {
         live,
         end_s: total_s,
         about: Value::Null,
+        cfg: None,
+        kept: None,
     };
     d.show(Kind::Setup, Some(src(true, 90.0)), Shown::default());
     frame(&mut d, &ctx, Vec::new());
@@ -401,4 +405,110 @@ fn the_result_line_warns_over_githubs_limit() {
         t.contains("There is no sound to include") && !t.contains("Saved"),
         "a new report starts without one: {t}"
     );
+}
+
+/// A job saving `source` with no excerpt, as Save Report… makes it: the
+/// zip's files.
+fn saved_without_excerpt(dir: &Path, source: Source) -> Vec<(String, Vec<u8>)> {
+    let job = Job {
+        zip: dir.join("r.zip"),
+        created: "2026-11-12T19:00:00.000Z".into(),
+        kind: Kind::Reading,
+        note: String::new(),
+        source: Some(source),
+        sound: None,
+        listened: false,
+        cc0: false,
+        shown: Shown {
+            bph: Some(28800),
+            lift_deg: 52.0,
+            app: json!({}),
+        },
+    };
+    job.write().unwrap();
+    archive::read_zip(&job.zip).unwrap()
+}
+
+/// The analysis in a report's `files`, read as core reads a take's.
+fn analysis_in(files: &[(String, Vec<u8>)], dir: &Path) -> analysis_take::Stored {
+    for (p, d) in files.iter().filter(|(p, _)| p.starts_with("analysis/")) {
+        let to = dir.join(p);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::write(to, d).unwrap();
+    }
+    analysis_take::read(dir).unwrap()
+}
+
+/// A report carries the take's beats and amplitude windows (#400) from
+/// its whole sound, without the Tick Tock profiles, even with the sound
+/// left out.
+#[test]
+fn a_report_carries_the_whole_takes_beats() {
+    let dir = scratch("beats");
+    let files = saved_without_excerpt(&dir, take(&dir, 40.0));
+    assert!(
+        !files.iter().any(|(p, _)| p.starts_with("audio/")),
+        "the sound was left out"
+    );
+    let s = analysis_in(&files, &dir.join("unpacked"));
+    // 40 s at 8 beats a second.
+    assert!(s.log.beats.len() > 250, "{} beats", s.log.beats.len());
+    assert!(!s.log.amplitude_windows.is_empty());
+    assert!(s.profiles.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A take kept as its analysis alone offers no sound, and its report
+/// carries its own analysis, every beat it kept, at once.
+#[test]
+fn an_analysis_only_take_is_reported_with_its_analysis() {
+    let dir = scratch("kept");
+    let sound = take(&dir, 40.0);
+    let mut cfg = timegrapher_core::stream::StreamConfig::default();
+    cfg.analysis.bph = Some(28800);
+    let paths: Vec<&Path> = sound.files.iter().map(PathBuf::as_path).collect();
+    let stored = analysis_take::measure(&paths, &cfg, &[], software(), |_| {}).unwrap();
+    let kept = dir.join("kept");
+    let manifest = "audio = false\nbph = 28800\n\n[[recording]]\nfile = \".\"\n";
+    analysis_take::save(
+        &kept,
+        &[(take::MANIFEST.into(), manifest.as_bytes().to_vec())],
+        &stored,
+    )
+    .unwrap();
+    let source = Source {
+        files: Vec::new(),
+        total_s: 0.0,
+        name: "kept".into(),
+        live: false,
+        end_s: 0.0,
+        about: Value::Null,
+        cfg: None,
+        kept: Some(kept),
+    };
+    let ctx = themed();
+    let mut d = ReportDialog::default();
+    d.show(Kind::Reading, Some(source.clone()), Shown::default());
+    assert!(!d.include, "no sound to include");
+    frame(&mut d, &ctx, Vec::new());
+    let (_, out) = frame(&mut d, &ctx, Vec::new());
+    let text = painted(&out);
+    assert!(text.contains("kept as its analysis alone"), "{text}");
+    assert!(!text.contains("Include the Sound"), "{text}");
+    frame(&mut d, &ctx, click(text_at(&out, "Save Report")));
+    assert!(d.save_asked().is_some(), "Save Report… is offered at once");
+
+    let files = saved_without_excerpt(&dir, source);
+    let s = analysis_in(&files, &dir.join("unpacked"));
+    assert_eq!(s.log.beats.len(), stored.log.beats.len());
+    assert!(s.profiles.is_empty());
+    let m: Value =
+        serde_json::from_slice(&files.iter().find(|(p, _)| p == "manifest.json").unwrap().1)
+            .unwrap();
+    assert!(
+        m["left_out"].to_string().contains("analysis alone"),
+        "{}",
+        m["left_out"]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

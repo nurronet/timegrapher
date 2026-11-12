@@ -1331,12 +1331,31 @@ impl TimegrapherApp {
                 live: true,
                 end_s: total,
                 about,
+                cfg: None,
+                kept: None,
             });
         }
         let path = PathBuf::from(self.file_path.trim());
         if self.file_path.trim().is_empty() || !path.exists() {
             return None;
         }
+        let manifest = read_manifest(&path).ok().flatten();
+        if analysis_take::is_analysis_only(&path) {
+            return Some(report::Source {
+                files: Vec::new(),
+                total_s: 0.0,
+                name: capture_label(&path),
+                live: false,
+                end_s: 0.0,
+                about: serde_json::Value::Null,
+                cfg: None,
+                kept: Some(path),
+            });
+        }
+        // How the take was read, so its beats come from what was found.
+        let cfg = take_entry(&path, manifest.as_ref())
+            .ok()
+            .map(|o| self.entry_settings(&o.1).stream);
         let files = recordings_in(&path).ok()?;
         let mut total = 0.0;
         for f in &files {
@@ -1367,6 +1386,8 @@ impl TimegrapherApp {
             live: false,
             end_s: end,
             about,
+            cfg,
+            kept: None,
         })
     }
 

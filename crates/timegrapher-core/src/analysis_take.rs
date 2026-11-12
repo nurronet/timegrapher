@@ -331,32 +331,14 @@ pub fn measure(
     });
     let mut signals: Vec<f32> = profiles.iter().filter_map(|p| p.signal).collect();
     let signal_median = (!signals.is_empty()).then(|| crate::dsp::median_f32(&mut signals));
-    let header = Header {
-        format: FORMAT.into(),
-        software,
-        audio: false,
-        note: NO_SOUND.into(),
-        sample_rate: log.sample_rate,
-        bytes_per_frame,
-        duration_s: log.duration_s,
-        bph: log.bph,
-        lift_deg: log.lift_deg,
-        clipped_samples: log.clipped_samples,
-        jumps: log.jumps.clone(),
-        sided: log.sided.clone(),
-        settings: settings(cfg),
-        beats: log.beats.len(),
-        windows: log.amplitude_windows.len(),
-        profiles: profiles.len(),
-        usb_clock,
-        signal_median,
-        shape,
-    };
-    Ok(Stored {
-        header,
-        log,
-        profiles,
-    })
+    // The beats' header, with what the second reading found.
+    let mut stored = from_log(log, cfg, bytes_per_frame, software);
+    stored.header.profiles = profiles.len();
+    stored.header.usb_clock = usb_clock;
+    stored.header.signal_median = signal_median;
+    stored.header.shape = shape;
+    stored.profiles = profiles;
+    Ok(stored)
 }
 
 /// The beat shape of the sound `x`, from `from_s` seconds into the
@@ -412,6 +394,79 @@ pub fn files(s: &Stored) -> io::Result<Vec<(&'static str, Vec<u8>)>> {
         ),
         (PROFILES, gzip(&profiles_bin(&s.profiles))?),
     ])
+}
+
+/// What a problem report carries of a take's analysis (#400): its beats
+/// and amplitude windows, from which every reading, chart and Steadiness
+/// figure is read, without the Tick Tock profiles. The profiles are most
+/// of an analysis's size (about 1.2 of its 1.5 MB an hour), so without
+/// them a long take fits beside the report's sound under GitHub's 25 MB.
+/// What the header says of the sound (its USB-line clock, signal figure
+/// and beat shapes) is kept.
+pub fn for_report(mut s: Stored) -> Stored {
+    s.profiles.clear();
+    s.header.profiles = 0;
+    s
+}
+
+/// The files a problem report carries of the take's analysis `s`
+/// ([`for_report`]), at their paths in the report: under `analysis/`, so
+/// the unpacked report reads as a take's folder does with [`read`], and
+/// with `redact` applied to the header, the one file of words.
+pub fn report_entries(
+    s: Stored,
+    mut redact: impl FnMut(&str) -> String,
+) -> io::Result<Vec<(String, Vec<u8>)>> {
+    Ok(files(&for_report(s))?
+        .into_iter()
+        .map(|(name, bytes)| {
+            let bytes = if name == HEADER {
+                redact(&String::from_utf8_lossy(&bytes)).into_bytes()
+            } else {
+                bytes
+            };
+            (format!("{DIR}/{name}"), bytes)
+        })
+        .collect())
+}
+
+/// A take's analysis from its beat `log` alone, as a report carries it
+/// ([`for_report`]), for a take whose sound has already been read: no
+/// profiles, and none of what [`measure`] reads from the sound a second
+/// time (the USB-line clock, the signal figure, the beat shapes).
+/// `bytes_per_frame` is the sound's, for reading `clock.csv`.
+pub fn from_log(
+    log: BeatLog,
+    cfg: &StreamConfig,
+    bytes_per_frame: u32,
+    software: serde_json::Value,
+) -> Stored {
+    let header = Header {
+        format: FORMAT.into(),
+        software,
+        audio: false,
+        note: NO_SOUND.into(),
+        sample_rate: log.sample_rate,
+        bytes_per_frame,
+        duration_s: log.duration_s,
+        bph: log.bph,
+        lift_deg: log.lift_deg,
+        clipped_samples: log.clipped_samples,
+        jumps: log.jumps.clone(),
+        sided: log.sided.clone(),
+        settings: settings(cfg),
+        beats: log.beats.len(),
+        windows: log.amplitude_windows.len(),
+        profiles: 0,
+        usb_clock: None,
+        signal_median: None,
+        shape: Vec::new(),
+    };
+    Stored {
+        header,
+        log,
+        profiles: Vec::new(),
+    }
 }
 
 /// Write `analysis/` into the take folder `take`.
@@ -1202,6 +1257,55 @@ mod tests {
         let (a, b) = (fit(&s.log), fit(&back.log));
         assert!((a.rate_s_per_day - b.rate_s_per_day).abs() < 0.05);
         assert!((a.beat_error_ms - b.beat_error_ms).abs() < 0.001);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The analysis a report carries (#400) reads back with every beat and
+    /// window and no profiles, whether cut from a kept analysis or made
+    /// from a beat log alone, and gives the sound's readings.
+    #[test]
+    fn a_report_analysis_reads_back_without_profiles() {
+        let dir = scratch("report");
+        let wav = take(&dir, 60.0);
+        let cfg = StreamConfig::default();
+        let full = measure(&[wav.as_path()], &cfg, &[], software(), |_| {}).unwrap();
+        assert!(!full.profiles.is_empty());
+        let fit = |l: &BeatLog| timing::fit(&l.beats, l.bph).unwrap();
+        let sound = fit(&full.log);
+        let bytes = |s: &Stored| -> usize { files(s).unwrap().iter().map(|(_, b)| b.len()).sum() };
+        let whole = bytes(&full);
+        let log = full.log.clone();
+        let usb = full.header.usb_clock;
+        for (what, s) in [
+            ("cut", for_report(full)),
+            ("from the log", from_log(log, &cfg, 2, software())),
+        ] {
+            assert!(bytes(&s) * 3 < whole, "{what}: {} of {whole}", bytes(&s));
+            let take = dir.join(what);
+            write(&take, &s).unwrap();
+            let back = read(&take).unwrap();
+            assert!(back.profiles.is_empty(), "{what}");
+            assert_eq!(back.header.profiles, 0, "{what}");
+            assert_eq!(back.log.beats.len(), s.log.beats.len(), "{what}");
+            assert_eq!(
+                windows_csv(&back.log.amplitude_windows),
+                windows_csv(&s.log.amplitude_windows),
+                "{what}"
+            );
+            let r = fit(&back.log);
+            assert!(
+                (r.rate_s_per_day - sound.rate_s_per_day).abs() < 0.05,
+                "{what}"
+            );
+            assert!(
+                (r.beat_error_ms - sound.beat_error_ms).abs() < 0.001,
+                "{what}"
+            );
+            // What the header says of the sound stays when it is cut.
+            if what == "cut" {
+                assert_eq!(back.header.usb_clock, usb);
+            }
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

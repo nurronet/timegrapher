@@ -1230,6 +1230,26 @@ fn entry_log(
     }
 }
 
+/// The beats found in the sound `paths` read with `cfg`, as an opened
+/// take's are found: from the copy [`crate::beat_cache`] keeps when the
+/// surface keeps one and it matches, else from the sound. For a problem
+/// report's analysis of the take on show (#400), which then costs no
+/// second reading of a long take the app has just opened.
+pub fn sound_beats(paths: &[&Path], cfg: &StreamConfig) -> Result<BeatLog, String> {
+    let name = paths
+        .first()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    sound_log(
+        crate::beat_cache::dir().as_deref(),
+        paths,
+        cfg,
+        &name,
+        |_, _| {},
+    )
+    .map(|(log, _)| log)
+}
+
 /// The beats found in the sound `paths`, as [`entry_log`] finds them:
 /// from the copy kept in `cache` when it has one that matches
 /// ([`crate::beat_cache`]), else from the sound, then kept there.

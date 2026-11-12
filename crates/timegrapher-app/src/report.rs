@@ -20,7 +20,10 @@ use std::time::{Duration, SystemTime};
 use timegrapher_core::analysis::{analyze, AnalysisConfig, Summary};
 use timegrapher_core::library::length_text;
 use timegrapher_core::redact::{os_version, recent_files, Redactor};
-use timegrapher_core::{archive, audio, capture, clockstore, excerpt, recorder};
+use timegrapher_core::stream::StreamConfig;
+use timegrapher_core::{
+    analysis_take, archive, audio, capture, clockstore, excerpt, recorder, take,
+};
 
 /// The most sound a report holds: five minutes of FLAC is about 18 MB,
 /// under GitHub's 25 MB limit for attachments.
@@ -74,6 +77,13 @@ pub struct Source {
     /// What the recording's own files say about it (the session file of a
     /// take, or a sidecar), put beside the excerpt.
     pub about: Value,
+    /// How the app read the sound, so the take's beats come from what it
+    /// already found (#400); none to read it at the beat rate and lift on
+    /// show.
+    pub cfg: Option<StreamConfig>,
+    /// The take's folder, when it was kept as its analysis alone: no
+    /// sound, and its analysis is read from there.
+    pub kept: Option<PathBuf>,
 }
 
 /// What the app shows and is set to when the report is made.
@@ -168,7 +178,7 @@ impl ReportDialog {
         self.player_error = None;
         self.result = None;
         self.kind = Some(kind);
-        self.include = source.is_some();
+        self.include = source.as_ref().is_some_and(|s| s.kept.is_none());
         self.listened = false;
         self.cc0 = false;
         self.end_s = source.as_ref().map_or(0.0, |s| s.end_s);
@@ -254,7 +264,8 @@ impl ReportDialog {
             egui::Label::new(
                 RichText::new(
                     "This makes a zip file to attach to a GitHub issue: what you write here, \
-                     the app's version, readings and log, and the sound if you include it. \
+                     the app's version, readings and log, the take's beats, and the sound if \
+                     you include it. \
                      Open it to see everything it holds. The app sends nothing anywhere.",
                 )
                 .color(pal.text_secondary),
@@ -315,6 +326,18 @@ impl ReportDialog {
                             "There is no sound to include: listen to a watch or open a \
                              recording first, and the report can carry up to five minutes \
                              of it.",
+                        )
+                        .color(pal.text_secondary),
+                    )
+                    .wrap(),
+                );
+            }
+            Some(src) if src.kept.is_some() => {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(
+                            "This take was kept as its analysis alone, so there is no sound \
+                             to include. The report carries its beats and amplitude windows.",
                         )
                         .color(pal.text_secondary),
                     )
@@ -755,14 +778,17 @@ impl Job {
         let mut left_out: Vec<String> = vec![
             "the list of sound inputs".into(),
             "environment variables".into(),
-            "an analysis of the whole recording: the app's own readings are in \
-             results/app.json instead"
+            "an analysis of the whole recording's sound: the app's own readings are in \
+             results/app.json, and the take's beats in analysis/"
                 .into(),
         ];
         let mut recording = Value::Null;
         if let Some(src) = &self.source {
             let mut excerpt_info = Value::Null;
             match &self.sound {
+                None if src.kept.is_some() => {
+                    left_out.push("the sound: the take was kept as its analysis alone".into());
+                }
                 None => left_out.push("the recording (not included)".into()),
                 Some(x) => {
                     excerpt_info = self.excerpt(src, x, &mut red, &mut entries, &mut commands)?;
@@ -774,6 +800,11 @@ impl Job {
                 "excerpt": excerpt_info,
             });
         }
+        if let Some(src) = &self.source {
+            if let Err(e) = self.analysis(src, &mut red, &mut entries) {
+                left_out.push(format!("the take's analysis, which couldn't be read: {e}"));
+            }
+        }
         entries.push((
             "results/app.json".into(),
             red.apply(&pretty(&self.shown.app)).into_bytes(),
@@ -784,6 +815,41 @@ impl Job {
         all.extend(entries);
         archive::write_zip(&self.zip, &all)?;
         Ok(std::fs::metadata(&self.zip).map(|m| m.len()).unwrap_or(0))
+    }
+
+    /// The take's analysis (#400), as Keep Analysis Only keeps it but
+    /// without the Tick Tock profiles ([`analysis_take::for_report`]), so
+    /// a long take fits beside the excerpt, added to `entries` under
+    /// `analysis/`: a kept take's own, else the beats of its sound, from
+    /// the copy the app kept when it opened the take where there is one.
+    fn analysis(
+        &self,
+        src: &Source,
+        red: &mut Redactor,
+        entries: &mut Vec<(String, Vec<u8>)>,
+    ) -> Result<(), String> {
+        let stored = match &src.kept {
+            Some(dir) => analysis_take::read(dir).map_err(|e| e.to_string())?,
+            None => {
+                let first = src.files.first().ok_or("there is no sound")?;
+                let cfg = src.cfg.clone().unwrap_or_else(|| {
+                    let mut c = StreamConfig::default();
+                    c.analysis.bph = self.shown.bph;
+                    c.analysis.amplitude.lift_deg = self.shown.lift_deg;
+                    c
+                });
+                let paths: Vec<&Path> = src.files.iter().map(PathBuf::as_path).collect();
+                let log = take::sound_beats(&paths, &cfg)?;
+                let frame = audio::info(first)
+                    .map_err(|e| e.to_string())?
+                    .bytes_per_frame;
+                analysis_take::from_log(log, &cfg, frame, software())
+            }
+        };
+        let files =
+            analysis_take::report_entries(stored, |t| red.apply(t)).map_err(|e| e.to_string())?;
+        entries.extend(files);
+        Ok(())
     }
 
     /// The excerpt, its side file and its analysis, added to `entries`
@@ -1180,6 +1246,8 @@ mod tests {
             live: false,
             end_s: 40.0,
             about: Value::Null,
+            cfg: None,
+            kept: None,
         };
         let clip = cut_clip(&src.files, 0.0).unwrap();
         assert!((clip.len_s() - 40.0).abs() < 0.01 && clip.outline.len() <= COLUMNS);

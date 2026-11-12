@@ -15,7 +15,8 @@ use std::process::Command;
 use std::time::SystemTime;
 use timegrapher_core::library::fixed_text;
 use timegrapher_core::redact::{os_version, recent_files, Redactor};
-use timegrapher_core::{clockstore, excerpt, recorder};
+use timegrapher_core::stream::StreamConfig;
+use timegrapher_core::{analysis_take, audio, clockstore, excerpt, recorder};
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -31,6 +32,7 @@ pub struct Options {
     pub at: f64,
     pub span: f64,
     pub no_audio: bool,
+    pub no_analysis: bool,
     pub kind: Kind,
     pub note: Option<String>,
     pub bph: Option<u32>,
@@ -123,7 +125,19 @@ pub fn run(o: &Options) -> Result<(), String> {
     std::fs::create_dir_all(work.join("audio")).map_err(|e| e.to_string())?;
     let result = (|| -> Result<Value, String> {
         let mut recording = Value::Null;
-        if !o.recording.is_empty() {
+        if let Some(take) = analysis_only(o) {
+            // No sound to cut: the take's analysis is all there is of it.
+            let name = name_of(take);
+            parts
+                .left_out
+                .push("the sound: the take was kept as its analysis alone".into());
+            whole_into(o, true, take, &name, &mut red, &mut parts)?;
+            recording = json!({
+                "name": red.apply(&name),
+                "files": 0,
+                "excerpt": null,
+            });
+        } else if !o.recording.is_empty() {
             let files = crate::long::expand_dirs(&o.recording)?;
             let first = files.first().ok_or("no recording found")?;
             let folder = o.recording.len() == 1 && o.recording[0].is_dir();
@@ -136,6 +150,9 @@ pub fn run(o: &Options) -> Result<(), String> {
                 "files": files.len(),
                 "excerpt": excerpt_info,
             });
+        }
+        if !o.recording.is_empty() {
+            analysis_into(o, &mut red, &mut parts)?;
         }
         env_into(&mut red, &mut parts);
         Ok(recording)
@@ -289,6 +306,58 @@ fn whole_into(
                 .push(("long/clocklog.txt".into(), red.apply(&t).into_bytes()));
         }
     }
+    Ok(())
+}
+
+/// The take folder given, when it was kept as its analysis alone.
+fn analysis_only(o: &Options) -> Option<&Path> {
+    match o.recording.as_slice() {
+        [take] if analysis_take::is_analysis_only(take) => Some(take),
+        _ => None,
+    }
+}
+
+/// The take's analysis (#400), as Keep Analysis Only keeps it but without
+/// the Tick Tock profiles ([`analysis_take::for_report`]), so a long take
+/// fits beside the excerpt: an analysis-only take's own, else the beats
+/// read from the whole recording, which reads it once more. Under
+/// `analysis/`, so the unpacked bundle reads as a take's folder does.
+fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(), String> {
+    if o.no_analysis {
+        parts
+            .left_out
+            .push("the take's analysis (--no-analysis)".into());
+        return Ok(());
+    }
+    let stored = if let Some(take) = analysis_only(o) {
+        analysis_take::read(take).map_err(|e| format!("{}: {e}", take.display()))?
+    } else {
+        let mut cfg = StreamConfig::default();
+        cfg.analysis.bph = o.bph;
+        eprintln!("reading the whole recording's beats for its analysis");
+        let read = crate::long::read(
+            &o.recording,
+            crate::long::ClockArgs {
+                log: None,
+                device: None,
+                card_ppm: None,
+            },
+            &cfg,
+            o.lift,
+            crate::long::Train {
+                calibre: None,
+                escape_teeth: None,
+            },
+        )?;
+        let first = read.files.first().ok_or("no recording found")?;
+        let frame = audio::info(first)
+            .map_err(|e| format!("{}: {e}", first.display()))?
+            .bytes_per_frame;
+        analysis_take::from_log(read.log, &read.cfg, frame, output::software())
+    };
+    let files =
+        analysis_take::report_entries(stored, |t| red.apply(t)).map_err(|e| e.to_string())?;
+    parts.entries.extend(files);
     Ok(())
 }
 
