@@ -349,6 +349,11 @@ changes that take, not the watch. With a watch picked, **Stop** saves
 the take into it, as **Save…** does, with no question, in a folder named by when the take
 started (in this computer's time) and its position when it used only one;
 Save Again then saves into the same take, and Save As… still asks.
+The Watches view reads the folder again each time the window comes back
+to the front, so a take another program added meanwhile
+(`timegrapher watches add-take`, which works while the app is open, or a
+sync) is listed without a restart; only takes whose files changed are
+read again.
 Watches another copy of the app has open are read only: New Watch…, Edit…, Add Photos… and a photo's Delete… are
 off, the Listen icon says Quick Listen can't keep its take, and Save…
 asks where. **New Session**, in the File menu, clears what is shown,

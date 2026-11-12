@@ -2417,3 +2417,49 @@ fn keep_analysis_only_refuses_a_take_with_a_link() {
     drop(app);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// A take another program adds while the app has the Watches folder open
+/// (`timegrapher watches add-take`, which may add without the lock) is
+/// listed once the window comes back to the front, without a restart.
+#[test]
+fn a_take_added_from_outside_shows_when_the_window_is_back_in_front() {
+    let base = std::env::temp_dir().join(format!("tg-app-take-outside-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("Timegrapher Data");
+    let mut lib = library::Library::create(&root).unwrap();
+    lib.add(&library::Watch::new("Pepsi")).unwrap();
+    drop(lib);
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.use_library(Some(root.clone()));
+    let takes = |app: &TimegrapherApp| match &app.library {
+        Ok(Some(l)) => l.find("Pepsi").unwrap().takes.len(),
+        _ => unreachable!(),
+    };
+    assert_eq!(takes(&app), 0);
+    // Another program, while the app holds the lock.
+    let from = base.join("outside take");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::write(from.join(MANIFEST), "[[recording]]\nfile = \".\"\n").unwrap();
+    let mut other = library::Library::open_to_add(&root).unwrap();
+    assert!(other.read_only.is_some(), "the app holds the lock");
+    let id = other.find("Pepsi").unwrap().watch.id.clone();
+    let watch = |lib: &mut library::Library| lib.update(&library::Watch::new("x"));
+    assert!(watch(&mut other).is_err(), "nothing but a take is added");
+    other.add_take(&from, &id, true).unwrap();
+    let ctx = egui::Context::default();
+    let _ = ctx.run(egui::RawInput::default(), |ctx| {
+        app.reread_library_on_focus(ctx)
+    });
+    assert_eq!(
+        takes(&app),
+        0,
+        "not read again while the window stays in front"
+    );
+    let back = egui::RawInput {
+        events: vec![egui::Event::WindowFocused(true)],
+        ..Default::default()
+    };
+    let _ = ctx.run(back, |ctx| app.reread_library_on_focus(ctx));
+    assert_eq!(takes(&app), 1);
+    let _ = std::fs::remove_dir_all(&base);
+}

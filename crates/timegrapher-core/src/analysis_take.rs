@@ -162,6 +162,166 @@ pub fn is_analysis_only(take: &Path) -> bool {
     take.join(DIR).join(HEADER).is_file()
 }
 
+/// Why Keep Analysis Only can't remove a take's sound, from its session
+/// file `m` alone: one source for the app's menu, which offers it only
+/// when it can (#1279), for the removal itself and for the CLI. `None`
+/// when it can.
+pub fn sound_kept_by_name(m: &Manifest) -> Option<String> {
+    use crate::take::MANIFEST;
+    (m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".")).then(|| {
+        format!(
+            "its {MANIFEST} lists each sound file by name, and only takes whose {MANIFEST} \
+             names the whole folder, as the app writes it, can have their sound removed"
+        )
+    })
+}
+
+/// What Keep Analysis Only needs from a saved take before it reads the
+/// sound ([`plan_keep`]).
+#[derive(Debug)]
+pub struct KeepPlan {
+    /// The sound files, in the order they are read.
+    pub files: Vec<PathBuf>,
+    /// Their length together, seconds.
+    pub total_s: f64,
+    /// Every other file of the take, by its path in it (`/` between
+    /// folders), with `session.toml` marked `audio = false`: what [`save`]
+    /// writes beside the analysis.
+    pub companions: Vec<(String, Vec<u8>)>,
+    /// How the sound is read: the take's own settings, its calibre looked
+    /// up among the catalogue's and the user's own.
+    pub cfg: StreamConfig,
+    /// The beat shape's stretches ([`shape_stretches`]).
+    pub shapes: Vec<Option<(f64, f64)>>,
+}
+
+/// Plan keeping the saved take in `take` as its analysis alone, its
+/// calibre found in the catalogue and `user`'s; or why it can't be: its
+/// sound already removed, its session file listing files by name, sound in
+/// a subfolder, or a file that can't be read. Reads no sound but its
+/// headers. The app's Keep Analysis Only and the CLI's both start here.
+pub fn plan_keep(
+    take: &Path,
+    user: &crate::calibre_store::UserCalibres,
+) -> Result<KeepPlan, String> {
+    use crate::take::{self, MANIFEST};
+    let file = take.join(MANIFEST);
+    let text =
+        crate::recorder::read_settled(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
+    if m.audio == Some(false) {
+        return Err("its sound has already been removed".into());
+    }
+    if let Some(why) = sound_kept_by_name(&m) {
+        return Err(why);
+    }
+    let files = take::sound_files(&[take.to_path_buf()])?;
+    let mut total_s = 0.0;
+    for f in &files {
+        let i = audio::info(f).map_err(|e| format!("{}: {e}", f.display()))?;
+        let frames = i
+            .frames
+            .ok_or_else(|| format!("{} doesn't say how long it is", f.display()))?;
+        total_s += frames as f64 / f64::from(i.sample_rate.max(1));
+    }
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| format!("{}: {e}", file.display()))?;
+    doc.insert("audio", toml_edit::value(false));
+    let mut companions = vec![(MANIFEST.to_string(), doc.to_string().into_bytes())];
+    keep_companions(take, take, &mut companions)?;
+    let cfg = keep_settings(&m, user);
+    let shapes = shape_stretches(&m, total_s);
+    Ok(KeepPlan {
+        files,
+        total_s,
+        companions,
+        cfg,
+        shapes,
+    })
+}
+
+/// Where Keep Analysis Only writes the take `take` kept as its analysis,
+/// beside it, before [`crate::library::Library::replace_take`] puts it in
+/// the take's place: a hidden folder the library's scan passes over.
+pub fn kept_beside(take: &Path) -> PathBuf {
+    let name = take
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    take.with_file_name(format!(".{name}.analysis"))
+}
+
+/// Keep Analysis Only's writing step, one for the app (on its own thread)
+/// and the CLI: the take planned in `plan` read and measured
+/// ([`measure`], `progress` as there), and kept as its analysis alone in
+/// a new folder beside it ([`kept_beside`], any left from an earlier try
+/// cleared first, [`save`] writing it whole). Nothing of the take itself
+/// is touched: [`crate::library::Library::replace_take`] then puts the
+/// returned folder in its place, and only that deletes the sound.
+pub fn write_kept(
+    take: &Path,
+    plan: &KeepPlan,
+    software: serde_json::Value,
+    progress: impl FnMut(f64),
+) -> Result<PathBuf, String> {
+    let dest = kept_beside(take);
+    let _ = fs::remove_dir_all(&dest);
+    let paths: Vec<&Path> = plan.files.iter().map(PathBuf::as_path).collect();
+    let stored =
+        measure(&paths, &plan.cfg, &plan.shapes, software, progress).map_err(|e| e.to_string())?;
+    save(&dest, &plan.companions, &stored).map_err(|e| e.to_string())
+}
+
+/// How a take kept as its analysis is read: its session file's own
+/// settings, its calibre found in the catalogue and `user`'s.
+pub fn keep_settings(m: &Manifest, user: &crate::calibre_store::UserCalibres) -> StreamConfig {
+    use crate::take;
+    let cal = m
+        .calibre
+        .as_deref()
+        .and_then(|n| take::calibre_named(n, user));
+    take::stream_settings(m, cal.as_ref(), take::Given::default())
+}
+
+/// Every file of take `take` under `dir` that Keep Analysis Only keeps
+/// beside its analysis, by its path in the take, subfolders too: all but
+/// its sound and its session file, which is written anew (#1323). The
+/// sound at its top goes, a WAV left beside its FLAC too, so no sound is
+/// kept; sound in a subfolder, or anything that is neither a file nor a
+/// folder, such as a link, is refused, so nothing is lost unseen.
+fn keep_companions(
+    take: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, Vec<u8>)>,
+) -> Result<(), String> {
+    use crate::take::MANIFEST;
+    for e in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let e = e.map_err(|e| e.to_string())?;
+        let path = e.path();
+        let rel = path.strip_prefix(take).map_err(|e| e.to_string())?;
+        let name = rel.to_string_lossy().into_owned();
+        let kind = e.file_type().map_err(|err| format!("{name}: {err}"))?;
+        let sound = crate::take::is_sound(&path);
+        if kind.is_dir() {
+            keep_companions(take, &path, out)?;
+        } else if !kind.is_file() {
+            return Err(format!(
+                "{name} is not a file or a folder, so it can't be kept with the analysis"
+            ));
+        } else if sound && dir != take {
+            return Err(format!(
+                "{name} is sound in a folder of the take, which isn't the take's own sound"
+            ));
+        } else if !(sound || name == MANIFEST) {
+            let bytes = fs::read(&path).map_err(|err| format!("{name}: {err}"))?;
+            // Stored with `/` between folders on every system.
+            let parts: Vec<_> = rel.iter().map(|p| p.to_string_lossy()).collect();
+            out.push((parts.join("/"), bytes));
+        }
+    }
+    Ok(())
+}
+
 /// The stretches the beat shape is measured on, one per recording of the
 /// session file, as `timegrapher session` picks them with the session
 /// file's own settling: the first unmasked [`SHAPE_S`] after settling, else
