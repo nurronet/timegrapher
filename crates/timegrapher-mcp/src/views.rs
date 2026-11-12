@@ -610,12 +610,17 @@ fn walk_of(v: &Value) -> Option<IsochronismWalk> {
                 amplitude_deg: p["amplitude_deg"].as_f64()?,
                 readings: p["readings"].as_u64()? as usize,
                 amp_windows: p["amp_windows"].as_u64()? as usize,
+                // Absent from a document written before the walk's floors (#741).
+                rate_slots: p["rate_slots"].as_u64().unwrap_or(0) as usize,
+                amp_slots: p["amp_slots"].as_u64().unwrap_or(0) as usize,
+                thin: p["thin"].as_bool().unwrap_or(false),
             })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(IsochronismWalk {
         bin_s: v["bin_s"].as_f64()?,
         points,
+        rate_only_to_s: v["rate_only_to_s"].as_f64(),
     })
 }
 

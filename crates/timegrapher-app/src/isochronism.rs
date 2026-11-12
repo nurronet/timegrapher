@@ -16,6 +16,7 @@ use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
     curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
     WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
+    WALK_THIN_KEY,
 };
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
@@ -83,6 +84,14 @@ pub fn ui(
         .unwrap_or_default()
     {
         ui.label(RichText::new(line).small().color(pal.text_secondary));
+    }
+    // The facts box's line on a run-down's end whose rate goes on with no
+    // amplitude to place it at (core's, Hugh 11-12).
+    if let Some(t) = walk
+        .filter(|_| view == View::Walk)
+        .and_then(|w| w.rate_only_text.as_ref())
+    {
+        ui.label(RichText::new(t).small().color(pal.text_secondary));
     }
     match (view, curve, walk) {
         (View::Curve, None, _) => note(ui, missing),
@@ -466,6 +475,14 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
         crate::tfmap::ramp(ui, 120.0, |t| crate::tfmap::time_colour(dark, t));
         ui.label(small(&w.last_text));
         ui.label(small(WALK_SINCE));
+        if w.any_thin {
+            // A faded dot and its name, as the plot draws a thin point.
+            ui.add_space(12.0);
+            let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+            let c = crate::tfmap::time_colour(dark, 0.5).gamma_multiply(THIN_ALPHA);
+            ui.painter().circle_filled(r.center(), 2.5, c);
+            ui.label(small(WALK_THIN_KEY));
+        }
     });
 }
 
@@ -488,15 +505,27 @@ fn walk_bounds(w: &WalkView) -> (Span, Span) {
 /// colour to its last's and lifted wherever core says a dot is not joined
 /// (a stretch left out or a break: never filled); the dots over it; a
 /// ring at each of core's hour beads; a ring at the start and a large dot
-/// at the end; then their names, over everything.
+/// at the end; then their names, over everything. A dot core calls thin
+/// (read from under 60% of its windows), and the steps to and from it,
+/// are drawn at [`THIN_ALPHA`].
 fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let (pal, dark) = (theme::pal(ui), ui.visuals().dark_mode);
     let bg = ui.visuals().extreme_bg_color;
     let colour = |when: f64| crate::tfmap::time_colour(dark, when as f32);
+    let faint = |c: egui::Color32, thin: bool| {
+        if thin {
+            c.gamma_multiply(THIN_ALPHA)
+        } else {
+            c
+        }
+    };
     let pos = |p: [f64; 2]| t.position_from_point(&PlotPoint::new(p[0], p[1]));
     let dots: Vec<Pos2> = w.dots.iter().map(|d| pos(dot_at(d))).collect();
     let p = ui.painter().with_clip_rect(t.frame().expand(8.0));
-    for (from, to, (t0, t1)) in steps(w) {
+    // Thin steps and dots first, so the full ones draw over them (Hugh).
+    let mut steps = steps(w);
+    steps.sort_by_key(|s| !s.3);
+    for (from, to, (t0, t1), thin) in steps {
         let (a, b) = (pos(from), pos(to));
         // In short runs, so its colour moves from one dot's to the next's.
         let runs = 8;
@@ -505,12 +534,14 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
             let mid = (f(k) + f(k + 1)) as f64 / 2.0;
             p.line_segment(
                 [a.lerp(b, f(k)), a.lerp(b, f(k + 1))],
-                Stroke::new(2.0_f32, colour(t0 + (t1 - t0) * mid)),
+                Stroke::new(2.0_f32, faint(colour(t0 + (t1 - t0) * mid), thin)),
             );
         }
     }
-    for (d, at) in w.dots.iter().zip(&dots) {
-        p.circle_filled(*at, 2.5, colour(d.when));
+    let mut order: Vec<usize> = (0..w.dots.len()).collect();
+    order.sort_by_key(|&i| !w.dots[i].thin);
+    for (d, at) in order.iter().map(|&i| (&w.dots[i], &dots[i])) {
+        p.circle_filled(*at, 2.5, faint(colour(d.when), d.thin));
     }
     let ring = |at: Pos2, r: f32, when: f64| {
         p.circle(at, r, bg, Stroke::new(2.5_f32, colour(when)));
@@ -578,15 +609,26 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
-/// A step of the walk: where it goes from and to, and the two dots' times.
-type Step = ([f64; 2], [f64; 2], (f64, f64));
+/// How strongly a thin dot and its steps are drawn, of their full colour.
+pub const THIN_ALPHA: f32 = 0.35;
+
+/// A step of the walk: where it goes from and to, the two dots' times, and
+/// whether either dot is thin.
+type Step = ([f64; 2], [f64; 2], (f64, f64), bool);
 
 /// The walk's steps from each dot to the next one core joins to it.
 fn steps(w: &WalkView) -> Vec<Step> {
     w.dots
         .windows(2)
         .filter(|p| p[1].joined)
-        .map(|p| (dot_at(&p[0]), dot_at(&p[1]), (p[0].when, p[1].when)))
+        .map(|p| {
+            (
+                dot_at(&p[0]),
+                dot_at(&p[1]),
+                (p[0].when, p[1].when),
+                p[0].thin || p[1].thin,
+            )
+        })
         .collect()
 }
 
@@ -795,10 +837,12 @@ mod tests {
             amplitude_deg: 290.0 - 4.0 * k as f64,
             readings: 30,
             amp_windows: 150,
+            ..Default::default()
         };
         let w = IsochronismWalk {
             bin_s: WALK_BIN_S,
             points: (0..6).chain(9..12).map(at).collect(),
+            ..Default::default()
         };
         timegrapher_core::steady_views::walk_view(&w).expect("nine points")
     }
@@ -820,6 +864,62 @@ mod tests {
         for (st, from) in s.iter().zip([0, 1, 2, 3, 4, 6, 7]) {
             assert_eq!(st.2, (w.dots[from].when, w.dots[from + 1].when));
         }
+    }
+
+    /// A dot core calls thin is drawn faint, and so are the steps to and
+    /// from it; the rest at full colour (Norm's floors, 11-12).
+    #[test]
+    fn a_thin_dot_and_its_steps_are_drawn_faint() {
+        let mut w = walk();
+        w.dots[2].thin = true;
+        let thin: Vec<bool> = steps(&w).iter().map(|s| s.3).collect();
+        assert_eq!(thin, [false, true, true, false, false, false, false]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dark = ctx.style().visuals.dark_mode;
+        let colour = |when: f64| crate::tfmap::time_colour(dark, when as f32);
+        let out = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |u| {
+                super::ui(u, Some(&run_down()), Some(&w), View::Walk);
+            });
+        });
+        let fills: Vec<egui::Color32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Circle(c) => Some(c.fill),
+                _ => None,
+            })
+            .collect();
+        let faint = colour(w.dots[2].when).gamma_multiply(THIN_ALPHA);
+        assert!(fills.contains(&faint), "{fills:?}");
+        assert!(!fills.contains(&colour(w.dots[2].when)), "{fills:?}");
+        assert!(fills.contains(&colour(w.dots[3].when)), "{fills:?}");
+        // The key names the faint mark, and the facts box core's line on
+        // a rate read past the last point; neither when core gives none.
+        let texts = |w: &WalkView| -> Vec<String> {
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |u| {
+                    super::ui(u, Some(&run_down()), Some(w), View::Walk);
+                });
+            })
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+        };
+        w.any_thin = true;
+        w.rate_only_text = Some("No amplitude read after 1 h.".into());
+        let t = texts(&w);
+        assert!(t.iter().any(|t| t == WALK_THIN_KEY), "{t:?}");
+        assert!(t.iter().any(|t| t == "No amplitude read after 1 h."), "{t:?}");
+        let t = texts(&walk());
+        assert!(!t.iter().any(|t| t == WALK_THIN_KEY), "{t:?}");
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
@@ -1005,11 +1105,13 @@ mod tests {
                 amplitude_deg: 290.0 - 0.2 * k as f64,
                 readings: 30,
                 amp_windows: 150,
+                ..Default::default()
             })
             .collect();
         let w = IsochronismWalk {
             bin_s: WALK_BIN_S,
             points,
+            ..Default::default()
         };
         timegrapher_core::steady_views::walk_view(&w).expect("a long walk")
     }

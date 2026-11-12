@@ -539,8 +539,10 @@ mod tests {
                     amplitude_deg: amp,
                     readings: 30,
                     amp_windows: 150,
+                    ..Default::default()
                 })
                 .collect(),
+            ..Default::default()
         }
     }
 

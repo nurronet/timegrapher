@@ -531,6 +531,10 @@ pub struct WalkDot {
     /// is within [`WALK_JOIN_BINS`] merged bins, so a left-out stretch or
     /// a break is a gap in the line, never filled (Norm, #1083).
     pub joined: bool,
+    /// Read from under 60% of its windows in either series
+    /// ([`walk::WalkPoint::thin`]): drawn faint, its hover giving the
+    /// counts.
+    pub thin: bool,
 }
 
 /// How far apart, in merged bins, two points may be and still be joined.
@@ -548,7 +552,21 @@ pub struct WalkView {
     pub last_text: String,
     /// The hour beads along the trail ([`walk_beads`]).
     pub beads: Vec<WalkBead>,
+    /// Whether any dot is thin: the key then names the faint mark.
+    pub any_thin: bool,
+    /// When the rate goes on [`WALK_RATE_ONLY_S`] or more past the last
+    /// point with no amplitude read ([`walk::IsochronismWalk::rate_only_to_s`]),
+    /// the line the facts box says so in (Hugh, 11-12).
+    pub rate_only_text: Option<String>,
 }
+
+/// How far past the walk's last point the rate must go on, with no
+/// amplitude, before the pane says so, seconds.
+pub const WALK_RATE_ONLY_S: f64 = 900.0;
+
+/// The key's entry for a faint dot, beside the colour bar, shown only when
+/// the walk has a thin point (Hugh, 11-12).
+pub const WALK_THIN_KEY: &str = "Thin: under 60% read";
 
 /// A bead on the walk's trail marking a round hour: the dot nearest that
 /// hour and the hour as the card writes it ("12 h").
@@ -688,11 +706,17 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
                 fixed_text(p.amplitude_deg, base_digits::AMPLITUDE),
                 signed_text(p.rate_s_per_day, base_digits::RATE),
             );
-            if p.readings < WALK_FEW_READINGS {
+            if p.thin {
+                hover += &format!(
+                    " · read from {} of {} rate readings and {} of {} amplitude windows",
+                    p.readings, p.rate_slots, p.amp_windows, p.amp_slots
+                );
+            } else if p.readings < WALK_FEW_READINGS {
                 hover += &format!(" · {} readings", p.readings);
             }
             WalkDot {
                 joined: false,
+                thin: p.thin,
                 hours,
                 when: 0.0,
                 amplitude_deg: p.amplitude_deg,
@@ -713,7 +737,20 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
             d.when = (d.hours / last_hours).clamp(0.0, 1.0);
         }
     }
+    let last_t = m.points.last().map_or(0.0, |p| p.t_s);
+    let rate_only_text = w
+        .rate_only_to_s
+        .filter(|to| to - last_t >= WALK_RATE_ONLY_S)
+        .map(|to| {
+            format!(
+                "No amplitude read after {}. The rate to {} is on the Paper Strip.",
+                hours_text(last_hours),
+                hours_text(to / 3600.0)
+            )
+        });
     Some(WalkView {
+        any_thin: dots.iter().any(|d| d.thin),
+        rate_only_text,
         beads: walk_beads(&dots, last_hours),
         last_text: hours_text(last_hours),
         last_hours,
@@ -1558,6 +1595,33 @@ mod tests {
         assert!(k.windows(2).all(|w| w[0] < w[1]));
     }
 
+    /// The facts box names a run-down's end whose rate goes on with no
+    /// amplitude, only from 15 min past the last point; the key names the
+    /// faint mark only when a dot is thin, at core's coverage floor.
+    #[test]
+    fn the_walk_says_where_the_rate_goes_on_with_no_amplitude() {
+        let mut w = walk_of(&[
+            (150.0, 301.4, -0.04, 30),
+            (450.0, 300.0, 0.0, 30),
+            (750.0, 299.0, 0.1, 30),
+            (226_650.0, 130.0, -105.0, 30),
+        ]);
+        w.rate_only_to_s = Some(226_650.0 + 899.0);
+        assert_eq!(walk_view(&w).unwrap().rate_only_text, None);
+        w.rate_only_to_s = Some(234_000.0);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(
+            v.rate_only_text.as_deref(),
+            Some("No amplitude read after 63 h. The rate to 65 h is on the Paper Strip.")
+        );
+        assert_eq!(v.last_text, "63 h");
+        assert!(!v.any_thin);
+        w.points[0].thin = true;
+        assert!(walk_view(&w).unwrap().any_thin);
+        let pct = format!("{:.0}%", crate::confidence::MIN_WINDOW_COVERAGE * 100.0);
+        assert!(WALK_THIN_KEY.contains(&pct));
+    }
+
     fn walk_of(points: &[(f64, f64, f64, usize)]) -> walk::IsochronismWalk {
         walk::IsochronismWalk {
             bin_s: walk::WALK_BIN_S,
@@ -1571,9 +1635,11 @@ mod tests {
                         amplitude_deg,
                         readings,
                         amp_windows: 5 * readings,
+                        ..Default::default()
                     },
                 )
                 .collect(),
+            ..Default::default()
         }
     }
 
@@ -1613,6 +1679,7 @@ mod tests {
                 rate_s_per_day: 0.0,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect()
     }
@@ -1668,6 +1735,7 @@ mod tests {
                 rate_s_per_day: r,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect();
         // Padded as the charts are (5% or 2°, 15%), then rounded.
