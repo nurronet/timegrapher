@@ -915,9 +915,7 @@ mod tests {
         g.y[7] = f64::NEG_INFINITY;
         // A chunk of nothing but missing readings is left out: chunk 3
         // (readings 6 and 7) and chunk 1500 (readings 3000 and 3001).
-        for j in 3000..3002 {
-            g.y[j] = f64::NAN;
-        }
+        g.y[3000..3002].fill(f64::NAN);
         let drawn = super::thin_readings(&g);
         let n = g.y.len();
         let finite = g.y.iter().filter(|v| v.is_finite()).count();

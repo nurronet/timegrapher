@@ -424,7 +424,14 @@ impl TimegrapherApp {
         let Some(live) = &self.live else {
             return (kept, spacing.min(step));
         };
-        if spacing <= 2.0 * step {
+        // The kept run serves only with no hole in it: one worked out
+        // again while listening is sparse up to then and dense since, and
+        // its average spacing hides the stretch with none.
+        let around = (
+            self.trend.first().map_or(from, |p| p.t),
+            self.trend.last().map_or(end, |p| p.t),
+        );
+        if spacing <= 2.0 * step && widest_hole(&kept, from, end, around) <= 2.0 * step {
             return (kept, spacing);
         }
         let key: StripKey = (
@@ -682,6 +689,21 @@ fn strip_note(guessing: bool, looking_back: bool, end: f64) -> Option<String> {
     }
 }
 
+/// The longest stretch of the window from `from` to `end` that `kept`
+/// (sorted by time) leaves without a reading, counting the window's ends
+/// only within the run they were taken from, `run` (its first and last
+/// times): before a take's first reading there is none to miss.
+fn widest_hole(kept: &[TrendPoint], from: f64, end: f64, run: (f64, f64)) -> f64 {
+    let (Some(first), Some(last)) = (kept.first(), kept.last()) else {
+        return f64::INFINITY;
+    };
+    let lead = first.t - from.max(run.0);
+    let tail = end.min(run.1) - last.t;
+    kept.windows(2)
+        .map(|w| w[1].t - w[0].t)
+        .fold(lead.max(tail), f64::max)
+}
+
 /// The readings drawn over the strip, in the toolbar's order: Rate,
 /// Amplitude, Beat Error. `on` keeps the settings' order (amplitude, rate,
 /// beat error).
@@ -781,6 +803,38 @@ fn numbered_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Readings every half second from `a` to `b`.
+    fn every_half(a: f64, b: f64) -> Vec<TrendPoint> {
+        let n = ((b - a) / 0.5).round() as usize;
+        (0..=n)
+            .map(|i| TrendPoint {
+                t: a + 0.5 * i as f64,
+                rate_s_per_day: Some(1.0),
+                amplitude_deg: None,
+                amplitude_even_deg: None,
+                amplitude_odd_deg: None,
+                beat_error_unlock_ms: None,
+                beat_error_ms: None,
+                rate_error_s_per_day: None,
+                amplitude_error_deg: None,
+                beat_error_unlock_error_ms: None,
+                heard: true,
+            })
+            .collect()
+    }
+
+    /// A stretch with none at the window's start or end, inside the take,
+    /// is a hole; the window reaching past the take's own first or last
+    /// reading is not.
+    #[test]
+    fn a_hole_at_either_end_counts_only_inside_the_take() {
+        let kept = every_half(30.0, 50.0);
+        assert_eq!(widest_hole(&kept, 20.0, 50.0, (0.0, 60.0)), 10.0);
+        assert_eq!(widest_hole(&kept, 30.0, 60.0, (0.0, 60.0)), 10.0);
+        assert_eq!(widest_hole(&kept, 20.0, 60.0, (30.0, 50.0)), 0.5);
+        assert_eq!(widest_hole(&[], 20.0, 60.0, (30.0, 50.0)), f64::INFINITY);
+    }
 
     #[test]
     fn strip_beat_error_overlays_keep_sources_apart_and_preserve_holes() {
