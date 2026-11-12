@@ -15,6 +15,7 @@
 //! when their output is redirected or piped; the `timegrapher` CLI is the
 //! command-line tool there.
 
+mod after_save;
 mod app;
 mod applog;
 mod awake;

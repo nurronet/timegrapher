@@ -640,6 +640,26 @@ impl TimegrapherApp {
                 |ui| theme::switch(ui, &mut self.keep_awake).on_hover_text(hint),
             );
         });
+        theme::group(ui, "After Saving", None, |g| {
+            let hint = "A command of your own, run each time a take is saved with listening \
+                        stopped: for another program that keeps your takes, such as a \
+                        shop's records. The take's folder is added as its last argument and \
+                        is in TIMEGRAPHER_TAKE. What it exits with, a failure included, \
+                        goes only to the app's log. Empty runs nothing.";
+            g.row_under(
+                "Run After Saving a Take",
+                theme::Caption::Text("The take's folder is added as the last argument."),
+                hint,
+                |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.after_save_command)
+                            .hint_text("No command")
+                            .desired_width(f32::INFINITY),
+                    )
+                    .on_hover_text(hint)
+                },
+            );
+        });
         theme::group(ui, "Updates", None, |g| {
             let hint = "Ask GitHub whether a newer Timegrapher is published each time the app \
                         starts, and say so if there is. It sends no account or identifier, and \

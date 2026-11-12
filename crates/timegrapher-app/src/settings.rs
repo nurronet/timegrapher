@@ -118,6 +118,10 @@ pub struct Settings {
     /// The field the Watches view's list shows under each name (List
     /// Shows); `None` is the calibre.
     pub watch_list_shows: Option<String>,
+    /// Settings > General > Run After Saving a Take: a command run once a
+    /// take is saved with listening stopped, the take's folder passed to it
+    /// ([`crate::after_save`]). Empty runs nothing.
+    pub after_save_command: String,
 }
 
 /// A calibre's train as earlier versions kept it in the settings.
@@ -189,6 +193,7 @@ impl Default for Settings {
             settings_section: "general".into(),
             agc_on: Vec::new(),
             watch_list_shows: None,
+            after_save_command: String::new(),
         }
     }
 }
