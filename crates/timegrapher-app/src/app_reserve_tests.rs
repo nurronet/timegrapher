@@ -1340,13 +1340,24 @@ fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
         .unwrap();
     assert_eq!(r.source, power_reserve::Source::LongTake);
     assert_eq!(r.hours.len(), 7);
+    // A run so far: the take hasn't ended (Walter's HOLD on #1475).
+    assert_eq!(r.ending, power_reserve::Ending::Listening);
+    assert_eq!(
+        app.reserve.as_ref().unwrap().ending,
+        Some(power_reserve::Ending::Listening)
+    );
+    assert!(!r.sentence("DU").contains("The take ended"));
     let mut here = TimegrapherApp::with_devices(Vec::new(), None);
     here.show_log(long_log(run), "long".into(), vec![], vec![]);
     let text = |a: &TimegrapherApp| {
         let r = a.reserve.as_ref().and_then(|t| t.results.as_ref()).unwrap();
         reserve::results_text(r, "", ',')
     };
-    assert_eq!(text(&app), text(&here), "as the opened take reads it");
+    let so_far = |a: &TimegrapherApp| {
+        let r = a.reserve.as_ref().and_then(|t| t.results.as_ref()).unwrap();
+        reserve::results_text(&r.clone().still_listening(), "", ',')
+    };
+    assert_eq!(text(&app), so_far(&here), "as the opened take reads it");
     // Nothing of it goes into the take.
     assert!(app.results_files().unwrap().is_empty());
     // Not read again until a minute of take has come.
@@ -1356,6 +1367,7 @@ fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
     app.take_reads_shown(&ctx);
     assert!(app.bg.reserve_live.is_some(), "read again a minute on");
     settle(&mut app);
+    assert_eq!(text(&app), so_far(&here));
     // Stopped: read once more, and kept.
     app.capture = None;
     assert!(app.bg.reserve.is_some());

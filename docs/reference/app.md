@@ -811,8 +811,9 @@ found as a test finds it, else "The take ended while the watch still
 ran", then the same charts and table. So does a take still listening,
 once it passes six hours in one position, as the Positions Test pane
 fills while listening: its run so far is read in the background once a
-minute of take, and once more where listening stops; a second position
-clears it. Its wind at the start is not known,
+minute of take, "Still listening, the watch still running" in place of
+the take's end (core `Results::still_listening`), and once more where
+listening stops; a second position clears it. Its wind at the start is not known,
 so its run is never called a power reserve: the line reads "Ran 40 h 12
 min from the take's start" ("Ran at least…" when the take ended first),
 adding "Read from a long take, not a Power Reserve Test", and Save as

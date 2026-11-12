@@ -519,8 +519,15 @@ impl TimegrapherApp {
             return;
         }
         self.bg.reserve_live_s = now;
-        self.bg.reserve_live = self
-            .long_take_reader()
-            .map(|read| Job::start(now, ctx, read));
+        // Read as a run so far: the take hasn't ended.
+        self.bg.reserve_live = self.long_take_reader().map(|read| {
+            Job::start(now, ctx, move || {
+                read().map(|mut t| {
+                    t.results = t.results.map(power_reserve::Results::still_listening);
+                    t.ending = t.results.as_ref().map(|r| r.ending);
+                    t
+                })
+            })
+        });
     }
 }
