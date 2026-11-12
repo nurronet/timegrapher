@@ -1,5 +1,62 @@
 # Validation
 
+## What each accuracy claim rests on
+
+Each claim below is tagged by the kind of evidence behind it (#1328):
+
+- **self:** the engine checked against itself: synthetic recordings with
+  known values, regress baselines, `analyze` against `session`, seeded
+  tests. It shows the arithmetic is right and stable, not that the figure
+  is physically true.
+- **tg:** agreement with tg run on the same file. Both read the same
+  microphone at the same lift angle, so errors they share (the lift
+  angle, the landmark, the sound card's clock) cancel.
+- **optical:** blind video of the balance. The only independent
+  reference, on two specimens only.
+
+A claim with only **self** never says "accurate". It says "recovers known
+values" or "agrees with itself".
+
+| Claim | Evidence | Figures | Limit |
+|---|---|---|---|
+| Beat rate guessed (18,000 to 36,000 bph) | self | Exact on synthetic recordings (`tests/synthetic.rs`) | Synthetic only |
+| Rate | self, tg | Synthetic within ±0.3 s/d. Against tg on bench takes: +3.8/+3.6, +43.1/+43.1, +35.6/+34.1 s/d; rate series r 0.998, mean difference −0.3 s/d | No independent reference: tg shares the sound card. It agrees with tg on the same file; no claim of accuracy to a tenth of a second a day |
+| Clock correction (USB lines) | self | Lines agree within the 5 ppm / 2 SE limit | No outside frequency standard has checked the corrected rate. It corrects for the sound card's clock as the USB timing measures it |
+| Amplitude | self, tg, optical | Synthetic within ±8°. Against tg: 286/288°, 251/250°, 246/245°; the bare ETA 2824 reads 7–11° above tg (the landmark). Optical: the 2824 clone, 3 intervals, pair means +0.9, +5.6 and +3.9° against a ±3–4° allowance; the DD3285, 19 intervals inside the allowance at 59° | The optical allowances are the investigator's judgement, not confidence intervals. The DD3285's 59° was fitted on those takes, so only its tracking across 180–267° is independent, not its level. One specimen each; no other calibre checked optically |
+| Lift angle catalogue values | none, except DD32xx | DD3285 optical (fitted in-sample); JH and other DD variants carried over by the maintainer's decision | A catalogue value, never "measured", except the DD3285 |
+| Beat error from the unlock | self, tg | Synthetic within ±0.05 ms, sign included. Against tg within 0.01–0.12 ms on the YM42, the Dandong 3235 and the Patek 324 clone. The Daytona **disagrees**: 0.28–0.36 ms against tg's 0.86–0.88 ms (the landmark) | No optical or bench-reference check |
+| Beat error from the drop | self | Synthetic within ±0.05 ms | tg doesn't report it; no outside check |
+| Jitter | self | Synthetic under 50 µs on shaped sides | No outside check |
+| Tick and Tock amplitudes apart | self, tg (Patek clone) | Patek clone 239/240° against tg's 238/244/246° | Optical half-travel can't check the sides apart |
+| The ± | self | A seeded test on correlated readings (`standard_error_allows_for_correlated_readings`) keeps coverage 55–85% at three correlations | A typical spread, not a 95% interval; no coverage check on real takes |
+| Window floor, greying, unlock fallback | self, corpus | #1429: 10% and 60%; #1439: 3 of 3,084 healthy readings fall back | Rates on the corpus, not accuracy |
+| Periodic lines (period search) | self | A synthetic 60 s fourth wheel is found and named; the null's false alarm is simulated down to p 0.0003 (Baluev's 2008 bound checked by hand, #1460) | A p comes from a simulated null, not from false alarms seen on watches. Below 0.0003 the text says "under 0.0003, beyond the simulated range" (#1243); it is how often noise alone would make a line this strong in a take like this one, not the chance the line is real |
+| `analyze` agrees with `session` | self | Four public takes, within 0.3 s/d, 1.5° and 0.03 ms (CI requires it) | Not bit-identical (in memory against 47 s chunks); live against file isn't gated (four ignored diagnostics, below) |
+| `regress` | self | Against stored tg references and engine baselines; margins in [regress.md](../developer/regress.md) | Not a fresh tg run, not physical accuracy |
+| Power reserve, isochronism, positions | self | Seeded tests only | No outside check |
+
+## Holdout milestone, 12 November 2026
+
+The corpus's holdout takes are read only at an announced milestone, never
+to tune the engine (see "The holdout seal" in the corpus README). The
+first run was for v1.1, after v1.0.
+
+- **Engine:** main at db59e6b. **Corpus:** main at 738010e.
+- **Command:** `timegrapher regress corpus --fetch --holdout --quiet`, in
+  the Holdout milestone workflow (run 43287242566).
+- **Output, in full:**
+
+```
+Holdout: 3 takes, 3 readings measured.
+  rate        3 pass, 0 fail, 0 not judged (margin 0.5 s/d)
+  amplitude   3 pass, 0 fail, 0 not judged (margin 8° against tg, which is not the true amplitude)
+  beat error  3 pass, 0 fail, 0 not judged (margin 0.2 ms)
+Holdout results never fail the run; only a reading that cannot be measured does.
+```
+
+No constant is changed after seeing a holdout result. A failure at a
+later milestone becomes an issue.
+
 ## Optical amplitude comparison
 
 The [2026-11-03 2824-2 clone experiment](2824-clone-optical-amplitude-validation.md)
