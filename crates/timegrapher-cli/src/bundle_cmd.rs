@@ -16,7 +16,7 @@ use std::time::SystemTime;
 use timegrapher_core::library::fixed_text;
 use timegrapher_core::redact::{os_version, recent_files, Redactor};
 use timegrapher_core::stream::StreamConfig;
-use timegrapher_core::{analysis_take, audio, clockstore, excerpt, recorder};
+use timegrapher_core::{analysis_take, clockstore, excerpt, recorder};
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -151,10 +151,12 @@ pub fn run(o: &Options) -> Result<(), String> {
                 "excerpt": excerpt_info,
             });
         }
+        env_into(&mut red, &mut parts);
+        // Last, so it knows how much room the rest leaves under GitHub's
+        // limit.
         if !o.recording.is_empty() {
             analysis_into(o, &mut red, &mut parts)?;
         }
-        env_into(&mut red, &mut parts);
         Ok(recording)
     })();
     let _ = std::fs::remove_dir_all(&work);
@@ -317,11 +319,11 @@ fn analysis_only(o: &Options) -> Option<&Path> {
     }
 }
 
-/// The take's analysis (#400), as Keep Analysis Only keeps it but without
-/// the Tick Tock profiles ([`analysis_take::for_report`]), so a long take
-/// fits beside the excerpt: an analysis-only take's own, else the beats
-/// read from the whole recording, which reads it once more. Under
-/// `analysis/`, so the unpacked bundle reads as a take's folder does.
+/// The take's analysis (#400), as Keep Analysis Only keeps it, whole when
+/// the report stays under GitHub's limit with it, else without the Tick
+/// Tock profiles ([`analysis_take::report_analysis`]): an analysis-only
+/// take's own, else read from the whole recording, which reads it once
+/// more.
 fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(), String> {
     if o.no_analysis {
         parts
@@ -329,8 +331,14 @@ fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(
             .push("the take's analysis (--no-analysis)".into());
         return Ok(());
     }
-    let stored = if let Some(take) = analysis_only(o) {
-        analysis_take::read(take).map_err(|e| format!("{}: {e}", take.display()))?
+    let other: u64 = parts.entries.iter().map(|(_, d)| d.len() as u64).sum();
+    let got = if let Some(take) = analysis_only(o) {
+        let kept = analysis_take::read(take).map_err(|e| format!("{}: {e}", take.display()))?;
+        analysis_take::report_analysis(
+            analysis_take::ReportFrom::Kept(Box::new(kept)),
+            other,
+            |t| red.apply(t),
+        )?
     } else {
         let mut cfg = StreamConfig::default();
         cfg.analysis.bph = o.bph;
@@ -349,15 +357,17 @@ fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(
                 escape_teeth: None,
             },
         )?;
-        let first = read.files.first().ok_or("no recording found")?;
-        let frame = audio::info(first)
-            .map_err(|e| format!("{}: {e}", first.display()))?
-            .bytes_per_frame;
-        analysis_take::from_log(read.log, &read.cfg, frame, output::software())
+        let paths: Vec<&Path> = read.files.iter().map(PathBuf::as_path).collect();
+        let from = analysis_take::ReportFrom::Sound {
+            log: Box::new(read.log),
+            files: &paths,
+            cfg: &read.cfg,
+            software: output::software(),
+        };
+        analysis_take::report_analysis(from, other, |t| red.apply(t))?
     };
-    let files =
-        analysis_take::report_entries(stored, |t| red.apply(t)).map_err(|e| e.to_string())?;
-    parts.entries.extend(files);
+    parts.entries.extend(got.entries);
+    parts.left_out.extend(got.left_out);
     Ok(())
 }
 
@@ -441,7 +451,7 @@ fn write_report(
         println!(
             "Size       {} MB{}",
             fixed_text(bytes as f64 / 1e6, 1),
-            if bytes > 25_000_000 {
+            if bytes > analysis_take::ATTACHMENT_LIMIT_BYTES {
                 " (over GitHub's 25 MB limit for attachments: shorten --span)"
             } else {
                 ""
@@ -452,7 +462,7 @@ fn write_report(
         }
         println!("Open it to see everything it holds; nothing is sent anywhere.");
     }
-    if bytes > 25_000_000 {
+    if bytes > analysis_take::ATTACHMENT_LIMIT_BYTES {
         eprintln!("warning: the report is over 25 MB, GitHub's limit for attachments");
     }
     Ok(())

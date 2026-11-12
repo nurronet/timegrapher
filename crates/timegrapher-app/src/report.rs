@@ -264,7 +264,7 @@ impl ReportDialog {
             egui::Label::new(
                 RichText::new(
                     "This makes a zip file to attach to a GitHub issue: what you write here, \
-                     the app's version, readings and log, the take's beats, and the sound if \
+                     the app's version, readings and log, the take's analysis, and the sound if \
                      you include it. \
                      Open it to see everything it holds. The app sends nothing anywhere.",
                 )
@@ -337,7 +337,7 @@ impl ReportDialog {
                     egui::Label::new(
                         RichText::new(
                             "This take was kept as its analysis alone, so there is no sound \
-                             to include. The report carries its beats and amplitude windows.",
+                             to include. The report carries its analysis.",
                         )
                         .color(pal.text_secondary),
                     )
@@ -408,7 +408,7 @@ impl ReportDialog {
     fn result_line(&self, ui: &mut egui::Ui, pal: &theme::Palette) {
         match &self.result {
             Some(Saved::Done { zip, bytes }) => {
-                let big = *bytes > 25_000_000;
+                let big = *bytes > analysis_take::ATTACHMENT_LIMIT_BYTES;
                 let saved = format!("Saved {} ({:.1} MB).", zip.display(), *bytes as f64 / 1e6);
                 if big {
                     theme::alert_label(
@@ -779,7 +779,7 @@ impl Job {
             "the list of sound inputs".into(),
             "environment variables".into(),
             "an analysis of the whole recording's sound: the app's own readings are in \
-             results/app.json, and the take's beats in analysis/"
+             results/app.json, and the take's analysis in analysis/"
                 .into(),
         ];
         let mut recording = Value::Null;
@@ -800,16 +800,18 @@ impl Job {
                 "excerpt": excerpt_info,
             });
         }
-        if let Some(src) = &self.source {
-            if let Err(e) = self.analysis(src, &mut red, &mut entries) {
-                left_out.push(format!("the take's analysis, which couldn't be read: {e}"));
-            }
-        }
         entries.push((
             "results/app.json".into(),
             red.apply(&pretty(&self.shown.app)).into_bytes(),
         ));
         app_files(&mut red, &mut entries);
+        // Last, so it knows how much room the rest leaves under GitHub's
+        // limit.
+        if let Some(src) = &self.source {
+            if let Err(e) = self.analysis(src, &mut red, &mut entries, &mut left_out) {
+                left_out.push(format!("the take's analysis, which couldn't be read: {e}"));
+            }
+        }
         let manifest = self.manifest(&mut red, recording, commands, &entries, left_out);
         let mut all = vec![("manifest.json".to_string(), pretty(&manifest).into_bytes())];
         all.extend(entries);
@@ -817,21 +819,30 @@ impl Job {
         Ok(std::fs::metadata(&self.zip).map(|m| m.len()).unwrap_or(0))
     }
 
-    /// The take's analysis (#400), as Keep Analysis Only keeps it but
-    /// without the Tick Tock profiles ([`analysis_take::for_report`]), so
-    /// a long take fits beside the excerpt, added to `entries` under
-    /// `analysis/`: a kept take's own, else the beats of its sound, from
-    /// the copy the app kept when it opened the take where there is one.
+    /// The take's analysis (#400), as Keep Analysis Only keeps it, whole
+    /// when the report stays under GitHub's limit with it, else without the
+    /// Tick Tock profiles ([`analysis_take::report_analysis`]), added to
+    /// `entries` under `analysis/`: a kept take's own, else read from its
+    /// sound, its beats from the copy the app kept when it opened the take
+    /// where there is one.
     fn analysis(
         &self,
         src: &Source,
         red: &mut Redactor,
         entries: &mut Vec<(String, Vec<u8>)>,
+        left_out: &mut Vec<String>,
     ) -> Result<(), String> {
-        let stored = match &src.kept {
-            Some(dir) => analysis_take::read(dir).map_err(|e| e.to_string())?,
+        let other: u64 = entries.iter().map(|(_, d)| d.len() as u64).sum();
+        let got = match &src.kept {
+            Some(dir) => {
+                let kept = analysis_take::read(dir).map_err(|e| e.to_string())?;
+                analysis_take::report_analysis(
+                    analysis_take::ReportFrom::Kept(Box::new(kept)),
+                    other,
+                    |t| red.apply(t),
+                )?
+            }
             None => {
-                let first = src.files.first().ok_or("there is no sound")?;
                 let cfg = src.cfg.clone().unwrap_or_else(|| {
                     let mut c = StreamConfig::default();
                     c.analysis.bph = self.shown.bph;
@@ -839,16 +850,17 @@ impl Job {
                     c
                 });
                 let paths: Vec<&Path> = src.files.iter().map(PathBuf::as_path).collect();
-                let log = take::sound_beats(&paths, &cfg)?;
-                let frame = audio::info(first)
-                    .map_err(|e| e.to_string())?
-                    .bytes_per_frame;
-                analysis_take::from_log(log, &cfg, frame, software())
+                let from = analysis_take::ReportFrom::Sound {
+                    log: Box::new(take::sound_beats(&paths, &cfg)?),
+                    files: &paths,
+                    cfg: &cfg,
+                    software: software(),
+                };
+                analysis_take::report_analysis(from, other, |t| red.apply(t))?
             }
         };
-        let files =
-            analysis_take::report_entries(stored, |t| red.apply(t)).map_err(|e| e.to_string())?;
-        entries.extend(files);
+        entries.extend(got.entries);
+        left_out.extend(got.left_out);
         Ok(())
     }
 

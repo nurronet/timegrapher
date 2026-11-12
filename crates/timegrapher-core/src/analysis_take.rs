@@ -210,10 +210,6 @@ pub fn shape_stretch(masked: &[(f64, f64)], from_s: f64, to_s: f64) -> Option<(f
 /// shape of each stretch in `shapes` ([`shape_stretches`]). `progress` is
 /// called with the seconds of sound read so far, over both readings (so up
 /// to twice the take's length).
-#[expect(
-    clippy::too_many_lines,
-    reason = "over the limit before it was set; split it (architecture guide, section 12)"
-)]
 pub fn measure(
     files: &[&Path],
     cfg: &StreamConfig,
@@ -222,6 +218,24 @@ pub fn measure(
     mut progress: impl FnMut(f64),
 ) -> Result<Stored, AudioError> {
     let log = stream::analyze_files(files, cfg, &mut progress)?;
+    measure_from(log, files, cfg, shapes, software, progress)
+}
+
+/// [`measure`] of the sound `files` whose beats `log` were already found
+/// with `cfg`: the second reading alone, with `progress` counting on from
+/// the log's length.
+#[expect(
+    clippy::too_many_lines,
+    reason = "over the limit before it was set; split it (architecture guide, section 12)"
+)]
+pub fn measure_from(
+    log: BeatLog,
+    files: &[&Path],
+    cfg: &StreamConfig,
+    shapes: &[Option<(f64, f64)>],
+    software: serde_json::Value,
+    mut progress: impl FnMut(f64),
+) -> Result<Stored, AudioError> {
     let bytes_per_frame = audio::info(files[0])?.bytes_per_frame;
     let first = log.duration_s;
     let fs = log.sample_rate as f64;
@@ -396,11 +410,12 @@ pub fn files(s: &Stored) -> io::Result<Vec<(&'static str, Vec<u8>)>> {
     ])
 }
 
-/// What a problem report carries of a take's analysis (#400): its beats
-/// and amplitude windows, from which every reading, chart and Steadiness
-/// figure is read, without the Tick Tock profiles. The profiles are most
-/// of an analysis's size (about 1.2 of its 1.5 MB an hour), so without
-/// them a long take fits beside the report's sound under GitHub's 25 MB.
+/// What a problem report carries of a take's analysis (#400) when the
+/// whole of it won't fit ([`report_analysis`]): its beats and amplitude
+/// windows, from which every reading, chart and Steadiness figure is read,
+/// without the Tick Tock profiles. The profiles are most of an analysis's
+/// size (about 1.2 of its 1.5 MB an hour), so without them a long take
+/// fits beside the report's sound under GitHub's 25 MB.
 /// What the header says of the sound (its USB-line clock, signal figure
 /// and beat shapes) is kept.
 pub fn for_report(mut s: Stored) -> Stored {
@@ -409,15 +424,91 @@ pub fn for_report(mut s: Stored) -> Stored {
     s
 }
 
-/// The files a problem report carries of the take's analysis `s`
-/// ([`for_report`]), at their paths in the report: under `analysis/`, so
-/// the unpacked report reads as a take's folder does with [`read`], and
-/// with `redact` applied to the header, the one file of words.
-pub fn report_entries(
+/// GitHub's limit for a file attached to an issue, bytes: a problem
+/// report is kept under it.
+pub const ATTACHMENT_LIMIT_BYTES: u64 = 25_000_000;
+/// Room a report keeps for its manifest and the zip's own headers.
+const REPORT_OVERHEAD_BYTES: u64 = 100_000;
+/// The most one stretch's profiles take in `profiles.bin` before it is
+/// compressed, bytes: 12 + 2 × (39 + 3 × 141), as [`MAX_ANALYSIS_FILE`]
+/// counts them.
+const PROFILE_STRETCH_MAX_BYTES: u64 = 936;
+
+/// Where a problem report's analysis of a take comes from (#400).
+pub enum ReportFrom<'a> {
+    /// A take kept as its analysis alone: what it kept.
+    Kept(Box<Stored>),
+    /// A take's sound `files`, whose beats `log` were found with `cfg`.
+    Sound {
+        log: Box<BeatLog>,
+        files: &'a [&'a Path],
+        cfg: &'a StreamConfig,
+        software: serde_json::Value,
+    },
+}
+
+/// A take's analysis as a problem report carries it.
+pub struct ReportAnalysis {
+    /// Its files at their paths in the report: under `analysis/`, so the
+    /// unpacked report reads as a take's folder does with [`read`].
+    pub entries: Vec<(String, Vec<u8>)>,
+    /// What was left out of it and why, for the report's `left_out`; none
+    /// when it is whole.
+    pub left_out: Option<String>,
+}
+
+/// The take's analysis for a problem report (#400) whose other files
+/// take `other_bytes`: whole, the Tick Tock profiles too, when the report
+/// stays under GitHub's limit ([`ATTACHMENT_LIMIT_BYTES`]) with it, else
+/// [`for_report`]'s beats and windows. From the sound, the profiles are
+/// read only when they can fit, judged by their most before compression,
+/// so a long take is not read a second time for profiles it can't carry.
+/// `redact` is applied to the header, the analysis's one file of words.
+pub fn report_analysis(
+    from: ReportFrom,
+    other_bytes: u64,
+    redact: impl FnMut(&str) -> String,
+) -> Result<ReportAnalysis, String> {
+    let fits = |bytes: u64| other_bytes + bytes + REPORT_OVERHEAD_BYTES <= ATTACHMENT_LIMIT_BYTES;
+    let size = |s: &Stored| -> Result<u64, String> {
+        let f = files(s).map_err(|e| e.to_string())?;
+        Ok(f.iter().map(|(_, b)| b.len() as u64).sum())
+    };
+    let whole = match from {
+        ReportFrom::Kept(s) => *s,
+        ReportFrom::Sound {
+            log,
+            files: sound,
+            cfg,
+            software,
+        } => {
+            let first = sound.first().ok_or("there is no sound")?;
+            let frame = audio::info(first)
+                .map_err(|e| e.to_string())?
+                .bytes_per_frame;
+            let cut = from_log(*log, cfg, frame, software.clone());
+            let stretches = (cut.header.duration_s / PROFILE_EVERY_S).ceil() as u64;
+            if !fits(size(&cut)? + stretches * PROFILE_STRETCH_MAX_BYTES) {
+                return report_entries(cut, false, redact);
+            }
+            measure_from(cut.log, sound, cfg, &[], software, |_| {}).map_err(|e| e.to_string())?
+        }
+    };
+    if fits(size(&whole)?) {
+        report_entries(whole, true, redact)
+    } else {
+        report_entries(for_report(whole), false, redact)
+    }
+}
+
+/// [`report_analysis`]'s files of `s`, which is `whole` or cut.
+fn report_entries(
     s: Stored,
+    whole: bool,
     mut redact: impl FnMut(&str) -> String,
-) -> io::Result<Vec<(String, Vec<u8>)>> {
-    Ok(files(&for_report(s))?
+) -> Result<ReportAnalysis, String> {
+    let entries = files(&s)
+        .map_err(|e| e.to_string())?
         .into_iter()
         .map(|(name, bytes)| {
             let bytes = if name == HEADER {
@@ -427,11 +518,20 @@ pub fn report_entries(
             };
             (format!("{DIR}/{name}"), bytes)
         })
-        .collect())
+        .collect();
+    Ok(ReportAnalysis {
+        entries,
+        left_out: (!whole).then(|| {
+            "the Tick Tock profiles of the take's analysis: with them the report would be \
+             over GitHub's 25 MB limit for attachments"
+                .to_string()
+        }),
+    })
 }
 
 /// A take's analysis from its beat `log` alone, as a report carries it
-/// ([`for_report`]), for a take whose sound has already been read: no
+/// when the whole won't fit ([`for_report`]), for a take whose sound has
+/// already been read: no
 /// profiles, and none of what [`measure`] reads from the sound a second
 /// time (the USB-line clock, the signal figure, the beat shapes).
 /// `bytes_per_frame` is the sound's, for reading `clock.csv`.
@@ -1306,6 +1406,76 @@ mod tests {
                 assert_eq!(back.header.usb_clock, usb);
             }
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A report's analysis is whole when the report fits under GitHub's
+    /// limit with it, and its beats and windows alone when it wouldn't,
+    /// saying why; from the sound, the profiles are read only when they
+    /// can fit. The header is redacted.
+    #[test]
+    fn a_report_analysis_is_whole_when_it_fits() {
+        let dir = scratch("report-fit");
+        let wav = take(&dir, 60.0);
+        let cfg = StreamConfig::default();
+        let paths = [wav.as_path()];
+        let kept = measure(&paths, &cfg, &[], software(), |_| {}).unwrap();
+        let whole: u64 = files(&kept)
+            .unwrap()
+            .iter()
+            .map(|(_, b)| b.len() as u64)
+            .sum();
+        let profiles = kept.profiles.len();
+        let unpack = |r: &ReportAnalysis, to: &str| -> Stored {
+            let at = dir.join(to);
+            for (p, d) in &r.entries {
+                let f = at.join(p);
+                fs::create_dir_all(f.parent().unwrap()).unwrap();
+                fs::write(f, d).unwrap();
+            }
+            read(&at).unwrap()
+        };
+        // The software's version stands in for a user name.
+        let redact = |t: &str| t.replace("\"test\"", "\"<redacted>\"");
+        // Room for it all: whole, and the header redacted.
+        let r = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), 0, redact).unwrap();
+        assert!(r.left_out.is_none());
+        assert_eq!(unpack(&r, "kept-whole").profiles.len(), profiles);
+        let header = &r
+            .entries
+            .iter()
+            .find(|(p, _)| p.ends_with(HEADER))
+            .unwrap()
+            .1;
+        assert!(String::from_utf8_lossy(header).contains("<redacted>"));
+        // A byte short of the room it needs: cut, and why.
+        let full = ATTACHMENT_LIMIT_BYTES - REPORT_OVERHEAD_BYTES - whole;
+        let r =
+            report_analysis(ReportFrom::Kept(Box::new(kept.clone())), full + 1, redact).unwrap();
+        assert!(r.left_out.as_deref().is_some_and(|w| w.contains("25 MB")));
+        let cut = unpack(&r, "kept-cut");
+        assert!(cut.profiles.is_empty());
+        assert_eq!(cut.log.beats.len(), kept.log.beats.len());
+        let r = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), full, redact).unwrap();
+        assert!(r.left_out.is_none(), "exactly at the limit is whole");
+        // From the sound: the profiles read when they can fit, else not.
+        let sound = |other| {
+            let from = ReportFrom::Sound {
+                log: Box::new(kept.log.clone()),
+                files: &paths,
+                cfg: &cfg,
+                software: software(),
+            };
+            report_analysis(from, other, |t: &str| t.to_string()).unwrap()
+        };
+        let r = sound(0);
+        assert!(r.left_out.is_none());
+        assert_eq!(unpack(&r, "sound-whole").profiles.len(), profiles);
+        let r = sound(ATTACHMENT_LIMIT_BYTES - REPORT_OVERHEAD_BYTES - whole / 4);
+        assert!(r.left_out.is_some());
+        let cut = unpack(&r, "sound-cut");
+        assert!(cut.profiles.is_empty());
+        assert_eq!(cut.log.beats.len(), kept.log.beats.len());
         let _ = fs::remove_dir_all(&dir);
     }
 

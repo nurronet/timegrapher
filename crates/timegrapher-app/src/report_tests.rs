@@ -440,7 +440,7 @@ fn analysis_in(files: &[(String, Vec<u8>)], dir: &Path) -> analysis_take::Stored
 }
 
 /// A report carries the take's beats and amplitude windows (#400) from
-/// its whole sound, without the Tick Tock profiles, even with the sound
+/// its whole sound, whole as it fits under GitHub's limit, even with the sound
 /// left out.
 #[test]
 fn a_report_carries_the_whole_takes_beats() {
@@ -454,7 +454,7 @@ fn a_report_carries_the_whole_takes_beats() {
     // 40 s at 8 beats a second.
     assert!(s.log.beats.len() > 250, "{} beats", s.log.beats.len());
     assert!(!s.log.amplitude_windows.is_empty());
-    assert!(s.profiles.is_empty());
+    assert!(!s.profiles.is_empty(), "40 s fits whole");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -501,7 +501,7 @@ fn an_analysis_only_take_is_reported_with_its_analysis() {
     let files = saved_without_excerpt(&dir, source);
     let s = analysis_in(&files, &dir.join("unpacked"));
     assert_eq!(s.log.beats.len(), stored.log.beats.len());
-    assert!(s.profiles.is_empty());
+    assert_eq!(s.profiles.len(), stored.profiles.len(), "it fits whole");
     let m: Value =
         serde_json::from_slice(&files.iter().find(|(p, _)| p == "manifest.json").unwrap().1)
             .unwrap();

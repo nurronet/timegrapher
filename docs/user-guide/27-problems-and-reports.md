@@ -25,7 +25,7 @@ measured again on another computer.
 | **Save Report…** | Saves the zip where you pick (it starts at Downloads), then opens its folder and the GitHub form. | Drag the zip into the form. |
 
 A take kept as its analysis alone has no sound to include: its report
-carries its beats and amplitude windows instead.
+carries its analysis instead.
 
 **The app sends nothing.** You attach the zip to the issue yourself,
 and can open it first to see what is in it.
@@ -37,7 +37,7 @@ and can open it first to see what is in it.
 | The excerpt | The sound you kept, as FLAC, with the same samples as the take. |
 | Its measurement | `timegrapher analyze` of the excerpt, which can be run again on another build (below). |
 | The app's readings | What the app showed, and its settings, in `results/app.json`. |
-| The take's beats | The whole take's beats and amplitude windows, in `analysis/`, so every reading and chart of it can be read again, not only the excerpt's. About 0.3 MB an hour: the Tick Tock profiles are left out. |
+| The take's analysis | The whole take's beats, amplitude windows and Tick Tock profiles, in `analysis/`, so every reading and chart of it can be read again, not only the excerpt's. About 1.5 MB an hour. When that would take the zip over GitHub's 25 MB, the profiles are left out, which leaves about 0.3 MB an hour. |
 | The log and crash records | From the last week. |
 | The clock corrections | Each sound input's stored clock error (M3). |
 | `manifest.json` | The version, the system, your note, the kind, each file with its checksum, what you agreed to, and what was taken out. |
@@ -57,7 +57,7 @@ timegrapher report --kind bug --note "the app froze when I unplugged the microph
 ```
 
 `--at` and `--span` choose the excerpt, in seconds; `--no-audio` leaves
-it out, and `--no-analysis` leaves out the take's beats, which saves
+it out, and `--no-analysis` leaves out the take's analysis, which saves
 reading the whole recording again. Give `--bph` and `--lift` as they were set when the problem
 showed. `--listened-back` and `--cc0` are the form's two ticks, for you
 alone to give. It never opens the microphone.

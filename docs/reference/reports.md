@@ -22,7 +22,7 @@ recording and sidecar that `doctor --save` already wrote.
 | `audio/excerpt.flac.json` | The recording's sidecar from `doctor --save` (device, configuration, mixer), if it has one, plus where the excerpt was cut from |
 | `results/analyze-excerpt.json` | `analyze --json` on the excerpt |
 | `results/analyze-whole.json` or `results/long-whole.json` | `analyze --json` on the whole file, or `long --json` on a folder of segments, so the size of any difference from the excerpt shows |
-| `analysis/` | The take's beats and amplitude windows (#400): `analysis.json`, `beats.csv.gz`, `windows.csv.gz` and an empty `profiles.bin.gz`, in the layout of a take kept as its analysis alone ([sessions.md](sessions.md)), so the unpacked bundle reads as such a take's folder. Every reading, chart and Steadiness figure of the whole take is read from them. The Tick Tock profiles are left out: they are about 1.2 of the analysis's 1.5 MB an hour, and without them a take is about 0.3 MB an hour. The beats are read from the whole recording, which reads it once more; `--no-analysis` leaves them out |
+| `analysis/` | The take's analysis (#400): `analysis.json`, `beats.csv.gz`, `windows.csv.gz` and `profiles.bin.gz`, in the layout of a take kept as its analysis alone ([sessions.md](sessions.md)), so the unpacked bundle reads as such a take's folder. Every reading, chart and Steadiness figure of the whole take is read from it. It is whole, Tick Tock profiles too, when the zip stays under GitHub's 25 MB with it (about 1.5 MB an hour); otherwise the profiles are left out (`profiles.bin.gz` is empty, about 0.3 MB an hour) and `left_out` says so. From a recording it is read from the whole sound, which reads it once more, and the profiles a second time only when they can fit; `--no-analysis` leaves it out |
 | `long/clocklog.txt` | A folder's clock log |
 | `env/clock.json` | The stored sound-card clock corrections (`timegrapher clock`) |
 | `logs/` | Log and crash files from the last 7 days in the settings folder |
@@ -32,12 +32,12 @@ set when the problem showed.
 
 **A take kept as its analysis alone** has no sound to cut, so its report
 holds no `audio/` and no excerpt analysis: its own `analysis/` (without the
-profiles), `results/long-whole.json` from `long --json` on the take, and
+profiles when they don't fit), `results/long-whole.json` from `long --json` on the take, and
 `left_out` says why there is no sound.
 
-**Size.** The excerpt is about 18 MB for five minutes, and the analysis about
-0.3 MB an hour, so a take of up to about 20 hours fits under GitHub's 25 MB
-beside a five-minute excerpt. For a longer take, shorten `--span`; `report`
+**Size.** The excerpt is about 18 MB for five minutes. Beside it, a
+take's whole analysis fits up to about 4 hours, and its beats and windows
+alone up to about 20 hours. For a longer take, shorten `--span`; `report`
 warns when the zip is over 25 MB.
 
 The desktop report stores its captured screen state separately in

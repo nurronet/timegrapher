@@ -1,6 +1,7 @@
-//! `timegrapher report` carries the take's analysis (#400): its beats and
-//! amplitude windows under `analysis/`, without the Tick Tock profiles, read
-//! from the sound or from a take kept as its analysis alone.
+//! `timegrapher report` carries the take's analysis (#400) under
+//! `analysis/`, whole when it fits under GitHub's limit (core's
+//! `analysis_take::report_analysis` decides, and its tests cover the cut),
+//! read from the sound or from a take kept as its analysis alone.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use timegrapher_core::analysis_take;
@@ -74,7 +75,8 @@ fn analysis_of(files: &[(String, Vec<u8>)], dir: &Path) -> analysis_take::Stored
 }
 
 /// A recording's report holds its beats and windows beside the excerpt,
-/// with no profiles; `--no-analysis` leaves them out and says so.
+/// whole, its profiles too, as a minute fits; `--no-analysis` leaves it
+/// out and says so.
 #[test]
 fn a_report_carries_the_recordings_analysis() {
     let dir = scratch("sound");
@@ -96,7 +98,7 @@ fn a_report_carries_the_recordings_analysis() {
     // The whole minute, not the 20 s excerpt: about 8 beats a second.
     assert!(s.log.beats.len() > 400, "{} beats", s.log.beats.len());
     assert!(!s.log.amplitude_windows.is_empty());
-    assert!(s.profiles.is_empty());
+    assert!(!s.profiles.is_empty(), "a minute fits whole");
     assert_eq!(s.log.bph, 28800);
     // Listed in the manifest with its checksum, as every file is.
     let manifest: serde_json::Value =
@@ -173,7 +175,7 @@ fn an_analysis_only_take_is_reported_with_its_analysis() {
         s.log.amplitude_windows.len(),
         stored.log.amplitude_windows.len()
     );
-    assert!(s.profiles.is_empty());
+    assert_eq!(s.profiles.len(), stored.profiles.len(), "it fits whole");
     assert_eq!(s.header.shape.len(), stored.header.shape.len());
     let manifest: serde_json::Value =
         serde_json::from_slice(&files.iter().find(|(p, _)| p == "manifest.json").unwrap().1)
