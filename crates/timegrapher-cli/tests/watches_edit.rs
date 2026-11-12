@@ -277,7 +277,58 @@ fn only_a_take_is_added_while_the_app_has_the_library_open() {
     let added = PathBuf::from(doc["take"].as_str().unwrap());
     assert_eq!(added.parent().unwrap().file_name().unwrap(), TAKES);
     assert!(added.join("session.toml").is_file());
+    // Only copied: moved, the original would go with a watch the app
+    // deletes meanwhile.
+    let e = refused(
+        &base,
+        &[
+            "watches",
+            "add-take",
+            "Pepsi",
+            outside.to_str().unwrap(),
+            "--move",
+        ],
+    );
+    assert!(e.contains("leave out --move"), "{e}");
+    assert!(outside.join("session.toml").is_file());
     drop(app);
     ok(&base, &["watches", "edit", "Pepsi", "--notes", "x"]);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// A take path that isn't plain is no take: `<watch>/takes/..` is the
+/// watch's own folder, and deleting or moving it is refused, changing
+/// nothing (Felix on #1487).
+#[test]
+fn a_path_out_of_a_watchs_takes_is_never_a_take() {
+    let base = scratch("dotdot");
+    let w = ok(&base, &["watches", "new", "Pepsi"]);
+    ok(&base, &["watches", "new", "Daytona"]);
+    let folder = PathBuf::from(w["watch"]["folder"].as_str().unwrap());
+    let outside = base.join("2026-11-12 12.00 Dial Up");
+    take(&outside);
+    ok(
+        &base,
+        &["watches", "add-take", "Pepsi", outside.to_str().unwrap()],
+    );
+    let up = folder.join(TAKES).join("..");
+    let dot = folder.join(TAKES).join(".");
+    for args in [
+        vec!["watches", "delete-take", up.to_str().unwrap(), "--yes"],
+        vec!["watches", "delete-take", dot.to_str().unwrap(), "--yes"],
+        vec![
+            "watches",
+            "move-take",
+            up.to_str().unwrap(),
+            "--to",
+            "Daytona",
+        ],
+        vec!["watches", "keep-analysis-only", up.to_str().unwrap()],
+    ] {
+        let e = refused(&base, &args);
+        assert!(e.contains("not a take of these watches"), "{args:?}: {e}");
+    }
+    assert!(folder.join("watch.toml").is_file());
+    assert_eq!(show(&base, "Pepsi")["takes"].as_array().unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&base);
 }

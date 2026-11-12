@@ -251,6 +251,27 @@ pub fn kept_beside(take: &Path) -> PathBuf {
     take.with_file_name(format!(".{name}.analysis"))
 }
 
+/// Keep Analysis Only's writing step, one for the app (on its own thread)
+/// and the CLI: the take planned in `plan` read and measured
+/// ([`measure`], `progress` as there), and kept as its analysis alone in
+/// a new folder beside it ([`kept_beside`], any left from an earlier try
+/// cleared first, [`save`] writing it whole). Nothing of the take itself
+/// is touched: [`crate::library::Library::replace_take`] then puts the
+/// returned folder in its place, and only that deletes the sound.
+pub fn write_kept(
+    take: &Path,
+    plan: &KeepPlan,
+    software: serde_json::Value,
+    progress: impl FnMut(f64),
+) -> Result<PathBuf, String> {
+    let dest = kept_beside(take);
+    let _ = fs::remove_dir_all(&dest);
+    let paths: Vec<&Path> = plan.files.iter().map(PathBuf::as_path).collect();
+    let stored =
+        measure(&paths, &plan.cfg, &plan.shapes, software, progress).map_err(|e| e.to_string())?;
+    save(&dest, &plan.companions, &stored).map_err(|e| e.to_string())
+}
+
 /// How a take kept as its analysis is read: its session file's own
 /// settings, its calibre found in the catalogue and `user`'s.
 pub fn keep_settings(m: &Manifest, user: &crate::calibre_store::UserCalibres) -> StreamConfig {

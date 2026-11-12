@@ -764,14 +764,7 @@ impl TimegrapherApp {
         if self.take_keep.is_some() {
             return;
         }
-        let prepared = timegrapher_core::analysis_take::plan_keep(&take, &self.cal.user);
-        let timegrapher_core::analysis_take::KeepPlan {
-            files,
-            total_s,
-            companions,
-            cfg,
-            shapes,
-        } = match prepared {
+        let plan = match timegrapher_core::analysis_take::plan_keep(&take, &self.cal.user) {
             Ok(p) => p,
             Err(e) => {
                 return self.error(format!(
@@ -779,31 +772,21 @@ impl TimegrapherApp {
                 ))
             }
         };
-        let dest = timegrapher_core::analysis_take::kept_beside(&take);
-        let _ = std::fs::remove_dir_all(&dest);
+        let total_s = plan.total_s;
         let software = report::software();
         let (tx, rx) = std::sync::mpsc::channel();
         let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (p2, c2) = (progress.clone(), cancel.clone());
+        let at = take.clone();
         std::thread::spawn(move || {
-            let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let stored = timegrapher_core::analysis_take::measure(
-                    &paths,
-                    &cfg,
-                    &shapes,
-                    software,
-                    |s| {
-                        p2.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
-                        if c2.load(std::sync::atomic::Ordering::Relaxed) {
-                            std::panic::resume_unwind(Box::new(Cancelled));
-                        }
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-                timegrapher_core::analysis_take::save(&dest, &companions, &stored)
-                    .map_err(|e| e.to_string())
+                timegrapher_core::analysis_take::write_kept(&at, &plan, software, |s| {
+                    p2.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    if c2.load(std::sync::atomic::Ordering::Relaxed) {
+                        std::panic::resume_unwind(Box::new(Cancelled));
+                    }
+                })
             }));
             match r {
                 Ok(r) => {
@@ -842,9 +825,7 @@ impl TimegrapherApp {
         };
         let before = folder_size(&take);
         let placed = match (done, &mut self.library) {
-            (Ok(kept), Ok(Some(l))) => l.replace_take(&take, &kept).inspect_err(|_| {
-                let _ = std::fs::remove_dir_all(&kept);
-            }),
+            (Ok(kept), Ok(Some(l))) => l.put_kept(&take, &kept),
             (Ok(kept), _) => {
                 let _ = std::fs::remove_dir_all(&kept);
                 Err("the Watches folder is no longer open".into())

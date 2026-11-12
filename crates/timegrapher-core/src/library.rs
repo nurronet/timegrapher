@@ -1227,16 +1227,24 @@ impl Library {
         Ok(())
     }
 
-    /// The watch whose `takes/` holds the take folder `take`.
+    /// The watch whose `takes/` holds the take folder `take`. A path that
+    /// isn't plain ([`plain`]) is no take: `<watch>/takes/..` has
+    /// `takes/` for its parent but is the watch's own folder (Felix on
+    /// #1487).
     pub fn watch_of(&self, take: &Path) -> Option<&WatchEntry> {
+        if !plain(take) {
+            return None;
+        }
         let parent = take.parent()?;
         self.watches.iter().find(|w| w.dir.join(TAKES) == parent)
     }
 
     /// Whether `take` is a take folder in Unsorted.
     pub fn is_unsorted(&self, take: &Path) -> bool {
-        self.unsorted_dir()
-            .is_ok_and(|d| take.parent() == Some(d.as_path()))
+        plain(take)
+            && self
+                .unsorted_dir()
+                .is_ok_and(|d| take.parent() == Some(d.as_path()))
     }
 
     /// `take`'s watch (Unsorted for one there), where this copy of the app
@@ -1397,7 +1405,7 @@ impl Library {
     /// in place of `take`: the take is moved aside, `kept` takes its name,
     /// and only then is the take with its sound deleted. `Ok(Some(why))`
     /// when the kept take is in place but some of the old one couldn't be
-    /// deleted.
+    /// deleted. On an error the take is as it was, and so is `kept`.
     pub fn replace_take(&mut self, take: &Path, kept: &Path) -> Result<Option<String>, String> {
         self.take_in_library(take)?;
         if kept.parent() != take.parent() || !crate::analysis_take::is_analysis_only(kept) {
@@ -1422,6 +1430,20 @@ impl Library {
         }))
     }
 
+    /// Keep Analysis Only's last step, one for the app and the CLI: the
+    /// take `take` written as its analysis alone in `kept`
+    /// ([`crate::analysis_take::write_kept`]) put in its place
+    /// ([`Library::replace_take`]). On an error the take is as it was,
+    /// and `kept` is removed where it is the folder `write_kept` writes
+    /// beside the take (never any other).
+    pub fn put_kept(&mut self, take: &Path, kept: &Path) -> Result<Option<String>, String> {
+        let placed = self.replace_take(take, kept);
+        if placed.is_err() && kept == crate::analysis_take::kept_beside(take) {
+            let _ = fs::remove_dir_all(kept);
+        }
+        placed
+    }
+
     /// Add the take folder `from`, from outside the library, to a watch
     /// (by its id): copied, or moved when `keep_original` is false. It is
     /// copied beside its new place first and moved in whole, so a copy cut
@@ -1436,6 +1458,14 @@ impl Library {
     ) -> Result<(PathBuf, Option<String>), String> {
         if !self.adding {
             self.writable()?;
+        } else if !keep_original {
+            // Without the lock the app may move or delete the watch while
+            // the take goes in: only a copy keeps the original safe.
+            return Err(
+                "the app has these watches open, so a take can only be copied in, not moved: \
+                 leave out --move, or close the app first"
+                    .into(),
+            );
         }
         if !(from.join(take::MANIFEST).is_file() || from.join(take::RECORD).is_file()) {
             return Err(format!(
@@ -1453,22 +1483,38 @@ impl Library {
             .find(|w| w.watch.id == watch_id)
             .ok_or("That watch is no longer in your watches")?;
         let takes = to_watch.dir.join(TAKES);
-        fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
+        if self.adding {
+            // Never make again a watch the app has just renamed or deleted.
+            if !to_watch.dir.join(WATCH_FILE).is_file() {
+                return Err(format!(
+                    "\"{}\" is no longer in your watches",
+                    to_watch.watch.name
+                ));
+            }
+            match fs::create_dir(&takes) {
+                Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                    return Err(format!("{}: {e}", takes.display()))
+                }
+                _ => {}
+            }
+        } else {
+            fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
+        }
         let to = unused_dir(&takes, &file_name(from));
         if !keep_original && fs::rename(from, &to).is_ok() {
             self.scan();
             return Ok((to, None));
         }
-        let staged = takes.join(format!(".adding-{}", file_name(&to)));
-        let _ = fs::remove_dir_all(&staged);
-        let copied = copy_tree(from, &staged, &[]).and_then(|_| {
-            crate::recorder::rename_settled(&staged, &to)
-                .map_err(|e| format!("{}: {e}", to.display()))
-        });
-        if let Err(e) = copied {
-            let _ = fs::remove_dir_all(&staged);
-            return Err(e);
-        }
+        let staged = staging(&takes, &to);
+        let copied = copy_tree(from, &staged, &[])
+            .and_then(|_| move_in(&staged, &takes, &file_name(from), to));
+        let to = match copied {
+            Ok(to) => to,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&staged);
+                return Err(e);
+            }
+        };
         let left = if keep_original {
             None
         } else {
@@ -1509,8 +1555,7 @@ impl Library {
         let takes = to_watch.dir.join(TAKES);
         fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
         let to = unused_dir(&takes, name);
-        let staged = takes.join(format!(".adding-{}", file_name(&to)));
-        let _ = fs::remove_dir_all(&staged);
+        let staged = staging(&takes, &to);
         let put = (|| {
             if from.is_dir() {
                 copy_tree(from, &staged, &[])?;
@@ -1523,15 +1568,50 @@ impl Library {
                 let dst = staged.join(file);
                 fs::write(&dst, text).map_err(|e| format!("{}: {e}", dst.display()))?;
             }
-            crate::recorder::rename_settled(&staged, &to)
-                .map_err(|e| format!("{}: {e}", to.display()))
+            move_in(&staged, &takes, name, to)
         })();
-        if let Err(e) = put {
-            let _ = fs::remove_dir_all(&staged);
-            return Err(e);
-        }
+        let to = match put {
+            Ok(to) => to,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&staged);
+                return Err(e);
+            }
+        };
         self.scan();
         Ok(to)
+    }
+}
+
+/// Whether `p` names a folder plainly: no `.` or `..` in it, and a name
+/// at its end, so its parent is the folder it is in.
+fn plain(p: &Path) -> bool {
+    use std::path::Component;
+    p.file_name().is_some()
+        && p.components()
+            .all(|c| !matches!(c, Component::CurDir | Component::ParentDir))
+}
+
+/// A folder in `takes` to put a take together in before it is moved in
+/// whole as `to`: hidden, so no scan lists it, and of its own, so two
+/// programs adding a take of one name at once (the app, and the command
+/// line adding while the app is open) never clear each other's.
+fn staging(takes: &Path, to: &Path) -> PathBuf {
+    takes.join(format!(".adding-{}-{}", file_name(to), new_id()))
+}
+
+/// Move the take put together in `staged` into `takes` as `to`, or, where
+/// another program took that name meanwhile, as the next free name for
+/// `base` ([`unused_dir`]). Returns where it went.
+fn move_in(staged: &Path, takes: &Path, base: &str, to: PathBuf) -> Result<PathBuf, String> {
+    match crate::recorder::rename_settled(staged, &to) {
+        Ok(()) => Ok(to),
+        Err(_) if to.exists() => {
+            let again = unused_dir(takes, base);
+            crate::recorder::rename_settled(staged, &again)
+                .map(|()| again.clone())
+                .map_err(|e| format!("{}: {e}", again.display()))
+        }
+        Err(e) => Err(format!("{}: {e}", to.display())),
     }
 }
 

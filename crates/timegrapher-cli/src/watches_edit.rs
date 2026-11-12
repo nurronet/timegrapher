@@ -396,16 +396,8 @@ fn keep_analysis_only(library: Option<&Path>, take: &Path) -> Result<Done, Strin
         take.display(),
         plan.total_s
     );
-    let paths: Vec<&Path> = plan.files.iter().map(PathBuf::as_path).collect();
-    let stored =
-        analysis_take::measure(&paths, &plan.cfg, &plan.shapes, output::software(), |_| {})
-            .map_err(|e| e.to_string())?;
-    let dest = analysis_take::kept_beside(&take);
-    let _ = std::fs::remove_dir_all(&dest);
-    let kept = analysis_take::save(&dest, &plan.companions, &stored).map_err(|e| e.to_string())?;
-    let left = lib.replace_take(&take, &kept).inspect_err(|_| {
-        let _ = std::fs::remove_dir_all(&kept);
-    })?;
+    let kept = analysis_take::write_kept(&take, &plan, output::software(), |_| {})?;
+    let left = lib.put_kept(&take, &kept)?;
     let after = library::folder_bytes(&take);
     Ok(Done {
         watch,
