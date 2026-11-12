@@ -50,11 +50,22 @@ fn checked(dir: &Path, target: &Path) -> String {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    // The build script's run writes what it printed to `output` in a
-    // folder of its own under build/; the one probe crate has one such run.
-    let outputs: Vec<PathBuf> = std::fs::read_dir(target.join("debug").join("build"))
-        .unwrap()
-        .filter_map(|e| Some(e.ok()?.path().join("output")))
+    // The build script's run writes what it printed to a file under
+    // build/: `<run>/output` before Cargo 1.100, `<crate>/<hash>/run/stdout`
+    // since (its new build-dir layout); the one probe crate has one such run.
+    let build = target.join("debug").join("build");
+    let dirs = |d: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(d)
+            .map(|r| r.filter_map(|e| Some(e.ok()?.path())).collect())
+            .unwrap_or_default()
+    };
+    let outputs: Vec<PathBuf> = dirs(&build)
+        .iter()
+        .flat_map(|run| {
+            let mut found = vec![run.join("output")];
+            found.extend(dirs(run).iter().map(|h| h.join("run").join("stdout")));
+            found
+        })
         .filter(|p| p.is_file())
         .collect();
     assert_eq!(outputs.len(), 1, "{outputs:?}");

@@ -34,6 +34,10 @@ pub const UNHEARD_BPH: u32 = 18_000;
 /// last, for a take that isn't a Power Reserve Test to have its run read
 /// as one ([`from_long_take`]).
 pub const LONG_TAKE_S: f64 = 6.0 * 3600.0;
+/// Seconds of sound between readings of a run's hours while it is still
+/// being heard: a running test's hours so far, and a long take's run so
+/// far while listening.
+pub const READ_AGAIN_S: f64 = 60.0;
 
 /// How a run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,6 +52,10 @@ pub enum Ending {
     /// A take that wasn't a Power Reserve Test ended while the watch
     /// still ran ([`from_long_take`]).
     TakeEnded,
+    /// A take that isn't a Power Reserve Test, read while still being
+    /// heard, with no stop found yet ([`STOP_AFTER_S`] of silence not yet
+    /// passed; [`Results::still_listening`]): the run so far.
+    Listening,
     /// The recording failed (a full disk, say) while the watch still ran:
     /// the run is at least as long as heard, never a stop of the watch.
     RecordingFailed,
@@ -67,6 +75,7 @@ impl Ending {
                 limit_text()
             ),
             Ending::TakeEnded => "The take ended while the watch still ran".to_string(),
+            Ending::Listening => "Still listening, no stop found yet".to_string(),
             Ending::RecordingFailed => "The recording failed while the watch still ran".to_string(),
         }
     }
@@ -424,11 +433,11 @@ pub fn from_long_take(
 }
 
 /// A run time in words ([`run_text`] of `run_s`), "at least" for a long
-/// take that ended before the watch stopped, or a run whose recording
-/// failed: "41 h 12 min", "at least 65 h 03 min".
+/// take that ended, or is still being heard, before the watch stopped, or
+/// a run whose recording failed: "41 h 12 min", "at least 65 h 03 min".
 pub fn run_words(run_s: f64, ending: Ending, source: Source) -> String {
     let run = run_text(run_s);
-    if (source == Source::LongTake && ending == Ending::TakeEnded)
+    if (source == Source::LongTake && matches!(ending, Ending::TakeEnded | Ending::Listening))
         || ending == Ending::RecordingFailed
     {
         format!("at least {run}")
@@ -481,6 +490,17 @@ impl Results {
     /// [`sentence`] of this run.
     pub fn sentence(&self, position: &str) -> String {
         sentence(self.run_s, self.ending, self.source, position)
+    }
+
+    /// A long take's run read while the take is still being heard: one
+    /// whose watch still ran at its last sound ([`Ending::TakeEnded`])
+    /// is a run so far ([`Ending::Listening`]), since the take hasn't
+    /// ended. A stop already found stands.
+    pub fn still_listening(mut self) -> Results {
+        if self.ending == Ending::TakeEnded {
+            self.ending = Ending::Listening;
+        }
+        self
     }
 }
 
@@ -709,6 +729,29 @@ mod tests {
             Ending::TakeEnded.text(),
             "The take ended while the watch still ran"
         );
+    }
+
+    /// A long take's run read while still being heard is a run so far,
+    /// "at least" and never "the take ended"; a stop already found stands.
+    #[test]
+    fn a_long_take_still_heard_reads_as_a_run_so_far() {
+        let long = take_of(LONG_TAKE_S + 60.0, 0.0);
+        let r = from_long_take(&long, None, &[], &[], &["DU"], "", true)
+            .unwrap()
+            .still_listening();
+        assert_eq!(r.ending, Ending::Listening);
+        assert_eq!(
+            r.sentence("DU"),
+            format!(
+                "Ran at least {} in DU from the take's start. Still listening, no stop \
+                 found yet. Read from a long take, not a Power Reserve Test.",
+                run_text(r.run_s)
+            )
+        );
+        let stopped = take_of(LONG_TAKE_S + 60.0, STOP_AFTER_S + 60.0);
+        let r = from_long_take(&stopped, None, &[], &[], &["DU"], "", true).unwrap();
+        assert_eq!(r.ending, Ending::Stopped);
+        assert_eq!(r.still_listening().ending, Ending::Stopped);
     }
 
     /// A long take's run is named a run from the take's start, "at least"
