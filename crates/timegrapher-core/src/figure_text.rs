@@ -36,6 +36,30 @@ pub fn true_minus(text: &str) -> String {
     text.replace('-', "\u{2212}")
 }
 
+/// A sentence as a screen shows it: a hyphen-minus that starts a figure
+/// (a digit or a point and a digit follow it, and no letter or digit
+/// comes before it) set as a true minus, every other hyphen kept, so
+/// "level shift: -212.6 s/d" turns and "2-second" and "10-30" do not.
+/// For core sentences that mix words and figures (#1437); a figure
+/// alone takes [`true_minus`].
+pub fn figure_minus(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let digit = |i: usize| chars.get(i).is_some_and(|c| c.is_ascii_digit());
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let after = digit(i + 1) || (chars.get(i + 1) == Some(&'.') && digit(i + 2));
+            let before = i > 0 && chars[i - 1].is_alphanumeric();
+            if c == '-' && after && !before {
+                '\u{2212}'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 /// The most decimals a figure or its ± is written to: below 0.001 a ± is
 /// far inside any clock or lift-angle accuracy (#510 K3).
 pub const MAX_DIGITS: usize = 3;
@@ -154,6 +178,20 @@ mod tests {
             "\u{2212}1.2 to \u{2212}0.4 s/d"
         );
         assert_eq!(true_minus("+1.2"), "+1.2");
+    }
+
+    #[test]
+    fn a_sentences_figures_take_a_true_minus_and_its_words_keep_their_hyphens() {
+        let m = '\u{2212}';
+        assert_eq!(
+            figure_minus("Rate shifts level 1 time: -212.6 s/d, then -.5 and (-3 ms)"),
+            format!("Rate shifts level 1 time: {m}212.6 s/d, then {m}.5 and ({m}3 ms)")
+        );
+        assert_eq!(
+            figure_minus("2-second stretches, 10-30 min, beat-error, Ljung-Box, a -"),
+            "2-second stretches, 10-30 min, beat-error, Ljung-Box, a -"
+        );
+        assert_eq!(figure_minus("-1.2 s/d"), format!("{m}1.2 s/d"));
     }
 
     /// One rule for the ± on every surface (#806): the case the MCP view

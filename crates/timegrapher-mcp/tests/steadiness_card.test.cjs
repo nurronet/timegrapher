@@ -21,7 +21,8 @@ vm.runInContext([constant("SERIES"), constant("STEADY_VIEWS"), constant("INFO_HI
   ...["esc", "fixedDigits", "num", "signed", "pText", "steadyStats", "steadySwitch", "switchView", "steadinessCard"].map(definition)].join("\n"), context);
 
 const rate = { series: "rate", unit: "s/d", unit_text: " s/d", readings: 179, step_s: 10, median: 1.5, autocorrelation: { p_value: 0.5 },
-  headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak" };
+  headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", summary: "repeats every 46 s, 4.0 s/d peak to peak",
+  screen_headline: "The rate repeats every 46 s, 4.0 s/d peak to peak.", screen_summary: "repeats every 46 s, 4.0 s/d peak to peak" };
 const doc = { duration_s: 1800, series: [rate] };
 
 test("each plot's title line carries the series and core's summary; the full text waits in Info", () => {
@@ -82,4 +83,20 @@ test("a series' own caveat shows once, on that series, in the server's words", (
   assert.equal(series[1].limits, undefined);
   // With no series caveats from the server, none is drawn.
   assert.ok(!c.seriesView({ duration_s: 1800, series }, null, take).includes("may be noise"));
+});
+
+test("the title line and the headline show core's screen copies: a true minus on figures, the words as sent (#1437)", () => {
+  context.steadyPlot = () => "<svg/>";
+  const shift = { ...rate,
+    headline: "Rate shifts level 1 time: -212.6 s/d, then -5.0 s/d over 2-second stretches.",
+    summary: "shifts level 1 time: -212.6 s/d, then -5.0 s/d",
+    screen_headline: `Rate shifts level 1 time: ${MINUS}212.6 s/d, then ${MINUS}5.0 s/d over 2-second stretches.`,
+    screen_summary: `shifts level 1 time: ${MINUS}212.6 s/d, then ${MINUS}5.0 s/d` };
+  context.showInfo = true;
+  const out = context.steadinessCard({ duration_s: 1800, series: [shift] });
+  context.showInfo = false;
+  assert.ok(out.includes(`<span class="summary"> · shifts level 1 time: ${MINUS}212.6 s/d, then ${MINUS}5.0 s/d</span>`), out);
+  assert.ok(out.includes(`<p class="headline">Rate shifts level 1 time: ${MINUS}212.6 s/d`), out);
+  assert.ok(out.includes("2-second stretches"), out);
+  assert.ok(!out.includes("-212.6") && !out.includes("-5.0"), "no ASCII minus on a figure");
 });
