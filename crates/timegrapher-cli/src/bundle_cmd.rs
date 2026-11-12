@@ -155,7 +155,7 @@ pub fn run(o: &Options) -> Result<(), String> {
         // Last, so it knows how much room the rest leaves under GitHub's
         // limit.
         if !o.recording.is_empty() {
-            analysis_into(o, &mut red, &mut parts)?;
+            analysis_into(o, &mut red, &mut parts);
         }
         Ok(recording)
     })();
@@ -324,15 +324,32 @@ fn analysis_only(o: &Options) -> Option<&Path> {
 /// Tock profiles ([`analysis_take::report_analysis`]): an analysis-only
 /// take's own, else read from the whole recording, which reads it once
 /// more.
-fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(), String> {
+fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) {
     if o.no_analysis {
         parts
             .left_out
             .push("the take's analysis (--no-analysis)".into());
-        return Ok(());
+        return;
     }
-    let other: u64 = parts.entries.iter().map(|(_, d)| d.len() as u64).sum();
-    let got = if let Some(take) = analysis_only(o) {
+    match analysis_of(o, red, &parts.entries) {
+        Ok(got) => {
+            parts.entries.extend(got.entries);
+            parts.left_out.extend(got.left_out);
+        }
+        // As the app's report does: the rest of the report still helps.
+        Err(e) => parts
+            .left_out
+            .push(analysis_take::report_analysis_failed(&e)),
+    }
+}
+
+/// The take's analysis for the report, beside its `other` files.
+fn analysis_of(
+    o: &Options,
+    red: &mut Redactor,
+    other: &[(String, Vec<u8>)],
+) -> Result<analysis_take::ReportAnalysis, String> {
+    Ok(if let Some(take) = analysis_only(o) {
         let kept = analysis_take::read(take).map_err(|e| format!("{}: {e}", take.display()))?;
         analysis_take::report_analysis(
             analysis_take::ReportFrom::Kept(Box::new(kept)),
@@ -365,10 +382,7 @@ fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) -> Result<(
             software: output::software(),
         };
         analysis_take::report_analysis(from, other, |t| red.apply(t))?
-    };
-    parts.entries.extend(got.entries);
-    parts.left_out.extend(got.left_out);
-    Ok(())
+    })
 }
 
 /// The clock store and the recent logs and crash reports.

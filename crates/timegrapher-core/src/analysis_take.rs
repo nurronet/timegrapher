@@ -448,6 +448,7 @@ pub enum ReportFrom<'a> {
 }
 
 /// A take's analysis as a problem report carries it.
+#[derive(Debug)]
 pub struct ReportAnalysis {
     /// Its files at their paths in the report: under `analysis/`, so the
     /// unpacked report reads as a take's folder does with [`read`].
@@ -457,8 +458,8 @@ pub struct ReportAnalysis {
     pub left_out: Option<String>,
 }
 
-/// The take's analysis for a problem report (#400) whose other files
-/// take `other_bytes`: whole, the Tick Tock profiles too, when the report
+/// The take's analysis for a problem report (#400) beside its `other`
+/// files: whole, the Tick Tock profiles too, when the report
 /// stays under GitHub's limit ([`ATTACHMENT_LIMIT_BYTES`]) with it, else
 /// [`for_report`]'s beats and windows. From the sound, the profiles are
 /// read only when they can fit, judged by their most before compression,
@@ -466,9 +467,10 @@ pub struct ReportAnalysis {
 /// `redact` is applied to the header, the analysis's one file of words.
 pub fn report_analysis(
     from: ReportFrom,
-    other_bytes: u64,
+    other: &[(String, Vec<u8>)],
     redact: impl FnMut(&str) -> String,
 ) -> Result<ReportAnalysis, String> {
+    let other_bytes: u64 = other.iter().map(|(_, d)| d.len() as u64).sum();
     let fits = |bytes: u64| other_bytes + bytes + REPORT_OVERHEAD_BYTES <= ATTACHMENT_LIMIT_BYTES;
     let size = |s: &Stored| -> Result<u64, String> {
         let f = files(s).map_err(|e| e.to_string())?;
@@ -530,9 +532,15 @@ fn report_entries(
     })
 }
 
+/// The report's `left_out` line when [`report_analysis`] fails with `e`.
+pub fn report_analysis_failed(e: &str) -> String {
+    format!("the take's analysis, which couldn't be read: {e}")
+}
+
 /// `header` as `analysis/analysis.json`, each of its words passed through
 /// `redact` and none of its keys, so a user or host name that is also a key
-/// can't break it; read back to be sure it still reads as a header.
+/// can't break it; read back to be sure it still reads as a take's header,
+/// as a name that is part of the layout's own `format` would break it.
 fn redacted_header(
     header: &Header,
     redact: &mut impl FnMut(&str) -> String,
@@ -547,8 +555,14 @@ fn redacted_header(
     }
     let mut v = serde_json::to_value(header).map_err(|e| e.to_string())?;
     walk(&mut v, redact);
-    serde_json::from_value::<Header>(v.clone())
-        .map_err(|e| format!("the take's analysis header after its scrub: {e}"))?;
+    let back = serde_json::from_value::<Header>(v.clone())
+        .map_err(|e| format!("its header doesn't read after its scrub: {e}"))?;
+    if back.format != FORMAT {
+        return Err(format!(
+            "its header's format reads {:?} after its scrub",
+            back.format
+        ));
+    }
     serde_json::to_string_pretty(&v)
         .map(|t| (t + "\n").into_bytes())
         .map_err(|e| e.to_string())
@@ -1451,6 +1465,13 @@ mod tests {
             .map(|(_, b)| b.len() as u64)
             .sum();
         let profiles = kept.profiles.len();
+        // The report's other files, `n` bytes in all, over two files so the
+        // whole of them counts.
+        let room = |n: u64| -> Vec<(String, Vec<u8>)> {
+            let half = usize::try_from(n / 2).unwrap();
+            let rest = usize::try_from(n - n / 2).unwrap();
+            vec![("a".into(), vec![0; half]), ("b".into(), vec![0; rest])]
+        };
         let unpack = |r: &ReportAnalysis, to: &str| -> Stored {
             let at = dir.join(to);
             for (p, d) in &r.entries {
@@ -1464,7 +1485,8 @@ mod tests {
         // key, for a host name: only words are scrubbed, never keys.
         let redact = |t: &str| t.replace("test", "<redacted>").replace("bph", "<host>");
         // Room for it all: whole, and the header redacted.
-        let r = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), 0, redact).unwrap();
+        let r =
+            report_analysis(ReportFrom::Kept(Box::new(kept.clone())), &room(0), redact).unwrap();
         assert!(r.left_out.is_none());
         assert_eq!(unpack(&r, "kept-whole").profiles.len(), profiles);
         let header = &r
@@ -1478,14 +1500,30 @@ mod tests {
         assert!(header.contains("\"bph\""), "keys are kept: {header}");
         // A byte short of the room it needs: cut, and why.
         let full = ATTACHMENT_LIMIT_BYTES - REPORT_OVERHEAD_BYTES - whole;
-        let r =
-            report_analysis(ReportFrom::Kept(Box::new(kept.clone())), full + 1, redact).unwrap();
+        let r = report_analysis(
+            ReportFrom::Kept(Box::new(kept.clone())),
+            &room(full + 1),
+            redact,
+        )
+        .unwrap();
         assert!(r.left_out.as_deref().is_some_and(|w| w.contains("25 MB")));
         let cut = unpack(&r, "kept-cut");
         assert!(cut.profiles.is_empty());
         assert_eq!(cut.log.beats.len(), kept.log.beats.len());
-        let r = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), full, redact).unwrap();
+        let r = report_analysis(
+            ReportFrom::Kept(Box::new(kept.clone())),
+            &room(full),
+            redact,
+        )
+        .unwrap();
         assert!(r.left_out.is_none(), "exactly at the limit is whole");
+        // A scrub that would break the header, as a user named for the
+        // layout's own format would: an error, not a header that won't read.
+        let e = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), &room(0), |t| {
+            t.replace("analysis", "<user>")
+        })
+        .unwrap_err();
+        assert!(e.contains("format"), "{e}");
         // From the sound: the profiles read when they can fit, else not.
         let sound = |other| {
             let from = ReportFrom::Sound {
@@ -1494,7 +1532,7 @@ mod tests {
                 cfg: &cfg,
                 software: software(),
             };
-            report_analysis(from, other, |t: &str| t.to_string()).unwrap()
+            report_analysis(from, &room(other), |t: &str| t.to_string()).unwrap()
         };
         let r = sound(0);
         assert!(r.left_out.is_none());

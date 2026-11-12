@@ -813,7 +813,7 @@ impl Job {
         // limit.
         if let Some(src) = &self.source {
             if let Err(e) = self.analysis(src, &mut red, &mut entries, &mut left_out) {
-                left_out.push(format!("the take's analysis, which couldn't be read: {e}"));
+                left_out.push(analysis_take::report_analysis_failed(&e));
             }
         }
         let manifest = self.manifest(&mut red, recording, commands, &entries, left_out);
@@ -836,13 +836,12 @@ impl Job {
         entries: &mut Vec<(String, Vec<u8>)>,
         left_out: &mut Vec<String>,
     ) -> Result<(), String> {
-        let other: u64 = entries.iter().map(|(_, d)| d.len() as u64).sum();
         let got = match &src.kept {
             Some(dir) => {
                 let kept = analysis_take::read(dir).map_err(|e| e.to_string())?;
                 analysis_take::report_analysis(
                     analysis_take::ReportFrom::Kept(Box::new(kept)),
-                    other,
+                    entries,
                     |t| red.apply(t),
                 )?
             }
@@ -860,7 +859,7 @@ impl Job {
                     cfg: &cfg,
                     software: software(),
                 };
-                analysis_take::report_analysis(from, other, |t| red.apply(t))?
+                analysis_take::report_analysis(from, entries, |t| red.apply(t))?
             }
         };
         entries.extend(got.entries);
