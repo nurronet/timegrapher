@@ -644,7 +644,8 @@ impl TimegrapherApp {
             let hint = "A command of your own, run each time a take is saved with listening \
                         stopped: for another program that keeps your takes, such as a \
                         shop's records. The take's folder is added as its last argument and \
-                        is in TIMEGRAPHER_TAKE. Empty runs nothing.";
+                        is in TIMEGRAPHER_TAKE. What it exits with, a failure included, \
+                        goes only to the app's log. Empty runs nothing.";
             g.row_under(
                 "Run After Saving a Take",
                 theme::Caption::Text("The take's folder is added as the last argument."),

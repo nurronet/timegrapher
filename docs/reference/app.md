@@ -1569,7 +1569,9 @@ of the user's own, empty unless set, run through the system's shell, `sh` or
 Stop, Save…, Save As… or Save Again, not the saves of a take written into
 its folder as it goes; the take's folder is its last argument, quoted, and
 is in `TIMEGRAPHER_TAKE`; the app doesn't wait for it and logs what it
-exits with; a command that can't be started says so); **Updates**, with
+exits with, a failure included, only there, and it may outlive the app; on
+Windows, read the folder from `%TIMEGRAPHER_TAKE%` where its name may hold
+`%`, which `cmd` expands even in quotes); **Updates**, with
 Check for Updates at Start. **Microphone**:
 the **Microphone** group (the microphone menu and **Rescan** on their own
 line under the row's name, the group's width for every device, a name

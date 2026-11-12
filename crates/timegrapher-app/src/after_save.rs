@@ -2,7 +2,8 @@
 //! own, run once a take is saved with listening stopped, so another program
 //! (a shop's records, a backup) can pick the take up. The take's folder is
 //! passed as the command's last argument and as `TIMEGRAPHER_TAKE`. The
-//! app doesn't wait for it: what it exits with goes to the app's log.
+//! app doesn't wait for it: what it exits with goes to the app's log, and
+//! only there. It may outlive the app.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -41,10 +42,12 @@ fn shell(line: &str, take: &Path) -> Command {
 fn shell(line: &str, take: &Path) -> Command {
     use std::os::windows::process::CommandExt;
     // A Windows path can't hold a double quote, so quoting it is enough.
-    // CREATE_NO_WINDOW: no console window flashes up beside the app.
+    // The whole line goes in one more pair of quotes, which `/S` has cmd
+    // take off, so a command that starts with a quoted program path keeps
+    // its own quotes (Trevor on #1478). CREATE_NO_WINDOW: no console window
+    // flashes up beside the app.
     let mut c = Command::new("cmd");
-    c.arg("/C")
-        .raw_arg(format!("{line} \"{}\"", take.display()))
+    c.raw_arg(format!("/S /C \"{line} \"{}\"\"", take.display()))
         .creation_flags(0x0800_0000);
     c
 }
@@ -66,16 +69,47 @@ pub fn run(line: &str, take: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
+#[cfg(test)]
+fn scratch(name: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("tg-after-save-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    /// The usual Windows setting: a program under a folder with a space in
+    /// its name, quoted, with an argument of its own, on a take folder with
+    /// spaces in its name.
+    #[test]
+    fn a_quoted_program_gets_the_take_as_its_last_argument() {
+        let dir = scratch("win");
+        let bin = dir.join("Program Files").join("Shop");
+        std::fs::create_dir_all(&bin).unwrap();
+        let script = bin.join("import.cmd");
+        std::fs::write(
+            &script,
+            "@echo off\r\n> \"%~dp0out.txt\" echo %~1^|%~2^|%TIMEGRAPHER_TAKE%\r\n",
+        )
+        .unwrap();
+        let take = dir.join("Watches").join("2026-11-12 10.00 Dial Up");
+        std::fs::create_dir_all(&take).unwrap();
+        let line = format!("\"{}\" first", script.display());
+        let status = command(&line, &take).unwrap().status().unwrap();
+        assert!(status.success(), "{status}");
+        let got = std::fs::read_to_string(bin.join("out.txt")).unwrap();
+        let t = take.display();
+        assert_eq!(got.trim_end(), format!("first|{t}|{t}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
-
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("tg-after-save-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
-    }
 
     #[test]
     fn a_blank_command_runs_nothing() {

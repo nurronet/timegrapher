@@ -1080,7 +1080,9 @@ impl TimegrapherApp {
     }
 
     /// Settings > General > Run After Saving a Take, on the take saved in
-    /// `dir`; a command that can't be started says so.
+    /// `dir`. Only a command that can't be started at all (no shell) says
+    /// so here; one that fails, a mistyped one included, shows only in the
+    /// app's log.
     fn run_after_save_command(&mut self, dir: &Path) {
         if let Err(e) = crate::after_save::run(&self.after_save_command, dir) {
             self.error(format!(
