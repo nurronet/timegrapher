@@ -152,10 +152,13 @@ escape wheel teeth from the selected catalogue entry (52° and 15 teeth where it
 none) and names `timing_periods` and `amplitude_periods` after that
 calibre's wheels. `--bph`, `--lift` and
 `--escape-teeth` still win over it. Without a calibre, `analyze` guesses
-the beat rate from the first 10 s of sound; when no watch is heard at that
-rate, it guesses again as `session` reads a file, afresh at each 47 s chunk's
-sound until a watch is heard, and reads the recording at that rate, so a
-long lead of stand noise before a slow watch does not set it (#1423). It
+the beat rate from the first 10 s of sound. When a watch is heard after a
+lead of noise and the sound where it starts is another rate, it reads the
+recording again at that rate; when no watch is heard, it guesses again as
+`session` reads a file, afresh at each 47 s chunk's sound until a watch is
+heard, and reads the recording at that rate. Either way it keeps the second
+reading only when it hears a watch, so a long lead of stand noise before a
+slow watch does not set the rate (#1423). It
 uses 52° and a 15-tooth escape wheel for its search, and
 names no periodic component after a wheel unless `--escape-teeth` gives
 the escape wheel. The calibre and

@@ -3,7 +3,7 @@
 //! and named, as long as the watch is heard for long enough after it.
 
 use timegrapher_core::audio::Audio;
-use timegrapher_core::measure::Caveat;
+use timegrapher_core::measure::{Caveat, RATE_WINDOW_STEP_S};
 use timegrapher_core::synth::{generate, noise_rms, Rng, SynthConfig, SCALE};
 use timegrapher_core::{analyze, take, AnalysisConfig};
 
@@ -281,18 +281,29 @@ fn an_entrys_lead_is_counted_from_its_own_start() {
 /// the recording reads as it does with the rate set; with the rate set,
 /// the noise is not heard as another rate. Before, `analyze` guessed from
 /// the noise's first 10 s (43,200 or 28,800 bph) and found no watch.
-/// At 14,400 after 120 s the lead runs to 141 s, the start of the first
-/// stream chunk that opens on the watch: the watch's first 21 s, in a
-/// chunk that opens on noise, track too loosely to be kept. Its rate is
-/// still the watch's.
+/// The lead ends before the start of the first stream chunk at or after
+/// the noise's end, plus one lead window step and 0.5 s: at 14,400 after
+/// 120 s it runs to 141 s, where the watch's first 21 s, in a chunk that
+/// opens on noise, track too loosely to be kept. Its rate is still the
+/// watch's. Seeds 5 and 33 are the ones the lead work was built on.
+/// Seeds 3011 to 3019 were run once after the change; 3012 found a jump
+/// in the noise taken as the watch's start, across windows missing
+/// there. Seeds 3031 to 3039 were run once after that fix.
 #[test]
 fn a_long_noise_lead_does_not_set_the_rate() {
-    for (bph, noise_s, seed, lead_to) in [
-        (14_400, 120.0, 5, 141.5),
-        (18_000, 120.0, 5, 130.0),
-        (19_800, 120.0, 5, 130.0),
-        (14_400, 90.0, 33, 100.0),
-    ] {
+    let mut cases = vec![
+        (14_400, 120.0, 5),
+        (18_000, 120.0, 5),
+        (19_800, 120.0, 5),
+        (14_400, 90.0, 33),
+    ];
+    for (i, bph) in [14_400, 18_000, 19_800].into_iter().enumerate() {
+        for first in [3011, 3031] {
+            cases.extend((0..3).map(|k| (bph, 120.0, first + 3 * i as u64 + k)));
+        }
+    }
+    for (bph, noise_s, seed) in cases {
+        let lead_to = (noise_s / CHUNK_S).ceil() * CHUNK_S + RATE_WINDOW_STEP_S + 0.5;
         let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
         let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
         let want = analyze(&alone, &AnalysisConfig::default()).summary;
@@ -313,6 +324,31 @@ fn a_long_noise_lead_does_not_set_the_rate() {
                 (noise_s - 5.0..lead_to).contains(&lead),
                 "{what}, set {set:?}: lead {lead}"
             );
+        }
+    }
+}
+
+/// The stream's chunk, in seconds: `analyze` guesses again from each.
+const CHUNK_S: f64 = 47.0;
+
+/// Stand noise alone, with no rate set, is still no watch and names no
+/// lead: guessing again (#1423) gives the noise a second chance.
+#[test]
+fn stand_noise_alone_is_no_watch_when_guessed_again() {
+    let none = Audio {
+        samples: Vec::new(),
+        sample_rate: watch_at(28_800, 1.0).sample_rate,
+    };
+    for noise_s in [60.0, 180.0] {
+        for seed in [3021, 3022, 3023] {
+            let what = format!("{noise_s} s of noise ({seed})");
+            let got = analyze(
+                &noise_before(noise_s, &none, seed),
+                &AnalysisConfig::default(),
+            )
+            .summary;
+            assert!(!got.watch_heard, "{what}: {:?}", got.caveats);
+            assert!(lead_left_out(&got.caveats).is_none(), "{what}");
         }
     }
 }

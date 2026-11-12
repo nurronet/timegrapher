@@ -240,21 +240,29 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let first_guess = beats::guess_bph(&env, fs);
     let bph = cfg.bph.unwrap_or(first_guess);
     let (log, lead_s) = read_take(audio, cfg, Some(bph));
-    // With a rate set, the rate heard is guessed where the watch starts,
-    // after any lead of noise, which is not taken for a rate (#1423).
-    let guessed = match (cfg.bph, lead_s) {
-        (Some(_), Some(t)) => beats::guess_bph(&env[((t * fs) as usize).min(env.len())..], fs),
-        _ => first_guess,
+    // The rate heard is guessed where the watch starts, after any lead of
+    // noise, which is not taken for a rate (#1423).
+    let after_lead =
+        lead_s.map(|t| beats::guess_bph(&env[((t * fs) as usize).min(env.len())..], fs));
+    let guessed = match cfg.bph {
+        Some(_) => after_lead.unwrap_or(first_guess),
+        None => bph,
     };
     let first = analyze_read(audio, cfg, &env, (log, lead_s), (bph, guessed));
-    if cfg.bph.is_some() || first.summary.watch_heard {
+    let doubted = !first.summary.watch_heard || after_lead.is_some_and(|g| g != bph);
+    if cfg.bph.is_some() || !doubted {
         return first;
     }
-    // No watch at the rate guessed from the first 10 s of sound, which can
-    // be a lead of stand noise before a slow watch (#1423): the rate is
-    // guessed again as session reads a file, afresh at each chunk's sound
-    // until a watch is heard, and the recording read at that rate.
-    let settled = read_take(audio, cfg, None).0.bph;
+    // No watch at the rate guessed from the first 10 s of sound, or a
+    // watch after a lead that sounds like another rate: those 10 s can be
+    // a lead of stand noise before a slow watch (#1423). The recording is
+    // read again at the rate it sounds like where the watch starts or,
+    // with no watch heard, at the rate guessed as session reads a file,
+    // afresh at each chunk's sound until a watch is heard.
+    let settled = match after_lead {
+        Some(g) if g != bph => g,
+        _ => read_take(audio, cfg, None).0.bph,
+    };
     if settled == bph {
         return first;
     }
