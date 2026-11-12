@@ -252,7 +252,7 @@ impl TimegrapherApp {
             );
         });
         // A 45° stop on show keeps the card at 10 until it is left.
-        if switched && !(!ten && self.shown_position().is_half_hour()) {
+        if switched && (ten || !self.shown_position().is_half_hour()) {
             self.ten_positions = ten;
             self.note_settings();
         }
