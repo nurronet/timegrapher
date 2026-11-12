@@ -1444,7 +1444,7 @@ direction, width and length and what is drawn over it, the profile's
 layout, scale and Time From, the panes shown and their arrangement,
 whether the Readings show, the distribution settings, the averaging time,
 folded groups in the Watches view, the appearance, Keep Awake, Listen
-When the App Opens and whether the microphone has been set up, the last
+When the App Opens, the command Run After Saving a Take runs, and whether the microphone has been set up, the last
 microphone (used again when it is plugged in) and the window's size and
 place. Nothing about the watch is kept: the lift angle, beat rate and
 position start fresh, since the next watch on the pickup may differ.
@@ -1563,7 +1563,14 @@ that can't be set, the microphone reporting its automatic gain otherwise)
 takes that row's caption, in the same space, so no row grows.
 **General**: Appearance (Auto, Light or Dark); **Listening**, with
 **Listen When the App Opens**, on unless switched off, and **Keep
-Awake**; **Updates**, with Check for Updates at Start. **Microphone**:
+Awake**; **After Saving**, with **Run After Saving a Take** (a command
+of the user's own, empty unless set, run through the system's shell, `sh` or
+`cmd`, each time a save of a take is written with listening stopped: a
+Stop, Save…, Save As… or Save Again, not the saves of a take written into
+its folder as it goes; the take's folder is its last argument, quoted, and
+is in `TIMEGRAPHER_TAKE`; the app doesn't wait for it and logs what it
+exits with; a command that can't be started says so); **Updates**, with
+Check for Updates at Start. **Microphone**:
 the **Microphone** group (the microphone menu and **Rescan** on their own
 line under the row's name, the group's width for every device, a name
 too long for it cut in the middle with "…" so its end shows, whole in its

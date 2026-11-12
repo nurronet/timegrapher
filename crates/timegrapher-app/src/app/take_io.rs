@@ -1061,6 +1061,12 @@ impl TimegrapherApp {
                     ));
                 }
                 self.save_dir = s.parent.display().to_string();
+                // A take saved with listening stopped is whole: the command
+                // the user set runs on it. A take saving into its folder as
+                // it goes isn't yet.
+                if s.streamed == Streamed::No && !self.running() {
+                    self.run_after_save_command(&copy.dir);
+                }
                 self.session.mark_saved(s.secs, copy.dir, s.metadata);
                 if s.rescan {
                     if let Ok(Some(l)) = &mut self.library {
@@ -1070,6 +1076,16 @@ impl TimegrapherApp {
             }
             Ok(Err(e)) => self.save_failed(s.streamed, &s.dest, e.to_string()),
             Err(_) => self.save_failed(s.streamed, &s.dest, "it stopped part way".into()),
+        }
+    }
+
+    /// Settings > General > Run After Saving a Take, on the take saved in
+    /// `dir`; a command that can't be started says so.
+    fn run_after_save_command(&mut self, dir: &Path) {
+        if let Err(e) = crate::after_save::run(&self.after_save_command, dir) {
+            self.error(format!(
+                "The command set to run after saving couldn't be started: {e}"
+            ));
         }
     }
 

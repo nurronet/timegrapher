@@ -23,6 +23,7 @@ click outside closes it. The Microphone page is in chapter 3.
 | **Appearance** | **Auto** follows the computer's light or dark setting; **Light** and **Dark** override it. | To match the room's light at the bench. |
 | **Listen When the App Opens** | Starts Quick Listen at every launch once the microphone is set up. On unless switched off. | Off when another program records from the same microphone. |
 | **Keep Awake** | Asks the computer not to sleep while the app listens; the screen can still lock. On unless switched off. If the system refuses, the caption says so. | Leave on: a computer that sleeps leaves a break in the take. A Power Reserve Test keeps it awake whatever this says. |
+| **Run After Saving a Take** | A command of your own, run each time a take is saved with listening stopped (a Stop, Save…, Save Again). The take's folder is added as the command's last argument and is in the variable `TIMEGRAPHER_TAKE`. The app doesn't wait for it; what it exits with goes to the app's log. Empty, the default, runs nothing. A take saving into its folder as it goes doesn't run it until it stops. | To hand each take to another program, such as a shop's records system or a backup. |
 | **Check for Updates at Start** | Asks GitHub once at start whether a newer release is out; if so, the status bar offers it. Nothing installs itself, and the request carries no account or identifier. | Off where the computer has no internet. **Help > Check for Updates…** checks at any time. |
 
 ## Watches Folder
