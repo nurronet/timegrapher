@@ -907,6 +907,7 @@ fn segmented_body<T: PartialEq + Copy>(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
+                ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.min(h);
                 ui.spacing_mut().button_padding = if h < SEGMENT_H {
                     Vec2::new(6.0, 0.0)
                 } else {

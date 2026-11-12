@@ -110,11 +110,10 @@ impl TimegrapherApp {
                 Vec2::splat(side),
             )
         } else {
-            // Across the title and figure rows, centred in their height.
-            let top = rows.title.top();
-            let h = rows.figure.bottom() - top;
+            // Under the title row, which runs the card's width for its
+            // 6 | 10, centred on the figure row.
             egui::Rect::from_min_size(
-                egui::pos2(rows.inner.left(), top + (h - side) / 2.0),
+                egui::pos2(rows.inner.left(), rows.figure.center().y - side / 2.0),
                 Vec2::splat(side),
             )
         };
@@ -141,7 +140,7 @@ impl TimegrapherApp {
         }
         let x = pic.right() + theme::GAP;
         let beside = |r: egui::Rect| egui::Rect::from_min_max(egui::pos2(x, r.top()), r.max);
-        self.position_caption(ui, beside(rows.title));
+        self.position_caption(ui, rows.title);
         // The name, and both its codes under it, inside the figure row.
         let fig = beside(rows.figure);
         let clip = painter.with_clip_rect(fig);
@@ -275,14 +274,25 @@ impl TimegrapherApp {
         let editable = self.position_editable();
         let painter = ui.painter().clone();
         compact_caption(ui, rows.title, self.position_card_title);
-        // The two-letter code beside the picture, the name in its
-        // hover: a name doesn't fit a compact card whole.
+        // The code beside the picture, the name in its hover: a name
+        // doesn't fit a compact card whole. A 45° stop's longer code
+        // ("10H30") is set smaller to fit whole.
         let x = pic.right() + 8.0;
+        let room = rows.figure.right() - x;
+        let wide = painter
+            .layout_no_wrap(here.code().to_string(), theme::semibold(20.0), pal.text)
+            .size()
+            .x;
+        let size = if wide > room {
+            20.0 * room / wide
+        } else {
+            20.0
+        };
         let code = painter.with_clip_rect(rows.figure).text(
             egui::pos2(x, rows.figure.center().y),
             egui::Align2::LEFT_CENTER,
             here.code(),
-            theme::semibold(20.0),
+            theme::semibold(size),
             pal.text,
         );
         ui.interact(code, ui.id().with("position code"), egui::Sense::hover())

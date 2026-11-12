@@ -940,7 +940,7 @@ const CALIBRE_COMPACT_W: f32 = 126.0;
 /// and the lift side by side.
 const TWO_FIELDS_W: f32 = CALIBRE_ROOMY_W - 2.0 * 16.0;
 /// The Current Position card's picture, and on a compact card.
-const POSITION_PIC: f32 = 66.0;
+const POSITION_PIC: f32 = 46.0;
 const POSITION_PIC_COMPACT: f32 = 40.0;
 /// The picture on the card at 10, and its two rows of buttons' height.
 const POSITION_PIC_TEN: f32 = 30.0;
@@ -3446,7 +3446,8 @@ impl Default for WatchSetup {
 }
 
 /// The position a recording's file or folder name carries, as a word of
-/// its own: `reverso_DU_01.flac` is dial up.
+/// its own: `reverso_DU_01.flac` is dial up, `ym42_7H30.flac` is 7:30 up
+/// (the hour codes in capitals, so `2h` stays a duration).
 fn position_in_name(path: &Path) -> Option<Position> {
     let name = path.file_stem()?.to_str()?;
     let words: Vec<&str> = name
@@ -3455,10 +3456,11 @@ fn position_in_name(path: &Path) -> Option<Position> {
         .collect();
     let found: Vec<Position> = words
         .iter()
-        .filter(|w| w.len() == 2)
         .filter_map(|w| {
             let up = w.to_ascii_uppercase();
-            Position::ALL.into_iter().find(|p| p.code() == up)
+            Position::TEN.into_iter().find(|p| {
+                (w.len() == 2 && p.code() == up) || (p.core().is_vertical() && p.witschi() == *w)
+            })
         })
         .collect();
     // Exactly one, or it is no guess at all.
