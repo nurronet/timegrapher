@@ -778,10 +778,14 @@ impl Job {
         let mut left_out: Vec<String> = vec![
             "the list of sound inputs".into(),
             "environment variables".into(),
-            "an analysis of the whole recording's sound: the app's own readings are in \
-             results/app.json, and the take's analysis in analysis/"
-                .into(),
         ];
+        if self.source.as_ref().is_some_and(|s| s.kept.is_none()) {
+            left_out.push(
+                "an analysis of the whole recording's sound: the app's own readings are in \
+                 results/app.json, and the take's analysis in analysis/"
+                    .into(),
+            );
+        }
         let mut recording = Value::Null;
         if let Some(src) = &self.source {
             let mut excerpt_info = Value::Null;

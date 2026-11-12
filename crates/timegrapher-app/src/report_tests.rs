@@ -510,5 +510,12 @@ fn an_analysis_only_take_is_reported_with_its_analysis() {
         "{}",
         m["left_out"]
     );
+    assert!(
+        !m["left_out"]
+            .to_string()
+            .contains("whole recording's sound"),
+        "no sound to leave an analysis of: {}",
+        m["left_out"]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

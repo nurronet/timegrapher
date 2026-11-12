@@ -507,12 +507,13 @@ fn report_entries(
     whole: bool,
     mut redact: impl FnMut(&str) -> String,
 ) -> Result<ReportAnalysis, String> {
+    let header = redacted_header(&s.header, &mut redact)?;
     let entries = files(&s)
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|(name, bytes)| {
             let bytes = if name == HEADER {
-                redact(&String::from_utf8_lossy(&bytes)).into_bytes()
+                header.clone()
             } else {
                 bytes
             };
@@ -527,6 +528,30 @@ fn report_entries(
                 .to_string()
         }),
     })
+}
+
+/// `header` as `analysis/analysis.json`, each of its words passed through
+/// `redact` and none of its keys, so a user or host name that is also a key
+/// can't break it; read back to be sure it still reads as a header.
+fn redacted_header(
+    header: &Header,
+    redact: &mut impl FnMut(&str) -> String,
+) -> Result<Vec<u8>, String> {
+    fn walk(v: &mut serde_json::Value, redact: &mut impl FnMut(&str) -> String) {
+        match v {
+            serde_json::Value::String(t) => *t = redact(t),
+            serde_json::Value::Array(a) => a.iter_mut().for_each(|x| walk(x, redact)),
+            serde_json::Value::Object(o) => o.values_mut().for_each(|x| walk(x, redact)),
+            _ => {}
+        }
+    }
+    let mut v = serde_json::to_value(header).map_err(|e| e.to_string())?;
+    walk(&mut v, redact);
+    serde_json::from_value::<Header>(v.clone())
+        .map_err(|e| format!("the take's analysis header after its scrub: {e}"))?;
+    serde_json::to_string_pretty(&v)
+        .map(|t| (t + "\n").into_bytes())
+        .map_err(|e| e.to_string())
 }
 
 /// A take's analysis from its beat `log` alone, as a report carries it
@@ -1435,8 +1460,9 @@ mod tests {
             }
             read(&at).unwrap()
         };
-        // The software's version stands in for a user name.
-        let redact = |t: &str| t.replace("\"test\"", "\"<redacted>\"");
+        // The software's version stands in for a user name, and "bph", a
+        // key, for a host name: only words are scrubbed, never keys.
+        let redact = |t: &str| t.replace("test", "<redacted>").replace("bph", "<host>");
         // Room for it all: whole, and the header redacted.
         let r = report_analysis(ReportFrom::Kept(Box::new(kept.clone())), 0, redact).unwrap();
         assert!(r.left_out.is_none());
@@ -1447,7 +1473,9 @@ mod tests {
             .find(|(p, _)| p.ends_with(HEADER))
             .unwrap()
             .1;
-        assert!(String::from_utf8_lossy(header).contains("<redacted>"));
+        let header = String::from_utf8_lossy(header);
+        assert!(header.contains("<redacted>"), "{header}");
+        assert!(header.contains("\"bph\""), "keys are kept: {header}");
         // A byte short of the room it needs: cut, and why.
         let full = ATTACHMENT_LIMIT_BYTES - REPORT_OVERHEAD_BYTES - whole;
         let r =
