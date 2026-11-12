@@ -326,7 +326,7 @@ fn kept_of(s: &Summary) -> Option<(f64, f64)> {
         _ => None,
     });
     let span = s.duration_s - lead.unwrap_or(0.0);
-    let held = span * f64::from(s.bph) / 3600.0 + 1.0;
+    let held = crate::beats::expected_beats(span, s.bph) + 1.0;
     s.overall
         .filter(|_| span > 0.0)
         .map(|f| ((f.beats_used as f64).min(held), held))
