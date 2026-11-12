@@ -1500,3 +1500,84 @@ fn the_readings_strip_opens_its_cards_over_the_panes() {
     let (hidden, _) = pass(&mut app, Vec::new());
     assert!(!hidden.contains("52° · Auto 28800"), "{hidden}");
 }
+
+/// Walter's walk of #1491: with the switch stored at 6 and a 45° stop
+/// current, the compact card's Set offers all ten, the current one among
+/// them, as the full card shows ten.
+#[test]
+fn the_compact_pop_up_offers_ten_while_a_45_degree_stop_is_current() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let _ = window_texts(&mut app, &ctx, 1610.0);
+    let _ = ctx.run(key_frame(egui::Key::Num4, egui::Modifiers::NONE), |ctx| {
+        app.panels(ctx)
+    });
+    // The switch put back at 6 by hand: the 45° stop still holds ten.
+    app.ten_positions = false;
+    let run = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| app.panels(ctx));
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    t.galley.rect.translate(t.pos.to_vec2()).center(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let _ = run(&mut app, Vec::new());
+    let texts = run(&mut app, Vec::new());
+    let set = texts
+        .iter()
+        .find(|(t, _)| t == "Set")
+        .map(|(_, p)| *p)
+        .expect("Set");
+    let button = |pressed| egui::Event::PointerButton {
+        pos: set,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let _ = run(
+        &mut app,
+        vec![egui::Event::PointerMoved(set), button(true), button(false)],
+    );
+    let _ = run(&mut app, Vec::new());
+    // Each item inside the pop-up's clip, none scrolled out of view:
+    // egui still emits a clipped item's text.
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            Vec2::new(800.0, 600.0),
+        )),
+        ..Default::default()
+    };
+    let out = ctx.run(input, |ctx| app.panels(ctx));
+    let items: Vec<(String, bool)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text().contains("· key") => {
+                let r = t.galley.rect.translate(t.pos.to_vec2());
+                Some((t.galley.text().to_string(), c.clip_rect.contains_rect(r)))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(items.len(), 10, "{items:?}");
+    assert!(items.iter().all(|(_, seen)| *seen), "{items:?}");
+    assert!(
+        items.iter().any(|(t, _)| t == "4:30 Up (4H30) · key 4"),
+        "{items:?}"
+    );
+}

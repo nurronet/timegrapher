@@ -239,6 +239,12 @@ impl TimegrapherApp {
     fn position_caption(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         let mut ten = self.card_ten();
         let mut switched = false;
+        let held = self.shown_position().is_half_hour();
+        let six_hint = if held {
+            "The six standard positions: held at 10 while a 45° stop is current"
+        } else {
+            "The six standard positions"
+        };
         caption_row(ui, rect, self.position_card_title, |ui| {
             // Laid right to left from the help, so given 10 first to read
             // 6 | 10.
@@ -247,12 +253,12 @@ impl TimegrapherApp {
                 &mut ten,
                 &[
                     (true, "10", "The six and the four 45° stops, 1H30 to 10H30"),
-                    (false, "6", "The six standard positions"),
+                    (false, "6", six_hint),
                 ],
             );
         });
         // A 45° stop on show keeps the card at 10 until it is left.
-        if switched && (ten || !self.shown_position().is_half_hour()) {
+        if switched && (ten || !held) {
             self.ten_positions = ten;
             self.note_settings();
         }
@@ -315,8 +321,11 @@ impl TimegrapherApp {
             .add_enabled_ui(editable, |ui| {
                 // The code is beside the picture already: the pop-up
                 // says what it does instead.
+                // Tall enough for all ten: egui's default height shows six
+                // and hides the 45° stops below a scroll (Walter, #1491).
                 egui::ComboBox::from_id_salt("position")
                     .width(ui.available_width())
+                    .height(f32::INFINITY)
                     .selected_text("Set")
                     .show_ui(ui, |ui| {
                         for &p in Position::offered(self.card_ten()) {
