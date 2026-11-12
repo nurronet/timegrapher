@@ -49,9 +49,9 @@ Each tick is really three sounds close together:
 
 Sources:
 
-- Witschi, _Measuring Technology and Troubleshooting for Watches_,
-  [training course PDF](https://www.welwynwatches.co.uk/uploads/9/1/4/3/9143536/witschi_training_course.pdf),
-  on the sound groups.
+- Witschi, _Testing Methods for Mechanical Watches_ (2025,
+  [PDF](https://www.witschi.com/wp-content/uploads/firmwares/8Z1UtLGf/20251118_witschi_testing-methods-for-mechanical-watches_en.pdf)),
+  p. 10, on the sound groups.
 - Horopedia, [Swiss lever escapement](https://horopedia.org/distribution-mechanism-swiss-lever-escapement/),
   sections 6 and 9, on the mechanical sequence.
 

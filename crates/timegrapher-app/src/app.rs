@@ -200,7 +200,7 @@ use crate::session::{self, Action, Session};
 use timegrapher_core::analysis_take;
 use timegrapher_core::recorder::{self, Recorder, SavedCopy, SessionInfo};
 use timegrapher_core::session::{self as core_session, Manifest, RecordedPosition, RecordingEntry};
-use timegrapher_core::stream::{BeatLog, StreamConfig};
+use timegrapher_core::stream::BeatLog;
 
 /// The kinds of take New Take starts for the watch picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3973,18 +3973,7 @@ fn take_folder(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// Bytes in the files under `dir`, all the way down.
-fn folder_size(dir: &Path) -> u64 {
-    std::fs::read_dir(dir).map_or(0, |d| {
-        d.filter_map(|e| e.ok())
-            .map(|e| match e.file_type() {
-                Ok(t) if t.is_dir() => folder_size(&e.path()),
-                Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
-                _ => 0,
-            })
-            .sum()
-    })
-}
+use timegrapher_core::library::folder_bytes as folder_size;
 
 /// A library move's outcome, from its thread ([`library::move_library`]).
 type LibraryMove = std::sync::mpsc::Receiver<Result<Option<String>, String>>;
@@ -4176,6 +4165,7 @@ impl eframe::App for TimegrapherApp {
         self.setup_sheet_dialog(ctx);
         self.take_ask_dialog(ctx);
         self.poll_take_keep();
+        self.reread_library_on_focus(ctx);
         if let Some(m) = self.report.ui(ctx) {
             self.info_msg(m);
         }

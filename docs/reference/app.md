@@ -355,6 +355,11 @@ changes that take, not the watch. With a watch picked, **Stop** saves
 the take into it, as **Save…** does, with no question, in a folder named by when the take
 started (in this computer's time) and its position when it used only one;
 Save Again then saves into the same take, and Save As… still asks.
+The Watches view reads the folder again each time the window comes back
+to the front, so a take another program added meanwhile
+(`timegrapher watches add-take`, which works while the app is open, or a
+sync) is listed without a restart; only takes whose files changed are
+read again.
 Watches another copy of the app has open are read only: New Watch…, Edit…, Add Photos… and a photo's Delete… are
 off, the Listen icon says Quick Listen can't keep its take, and Save…
 asks where. **New Session**, in the File menu, clears what is shown,
@@ -1038,7 +1043,7 @@ When the tick's and tock's marks disagree, or a mark sits mid-ramp, the readings
 built on them are suspect.
 
 **Scope.** The sound itself, beat by beat, like the scope view on a
-Witschi (whose training course, doc. 71.1010D35e p. 12, gives the
+Witschi (whose _Testing Methods for Mechanical Watches_, 2025, p. 23, gives the
 same 20, 200 and 400 ms spans): what the engine heard, high-passed at 1 kHz, not an average. A
 tab beside the Tick Tock Profile, set in its toolbar.
 **Span 20 ms** shows the Tick and the Tock
@@ -1069,8 +1074,9 @@ Parallel Guides; the Mask tool (scissors) and the Position Brush;
 Direction; and Export. One dot per beat, tick and tock in two colours. Across
 the strip is how early or late each beat came against a perfect clock
 beating exactly at the nominal beat rate (every 125 ms at 28,800 bph): a
-beat before that clock's beat is early, after it late, the words Witschi's
-training course uses (doc. 71.1010D35e p. 6). Along it is time; both axes
+beat before that clock's beat is early, after it late, drawn as Witschi's
+Diagram view draws them, where a rising line is a watch that gains
+(_Testing Methods for Mechanical Watches_, 2025, p. 18). Along it is time; both axes
 are labelled, in ms across and in minutes and seconds along, and every
 grid line is drawn alike. **Rate Line** (on by default) draws the Rate
 reading as a thin solid magenta line over the beats it was fitted to, on top
