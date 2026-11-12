@@ -31,6 +31,7 @@
 //! taken off before the heavy spot is fitted; with none, a once-round
 //! amplitude wave clear of zero by 2 SE is named as a caveat.
 
+use crate::dsp;
 use crate::figure_text::{base_digits, figure_with_pm, fixed_text};
 use serde::Serialize;
 
@@ -62,6 +63,15 @@ pub const NULL_BAND_SHARE: f64 = 0.08;
 /// be to be named, and how far either side of an amplitude the null band
 /// reaches: the guide's 2 SE.
 pub const CLEAR_SE: f64 = 2.0;
+/// The two-sided 95% normal quantile, for the angle's interval.
+const Z95: f64 = 1.96;
+
+/// Whether a size stands clear of zero by [`CLEAR_SE`] of its ±: the
+/// gate before any direction is named. A size with no ± never does.
+pub fn clear(size: &Term) -> bool {
+    size.se
+        .is_some_and(|se| se.is_finite() && size.value - CLEAR_SE * se > 0.0)
+}
 
 /// One upright position's figures for the fits.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,6 +119,10 @@ pub enum Withheld {
     NoAmplitude,
     /// The amplitude-weighted fit cannot be solved.
     NoFit,
+    /// The positions have no ±, so the size cannot be told from noise.
+    NoSe,
+    /// The poise error's size is within [`CLEAR_SE`] of zero.
+    WithinNoise,
 }
 
 /// What limits the heavy spot.
@@ -120,15 +134,17 @@ pub enum Caveat {
     /// from that. Its size each way, degrees.
     AmplitudeWave { size_deg: f64, se_deg: f64 },
     /// This isochronism was taken off the rates before the heavy spot was
-    /// fitted.
-    IsochronismRemoved { slope: Slope },
+    /// fitted. `amplitude_se` is false when a position's amplitude had no
+    /// ±, so the slope times it could not be carried into that rate's ±.
+    IsochronismRemoved { slope: Slope, amplitude_se: bool },
 }
 
 /// The two fits over the upright positions.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PoiseFit {
     pub positions: usize,
-    /// The measured rate wave, s/d and degrees: a fact.
+    /// The measured rate wave, s/d and degrees: a fact. Its peak is named
+    /// in words only when its size is [`clear`] of the noise.
     pub wave: Wave,
     /// The twice-round terms beside it, s/d, where the positions leave
     /// room: cos 2α from four, sin 2α too from five.
@@ -155,20 +171,33 @@ pub struct PoiseFit {
 /// f(θ) = 2·J1(θ)/θ of an amplitude in degrees: how much of a small
 /// swing's poise effect is left at that amplitude.
 pub fn amplitude_factor(amplitude_deg: f64) -> f64 {
-    let x = amplitude_deg.to_radians();
-    // 2·J1(x)/x = Σ (−1)^k (x/2)^(2k) / (k!(k+1)!), whose terms shrink
-    // fast enough over any amplitude a balance reaches.
+    factor_series(amplitude_deg.to_radians()).0
+}
+
+/// f′(θ), per degree of amplitude: how fast [`amplitude_factor`] moves,
+/// which carries an amplitude's noise into the heavy-spot fit.
+pub fn amplitude_factor_slope(amplitude_deg: f64) -> f64 {
+    factor_series(amplitude_deg.to_radians()).1 * std::f64::consts::PI / 180.0
+}
+
+/// 2·J1(x)/x = Σ (−1)^k (x/2)^(2k) / (k!(k+1)!) and its derivative in x,
+/// Σ k·c_k·q^(k−1)·(−x/2) with q = −x²/4; the terms shrink fast enough
+/// over any amplitude a balance reaches.
+fn factor_series(x: f64) -> (f64, f64) {
     let q = -(x * x) / 4.0;
-    let mut term = 1.0;
-    let mut sum = 1.0;
+    let (mut c, mut q_pow) = (1.0, 1.0);
+    let (mut sum, mut slope) = (1.0, 0.0);
     for k in 1..60 {
-        term *= q / (k as f64 * (k + 1) as f64);
+        c /= k as f64 * (k + 1) as f64;
+        slope += k as f64 * c * q_pow * (-x / 2.0);
+        q_pow *= q;
+        let term = c * q_pow;
         sum += term;
-        if term.abs() < 1e-17 {
+        if term.abs() < 1e-17 && k > 1 {
             break;
         }
     }
-    sum
+    (sum, slope)
 }
 
 /// Whether an amplitude, with its ±, may sit where poise barely moves the
@@ -210,7 +239,7 @@ pub fn fit(points: &[Point], slope: Option<Slope>) -> Option<PoiseFit> {
     let rates: Vec<f64> = pts.iter().map(|p| p.rate_s_per_day).collect();
     let rate_ses = all_se(pts.iter().map(|p| p.rate_se));
     let ones = vec![1.0; pts.len()];
-    let wave = wave_fit(&pts, &ones, &rates, rate_ses.as_deref())?;
+    let wave = wave_fit(&pts, &ones, &rates, rate_ses.as_deref(), None)?;
     let (shape_cos2_s_per_day, shape_sin2_s_per_day) = shape_fit(&pts, &rates, rate_ses.as_deref());
     let amps: Option<Vec<f64>> = pts
         .iter()
@@ -218,14 +247,24 @@ pub fn fit(points: &[Point], slope: Option<Slope>) -> Option<PoiseFit> {
         .collect();
     let amplitude_wave = amps.as_ref().and_then(|a| {
         let ses = all_se(pts.iter().map(|p| p.amplitude_se));
-        wave_fit(&pts, &ones, a, ses.as_deref())
+        wave_fit(&pts, &ones, a, ses.as_deref(), None)
     });
     let mut caveats = Vec::new();
+    // The amplitude's own wave aliases into the measured wave too, so it is
+    // named whether or not the heavy spot is stated.
+    if let (None, Some(w)) = (slope, amplitude_wave) {
+        if let (true, Some(se)) = (clear(&w.size), w.size.se) {
+            caveats.push(Caveat::AmplitudeWave {
+                size_deg: w.size.value,
+                se_deg: se,
+            });
+        }
+    }
     let (heavy_spot, withheld) = match &amps {
         None => (None, Some(Withheld::NoAmplitude)),
         Some(a) => {
             let ses = rate_ses.as_deref();
-            heavy_fit(&pts, a, ses, slope, amplitude_wave, &mut caveats)
+            heavy_fit(&pts, a, ses, slope, &mut caveats)
         }
     };
     let flat = amps.iter().flatten().copied();
@@ -257,7 +296,6 @@ fn heavy_fit(
     amps: &[f64],
     rate_ses: Option<&[f64]>,
     slope: Option<Slope>,
-    amplitude_wave: Option<Wave>,
     caveats: &mut Vec<Caveat>,
 ) -> (Option<Wave>, Option<Withheld>) {
     if let Some((p, &a)) = pts
@@ -272,26 +310,56 @@ fn heavy_fit(
         return (None, Some(why));
     }
     let mut rates: Vec<f64> = pts.iter().map(|p| p.rate_s_per_day).collect();
-    let mut ses = rate_ses.map(<[f64]>::to_vec);
+    let mean = amps.iter().sum::<f64>() / amps.len() as f64;
+    let lever: Vec<f64> = amps.iter().map(|a| a - mean).collect();
     if let Some(s) = slope {
-        let mean = amps.iter().sum::<f64>() / amps.len() as f64;
-        for (i, a) in amps.iter().enumerate() {
-            rates[i] -= s.s_per_day_per_deg * (a - mean);
-            if let Some(ses) = ses.as_mut() {
-                ses[i] = ses[i].hypot(s.se * (a - mean));
-            }
-        }
-        caveats.push(Caveat::IsochronismRemoved { slope: s });
-    } else if let Some(w) = amplitude_wave {
-        if let Some(se) = w.size.se.filter(|se| w.size.value - CLEAR_SE * se > 0.0) {
-            caveats.push(Caveat::AmplitudeWave {
-                size_deg: w.size.value,
-                se_deg: se,
-            });
+        for (r, d) in rates.iter_mut().zip(&lever) {
+            *r -= s.s_per_day_per_deg * d;
         }
     }
+    // Taking s·(θ_i − mean θ) off puts each amplitude's own noise into its
+    // rate: s·SE_θi, separate at each position, so it widens that rate's ±.
+    let carried: Option<Vec<f64>> = match (slope, rate_ses) {
+        (Some(s), Some(r)) => pts
+            .iter()
+            .zip(r)
+            .map(|(p, se)| p.amplitude_se.map(|a| se.hypot(s.s_per_day_per_deg * a)))
+            .collect(),
+        _ => None,
+    };
+    if let Some(s) = slope {
+        caveats.push(Caveat::IsochronismRemoved {
+            slope: s,
+            amplitude_se: carried.is_some(),
+        });
+    }
+    let ses = carried.as_deref().or(rate_ses);
     let f: Vec<f64> = amps.iter().map(|&a| amplitude_factor(a)).collect();
-    match wave_fit(pts, &f, &rates, ses.as_deref()) {
+    let common = slope.map(|s| (lever.as_slice(), s.se));
+    let first = wave_fit(pts, &f, &rates, ses, common);
+    // f(θ̂) carries the amplitude's noise into the regressor: Û·f′(θ_i)·
+    // SE_θi·cos(α_i − ψ̂) at each position, separately. Plugged in from
+    // the first fit, then fitted once more.
+    let widened: Option<Vec<f64>> = match (&first, ses) {
+        (Some(w), Some(r)) => pts
+            .iter()
+            .zip(amps)
+            .zip(r)
+            .map(|((p, &a), se)| {
+                let off = (p.angle_deg - w.peak_deg.value).to_radians().cos();
+                let e = w.size.value * amplitude_factor_slope(a) * off;
+                p.amplitude_se.map(|sa| se.hypot(e * sa))
+            })
+            .collect(),
+        _ => None,
+    };
+    let fitted = match widened.as_deref() {
+        Some(r) => wave_fit(pts, &f, &rates, Some(r), common),
+        None => first,
+    };
+    match fitted {
+        Some(w) if w.size.se.is_none() => (None, Some(Withheld::NoSe)),
+        Some(w) if !clear(&w.size) => (None, Some(Withheld::WithinNoise)),
         Some(w) => (Some(w), None),
         None => (None, Some(Withheld::NoFit)),
     }
@@ -305,7 +373,16 @@ fn all_se(ses: impl Iterator<Item = Option<f64>>) -> Option<Vec<f64>> {
 
 /// y = m + scale_i·(a·cos α_i + b·sin α_i), weighted by 1/se² where every
 /// point has one: the wave's mean, size √(a² + b²) and peak angle.
-fn wave_fit(pts: &[Point], scale: &[f64], y: &[f64], ses: Option<&[f64]>) -> Option<Wave> {
+/// `common` is an error shared by every point, σ·d_i (a slope's ± times
+/// each point's lever d): σ²·g·gᵀ is added to the covariance, g the fit's
+/// response to d, and the weights stay the points' own.
+fn wave_fit(
+    pts: &[Point],
+    scale: &[f64],
+    y: &[f64],
+    ses: Option<&[f64]>,
+    common: Option<(&[f64], f64)>,
+) -> Option<Wave> {
     let rows: Vec<Vec<f64>> = pts
         .iter()
         .zip(scale)
@@ -314,7 +391,15 @@ fn wave_fit(pts: &[Point], scale: &[f64], y: &[f64], ses: Option<&[f64]>) -> Opt
             vec![1.0, k * t.cos(), k * t.sin()]
         })
         .collect();
-    let (beta, cov) = wls(&rows, y, ses)?;
+    let (beta, mut cov) = wls(&rows, y, ses)?;
+    if let (Some(c), Some((d, sigma))) = (cov.as_mut(), common) {
+        let (g, _) = wls(&rows, d, ses)?;
+        for (i, row) in c.iter_mut().enumerate() {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v += sigma * sigma * g[i] * g[j];
+            }
+        }
+    }
     let (a, b) = (beta[1], beta[2]);
     let size = a.hypot(b);
     let (size_se, peak_se) = match &cov {
@@ -324,10 +409,14 @@ fn wave_fit(pts: &[Point], scale: &[f64], y: &[f64], ses: Option<&[f64]>) -> Opt
                     .max(0.0)
                     .sqrt()
             };
-            let s2 = size * size;
+            // The angle by test inversion: under a true direction the
+            // estimate's part across it is N(0, σ⊥²) whatever the size, so
+            // the 95% half-width is asin(1.96·σ⊥/size); shown as one SE.
+            let across = quad([-b / size, a / size]);
+            let half = (Z95 * across / size).min(1.0).asin();
             (
                 Some(quad([a / size, b / size])),
-                Some(quad([-b / s2, a / s2]).to_degrees()),
+                Some(half.to_degrees() / Z95),
             )
         }
         _ => (None, None),
@@ -389,60 +478,38 @@ fn shape_fit(pts: &[Point], y: &[f64], ses: Option<&[f64]>) -> (Option<Term>, Op
 
 type Matrix = Vec<Vec<f64>>;
 
-/// Least squares of `y` on `rows`, weighted by 1/se² with `ses`, with its
-/// covariance (XᵀWX)⁻¹; unweighted and with no covariance without.
+/// Least squares of `y` on `rows` by core's one solve
+/// ([`dsp::least_squares_cov`]): weighted by 1/se² with `ses`, with the
+/// covariance (XᵀWX)⁻¹; unweighted and with no covariance without. Rows
+/// of 3, 4 or 5 columns, as the wave and its twice-round check take.
 fn wls(rows: &[Vec<f64>], y: &[f64], ses: Option<&[f64]>) -> Option<(Vec<f64>, Option<Matrix>)> {
     let k = rows.first()?.len();
     if rows.len() < k {
         return None;
     }
-    let w = |i: usize| ses.map_or(1.0, |s| 1.0 / (s[i] * s[i]));
-    let mut m = vec![vec![0.0; k]; k];
-    let mut xy = vec![0.0; k];
-    for (i, x) in rows.iter().enumerate() {
-        for a in 0..k {
-            xy[a] += w(i) * x[a] * y[i];
-            for b in 0..k {
-                m[a][b] += w(i) * x[a] * x[b];
-            }
-        }
-    }
-    let inv = invert(m)?;
-    let beta = (0..k)
-        .map(|a| (0..k).map(|b| inv[a][b] * xy[b]).sum())
+    let w: Vec<f64> = (0..rows.len())
+        .map(|i| ses.map_or(1.0, |s| 1.0 / (s[i] * s[i])))
         .collect();
-    Some((beta, ses.map(|_| inv)))
+    let (beta, cov) = match k {
+        3 => fixed::<3>(rows, y, &w)?,
+        4 => fixed::<4>(rows, y, &w)?,
+        5 => fixed::<5>(rows, y, &w)?,
+        _ => return None,
+    };
+    Some((beta, ses.map(|_| cov)))
 }
 
-/// The inverse of a small matrix by Gauss–Jordan with partial pivoting;
-/// None when it is singular to working precision.
-fn invert(mut m: Matrix) -> Option<Matrix> {
-    let k = m.len();
-    let scale = m.iter().flatten().map(|v| v.abs()).fold(0.0, f64::max);
-    let mut inv: Matrix = (0..k)
-        .map(|i| (0..k).map(|j| f64::from(u8::from(i == j))).collect())
-        .collect();
-    for c in 0..k {
-        let p = (c..k).max_by(|&a, &b| m[a][c].abs().total_cmp(&m[b][c].abs()))?;
-        if m[p][c].abs() <= 1e-10 * scale || !m[p][c].is_finite() {
-            return None;
-        }
-        m.swap(c, p);
-        inv.swap(c, p);
-        let d = m[c][c];
-        for j in 0..k {
-            m[c][j] /= d;
-            inv[c][j] /= d;
-        }
-        for r in (0..k).filter(|&r| r != c) {
-            let f = m[r][c];
-            for j in 0..k {
-                m[r][j] -= f * m[c][j];
-                inv[r][j] -= f * inv[c][j];
-            }
-        }
-    }
-    Some(inv)
+/// [`wls`] at `N` columns. A pivot under 1e-10 of the summed weights is
+/// taken as singular: every column is a cosine, a sine or 1.
+fn fixed<const N: usize>(rows: &[Vec<f64>], y: &[f64], w: &[f64]) -> Option<(Vec<f64>, Matrix)> {
+    let tiny = 1e-10 * w.iter().sum::<f64>();
+    let it = rows
+        .iter()
+        .zip(y)
+        .zip(w)
+        .map(|((r, &y), &w)| (std::array::from_fn(|i| r[i]), y, w));
+    let (x, cov) = dsp::least_squares_cov::<N>(it, tiny)?;
+    Some((x.to_vec(), cov.iter().map(|r| r.to_vec()).collect()))
 }
 
 impl PoiseFit {
@@ -453,13 +520,19 @@ impl PoiseFit {
         let rate = |t: &Term, signed| figure_with_pm(t.value, t.se, base_digits::RATE, signed);
         let w = &self.wave;
         let mut s = format!(
-            "Once-round wave over {} upright positions: {} s/d each way from the mean, \
-             fastest at {}° (nearest {} at the top).",
+            "Once-round wave over {} upright positions: {} s/d each way from the mean",
             self.positions,
             rate(&w.size, false),
-            figure_with_pm(w.peak_deg.value, w.peak_deg.se, 0, false),
-            hour_code(w.peak_deg.value),
         );
+        s.push_str(&match (clear(&w.size), w.size.se.is_some()) {
+            (true, _) => format!(
+                ", fastest at {}° (nearest {} at the top).",
+                figure_with_pm(w.peak_deg.value, w.peak_deg.se, 0, false),
+                hour_code(w.peak_deg.value),
+            ),
+            (false, true) => ", not clear of the noise, so no fastest hour.".into(),
+            (false, false) => ", with no ±, so no fastest hour.".into(),
+        });
         let shape: Vec<String> = [
             ("cos 2α", &self.shape_cos2_s_per_day),
             ("sin 2α", &self.shape_sin2_s_per_day),
@@ -505,6 +578,10 @@ impl PoiseFit {
             (None, Some(Withheld::NoAmplitude)) => {
                 "Heavy spot not stated: a position has no amplitude.".into()
             }
+            (None, Some(Withheld::WithinNoise)) => {
+                "Heavy spot not stated: its wave is not clear of the noise.".into()
+            }
+            (None, Some(Withheld::NoSe)) => "Heavy spot not stated: no ± to test it by.".into(),
             (None, _) => "Heavy spot not stated.".into(),
         };
         for c in &self.caveats {
@@ -519,10 +596,17 @@ impl PoiseFit {
     pub fn short(&self) -> String {
         let size = &self.wave.size;
         let mut s = format!(
-            "Once-round wave: {} s/d each way, fastest near {} at the top",
+            "Once-round wave: {} s/d each way",
             figure_with_pm(size.value, size.se, base_digits::RATE, false),
-            hour_code(self.wave.peak_deg.value)
         );
+        s.push_str(&match (clear(size), size.se.is_some()) {
+            (true, _) => format!(
+                ", fastest near {} at the top",
+                hour_code(self.wave.peak_deg.value)
+            ),
+            (false, true) => ", not clear of the noise".into(),
+            (false, false) => ", no ±".into(),
+        });
         if let Some(range) = self.amplitude_range() {
             s.push_str(&format!(" · at {range}°"));
         }
@@ -561,14 +645,22 @@ fn caveat_text(c: &Caveat) -> String {
              isochronism.",
             figure_with_pm(*size_deg, Some(*se_deg), base_digits::AMPLITUDE, false)
         ),
-        Caveat::IsochronismRemoved { slope } => format!(
-            "Corrected for isochronism, {} s/d per degree.",
+        Caveat::IsochronismRemoved {
+            slope,
+            amplitude_se,
+        } => format!(
+            "Corrected for isochronism, {} s/d per degree{}.",
             figure_with_pm(
                 slope.s_per_day_per_deg,
                 Some(slope.se),
                 base_digits::SLOPE,
                 true
-            )
+            ),
+            if *amplitude_se {
+                ""
+            } else {
+                "; an amplitude has no ±, so its share of the correction's ± is not carried"
+            }
         ),
     }
 }

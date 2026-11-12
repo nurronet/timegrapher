@@ -52,10 +52,14 @@ fn four_positions_give_the_closed_form_and_its_se() {
     assert!(close(w.peak_deg.value, 180.6, 0.05), "{}", w.peak_deg.value);
     let se_ab = 0.5 * (2.0 * s * s).sqrt();
     assert!(close(w.size.se.unwrap(), se_ab, 1e-9));
+    // The angle's ± by test inversion: asin(1.96·σ⊥/size)/1.96, which is
+    // the delta method's σ⊥/size at this signal to within 0.01%.
+    let inverted = (1.96 * se_ab / size).asin().to_degrees() / 1.96;
+    assert!(close(w.peak_deg.se.unwrap(), inverted, 1e-9));
     assert!(close(
-        w.peak_deg.se.unwrap(),
+        inverted,
         (se_ab / size).to_degrees(),
-        1e-9
+        1e-4 * inverted
     ));
     let d = f.shape_cos2_s_per_day.unwrap();
     assert!(close(d.value, (r0 + r180 - r90 - r270) / 4.0, 1e-9));
@@ -134,6 +138,15 @@ fn the_amplitude_factor_matches_the_ruling() {
         assert!(close(f, want, 0.006), "{deg}: {f}");
     }
     assert!(close(amplitude_factor(NULL_AMPLITUDE_DEG), 0.0, 1e-3));
+    // f′ per degree: zero at rest, and the analytic series against a
+    // central difference across the range a balance reaches.
+    assert!(close(amplitude_factor_slope(0.0), 0.0, 1e-15));
+    for deg in [30.0, 120.0, 180.0, 219.5, 260.0, 330.0] {
+        let h = 1e-4;
+        let diff = (amplitude_factor(deg + h) - amplitude_factor(deg - h)) / (2.0 * h);
+        let slope = amplitude_factor_slope(deg);
+        assert!(close(slope, diff, 1e-8), "{deg}: {slope} vs {diff}");
+    }
     // Its deepest, near 300°, about -0.13.
     let deepest = (250..340)
         .map(|d| amplitude_factor(f64::from(d)))
@@ -165,28 +178,46 @@ fn hours_are_named_on_the_half_hour() {
 }
 
 /// Synthetic positions: a poise error `u` (s/d at a small swing) with the
-/// heavy spot lowest at rest with `psi` at the top, each position at
+/// heavy spot lowest at rest with `psi` at the top, each position at true
 /// amplitude `amp` plus `amp_wave`·cos(α − 90°), isochronism `iso` s/d per
-/// degree, and rate noise of each position's ±.
-fn synthetic(
-    rng: &mut Rng,
-    angles: &[f64],
-    (u, psi): (f64, f64),
-    (amp, amp_wave): (f64, f64),
+/// degree, and rate noise of each position's ±. Each amplitude is read
+/// with its declared 1° noise, then scaled by `lift` (a lift angle that
+/// much out).
+struct Truth {
+    u: f64,
+    psi: f64,
+    amp: f64,
+    amp_wave: f64,
     iso: f64,
-) -> Vec<Point> {
+    lift: f64,
+}
+
+const TRUTH: Truth = Truth {
+    u: 0.0,
+    psi: 130.0,
+    amp: 180.0,
+    amp_wave: 0.0,
+    iso: 0.0,
+    lift: 1.0,
+};
+
+/// Each position's rate ±, s/d: 1.5 to 2.5, 2 on average.
+const RATE_SE_MEAN: f64 = 2.0;
+
+fn synthetic(rng: &mut Rng, angles: &[f64], t: &Truth) -> Vec<Point> {
     angles
         .iter()
         .map(|&deg| {
-            let a = amp + amp_wave * (deg - 90.0).to_radians().cos();
-            let se = 1.5 + rng.next_f64();
-            let truth =
-                3.0 + u * amplitude_factor(a) * (deg - psi).to_radians().cos() + iso * (a - amp);
+            let a = t.amp + t.amp_wave * (deg - 90.0).to_radians().cos();
+            let se = RATE_SE_MEAN - 0.5 + rng.next_f64();
+            let truth = 3.0
+                + t.u * amplitude_factor(a) * (deg - t.psi).to_radians().cos()
+                + t.iso * (a - t.amp);
             Point {
                 angle_deg: deg,
                 rate_s_per_day: truth + se * rng.normal(),
                 rate_se: Some(se),
-                amplitude_deg: Some(a),
+                amplitude_deg: Some(t.lift * (a + rng.normal())),
                 amplitude_se: Some(1.0),
             }
         })
@@ -197,67 +228,138 @@ fn eight() -> Vec<f64> {
     (0..8).map(|i| 45.0 * f64::from(i)).collect()
 }
 
-/// The ruling's acceptance seeds: the heavy spot is recovered within its
-/// ± on both sides of 219.5° (in about 95 of 100 tests at 180° and at
-/// 260°), the measured fastest hour turning half round between them, and
-/// it is withheld at 225°.
+/// The poise error `u` whose rate wave at `amp` is `k` of its ± over `n`
+/// positions: each coefficient's ± is about se·√(2/n), and the wave is
+/// u·|f(amp)|.
+fn u_at(k: f64, amp: f64, n: usize) -> f64 {
+    k * RATE_SE_MEAN * (2.0 / n as f64).sqrt() / amplitude_factor(amp).abs()
+}
+
+/// Seeds the coverage runs use, fresh for the final run of the math review
+/// of #1485 (3041–3059 and 5001–5040 were seen while fixing): 100 tests on
+/// each.
+const SEEDS: std::ops::RangeInclusive<u64> = 3061..=3069;
+
+/// Runs `trial` 100 times on each of [`SEEDS`].
+fn over_seeds(mut trial: impl FnMut(&mut Rng)) {
+    for seed in SEEDS {
+        let mut rng = Rng::new(seed);
+        for _ in 0..100 {
+            trial(&mut rng);
+        }
+    }
+}
+
+fn share(hits: usize, of: usize) -> f64 {
+    hits as f64 / of.max(1) as f64
+}
+
+/// The ruling's acceptance cases. Either side of 219.5° (180° and 260°),
+/// with a wave 4 SE clear and one far clear, the heavy spot is stated in
+/// all but a few tests and its ± holds the true angle in about 95 of 100
+/// of those; the measured fastest hour turns half round between the two;
+/// with the lift 7% out (0.93×) at 260° it is never flipped; at 225° it
+/// is withheld.
 #[test]
 fn the_heavy_spot_is_recovered_either_side_of_the_null_and_withheld_in_it() {
-    let mut rng = Rng::new(20_261_112);
-    let trials = 800;
-    for amp in [180.0, 260.0] {
-        let mut hits = 0;
-        for _ in 0..trials {
-            let pts = synthetic(&mut rng, &eight(), (300.0, 130.0), (amp, 0.0), 0.0);
-            let f = fit(&pts, None).unwrap();
-            let h = f.heavy_spot.expect("outside the null band");
-            let off = angle_off(h.peak_deg.value, 130.0);
-            hits += usize::from(off.abs() <= 1.96 * h.peak_deg.se.unwrap());
-            let fastest = if amp < NULL_AMPLITUDE_DEG {
-                130.0
-            } else {
-                310.0
+    for (amp, k, lift) in [
+        (180.0, 4.0, 1.0),
+        (260.0, 4.0, 1.0),
+        (180.0, 25.0, 1.0),
+        (260.0, 25.0, 1.0),
+        (260.0, 4.0, 0.93),
+    ] {
+        let t = Truth {
+            u: u_at(k, amp, 8),
+            amp,
+            lift,
+            ..TRUTH
+        };
+        let (mut named, mut covered, mut trials) = (0, 0, 0);
+        over_seeds(|rng| {
+            trials += 1;
+            let f = fit(&synthetic(rng, &eight(), &t), None).unwrap();
+            let Some(h) = f.heavy_spot else {
+                // A lift 7% out can carry a reading into the null band.
+                let band = lift != 1.0 && matches!(f.withheld, Some(Withheld::NullBand { .. }));
+                assert!(
+                    band || f.withheld == Some(Withheld::WithinNoise),
+                    "{amp} {k}"
+                );
+                return;
             };
+            named += 1;
+            let off = angle_off(h.peak_deg.value, t.psi);
             assert!(
-                angle_off(f.wave.peak_deg.value, fastest).abs() < 30.0,
-                "{amp}"
+                off.abs() < 90.0,
+                "{amp}° {k} SE lift {lift}: flipped, {off}"
             );
+            covered += usize::from(off.abs() <= 1.96 * h.peak_deg.se.unwrap());
+            if k > 10.0 {
+                let fastest = if amp < NULL_AMPLITUDE_DEG {
+                    130.0
+                } else {
+                    310.0
+                };
+                assert!(angle_off(f.wave.peak_deg.value, fastest).abs() < 15.0);
+            }
+        });
+        let (stated, cover) = (share(named, trials), share(covered, named));
+        println!("heavy spot {amp}° {k} SE lift {lift}: stated {stated:.3}, covered {cover:.3}");
+        if lift == 1.0 {
+            assert!(stated >= 0.9, "{amp}° {k} SE: stated {stated}");
         }
-        let rate = hits as f64 / f64::from(trials);
-        assert!((0.92..=0.975).contains(&rate), "{amp}°: {rate}");
+        if lift == 1.0 {
+            assert!((0.92..=0.975).contains(&cover), "{amp}° {k} SE: {cover}");
+        }
     }
-    let pts = synthetic(&mut rng, &eight(), (300.0, 130.0), (225.0, 0.0), 0.0);
-    let f = fit(&pts, None).unwrap();
+    let mut rng = Rng::new(3061);
+    let t = Truth {
+        u: 300.0,
+        amp: 225.0,
+        ..TRUTH
+    };
+    let f = fit(&synthetic(&mut rng, &eight(), &t), None).unwrap();
     assert!(f.heavy_spot.is_none());
     assert!(matches!(f.withheld, Some(Withheld::NullBand { .. })));
-    assert_eq!(
-        f.heavy_text,
-        "At 225°, poise barely moves the rate. Heavy spot not stated."
+    assert!(
+        f.heavy_text
+            .ends_with("poise barely moves the rate. Heavy spot not stated."),
+        "{}",
+        f.heavy_text
     );
 }
 
-/// Seeded coverage of the measured wave's ±: with a wave (size and peak),
-/// and with none (the components a and b, as a size is never below
-/// zero), on four and eight positions and with one of four missing.
+/// Seeded coverage of the measured wave's ±, with a wave 4 SE clear and
+/// with none, on four and eight positions and with one of four missing:
+/// the size and angle ± (or with no wave, the cos and sin components', as
+/// a size is never below zero) hold the truth in about 95 of 100 tests.
+/// With no wave the 2 SE gate names a direction in about e⁻² (13.5%) of
+/// tests, the share of a two-dimensional normal beyond 2 SE; with a wave
+/// 4 SE clear, in nearly all.
 #[test]
 fn the_measured_waves_se_covers_the_true_wave() {
-    let mut rng = Rng::new(20_261_113);
-    let trials = 800;
-    for (angles, u) in [
-        (vec![0.0, 90.0, 180.0, 270.0], 120.0),
-        (eight(), 120.0),
-        (vec![0.0, 90.0, 270.0], 120.0),
+    for (angles, k) in [
+        (vec![0.0, 90.0, 180.0, 270.0], 4.0),
+        (eight(), 4.0),
+        (vec![0.0, 90.0, 270.0], 4.0),
         (vec![0.0, 90.0, 180.0, 270.0], 0.0),
         (eight(), 0.0),
     ] {
-        let size = u * amplitude_factor(180.0);
-        let mut hits = [0usize; 2];
-        for _ in 0..trials {
-            let pts = synthetic(&mut rng, &angles, (u, 130.0), (180.0, 0.0), 0.0);
+        let t = Truth {
+            u: u_at(k, 180.0, angles.len().max(4)),
+            ..TRUTH
+        };
+        let size = t.u * amplitude_factor(180.0);
+        let (mut hits, mut named, mut trials) = ([0usize; 2], 0, 0);
+        over_seeds(|rng| {
+            trials += 1;
+            let pts = synthetic(rng, &angles, &t);
             let w = fit(&pts, None).unwrap().wave;
-            if u > 0.0 {
+            named += usize::from(clear(&w.size));
+            if k > 0.0 {
                 hits[0] += usize::from((w.size.value - size).abs() <= 1.96 * w.size.se.unwrap());
-                let off = angle_off(w.peak_deg.value, 130.0);
+                let off = angle_off(w.peak_deg.value, t.psi);
                 hits[1] += usize::from(off.abs() <= 1.96 * w.peak_deg.se.unwrap());
             } else {
                 let rad = w.peak_deg.value.to_radians();
@@ -267,10 +369,20 @@ fn the_measured_waves_se_covers_the_true_wave() {
                 hits[0] += usize::from(a.abs() <= 1.96 * sa);
                 hits[1] += usize::from(b.abs() <= 1.96 * sb);
             }
+        });
+        let named = share(named, trials);
+        let cover = hits.map(|h| share(h, trials));
+        println!(
+            "wave {} positions {k} SE: covered {cover:.3?}, named {named:.3}",
+            angles.len()
+        );
+        for c in cover {
+            assert!((0.92..=0.975).contains(&c), "{angles:?} {k} SE: {c}");
         }
-        for h in hits {
-            let rate = h as f64 / f64::from(trials);
-            assert!((0.92..=0.975).contains(&rate), "{angles:?} u {u}: {rate}");
+        if k > 0.0 {
+            assert!(named >= 0.9, "{angles:?}: named {named}");
+        } else {
+            assert!((0.09..=0.18).contains(&named), "{angles:?}: named {named}");
         }
     }
 }
@@ -293,12 +405,17 @@ fn component_ses(pts: &[Point], ses: &[f64]) -> (f64, f64) {
 
 /// The isochronism alias: no poise error, but the amplitude varies once
 /// round the dial and the rate follows it. With no slope known, the
-/// amplitude wave is named; with the slope taken off, the heavy spot's
-/// size is within its ± of zero.
+/// amplitude wave is named; with the slope taken off, the heavy spot is
+/// withheld as within the noise.
 #[test]
 fn an_amplitude_wave_through_isochronism_is_named_or_taken_off() {
-    let mut rng = Rng::new(20_261_114);
-    let pts = synthetic(&mut rng, &eight(), (0.0, 0.0), (180.0, 12.0), 0.8);
+    let mut rng = Rng::new(3061);
+    let t = Truth {
+        amp_wave: 12.0,
+        iso: 0.8,
+        ..TRUTH
+    };
+    let pts = synthetic(&mut rng, &eight(), &t);
     let f = fit(&pts, None).unwrap();
     assert!(
         matches!(f.caveats.as_slice(), [Caveat::AmplitudeWave { size_deg, .. }] if close(*size_deg, 12.0, 2.0)),
@@ -311,7 +428,7 @@ fn an_amplitude_wave_through_isochronism_is_named_or_taken_off() {
         "{}",
         f.heavy_text
     );
-    assert!(f.wave.size.value > 6.0, "the alias shows in the rate wave");
+    assert!(clear(&f.wave.size), "the alias shows in the rate wave");
     let slope = Slope {
         s_per_day_per_deg: 0.8,
         se: 0.01,
@@ -321,11 +438,121 @@ fn an_amplitude_wave_through_isochronism_is_named_or_taken_off() {
         f.caveats.as_slice(),
         [Caveat::IsochronismRemoved { .. }]
     ));
-    let h = f.heavy_spot.unwrap();
-    assert!(h.size.value < 3.0 * h.size.se.unwrap(), "{h:?}");
-    // No amplitude wave and no slope: no caveat.
-    let flat = synthetic(&mut rng, &eight(), (300.0, 40.0), (180.0, 0.0), 0.0);
+    assert_eq!(f.withheld, Some(Withheld::WithinNoise));
+    let flat = synthetic(&mut rng, &eight(), &Truth { u: 300.0, ..TRUTH });
     assert!(fit(&flat, None).unwrap().caveats.is_empty());
+}
+
+/// The slope's ± is common to every position (Norm's correction), and
+/// taking it off carries each amplitude's own noise into its rate; f(θ̂)
+/// carries it into the regressor. With the amplitude going once round and
+/// the slope given as the true one plus its ± drawn once per test, the
+/// heavy spot's ± holds the true angle in about 95 of 100 tests where it
+/// is stated, with the wave 4 and 3 SE clear on the full ±. The shares
+/// stated were set before the run from a wave k SE clear in two normal
+/// components, P(|Û| > 2 SE): 0.985 at 4 and 0.887 at 3, less 3 SE of a
+/// share over 900 tests (0.973 and 0.855), rounded down to 0.96 and 0.85
+/// for the ± itself being estimated.
+#[test]
+fn a_slopes_common_error_is_carried_into_the_heavy_spot() {
+    let sigma = 0.15;
+    for (k, least_stated) in [(4.0, 0.96), (3.0, 0.85)] {
+        let base = Truth {
+            amp_wave: 12.0,
+            iso: 0.8,
+            ..TRUTH
+        };
+        let t = Truth {
+            u: u_full(k, sigma, &base),
+            ..base
+        };
+        let (mut named, mut covered, mut trials) = (0, 0, 0);
+        over_seeds(|rng| {
+            trials += 1;
+            let pts = synthetic(rng, &eight(), &t);
+            let slope = Slope {
+                s_per_day_per_deg: t.iso + sigma * rng.normal(),
+                se: sigma,
+            };
+            let Some(h) = fit(&pts, Some(slope)).unwrap().heavy_spot else {
+                return;
+            };
+            named += 1;
+            let off = angle_off(h.peak_deg.value, t.psi);
+            covered += usize::from(off.abs() <= 1.96 * h.peak_deg.se.unwrap());
+        });
+        let (stated, cover) = (share(named, trials), share(covered, named));
+        println!("slope ± common, {k} SE full: stated {stated:.3}, covered {cover:.3}");
+        assert!(stated >= least_stated, "{k} SE: stated {stated}");
+        assert!((0.92..=0.975).contains(&cover), "{k} SE: {cover}");
+    }
+}
+
+/// The poise error whose heavy-spot wave is `k` of its full ± (rate,
+/// slope times amplitude ±, the slope's common ±, and f′ times amplitude
+/// ±), read off a noise-free fit at the truth and solved by iteration,
+/// since the f′ term grows with the wave. It starts well clear of the 2 SE
+/// gate so the noise-free fit states the heavy spot.
+fn u_full(k: f64, sigma: f64, t: &Truth) -> f64 {
+    let mut u = u_at(3.0 * k, t.amp, 8);
+    for _ in 0..20 {
+        let truth = Truth { u, ..*t };
+        let pts: Vec<Point> = eight()
+            .iter()
+            .map(|&deg| {
+                let a = t.amp + t.amp_wave * (deg - 90.0).to_radians().cos();
+                Point {
+                    angle_deg: deg,
+                    rate_s_per_day: 3.0
+                        + truth.u * amplitude_factor(a) * (deg - t.psi).to_radians().cos()
+                        + t.iso * (a - t.amp),
+                    rate_se: Some(RATE_SE_MEAN),
+                    amplitude_deg: Some(a),
+                    amplitude_se: Some(1.0),
+                }
+            })
+            .collect();
+        let slope = Slope {
+            s_per_day_per_deg: t.iso,
+            se: sigma,
+        };
+        let h = fit(&pts, Some(slope)).unwrap().heavy_spot.unwrap();
+        u = k * h.size.se.unwrap();
+    }
+    u
+}
+
+/// The 2 SE gate: a wave within its noise names no fastest hour, and one
+/// with no ± names none either.
+#[test]
+fn no_direction_is_named_within_the_noise_or_without_a_pm() {
+    let quiet: Vec<Point> = [(0.5, 0.0), (0.2, 90.0), (-0.4, 180.0), (0.1, 270.0)]
+        .iter()
+        .map(|&(r, a)| pt(a, r, 2.0))
+        .collect();
+    let f = fit(&quiet, None).unwrap();
+    assert!(!clear(&f.wave.size));
+    assert!(
+        f.short_text.contains("not clear of the noise"),
+        "{}",
+        f.short_text
+    );
+    assert!(!f.short_text.contains("fastest"), "{}", f.short_text);
+    assert!(
+        f.text
+            .contains("not clear of the noise, so no fastest hour."),
+        "{}",
+        f.text
+    );
+    assert_eq!(f.withheld, Some(Withheld::WithinNoise));
+    let mut bare = quiet.clone();
+    for p in &mut bare {
+        p.rate_s_per_day *= 100.0;
+        p.rate_se = None;
+    }
+    let f = fit(&bare, None).unwrap();
+    assert!(!f.short_text.contains("fastest") && f.short_text.contains("no ±"));
+    assert_eq!(f.withheld, Some(Withheld::NoSe));
 }
 
 #[test]
@@ -413,4 +640,44 @@ fn poise_samples() {
         let json = serde_json::to_string_pretty(&f).unwrap();
         std::fs::write(format!("{dir}/{name}"), json).unwrap();
     }
+}
+
+/// The corpus's four YM42 vertical takes (ym42_CU_8h, ym42_CL_90min,
+/// ym42_CD_90min, ym42_CR_long; part 002 of each, `analyze --lift 55
+/// --bph 28800`). They ran at 224–237°, inside the null band, so only the
+/// measured wave is stated; the amplitude is 13° lower crown up, which is
+/// named because it aliases into that wave.
+#[test]
+fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
+    let rows = [
+        (90.0, -15.99, 0.83, 223.8, 0.68),
+        (180.0, 68.16, 2.29, 236.7, 0.43),
+        (270.0, 28.80, 1.76, 236.9, 0.64),
+        (0.0, -11.55, 1.68, 235.3, 0.74),
+    ];
+    let pts: Vec<Point> = rows
+        .iter()
+        .map(|&(a, r, rs, am, ams)| Point {
+            angle_deg: a,
+            rate_s_per_day: r,
+            rate_se: Some(rs),
+            amplitude_deg: Some(am),
+            amplitude_se: Some(ams),
+        })
+        .collect();
+    let f = fit(&pts, None).unwrap();
+    assert!(matches!(f.withheld, Some(Withheld::NullBand { .. })));
+    assert!(f.heavy_spot.is_none());
+    assert!(matches!(
+        f.caveats.as_slice(),
+        [Caveat::AmplitudeWave { .. }]
+    ));
+    assert!(clear(&f.wave.size));
+    assert!((f.wave.size.value - 44.4).abs() < 0.05, "{}", f.text);
+    assert!((f.wave.peak_deg.value - 217.0).abs() < 0.5, "{}", f.text);
+    assert!(
+        f.short_text.contains("fastest near 7H at the top"),
+        "{}",
+        f.short_text
+    );
 }
