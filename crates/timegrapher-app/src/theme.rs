@@ -872,15 +872,31 @@ pub fn segmented<T: PartialEq + Copy>(
     choices: &[(T, &str, &str)],
 ) -> bool {
     if in_toolbar(ui) {
-        return ui.horizontal(|ui| segmented_body(ui, value, choices)).inner;
+        return ui
+            .horizontal(|ui| segmented_body(ui, value, choices, SEGMENT_H))
+            .inner;
     }
-    segmented_body(ui, value, choices)
+    segmented_body(ui, value, choices, SEGMENT_H)
+}
+
+/// A segment's height in [`segmented`].
+const SEGMENT_H: f32 = 20.0;
+
+/// [`segmented`] small enough for a card's title row
+/// ([`TITLE_ROW_H`]): the Current Position card's 6 | 10.
+pub fn segmented_in_title<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> bool {
+    segmented_body(ui, value, choices, TITLE_ROW_H - 4.0)
 }
 
 fn segmented_body<T: PartialEq + Copy>(
     ui: &mut Ui,
     value: &mut T,
     choices: &[(T, &str, &str)],
+    h: f32,
 ) -> bool {
     let p = pal(ui);
     let mut changed = false;
@@ -891,7 +907,11 @@ fn segmented_body<T: PartialEq + Copy>(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                ui.spacing_mut().button_padding = Vec2::new(10.0, 2.0);
+                ui.spacing_mut().button_padding = if h < SEGMENT_H {
+                    Vec2::new(6.0, 0.0)
+                } else {
+                    Vec2::new(10.0, 2.0)
+                };
                 let two = choices.len() == 2;
                 for (i, &(v, label, hint)) in choices.iter().enumerate() {
                     let selected = *value == v;
@@ -905,7 +925,7 @@ fn segmented_body<T: PartialEq + Copy>(
                         .stroke(Stroke::NONE)
                         .frame_when_inactive(selected)
                         .corner_radius(CornerRadius::same(CONTROL_RADIUS - 1))
-                        .min_size(Vec2::new(0.0, 20.0));
+                        .min_size(Vec2::new(0.0, h));
                     let mut r = ui.add(b);
                     let other = if two { choices[1 - i] } else { choices[i] };
                     if two && selected {

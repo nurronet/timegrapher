@@ -1195,7 +1195,7 @@ fn open_ask_fields(ui: &mut egui::Ui, a: &mut OpenAsk, asks: OpenNeed, started_o
                     .width(ui.available_width())
                     .selected_text(a.position.map_or("Choose a Position", |p| p.label()))
                     .show_ui(ui, |ui| {
-                        for p in Position::ALL {
+                        for p in Position::TEN {
                             ui.selectable_value(&mut a.position, Some(p), p.label());
                         }
                     });

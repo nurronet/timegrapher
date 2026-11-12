@@ -533,6 +533,107 @@ fn the_position_card_only_shows_a_takes_position() {
     assert_eq!(ink(&mut app), pal.text_tertiary);
 }
 
+/// The card's 6 | 10 (#1473, Hugh's spec): at 6 the six buttons as
+/// before; clicking 10 adds the four 45° stops in a second row, in hour
+/// order, under the six, and the name and its one code on one line. A
+/// 45° stop on show keeps the card at 10 even with the switch at 6.
+#[test]
+fn the_position_card_turns_to_ten_and_back() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let frame = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let mut texts = Vec::new();
+        for events in [events, Vec::new(), Vec::new()] {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1610.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| app.panels(ctx));
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_string(),
+                        t.galley.rect.translate(t.pos.to_vec2()).center(),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+        }
+        texts
+    };
+    let at = |texts: &[(String, egui::Pos2)], words: &str| {
+        texts.iter().find(|(t, _)| t == words).map(|(_, p)| *p)
+    };
+    let six = frame(&mut app, Vec::new());
+    assert!(!app.ten_positions);
+    assert!(Position::HALF_HOURS
+        .iter()
+        .all(|p| at(&six, p.code()).is_none()));
+    let ten = at(&six, "10").expect("the 6 | 10 switch");
+    let click = |pos| {
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        vec![egui::Event::PointerMoved(pos), button(true), button(false)]
+    };
+    let texts = frame(&mut app, click(ten));
+    assert!(app.ten_positions, "10 clicked");
+    let row = |p: Position| at(&texts, p.code()).unwrap_or_else(|| panic!("{p:?}: {texts:?}"));
+    let first = row(Position::DialUp).y;
+    for pair in Position::HALF_HOURS.windows(2) {
+        assert!(row(pair[0]).x < row(pair[1]).x, "{pair:?} in hour order");
+    }
+    for p in Position::HALF_HOURS {
+        assert!(row(p).y > first + 10.0, "{p:?} under the six");
+    }
+    for p in Position::ALL {
+        assert!((row(p).y - first).abs() < 1.0, "{p:?} on the first row");
+    }
+    // The name and its code on one line.
+    let (name, code) = (
+        at(&texts, "Dial Up").unwrap(),
+        at(&texts, "DU · CH").unwrap(),
+    );
+    assert!((name.y - code.y).abs() < 3.0 && code.x > name.x);
+    // Back to 6.
+    // The switch's 6, left of its 10 so it reads 6 | 10: the picture has a
+    // 6 of its own.
+    let ten_at = at(&texts, "10").expect("the 10");
+    let six_at = texts
+        .iter()
+        .filter(|(t, p)| {
+            t == "6" && (p.y - ten_at.y).abs() < 4.0 && p.x < ten_at.x && ten_at.x - p.x < 40.0
+        })
+        .map(|(_, p)| *p)
+        .next()
+        .expect("the 6");
+    let texts = frame(&mut app, click(six_at));
+    assert!(!app.ten_positions);
+    assert!(at(&texts, "1H30").is_none());
+    // A 45° stop on show keeps the card at 10, its code once.
+    app.set_position(Position::Up4h30);
+    let texts = frame(&mut app, Vec::new());
+    assert!(!app.ten_positions, "showing it doesn't change the setting");
+    assert!(at(&texts, "1H30").is_some(), "{texts:?}");
+    // The cards are drawn before the panes, whose strip names it too.
+    let cards = texts.iter().take_while(|(t, _)| t != "Paper Strip");
+    assert_eq!(
+        cards.filter(|(t, _)| t == "4H30").count(),
+        2,
+        "beside the name and on its button: {texts:?}"
+    );
+    assert!(at(&texts, "4:30 Up").is_some());
+}
+
 /// Each position's second code is Witschi's: the hour that points up
 /// standing, CH and CB lying flat; and the picture turns the watch so
 /// that hour is at the top.
@@ -554,12 +655,35 @@ fn each_position_has_witschis_code_and_its_hour_up() {
             ("CR", "12H")
         ]
     );
-    for p in Position::ALL {
+    let halves: Vec<(&str, &str, &str)> = Position::HALF_HOURS
+        .iter()
+        .map(|p| (p.code(), p.witschi(), p.label()))
+        .collect();
+    assert_eq!(
+        halves,
+        [
+            ("1H30", "1H30", "1:30 Up (1H30)"),
+            ("4H30", "4H30", "4:30 Up (4H30)"),
+            ("7H30", "7H30", "7:30 Up (7H30)"),
+            ("10H30", "10H30", "10:30 Up (10H30)")
+        ]
+    );
+    // The picture turns the hour at the top up: 30° an hour.
+    for p in Position::TEN {
         match p.lying() {
-            Lying::Hour(h) => assert_eq!(format!("{h}H"), p.witschi()),
+            Lying::Top(deg) => {
+                let (h, half) = p
+                    .witschi()
+                    .split_once('H')
+                    .map(|(h, m)| (h.parse::<f32>().unwrap() % 12.0, m == "30"))
+                    .unwrap();
+                assert_eq!(deg, 30.0 * h + if half { 15.0 } else { 0.0 }, "{p:?}");
+            }
             Lying::DialUp => assert_eq!(p, Position::DialUp),
             Lying::DialDown => assert_eq!(p, Position::DialDown),
         }
+        assert_eq!(Position::of_core(p.core()), Some(p));
+        assert_eq!(Position::from_name(p.code()), Some(p));
     }
 }
 
@@ -1069,21 +1193,31 @@ fn the_cards_read_position_calibre_listen_then_the_readings() {
     }
 }
 
-/// Keys 1 to 6 put the watch in each position in turn, as the
-/// Position card lists them; not while a field is typed in.
+/// Each key is the last digit of the hour at the top, U and D lying
+/// (Peter's pick, #1473): every one pinned. The 45° stops' keys turn the
+/// card to 10, and the six's leave it as it is.
 #[test]
-fn keys_one_to_six_pick_the_position() {
+fn each_hour_key_picks_its_position_and_a_45_degree_one_turns_the_card_to_10() {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     let ctx = themed();
+    use egui::Key;
     let keys = [
-        egui::Key::Num1,
-        egui::Key::Num2,
-        egui::Key::Num3,
-        egui::Key::Num4,
-        egui::Key::Num5,
-        egui::Key::Num6,
+        (Key::U, Position::DialUp),
+        (Key::D, Position::DialDown),
+        (Key::Num3, Position::CrownUp),
+        (Key::Num9, Position::CrownDown),
+        (Key::Num6, Position::CrownLeft),
+        (Key::Num2, Position::CrownRight),
+        (Key::Num1, Position::Up1h30),
+        (Key::Num4, Position::Up4h30),
+        (Key::Num7, Position::Up7h30),
+        (Key::Num0, Position::Up10h30),
     ];
-    for (n, key) in keys.into_iter().enumerate().rev() {
+    for (key, p) in keys {
+        assert_eq!(p.key(), Some(key), "{p:?}");
+    }
+    for (key, p) in keys.into_iter().rev() {
+        app.ten_positions = false;
         let press = |pressed| egui::Event::Key {
             key,
             physical_key: None,
@@ -1098,12 +1232,17 @@ fn keys_one_to_six_pick_the_position() {
             },
             |ctx| app.panels(ctx),
         );
-        assert_eq!(app.position, Position::ALL[n], "key {}", n + 1);
+        assert_eq!(app.position, p, "{key:?}");
+        assert_eq!(app.ten_positions, p.is_half_hour(), "{key:?} at 6");
+    }
+    // Keys 5 and 8 are no one's.
+    for key in [Key::Num5, Key::Num8] {
+        assert_eq!(Position::of_key(key), None);
     }
 }
 
 /// Walter's walk of #1194: with New Watch open and no field typed in,
-/// keys 1 to 6 change nothing behind the dialog.
+/// the position keys change nothing behind the dialog.
 #[test]
 fn keys_one_to_six_wait_behind_a_dialog() {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);

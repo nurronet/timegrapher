@@ -72,7 +72,7 @@ impl TimegrapherApp {
         } else {
             format!(
                 "The one position the watch runs down in, from wind to stop: the one set on \
-                 the {} card (or keys 1 to 6) when Start Test is pressed.",
+                 the {} card (or its key) when Start Test is pressed.",
                 self.position_card_title
             )
         });

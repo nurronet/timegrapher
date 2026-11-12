@@ -996,14 +996,15 @@ mod tests {
 }
 
 /// How the watch lies on the Current Position card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Lying {
     /// Flat, dial up: the face in perspective, its side wall below.
     DialUp,
     /// Flat, dial down: the case back, crown on the left.
     DialDown,
-    /// Standing, the hour that points up (3 for Crown Up, 9, 6 or 12).
-    Hour(u8),
+    /// Standing, the hour at the top as its angle clockwise from 12,
+    /// degrees: 90 for Crown Up (3H), 45 for 1H30.
+    Top(f32),
 }
 
 /// The watch itself, no stand, filling the square `r`: the case in
@@ -1024,10 +1025,10 @@ pub fn watch(
     let k = r.width().min(r.height()) / 100.0;
     let origin = r.center() - egui::vec2(50.0, 50.0) * k;
     let turn = match lying {
-        Lying::Hour(h) => -(f32::from(h) * 30.0).to_radians(),
+        Lying::Top(deg) => -deg.to_radians(),
         _ => 0.0,
     };
-    let flat = !matches!(lying, Lying::Hour(_));
+    let flat = !matches!(lying, Lying::Top(_));
     let (sin, cos) = turn.sin_cos();
     // A point on the grid, turned about the centre or squashed flat.
     let at = |x: f32, y: f32| -> Pos2 {
