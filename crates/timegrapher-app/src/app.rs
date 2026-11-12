@@ -2490,10 +2490,8 @@ impl TimegrapherApp {
         strip.set_half_width(strip.half_width_ms);
         strip.set_span(strip.span_s);
         self.strip = strip;
-        self.rate_line = rate_line;
-        self.rate_guides = rate_guides;
-        self.overlays = overlays;
-        self.follow = follow;
+        (self.rate_line, self.rate_guides) = (rate_line, rate_guides);
+        (self.overlays, self.follow) = (overlays, follow);
         // One left on is kept: a pane with none shown would be empty.
         let some = |s: [bool; 3]| if s.contains(&true) { s } else { RATE_ONLY };
         self.chart_series = some(chart_series);
