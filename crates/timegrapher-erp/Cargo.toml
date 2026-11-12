@@ -1,0 +1,40 @@
+[package]
+name = "timegrapher-erp"
+description = "Connects the timegrapher to the LN ERP: look up a watch, sign in an operator, send signed results"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "timegrapher-erp"
+path = "src/main.rs"
+
+[dependencies]
+timegrapher-core.workspace = true
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
+# Ed25519, the signature the ERP checks. Already in the tree through rustls.
+ring = "0.17"
+# The operator's PIN, typed without an echo.
+rpassword = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+toml = "0.8"
+# The ERP's address and key are credentials: same HTTPS client and system
+# certificate store as the update check.
+ureq = { version = "3", features = ["platform-verifier"] }
+# The PIN and the sign-in token are wiped from memory when done with.
+zeroize = "1"
+
+[features]
+# A stand-in ERP for tests (`timegrapher_erp::testing`).
+testing = []
+
+[dev-dependencies]
+timegrapher-erp = { path = ".", features = ["testing"] }
+
+[lints]
+workspace = true

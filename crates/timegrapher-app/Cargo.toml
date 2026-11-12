@@ -13,6 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 timegrapher-core = { workspace = true, features = ["capture", "update-check"] }
+timegrapher-erp = { path = "../timegrapher-erp" }
+# The ERP's PIN is wiped from memory once it has been sent.
+zeroize = "1"
 eframe = { version = "0.33", features = ["persistence", "wgpu"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
@@ -49,6 +52,10 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[dev-dependencies]
+# The stand-in ERP the ERP tests talk to.
+timegrapher-erp = { path = "../timegrapher-erp", features = ["testing"] }
 
 [lints]
 workspace = true

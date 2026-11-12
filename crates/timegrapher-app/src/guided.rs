@@ -1622,6 +1622,11 @@ pub enum FreeCell {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FreeTable {
     pub rows: Vec<(String, f64, FreeCell)>,
+    /// What each row holds beyond its figures, in the rows' order: for the
+    /// ERP's enhanced data. Empty when the table was made without them.
+    pub details: Vec<RowDetail>,
+    /// Core's Positions Test values (`StateIndices`) as JSON.
+    pub indices: Option<serde_json::Value>,
     /// Rate (s/d), amplitude (degrees) and beat error (ms).
     pub mean: [Option<f64>; 3],
     pub largest: [Option<f64>; 3],
@@ -1629,9 +1634,21 @@ pub struct FreeTable {
     pub read: usize,
 }
 
+/// A row's whole reading as core made it, and the stretches it was read
+/// over (seconds into the take): the enhanced data a position can carry.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RowDetail {
+    pub spans: Vec<(f64, f64)>,
+    /// Core's `Measurement` as JSON; none when the position was not read.
+    pub measurement: Option<serde_json::Value>,
+}
+
 /// The free take's table from core's, in the Current Position card's
-/// order.
-pub fn free_table(t: &session::PositionsTable) -> FreeTable {
+/// order. `stretches` are the settled stretches the table was read over.
+pub fn free_table(
+    t: &session::PositionsTable,
+    stretches: &[(session::Position, f64, f64)],
+) -> FreeTable {
     let rows: Vec<(String, f64, FreeCell)> = Position::ALL
         .iter()
         .filter_map(|p| {
@@ -1652,8 +1669,28 @@ pub fn free_table(t: &session::PositionsTable) -> FreeTable {
         .iter()
         .filter(|r| matches!(r.2, FreeCell::Read(..)))
         .count();
+    let details = Position::ALL
+        .iter()
+        .filter_map(|p| {
+            let sp = session::Position::parse(p.code())?;
+            let r = t.rows.iter().find(|r| r.position == sp)?;
+            Some(RowDetail {
+                spans: stretches
+                    .iter()
+                    .filter(|s| s.0 == sp)
+                    .map(|s| (s.1, s.2))
+                    .collect(),
+                measurement: r
+                    .measurement
+                    .as_ref()
+                    .and_then(|m| serde_json::to_value(m).ok()),
+            })
+        })
+        .collect();
     FreeTable {
         rows,
+        details,
+        indices: serde_json::to_value(&t.indices).ok(),
         mean: [
             t.indices.x,
             t.indices.amplitude_mean,
@@ -1683,7 +1720,7 @@ fn table_duration(v: f64) -> String {
 /// The free take's table: Position, Duration, Rate, Amplitude and Beat
 /// Error, each reading in its own colour, then the mean and the largest
 /// difference once two positions have readings.
-fn free_grid(ui: &mut egui::Ui, t: &FreeTable) {
+pub fn free_grid(ui: &mut egui::Ui, t: &FreeTable) {
     let pal = theme::pal(ui);
     egui::Grid::new("free-positions")
         .num_columns(5)

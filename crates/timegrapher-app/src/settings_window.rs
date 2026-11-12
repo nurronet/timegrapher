@@ -23,6 +23,7 @@ pub enum Tab {
     Microphone,
     WatchesFolder,
     Calibres,
+    Erp,
 }
 
 impl Tab {
@@ -33,6 +34,7 @@ impl Tab {
             Tab::Microphone => "microphone",
             Tab::WatchesFolder => "watches_folder",
             Tab::Calibres => "calibres",
+            Tab::Erp => "erp",
         }
     }
 
@@ -46,7 +48,7 @@ impl Tab {
 }
 
 /// The sidebar's categories, in order, each with its icon, name and hover.
-pub const TABS: [(Tab, Icon, &str, &str); 4] = [
+pub const TABS: [(Tab, Icon, &str, &str); 5] = [
     (
         Tab::General,
         Icon::Settings,
@@ -72,6 +74,12 @@ pub const TABS: [(Tab, Icon, &str, &str); 4] = [
         Icon::Gears,
         "Calibres",
         "Every calibre in a table to sort and filter, your short list and your custom calibres",
+    ),
+    (
+        Tab::Erp,
+        Icon::Sheet,
+        "ERP",
+        "Where the LN ERP is, this station's key and the operator's sign-in",
     ),
 ];
 

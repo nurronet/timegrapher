@@ -17,6 +17,7 @@ or a problem.
 - [Driving the timegrapher from an AI agent](reference/agent-interface.md): the command line's JSON
 - [The timegrapher in a chat app (MCP)](reference/mcp.md)
 - [Test sessions](reference/sessions.md)
+- [Sending a session to the LN ERP](reference/erp.md): `timegrapher-erp`
 - [Structure in time: the `series` command](reference/series.md)
 - [Long runs](reference/long-runs.md)
 - [Sound files](reference/sound-files.md)

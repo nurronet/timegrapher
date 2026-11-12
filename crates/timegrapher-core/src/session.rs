@@ -366,8 +366,16 @@ impl Measurement {
 
     /// The seconds measured: the stretch read, less what was masked out.
     pub fn measured_s(&self) -> f64 {
-        self.end_s - self.start_s - self.masked_s
+        measured_seconds(self.start_s, self.end_s, self.masked_s)
     }
+}
+
+/// The seconds measured, from a reading's `start_s`, `end_s` and `masked_s`
+/// as the session JSON gives them: the stretch read, less what was masked
+/// out. [`Measurement::measured_s`] is this; a program that holds only the
+/// JSON asks here rather than subtracting for itself.
+pub fn measured_seconds(start_s: f64, end_s: f64, masked_s: f64) -> f64 {
+    end_s - start_s - masked_s
 }
 
 fn is_zero(v: &f64) -> bool {

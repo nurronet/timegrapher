@@ -385,7 +385,7 @@ impl TimegrapherApp {
                 &stretches,
                 core_session::POSITION_MIN_S,
             );
-            guided::free_table(&t)
+            guided::free_table(&t, &stretches)
         };
         let log = steady::log_of(live);
         let shown = self.free_table.borrow().as_ref().map(|(_, t)| t.clone());

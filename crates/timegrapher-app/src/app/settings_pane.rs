@@ -390,6 +390,9 @@ impl TimegrapherApp {
                     // right of the search over the table.
                     theme::help(ui, "Calibres", calibre_ui::MANAGE_HELP);
                 }
+                Tab::Erp => {
+                    theme::help(ui, "ERP", erp::ERP_HELP);
+                }
                 Tab::General => {}
             }
         });
@@ -444,6 +447,14 @@ impl TimegrapherApp {
                         if let Some(act) = act {
                             self.library_action(act);
                         }
+                    });
+            }
+            Tab::Erp => {
+                egui::ScrollArea::vertical()
+                    .id_salt("erp settings")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        self.erp_settings(ui);
                     });
             }
             Tab::Calibres => {

@@ -161,7 +161,7 @@ fn the_watches_view_is_the_watches_content_in_the_whole_window() {
         let missing: Vec<_> = content.difference(&window).collect();
         assert!(missing.is_empty(), "lost {missing:?}");
         let frame: std::collections::BTreeSet<String> =
-            ["File", "Edit", "View", "Watches", "Help", "Bench"]
+            ["File", "Edit", "View", "Watches", "Help", "Bench", "ERP"]
                 .map(str::to_string)
                 .into_iter()
                 .chain(status)

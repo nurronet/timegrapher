@@ -1315,7 +1315,7 @@ impl TimegrapherApp {
         self.report.show(report::Kind::Bug, source, shown);
     }
 
-    fn report_source(&mut self) -> Option<report::Source> {
+    pub(super) fn report_source(&mut self) -> Option<report::Source> {
         if self.session.mic() {
             let r = self.session.recorder.as_mut()?;
             let _ = r.flush();

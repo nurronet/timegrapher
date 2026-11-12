@@ -214,6 +214,7 @@ fn accelerator(c: MenuCommand) -> Option<Accelerator> {
         egui::Key::Q => Code::KeyQ,
         egui::Key::Num1 => Code::Digit1,
         egui::Key::Num2 => Code::Digit2,
+        egui::Key::Num3 => Code::Digit3,
         egui::Key::Comma => Code::Comma,
         _ => return None,
     };

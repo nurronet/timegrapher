@@ -33,13 +33,14 @@ pub(super) enum MenuCommand {
 impl MenuCommand {
     /// The items with a shortcut, in the order the keys are read: Save
     /// As before Save, which would also take Cmd+Shift+S.
-    pub(super) const WITH_KEYS: [MenuCommand; 7] = [
+    pub(super) const WITH_KEYS: [MenuCommand; 8] = [
         MenuCommand::OpenRecording,
         MenuCommand::SaveAs,
         MenuCommand::Save,
         MenuCommand::Quit,
         MenuCommand::View(View::Bench),
         MenuCommand::View(View::Watches),
+        MenuCommand::View(View::Erp),
         MenuCommand::Settings,
     ];
 }
@@ -54,6 +55,7 @@ pub(super) fn menu_shortcut(c: MenuCommand) -> Option<egui::KeyboardShortcut> {
         MenuCommand::Quit => egui::Key::Q,
         MenuCommand::View(View::Bench) => egui::Key::Num1,
         MenuCommand::View(View::Watches) => egui::Key::Num2,
+        MenuCommand::View(View::Erp) => egui::Key::Num3,
         MenuCommand::Settings => egui::Key::Comma,
         _ => return None,
     };

@@ -51,6 +51,9 @@ pub use charts::paint_key;
 mod dialogs;
 mod distributions;
 mod dock;
+mod erp;
+mod erp_card;
+mod erp_enhanced;
 mod library_folder;
 mod listen_card;
 #[cfg(target_os = "macos")]
@@ -155,7 +158,7 @@ impl ClockTrack {
 }
 
 /// The two views, as the mode switch and the View menu name them.
-const VIEWS: [(View, &str, &str); 2] = [
+const VIEWS: [(View, &str, &str); 3] = [
     (
         View::Bench,
         "Bench",
@@ -166,6 +169,11 @@ const VIEWS: [(View, &str, &str); 2] = [
         "Watches",
         "Your watches and their takes: pick a watch to start Listen, a Positions Test or a \
          Power Reserve Test, or open one of its takes",
+    ),
+    (
+        View::Erp,
+        "ERP",
+        "The LN ERP: search for a movement or watch, add a note and send a Positions Test",
     ),
 ];
 
@@ -602,6 +610,7 @@ enum View {
     #[default]
     Bench,
     Watches,
+    Erp,
 }
 
 /// The panes below the readings. Tick shape and the periodicity (FFT)
@@ -2033,6 +2042,8 @@ pub struct TimegrapherApp {
     /// The Settings window, open at a section, and the kept clocks as read
     /// when it opened or last changed.
     settings_tab: Option<Tab>,
+    /// The LN ERP: its settings, the operator, the search and the note.
+    erp: erp::ErpState,
     /// The section Settings opened at last, to open at again.
     settings_last: Tab,
     kept_clocks: Result<clockstore::ClockStore, String>,
@@ -2343,6 +2354,8 @@ impl TimegrapherApp {
         app.crash = applog::dir().and_then(|d| applog::unseen_crashes(&d).pop());
         app.kept = kept_sounds(&scratch_dir());
         app.read_library();
+        // The ERP's saved settings: the Bench shows its card when they are there.
+        app.erp.ensure_loaded();
         app.keep_saved_wavs();
         app.check_pending = app.check_at_start;
         app
@@ -2612,6 +2625,7 @@ impl TimegrapherApp {
             calibre: String::new(),
             cal: calibre_ui::Calibres::in_memory(),
             settings_tab: None,
+            erp: erp::ErpState::default(),
             settings_last: Tab::General,
             kept_clocks: Ok(clockstore::ClockStore::default()),
             forget_ask: None,
@@ -3370,6 +3384,9 @@ impl TimegrapherApp {
     fn main_view(&mut self, ui: &mut egui::Ui) {
         // Nothing appears above the readings: notices are in the status
         // bar, so the window never moves under the pointer.
+        // The ERP card, when the ERP is set up: quick search, the identity
+        // and the Positions Test so far.
+        self.erp_card(ui);
         // The readings, and on them what a take needs, unless hidden.
         if self.show_readings {
             self.readings(ui);
@@ -4172,7 +4189,9 @@ impl TimegrapherApp {
             .show(ctx, |ui| match self.view {
                 View::Bench => self.main_view(ui),
                 View::Watches => self.watches_view(ui),
+                View::Erp => self.erp_view(ui),
             });
+        self.erp_poll(ctx);
         self.settings_window(ctx);
         self.show_update_dialog(ctx);
     }
@@ -4564,6 +4583,10 @@ mod status_tests;
 #[cfg(test)]
 #[path = "app_revision_tests.rs"]
 mod revision_tests;
+
+#[cfg(test)]
+#[path = "app_erp_tests.rs"]
+mod erp_tests;
 
 #[cfg(test)]
 #[path = "app_whole_tests.rs"]
