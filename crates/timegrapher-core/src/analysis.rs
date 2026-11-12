@@ -277,10 +277,14 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
 
 /// Whether a second read of a recording (`again`, at another rate) is
 /// kept over the first (#1423): when it hears a watch and the first does
-/// not, or both do and its rate fit's residuals (robust SD, seconds,
-/// over the beats kept) are smaller. A read at a harmonic of the watch's
-/// rate sets beats on the wrong sound or between beats, so its residuals
-/// are larger. A tie keeps the first.
+/// not. When both do: the read that kept the larger share of the beats
+/// its span holds ([`kept_share`]), by more than 2 standard errors of the
+/// difference; within that, at exactly 2:1, the higher rate, as a read at
+/// half the watch's rate keeps every other beat at a full share; else the
+/// one whose rate fit's residuals (robust SD, seconds, over the beats
+/// kept) are smaller. A read at a harmonic of the watch's rate sets beats
+/// on the wrong sound or between beats, or keeps only the cleanest few.
+/// A tie keeps the first.
 pub fn reads_better(again: &Summary, first: &Summary) -> bool {
     if !again.watch_heard {
         return false;
@@ -288,12 +292,44 @@ pub fn reads_better(again: &Summary, first: &Summary) -> bool {
     if !first.watch_heard {
         return true;
     }
-    let sd = |s: &Summary| s.overall.map(|f| f.jitter_us);
-    match (sd(again), sd(first)) {
-        (Some(a), Some(f)) => a < f,
-        (Some(_), None) => true,
-        _ => false,
+    let (Some((k2, n2)), Some((k1, n1))) = (kept_of(again), kept_of(first)) else {
+        return again.overall.is_some() && first.overall.is_none();
+    };
+    // The pooled share as Agresti and Coull adjust it, so a share near 1
+    // never has a standard error of 0.
+    let p = (k1 + k2 + 2.0) / (n1 + n2 + 4.0);
+    let se = (p * (1.0 - p) * (1.0 / n1 + 1.0 / n2)).sqrt();
+    let diff = k2 / n2 - k1 / n1;
+    if diff.abs() > 2.0 * se {
+        return diff > 0.0;
     }
+    if again.bph == 2 * first.bph || first.bph == 2 * again.bph {
+        return again.bph > first.bph;
+    }
+    let sd = |s: &Summary| s.overall.map_or(f64::INFINITY, |f| f.jitter_us);
+    sd(again) < sd(first)
+}
+
+/// The share of the beats a read's span holds at its rate that its rate
+/// fit kept: kept beats over the span after any lead times `bph`/3600,
+/// plus 1 for the beats at both ends, at most 1.
+pub fn kept_share(s: &Summary) -> Option<f64> {
+    kept_of(s).map(|(k, n)| k / n)
+}
+
+/// A read's beats kept by its rate fit (at most as many as it holds), and
+/// the beats its span after any lead holds at its rate, counting the
+/// beats at both ends as the kept ones are counted.
+fn kept_of(s: &Summary) -> Option<(f64, f64)> {
+    let lead = s.caveats.iter().find_map(|c| match c {
+        crate::measure::Caveat::LeadLeftOut { seconds } => Some(*seconds),
+        _ => None,
+    });
+    let span = s.duration_s - lead.unwrap_or(0.0);
+    let held = span * f64::from(s.bph) / 3600.0 + 1.0;
+    s.overall
+        .filter(|_| span > 0.0)
+        .map(|f| ((f.beats_used as f64).min(held), held))
 }
 
 /// [`analyze`] of a recording read at `bph` (`log`, with any lead of

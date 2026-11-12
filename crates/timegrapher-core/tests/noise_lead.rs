@@ -360,7 +360,13 @@ fn stand_noise_alone_is_no_watch_when_guessed_again() {
 }
 
 /// A read at a harmonic of the watch's rate loses to the read at its own
-/// rate whichever comes first (#1423): its fit's residuals are larger.
+/// rate whichever comes first (#1423), on the watch alone and with the
+/// stand's noise over it. Seeds 3101 to 3105 found a read at 3:4 that
+/// keeps the cleanest third of the beats with smaller residuals; 3111 to
+/// 3115 a read at twice the rate that heard a watch at half the share.
+/// 3121 to 3130 were run once after the share was compared first, and
+/// 3131 to 3140 after its expected count and standard error were set
+/// right for shares near 1.
 #[test]
 fn a_read_at_a_harmonic_loses_to_the_watchs_own_rate() {
     for (bph, wrong) in [
@@ -369,18 +375,38 @@ fn a_read_at_a_harmonic_loses_to_the_watchs_own_rate() {
         (28_800, 14_400),
         (28_800, 21_600),
     ] {
-        let watch = watch_at(bph, 60.0);
-        let read = |r: u32| {
-            let cfg = AnalysisConfig {
-                bph: Some(r),
-                ..Default::default()
+        let noises = (3101..=3105).chain(3111..=3115).chain(3121..=3140);
+        let noises = noises.map(Some);
+        for seed in std::iter::once(None).chain(noises) {
+            let watch = watch_at(bph, 60.0);
+            let watch = seed.map_or(watch.clone(), |seed| noise_over(&watch, seed));
+            let read = |r: u32| {
+                let cfg = AnalysisConfig {
+                    bph: Some(r),
+                    ..Default::default()
+                };
+                analyze(&watch, &cfg).summary
             };
-            analyze(&watch, &cfg).summary
-        };
-        let (right, harmonic) = (read(bph), read(wrong));
-        let what = format!("{bph} read at {wrong}");
-        assert!(right.watch_heard, "{what}");
-        assert!(reads_better(&right, &harmonic), "{what}");
-        assert!(!reads_better(&harmonic, &right), "{what}");
+            let (right, harmonic) = (read(bph), read(wrong));
+            let what = format!("{bph} read at {wrong}, noise {seed:?}");
+            assert!(right.watch_heard, "{what}");
+            assert!(reads_better(&right, &harmonic), "{what}");
+            assert!(!reads_better(&harmonic, &right), "{what}");
+        }
+    }
+}
+
+/// `watch` with the synthetic stand noise drawn from `seed` over it.
+fn noise_over(watch: &Audio, seed: u64) -> Audio {
+    let rms = noise_rms(SynthConfig::default().snr_db) * SCALE;
+    let mut rng = Rng::new(seed);
+    let samples = watch
+        .samples
+        .iter()
+        .map(|&v| v + (rms * rng.normal()) as f32)
+        .collect();
+    Audio {
+        samples,
+        sample_rate: watch.sample_rate,
     }
 }
