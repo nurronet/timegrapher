@@ -34,6 +34,10 @@ pub const UNHEARD_BPH: u32 = 18_000;
 /// last, for a take that isn't a Power Reserve Test to have its run read
 /// as one ([`from_long_take`]).
 pub const LONG_TAKE_S: f64 = 6.0 * 3600.0;
+/// Seconds of sound between readings of a run's hours while it is still
+/// being heard: a running test's hours so far, and a long take's run so
+/// far while listening.
+pub const READ_AGAIN_S: f64 = 60.0;
 
 /// How a run ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -959,7 +959,7 @@ impl TimegrapherApp {
             .reserve
             .as_ref()
             .and_then(|t| t.results.as_ref())
-            .filter(|r| r.source == power_reserve::Source::Test)
+            .filter(|r| r.source.is_test())
         {
             files.push((power_reserve::FILE, r.to_json().into_bytes()));
         }

@@ -27,10 +27,6 @@ pub(super) type TrendKey = (Revision, u64);
 /// How often the Positions Test table is read again while listening.
 const FREE_TABLE_STEP_S: f64 = 1.0;
 
-/// How often a long take's run is read again while listening: once a
-/// minute, as a running Power Reserve Test reads its hours.
-pub(super) const LONG_RESERVE_STEP_S: f64 = 60.0;
-
 /// A reading under way in the background, and what it is read from.
 pub(super) struct Job<K, T> {
     pub(super) key: K,
@@ -518,7 +514,7 @@ impl TimegrapherApp {
         }
         let now = self.live.as_ref().map_or(0.0, |l| l.duration_s());
         if now < power_reserve::LONG_TAKE_S
-            || (0.0..LONG_RESERVE_STEP_S).contains(&(now - self.bg.reserve_live_s))
+            || (0.0..power_reserve::READ_AGAIN_S).contains(&(now - self.bg.reserve_live_s))
         {
             return;
         }

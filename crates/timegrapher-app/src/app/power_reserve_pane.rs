@@ -6,11 +6,9 @@ impl TimegrapherApp {
     /// Whether the pane holds a Power Reserve Test, under way or ended,
     /// not a long take's run read as one ([`power_reserve::Source`]).
     pub(super) fn reserve_is_test(&self) -> bool {
-        self.reserve.as_ref().is_some_and(|t| {
-            t.results
-                .as_ref()
-                .is_none_or(|r| r.source == power_reserve::Source::Test)
-        })
+        self.reserve
+            .as_ref()
+            .is_some_and(|t| t.results.as_ref().is_none_or(|r| r.source.is_test()))
     }
 
     /// Whether a Power Reserve Test is under way, not yet ended.
@@ -285,7 +283,7 @@ impl TimegrapherApp {
         }
         // The hours so far, about once a minute: the whole hours kept,
         // the newest measured again.
-        if now - self.reserve_hours_s < 60.0 {
+        if now - self.reserve_hours_s < power_reserve::READ_AGAIN_S {
             return;
         }
         self.reserve_hours_s = now;

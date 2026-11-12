@@ -1352,7 +1352,7 @@ fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
     // Not read again until a minute of take has come.
     app.take_reads_shown(&ctx);
     assert!(app.bg.reserve_live.is_none());
-    app.bg.reserve_live_s -= take_reads::LONG_RESERVE_STEP_S;
+    app.bg.reserve_live_s -= power_reserve::READ_AGAIN_S;
     app.take_reads_shown(&ctx);
     assert!(app.bg.reserve_live.is_some(), "read again a minute on");
     settle(&mut app);
