@@ -17,8 +17,8 @@ middle of its swing it passes through the lift angle `L`, centred on the
 rest point. The time `t` it takes is short when the swing is wide, since
 the balance is moving fastest there.
 
-Solving for `A` gives the formula Witschi's timegraphers and the open
-tg program use:
+Solving for `A` gives the formula Witschi's timegraphers (Witschi,
+_Testing Methods for Mechanical Watches_, 2025, p. 12) and the open tg program use:
 
 ```text
 A = L ÷ (2 × sin(π × t ÷ T))

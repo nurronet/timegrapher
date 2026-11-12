@@ -12,8 +12,9 @@ steadily the watch keeps time, beat by beat.
 - **Across the strip** is how early or late each beat came against a
   perfect clock beating exactly at the nominal beat rate, every 125 ms at
   28,800 bph. **Early** is up, **Late** down (with Direction set to
-  Down, early is to the right): the words Witschi's training course uses
-  (doc. 71.1010D35e, p. 6).
+  Down, early is to the right), as Witschi's Diagram view draws them,
+  where a rising line is a watch that gains (Witschi, _Testing Methods for Mechanical Watches_,
+  2025, p. 18).
 - **Tick** dots are blue and **Tock** dots orange (mark 13).
 - **The amplitude** is drawn over the dots as a violet line, on its own
   scale at the right (mark 14). The rate and the beat error can be drawn
