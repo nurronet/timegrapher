@@ -4,6 +4,7 @@ mod calibres_cmd;
 mod clock_cmd;
 mod corpus;
 mod doctor;
+mod excerpt_cmd;
 mod long;
 mod output;
 mod profile_cmd;
@@ -612,6 +613,26 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Write a stretch of a recording or take as one FLAC file, its
+    /// samples untouched: for a program that keeps the sound beside a
+    /// reading. Never opens the microphone; never writes over a file.
+    Excerpt {
+        /// The recording (a file, or a take folder of segments).
+        #[arg(required = true)]
+        recording: Vec<PathBuf>,
+        /// The FLAC file to write. It must not exist yet.
+        #[arg(long)]
+        out: PathBuf,
+        /// Start of the excerpt, seconds into the recording.
+        #[arg(long, default_value_t = 0.0)]
+        from: f64,
+        /// End of the excerpt, seconds into the recording (default: its end).
+        #[arg(long)]
+        to: Option<f64>,
+        /// Print what was written as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// The watches in the library the app keeps, with their details and
     /// takes, and the takes Quick Listen left in Unsorted. It only reads.
     Watches {
@@ -790,6 +811,19 @@ fn run(c: Command) -> Result<(), String> {
         }
         c @ (Command::Long { .. } | Command::Series { .. }) => long_command(c),
         c @ (Command::Session { .. } | Command::Report { .. }) => session_command(c),
+        Command::Excerpt {
+            recording,
+            out,
+            from,
+            to,
+            json,
+        } => excerpt_cmd::run(&excerpt_cmd::Options {
+            recording,
+            out,
+            from,
+            to,
+            json,
+        }),
         c @ (Command::Synth { .. }
         | Command::Calibres { .. }
         | Command::Watches { .. }

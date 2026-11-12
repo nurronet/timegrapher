@@ -11,7 +11,7 @@ The [watchmaker skill](../../skills/watchmaker/SKILL.md) builds on it.
 - Every command that reports something takes `--json` and then prints
   exactly one JSON document on stdout. Progress and warnings go to stderr.
 - Fields are only added. Every field path of `analyze`, `shape`,
-  `profile`, `long`, `series`, `session`, `calibres` and `watches` is
+  `profile`, `long`, `series`, `session`, `calibres`, `watches` and `excerpt` is
   kept in `crates/timegrapher-cli/tests/json_shapes/`, and a field
   renamed or removed fails the tests.
 - Exit codes: `0` success, `1` error (message on stderr), `3` from
@@ -496,6 +496,32 @@ watch, or a folder with no library in it, exits 1 with one line on
 stderr naming it. The text form of `list` gives each watch's calibre,
 number of takes, the UTC start of its newest take and its size; `show`
 gives the watch's details and each take on a line.
+
+## `excerpt`
+
+```sh
+timegrapher excerpt RECORDING --out FILE.flac [--from S] [--to S] [--json]
+```
+
+Writes a stretch of a recording as one FLAC file, its samples untouched,
+for a program that keeps the sound beside a reading (a shop's records,
+say). RECORDING is a sound file or a take folder, whose segments are read
+one after another as `session` reads them. `--from` and `--to` are seconds
+from the start of the recording, as a session reading's
+`measurement.start_s` and `end_s` give them, so the stretch a test read
+is `--from` its first reading's `start_s` `--to` its last one's `end_s`.
+`--from` defaults to 0 and `--to` to the end; a `--to` past the end stops
+at the end. The file is decoded again and checked sample for sample before
+it is written (core's `excerpt`), and it is never written over: a FILE
+already there exits 1 and is left as it was. A take kept as its analysis
+alone has no sound to cut and exits 1. It never opens the microphone.
+
+`--json` prints `timegrapher.excerpt/1`: `out` (FILE as given), `from_s`
+and `to_s` (the stretch cut), `duration_s`, `sample_rate`, `channels`,
+`bits_per_sample`, `bytes` (the file's size) and `sha256` (its SHA-256,
+lowercase hex). `input.files` lists the sound files read and
+`input.settings` the `from_s` and `to_s` asked for (`to_s` null when not
+given).
 
 ## Building without sound input
 
