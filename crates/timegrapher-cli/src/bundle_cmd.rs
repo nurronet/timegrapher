@@ -15,7 +15,8 @@ use std::process::Command;
 use std::time::SystemTime;
 use timegrapher_core::library::fixed_text;
 use timegrapher_core::redact::{os_version, recent_files, Redactor};
-use timegrapher_core::{clockstore, excerpt, recorder};
+use timegrapher_core::stream::StreamConfig;
+use timegrapher_core::{analysis_take, clockstore, excerpt, recorder};
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -31,6 +32,7 @@ pub struct Options {
     pub at: f64,
     pub span: f64,
     pub no_audio: bool,
+    pub no_analysis: bool,
     pub kind: Kind,
     pub note: Option<String>,
     pub bph: Option<u32>,
@@ -123,7 +125,19 @@ pub fn run(o: &Options) -> Result<(), String> {
     std::fs::create_dir_all(work.join("audio")).map_err(|e| e.to_string())?;
     let result = (|| -> Result<Value, String> {
         let mut recording = Value::Null;
-        if !o.recording.is_empty() {
+        if let Some(take) = analysis_only(o) {
+            // No sound to cut: the take's analysis is all there is of it.
+            let name = name_of(take);
+            parts
+                .left_out
+                .push("the sound: the take was kept as its analysis alone".into());
+            whole_into(o, true, take, &name, &mut red, &mut parts)?;
+            recording = json!({
+                "name": red.apply(&name),
+                "files": 0,
+                "excerpt": null,
+            });
+        } else if !o.recording.is_empty() {
             let files = crate::long::expand_dirs(&o.recording)?;
             let first = files.first().ok_or("no recording found")?;
             let folder = o.recording.len() == 1 && o.recording[0].is_dir();
@@ -138,6 +152,11 @@ pub fn run(o: &Options) -> Result<(), String> {
             });
         }
         env_into(&mut red, &mut parts);
+        // Last, so it knows how much room the rest leaves under GitHub's
+        // limit.
+        if !o.recording.is_empty() {
+            analysis_into(o, &mut red, &mut parts);
+        }
         Ok(recording)
     })();
     let _ = std::fs::remove_dir_all(&work);
@@ -292,6 +311,80 @@ fn whole_into(
     Ok(())
 }
 
+/// The take folder given, when it was kept as its analysis alone.
+fn analysis_only(o: &Options) -> Option<&Path> {
+    match o.recording.as_slice() {
+        [take] if analysis_take::is_analysis_only(take) => Some(take),
+        _ => None,
+    }
+}
+
+/// The take's analysis (#400), as Keep Analysis Only keeps it, whole when
+/// the report stays under GitHub's limit with it, else without the Tick
+/// Tock profiles ([`analysis_take::report_analysis`]): an analysis-only
+/// take's own, else read from the whole recording, which reads it once
+/// more.
+fn analysis_into(o: &Options, red: &mut Redactor, parts: &mut Parts) {
+    if o.no_analysis {
+        parts
+            .left_out
+            .push("the take's analysis (--no-analysis)".into());
+        return;
+    }
+    match analysis_of(o, red, &parts.entries) {
+        Ok(got) => {
+            parts.entries.extend(got.entries);
+            parts.left_out.extend(got.left_out);
+        }
+        // As the app's report does: the rest of the report still helps.
+        Err(e) => parts
+            .left_out
+            .push(analysis_take::report_analysis_failed(&e)),
+    }
+}
+
+/// The take's analysis for the report, beside its `other` files.
+fn analysis_of(
+    o: &Options,
+    red: &mut Redactor,
+    other: &[(String, Vec<u8>)],
+) -> Result<analysis_take::ReportAnalysis, String> {
+    Ok(if let Some(take) = analysis_only(o) {
+        let kept = analysis_take::read(take).map_err(|e| format!("{}: {e}", take.display()))?;
+        analysis_take::report_analysis(
+            analysis_take::ReportFrom::Kept(Box::new(kept)),
+            other,
+            |t| red.apply(t),
+        )?
+    } else {
+        let mut cfg = StreamConfig::default();
+        cfg.analysis.bph = o.bph;
+        eprintln!("reading the whole recording's beats for its analysis");
+        let read = crate::long::read(
+            &o.recording,
+            crate::long::ClockArgs {
+                log: None,
+                device: None,
+                card_ppm: None,
+            },
+            &cfg,
+            o.lift,
+            crate::long::Train {
+                calibre: None,
+                escape_teeth: None,
+            },
+        )?;
+        let paths: Vec<&Path> = read.files.iter().map(PathBuf::as_path).collect();
+        let from = analysis_take::ReportFrom::Sound {
+            log: Box::new(read.log),
+            files: &paths,
+            cfg: &read.cfg,
+            software: output::software(),
+        };
+        analysis_take::report_analysis(from, other, |t| red.apply(t))?
+    })
+}
+
 /// The clock store and the recent logs and crash reports.
 fn env_into(red: &mut Redactor, parts: &mut Parts) {
     if let Some(p) = clockstore::path() {
@@ -372,7 +465,7 @@ fn write_report(
         println!(
             "Size       {} MB{}",
             fixed_text(bytes as f64 / 1e6, 1),
-            if bytes > 25_000_000 {
+            if bytes > analysis_take::ATTACHMENT_LIMIT_BYTES {
                 " (over GitHub's 25 MB limit for attachments: shorten --span)"
             } else {
                 ""
@@ -383,7 +476,7 @@ fn write_report(
         }
         println!("Open it to see everything it holds; nothing is sent anywhere.");
     }
-    if bytes > 25_000_000 {
+    if bytes > analysis_take::ATTACHMENT_LIMIT_BYTES {
         eprintln!("warning: the report is over 25 MB, GitHub's limit for attachments");
     }
     Ok(())

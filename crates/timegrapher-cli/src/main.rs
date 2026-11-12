@@ -579,6 +579,10 @@ enum Command {
         /// Leave the audio out.
         #[arg(long)]
         no_audio: bool,
+        /// Leave the take's analysis (its beats and amplitude windows) out,
+        /// which saves reading the whole recording once more.
+        #[arg(long)]
+        no_analysis: bool,
         /// What the report is about (default: reading with a recording, bug
         /// without).
         #[arg(long, value_enum)]
@@ -604,7 +608,7 @@ enum Command {
         cc0: bool,
         /// Run the commands of this bundle (zip or unpacked folder) with
         /// this build and show what moved.
-        #[arg(long, conflicts_with_all = ["recording", "no_audio", "note", "out", "cc0", "listened_back"])]
+        #[arg(long, conflicts_with_all = ["recording", "no_audio", "no_analysis", "note", "out", "cc0", "listened_back"])]
         replay: Option<PathBuf>,
         /// Print the manifest (or the replay) as JSON.
         #[arg(long)]
@@ -1067,6 +1071,7 @@ fn session_command(c: Command) -> Result<(), String> {
             at,
             span,
             no_audio,
+            no_analysis,
             kind,
             note,
             bph,
@@ -1089,6 +1094,7 @@ fn session_command(c: Command) -> Result<(), String> {
                     at,
                     span,
                     no_audio,
+                    no_analysis,
                     kind,
                     note,
                     bph,
