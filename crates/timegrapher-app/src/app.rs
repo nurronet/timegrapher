@@ -2467,8 +2467,7 @@ impl TimegrapherApp {
             watch_list_shows,
             after_save_command,
         } = s;
-        self.watch_list_shows = watch_list_shows;
-        self.after_save_command = after_save_command;
+        (self.watch_list_shows, self.after_save_command) = (watch_list_shows, after_save_command);
         self.settings_last = Tab::from_key(&settings_section);
         self.listen_at_open = listen_at_open;
         (self.mic_set_up, self.setup_declined) = (mic_set_up, setup_declined);
@@ -2476,10 +2475,8 @@ impl TimegrapherApp {
         // A layout from before the panes moved starts afresh.
         let panes = panes.filter(|_| layout >= LAYOUT);
         self.library_dir = library;
-        self.check_at_start = check_updates;
-        self.keep_awake = keep_awake;
-        self.show_readings = show_readings;
-        self.readings_pinned = readings_pinned;
+        (self.check_at_start, self.keep_awake) = (check_updates, keep_awake);
+        (self.show_readings, self.readings_pinned) = (show_readings, readings_pinned);
         // One Average Over for every pane; a pane's own time, saved by an
         // older app, is read and left out.
         if AVERAGES.contains(&average_s) {
