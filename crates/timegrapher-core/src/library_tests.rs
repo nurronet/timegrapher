@@ -633,6 +633,15 @@ fn a_take_kept_as_analysis_only_reads_as_such() {
     fs::create_dir(t.join("analysis")).unwrap();
     lib.scan();
     assert!(!lib.watches[0].takes[0].incomplete);
+    // Its length, with no session.json to give it, is the analysis's.
+    let _ = fs::remove_file(t.join("session.json"));
+    fs::write(
+        t.join("analysis").join("analysis.json"),
+        r#"{"duration_s": 3600.0}"#,
+    )
+    .unwrap();
+    lib.scan();
+    assert_eq!(lib.watches[0].takes[0].duration_s, Some(3600.0));
     let _ = fs::remove_dir_all(&root);
 }
 
