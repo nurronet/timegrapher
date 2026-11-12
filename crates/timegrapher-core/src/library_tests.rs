@@ -1378,3 +1378,34 @@ fn only_a_kept_take_beside_it_replaces_a_take() {
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_dir_all(&elsewhere);
 }
+
+/// Two programs adding a take of one name to one watch at once (the app,
+/// and the command line adding while the app is open) each put theirs
+/// together in a folder of its own, and the second in gets the next free
+/// name, so neither clears or overwrites the other's (Vernon on #1487).
+#[test]
+fn two_adds_of_one_name_never_meet() {
+    let takes = std::env::temp_dir().join(format!("tg-two-adds-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&takes);
+    fs::create_dir_all(&takes).unwrap();
+    let to = unused_dir(&takes, "2026-11-12 10.00 Dial Up");
+    let (a, b) = (staging(&takes, &to), staging(&takes, &to));
+    assert_ne!(a, b);
+    for (s, who) in [(&a, "app"), (&b, "cli")] {
+        fs::create_dir_all(s).unwrap();
+        fs::write(s.join("session.toml"), who).unwrap();
+    }
+    let first = move_in(&a, &takes, "2026-11-12 10.00 Dial Up", to.clone()).unwrap();
+    let second = move_in(&b, &takes, "2026-11-12 10.00 Dial Up", to.clone()).unwrap();
+    assert_eq!(first, to);
+    assert_eq!(second, takes.join("2026-11-12 10.00 Dial Up 2"));
+    assert_eq!(
+        fs::read_to_string(first.join("session.toml")).unwrap(),
+        "app"
+    );
+    assert_eq!(
+        fs::read_to_string(second.join("session.toml")).unwrap(),
+        "cli"
+    );
+    let _ = fs::remove_dir_all(&takes);
+}

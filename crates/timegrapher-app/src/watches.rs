@@ -1122,19 +1122,6 @@ pub fn takes_buttons(
     act
 }
 
-/// Why Keep Analysis Only can't remove a take's sound, from its session
-/// file `m` alone: one source for the menu, which offers it only when it
-/// can (#1279), and for the removal itself.
-pub fn sound_kept_by_name(m: &timegrapher_core::session::Manifest) -> Option<String> {
-    use timegrapher_core::take::MANIFEST;
-    (m.recordings.is_empty() || m.recordings.iter().any(|r| r.file != ".")).then(|| {
-        format!(
-            "its {MANIFEST} lists each sound file by name, and only takes whose {MANIFEST} \
-             names the whole folder, as the app writes it, can have their sound removed"
-        )
-    })
-}
-
 /// Why the take `t` in `dir` isn't offered Keep Analysis Only, or none
 /// when it is: `changes` when the watches can be changed and this take's
 /// sound isn't being removed, `keeping` while another's is, and `why` the
@@ -1166,7 +1153,8 @@ fn keep_refused(
 fn take_kept_by_name(dir: &Path) -> Option<String> {
     let text = std::fs::read_to_string(dir.join(timegrapher_core::take::MANIFEST)).ok()?;
     let m = toml::from_str(&text).ok()?;
-    sound_kept_by_name(&m).map(|why| format!("The sound can't be removed: {why}."))
+    timegrapher_core::analysis_take::sound_kept_by_name(&m)
+        .map(|why| format!("The sound can't be removed: {why}."))
 }
 
 /// A take's menu, for its right click and the Takes row's "…".

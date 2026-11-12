@@ -338,7 +338,7 @@ anything lower, read back as 0). Stretches with no beats are left out.
 ## What each reading is
 
 After `settle_s` (default 20 s: the "20 s stabilisation time" of Witschi's
-*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, about p. 34), to the end
+*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, p. 33), to the end
 of the recording or for `measure_s`. A `settle_s` given (on the entry, the
 session file or `--settle`) is kept as it is: an entry it leaves nothing
 of is left out with a note naming it, and the rest are read. The 20 s

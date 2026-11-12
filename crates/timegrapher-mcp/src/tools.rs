@@ -571,7 +571,9 @@ pub const TOOLS: &[ToolSpec] = &[
         title: "Make a Report Bundle",
         description: "Make a zip the person can attach to a GitHub issue when a reading \
             looks wrong or something failed: an excerpt of the recording, what was \
-            measured, the system and logs, with home folder, user and host names removed. \
+            measured, the take's analysis (its beats and amplitude windows, read from the \
+            whole recording, so a long take takes a while), the system and logs, with home \
+            folder, user and host names removed. \
             Nothing is uploaded; the person attaches it themselves. Only the person can \
             say they listened to the excerpt or offer it to the public test corpus, so \
             this tool never does either.",
@@ -582,7 +584,8 @@ pub const TOOLS: &[ToolSpec] = &[
                 Kind::Path,
                 Arg::Positional,
                 false,
-                "Full path of the recording the report is about, if any.",
+                "Full path of the recording the report is about, if any: a sound file, or a take \
+                 folder, including one kept as its analysis alone (which has no excerpt).",
             ),
             p(
                 "at_s",

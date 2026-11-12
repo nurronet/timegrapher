@@ -20,6 +20,7 @@ watches[].archived
 watches[].bph
 watches[].bytes
 watches[].calibre
+watches[].id
 watches[].lift_deg
 watches[].name
 watches[].newest_started_utc

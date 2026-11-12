@@ -381,6 +381,8 @@ fn watches_keep_their_fields() {
             "result":{"rate_s_per_day":6.0,"amplitude_deg":275.0,"beat_error_unlock_ms":0.4}}"#,
     )
     .unwrap();
+    // Let go, as the app does when it closes, so a change can be made.
+    drop(lib);
     let config = dir.join("config");
     let r = root.to_str().unwrap();
     check(
@@ -392,6 +394,13 @@ fn watches_keep_their_fields() {
         &json(
             &config,
             &["watches", "show", "Pepsi", "--library", r, "--json"],
+        ),
+    );
+    check(
+        "watches_change",
+        &json(
+            &config,
+            &["watches", "new", "Daytona", "--library", r, "--json"],
         ),
     );
     let _ = std::fs::remove_dir_all(&dir);
