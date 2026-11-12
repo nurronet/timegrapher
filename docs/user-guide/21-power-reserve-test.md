@@ -86,10 +86,12 @@ charts start from the first whole hour.
 
 ## From a Long Take
 
-A take opened whole that isn't a Power Reserve Test, in one position,
-with six hours or more from its first beat to its last, fills the pane
-the same way, as in the picture. Its wind at the start isn't known, so
-its run is never called a power reserve: the line reads "Ran 59 h 46 min
+A take that isn't a Power Reserve Test, in one position, with six hours
+or more from its first beat to its last, fills the pane the same way, as
+in the picture: one opened whole, or a Quick Listen still listening,
+whose run so far is read again once a minute. Its wind at the start
+isn't known, so its run is never called a power reserve: the line reads
+"Ran 59 h 46 min
 from the take's start" ("Ran at least …" when the watch was still
 running at the take's end) and "Read from a long take, not a Power
 Reserve Test". Nothing is written into the take.

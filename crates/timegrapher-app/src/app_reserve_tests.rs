@@ -1,7 +1,7 @@
 //! The Power Reserve test, headless: where it runs, what it keeps and
 //! how its take is filed.
 
-use super::tests::painted_text;
+use super::tests::{painted_text, queued_capture};
 use super::*;
 use timegrapher_core::synth::{generate, SynthConfig};
 
@@ -1291,4 +1291,80 @@ fn a_run_on_an_automatic_rate_keeps_its_hours_at_the_stop() {
     assert_eq!(t.bph, Some(21_600));
     let r = t.results.as_ref().expect("its results");
     assert!(!r.hours.is_empty(), "its hour table");
+}
+
+/// While listening, a long take that isn't a test fills the Power Reserve
+/// pane as an opened one does, read in the background and again a
+/// minute of take later, never written into the take or naming it as a
+/// test; a short one leaves the pane as before a test. Where listening
+/// stops, it is read once more.
+#[test]
+fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
+    let base = std::env::temp_dir().join(format!("tg-live-reserve-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let settle = |app: &mut TimegrapherApp| {
+        let start = Instant::now();
+        app.take_reads_shown(&ctx);
+        while app.bg.reserve_live.is_some() {
+            assert!(start.elapsed() < Duration::from_secs(60), "never came");
+            std::thread::sleep(Duration::from_millis(5));
+            app.take_reads_shown(&ctx);
+        }
+    };
+
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.land_log(
+        long_log(power_reserve::LONG_TAKE_S - 600.0),
+        "short".into(),
+        vec![],
+        vec![],
+    );
+    let _tx = queued_capture(&mut app, &base);
+    assert!(app.running());
+    settle(&mut app);
+    assert!(app.reserve.is_none(), "a short take leaves the pane");
+
+    let run = power_reserve::LONG_TAKE_S + 1800.0;
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    app.land_log(long_log(run), "long".into(), vec![], vec![]);
+    let _tx = queued_capture(&mut app, &base);
+    settle(&mut app);
+    assert!(!app.reserve_running());
+    assert!(!app.reserve_is_test());
+    let r = app
+        .reserve
+        .as_ref()
+        .and_then(|t| t.results.as_ref())
+        .unwrap();
+    assert_eq!(r.source, power_reserve::Source::LongTake);
+    assert_eq!(r.hours.len(), 7);
+    let mut here = TimegrapherApp::with_devices(Vec::new(), None);
+    here.show_log(long_log(run), "long".into(), vec![], vec![]);
+    let text = |a: &TimegrapherApp| {
+        let r = a.reserve.as_ref().and_then(|t| t.results.as_ref()).unwrap();
+        reserve::results_text(r, "", ',')
+    };
+    assert_eq!(text(&app), text(&here), "as the opened take reads it");
+    // Nothing of it goes into the take.
+    assert!(app.results_files().unwrap().is_empty());
+    // Not read again until a minute of take has come.
+    app.take_reads_shown(&ctx);
+    assert!(app.bg.reserve_live.is_none());
+    app.bg.reserve_live_s -= take_reads::LONG_RESERVE_STEP_S;
+    app.take_reads_shown(&ctx);
+    assert!(app.bg.reserve_live.is_some(), "read again a minute on");
+    settle(&mut app);
+    // Stopped: read once more, and kept.
+    app.capture = None;
+    assert!(app.bg.reserve.is_some());
+    let start = Instant::now();
+    while app.bg.reserve.is_some() {
+        assert!(start.elapsed() < Duration::from_secs(60), "never came");
+        std::thread::sleep(Duration::from_millis(5));
+        app.take_reads_shown(&ctx);
+    }
+    assert_eq!(text(&app), text(&here));
+    let _ = std::fs::remove_dir_all(&base);
 }
