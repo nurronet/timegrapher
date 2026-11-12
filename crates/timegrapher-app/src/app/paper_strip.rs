@@ -804,6 +804,38 @@ fn numbered_candidates(
 mod tests {
     use super::*;
 
+    /// Readings every half second from `a` to `b`.
+    fn every_half(a: f64, b: f64) -> Vec<TrendPoint> {
+        let n = ((b - a) / 0.5).round() as usize;
+        (0..=n)
+            .map(|i| TrendPoint {
+                t: a + 0.5 * i as f64,
+                rate_s_per_day: Some(1.0),
+                amplitude_deg: None,
+                amplitude_even_deg: None,
+                amplitude_odd_deg: None,
+                beat_error_unlock_ms: None,
+                beat_error_ms: None,
+                rate_error_s_per_day: None,
+                amplitude_error_deg: None,
+                beat_error_unlock_error_ms: None,
+                heard: true,
+            })
+            .collect()
+    }
+
+    /// A stretch with none at the window's start or end, inside the take,
+    /// is a hole; the window reaching past the take's own first or last
+    /// reading is not.
+    #[test]
+    fn a_hole_at_either_end_counts_only_inside_the_take() {
+        let kept = every_half(30.0, 50.0);
+        assert_eq!(widest_hole(&kept, 20.0, 50.0, (0.0, 60.0)), 10.0);
+        assert_eq!(widest_hole(&kept, 30.0, 60.0, (0.0, 60.0)), 10.0);
+        assert_eq!(widest_hole(&kept, 20.0, 60.0, (30.0, 50.0)), 0.5);
+        assert_eq!(widest_hole(&[], 20.0, 60.0, (30.0, 50.0)), f64::INFINITY);
+    }
+
     #[test]
     fn strip_beat_error_overlays_keep_sources_apart_and_preserve_holes() {
         let trend: Vec<_> = (0..4)

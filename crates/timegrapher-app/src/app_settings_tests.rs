@@ -1015,10 +1015,26 @@ fn a_run_read_again_while_listening_leaves_no_blank_on_the_strip() {
         drawn(20.0, 48.0)
     );
     assert!(drawn(50.0, 80.0) >= 40);
-    // The run read live throughout serves as it is.
+    // The run read live throughout serves as it is, the window reaching
+    // past the take's ends too.
     let mut app = synthetic(80.0, 20.0);
     let _ = app.strip_trend(15.0, 80.0, app.average_s);
     assert!(app.strip_points.is_none());
+    let _ = app.strip_trend(-20.0, 100.0, app.average_s);
+    assert!(app.strip_points.is_none());
+    // At half-second steps the line is a second: a hole just under it
+    // serves, one just over is worked out afresh.
+    let live = app.trend.clone();
+    for (hole, fresh) in [(0.95, false), (1.05, true)] {
+        let mut trend = live.clone();
+        let i = trend.iter().position(|p| p.t >= 60.0).unwrap();
+        trend.remove(i);
+        trend[i].t = trend[i - 1].t + hole;
+        app.trend = trend;
+        app.strip_points = None;
+        let _ = app.strip_trend(15.0, 80.0, app.average_s);
+        assert_eq!(app.strip_points.is_some(), fresh, "a hole of {hole} s");
+    }
 }
 
 /// Recent is the six calibres the app was last set to, by a menu pick,
