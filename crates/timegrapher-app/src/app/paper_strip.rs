@@ -424,7 +424,14 @@ impl TimegrapherApp {
         let Some(live) = &self.live else {
             return (kept, spacing.min(step));
         };
-        if spacing <= 2.0 * step {
+        // The kept run serves only with no hole in it: one worked out
+        // again while listening is sparse up to then and dense since, and
+        // its average spacing hides the stretch with none.
+        let around = (
+            self.trend.first().map_or(from, |p| p.t),
+            self.trend.last().map_or(end, |p| p.t),
+        );
+        if spacing <= 2.0 * step && widest_hole(&kept, from, end, around) <= 2.0 * step {
             return (kept, spacing);
         }
         let key: StripKey = (
@@ -680,6 +687,21 @@ fn strip_note(guessing: bool, looking_back: bool, end: f64) -> Option<String> {
     } else {
         looking_back.then(|| format!("at {}, double-click for the newest beats", length_text(end)))
     }
+}
+
+/// The longest stretch of the window from `from` to `end` that `kept`
+/// (sorted by time) leaves without a reading, counting the window's ends
+/// only within the run they were taken from, `run` (its first and last
+/// times): before a take's first reading there is none to miss.
+fn widest_hole(kept: &[TrendPoint], from: f64, end: f64, run: (f64, f64)) -> f64 {
+    let (Some(first), Some(last)) = (kept.first(), kept.last()) else {
+        return f64::INFINITY;
+    };
+    let lead = first.t - from.max(run.0);
+    let tail = end.min(run.1) - last.t;
+    kept.windows(2)
+        .map(|w| w[1].t - w[0].t)
+        .fold(lead.max(tail), f64::max)
 }
 
 /// The readings drawn over the strip, in the toolbar's order: Rate,
