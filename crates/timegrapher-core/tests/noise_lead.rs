@@ -133,7 +133,7 @@ fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
             // onto the watch's beats. The rate says the noise is out.
             assert!(
                 (noise_s - 5.0..noise_s + 10.0).contains(&lead),
-                "{what}: lead {lead}"
+                "{what}, set {set:?}: lead {lead}"
             );
             let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
             assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
@@ -273,4 +273,46 @@ fn an_entrys_lead_is_counted_from_its_own_start() {
     assert_eq!(read.start_s, 20.0);
     let lead = lead_left_out(&read.measurement.caveats).expect("the lead named");
     assert!((lead - 40.0).abs() < 1.0, "lead {lead}");
+}
+
+/// A long lead of stand noise before a slow watch, where the noise is as
+/// loud as half the watch's ticks, does not set the rate (#1423): with
+/// no rate set the rate is guessed again as session reads the file, and
+/// the recording reads as it does with the rate set; with the rate set,
+/// the noise is not heard as another rate. Before, `analyze` guessed from
+/// the noise's first 10 s (43,200 or 28,800 bph) and found no watch.
+/// At 14,400 after 120 s the lead runs to 141 s, the start of the first
+/// stream chunk that opens on the watch: the watch's first 21 s, in a
+/// chunk that opens on noise, track too loosely to be kept. Its rate is
+/// still the watch's.
+#[test]
+fn a_long_noise_lead_does_not_set_the_rate() {
+    for (bph, noise_s, seed, lead_to) in [
+        (14_400, 120.0, 5, 141.5),
+        (18_000, 120.0, 5, 130.0),
+        (19_800, 120.0, 5, 130.0),
+        (14_400, 90.0, 33, 100.0),
+    ] {
+        let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
+        let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
+        let want = analyze(&alone, &AnalysisConfig::default()).summary;
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}, set {set:?}");
+            assert!(got.watch_heard, "{what}, set {set:?}: {:?}", got.caveats);
+            assert_eq!(got.bph_heard, None, "{what}, set {set:?}");
+            assert_eq!(got.bph_set, set, "{what}");
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            assert!(
+                (noise_s - 5.0..lead_to).contains(&lead),
+                "{what}, set {set:?}: lead {lead}"
+            );
+        }
+    }
 }

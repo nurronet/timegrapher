@@ -237,9 +237,46 @@ pub struct Analysis {
 pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let fs = audio.sample_rate as f64;
     let env = envelope(&audio.samples, fs, &cfg.envelope);
-    let guessed = beats::guess_bph(&env, fs);
-    let bph = cfg.bph.unwrap_or(guessed);
-    let (log, lead_s) = read_take(audio, cfg, bph);
+    let first_guess = beats::guess_bph(&env, fs);
+    let bph = cfg.bph.unwrap_or(first_guess);
+    let (log, lead_s) = read_take(audio, cfg, Some(bph));
+    // With a rate set, the rate heard is guessed where the watch starts,
+    // after any lead of noise, which is not taken for a rate (#1423).
+    let guessed = match (cfg.bph, lead_s) {
+        (Some(_), Some(t)) => beats::guess_bph(&env[((t * fs) as usize).min(env.len())..], fs),
+        _ => first_guess,
+    };
+    let first = analyze_read(audio, cfg, &env, (log, lead_s), (bph, guessed));
+    if cfg.bph.is_some() || first.summary.watch_heard {
+        return first;
+    }
+    // No watch at the rate guessed from the first 10 s of sound, which can
+    // be a lead of stand noise before a slow watch (#1423): the rate is
+    // guessed again as session reads a file, afresh at each chunk's sound
+    // until a watch is heard, and the recording read at that rate.
+    let settled = read_take(audio, cfg, None).0.bph;
+    if settled == bph {
+        return first;
+    }
+    let again = read_take(audio, cfg, Some(settled));
+    let again = analyze_read(audio, cfg, &env, again, (settled, settled));
+    if again.summary.watch_heard {
+        again
+    } else {
+        first
+    }
+}
+
+/// [`analyze`] of a recording read at `bph` (`log`, with any lead of
+/// noise left out up to `lead_s`), `guessed` the rate it sounds like.
+fn analyze_read(
+    audio: &Audio,
+    cfg: &AnalysisConfig,
+    env: &[f32],
+    (log, lead_s): (crate::stream::BeatLog, Option<f64>),
+    (bph, guessed): (u32, u32),
+) -> Analysis {
+    let fs = audio.sample_rate as f64;
     let from_s = lead_s.unwrap_or(0.0);
     // Under 10 s the beats' averaged sound says whether a watch is heard.
     let beat_sound = log.beat_sound(&log.beats, &cfg.amplitude);
@@ -284,7 +321,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let caveats = assessment.caveats;
     let shape = watch_heard.then(|| {
         let beat_s = crate::timing::beat_period_s(fits.overall.as_ref(), bph);
-        let r = crate::shape::analyze(&env, fs, &beats, beat_s, &Default::default());
+        let r = crate::shape::analyze(env, fs, &beats, beat_s, &Default::default());
         crate::shape::Measures::of(&r, &fits.clear)
     });
     let mut summary = Summary {
@@ -515,7 +552,7 @@ fn beats_span(beats: &[Beat]) -> f64 {
 fn read_take(
     audio: &Audio,
     cfg: &AnalysisConfig,
-    bph: u32,
+    bph: Option<u32>,
 ) -> (crate::stream::BeatLog, Option<f64>) {
     // The beats and the amplitude windows come from the chunked stream,
     // the one beat pipeline every reading of a recording rests on (session,
@@ -524,10 +561,7 @@ fn read_take(
         &audio.samples,
         audio.sample_rate,
         &crate::stream::StreamConfig {
-            analysis: AnalysisConfig {
-                bph: Some(bph),
-                ..cfg.clone()
-            },
+            analysis: AnalysisConfig { bph, ..cfg.clone() },
             ..Default::default()
         },
     );
