@@ -51,12 +51,6 @@
      "constants": 1,
      "defaults": 0
     },
-    "crates/timegrapher-app/src/app/power_reserve_pane.rs": {
-     "bounds": 0,
-     "comparisons": 1,
-     "constants": 0,
-     "defaults": 0
-    },
     "crates/timegrapher-app/src/app/readouts.rs": {
      "bounds": 6,
      "comparisons": 4,
@@ -240,7 +234,7 @@
    },
    "total": {
     "bounds": 103,
-    "comparisons": 108,
+    "comparisons": 107,
     "constants": 59,
     "defaults": 2
    }
@@ -357,6 +351,6 @@
   }
  },
  "long_files": {
-  "crates/timegrapher-app/src/app.rs": 4624
+  "crates/timegrapher-app/src/app.rs": 4622
  }
 }
