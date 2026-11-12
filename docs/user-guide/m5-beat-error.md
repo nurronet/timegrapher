@@ -33,7 +33,12 @@ There are two figures, timed from two sounds.
   its drop, so this is the beat error timed from the drop.
 
 **Which is shown:** the unlock's, where the unlock was found; else the
-drop's, with the chip **Beat Error From the Drop**.
+drop's, with the chip **Beat Error From the Drop**. The drop's is shown
+too when the unlock's windows disagree in sign more than their spread
+allows: fewer of them fall on the median's side than the median and
+their spread predict. A faint unlock found on noise in part of the
+windows reads so, a cluster on each side of zero. A beat error near
+zero predicts little agreement, so it is not judged by this.
 
 **Which side is Tick:** the sound can't tell which pallet stone is which.
 Each take starts positive: the side that comes late over the first few
