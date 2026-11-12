@@ -283,7 +283,7 @@ What each figure needs before it is shown today, and what happens when data is m
 
 **Lives in:** `confidence.rs:129`. Rate uses every other 10 s window today (`confidence.rs:144`); decided (R1, #636), the ± is read from the tiling of 2 s cells. Live scales it to Average Over (`measure.rs:415`).
 
-- **Enough values (12 Nov):** the scatter and ρ behind a ± are read from at least 30 values (`confidence::MIN_NOISE_VALUES`). A reading with fewer, such as a live 10 s average of five 2 s windows, takes them from the latest 30 values ending where it ends, in the same stretches rules, and its n_eff from its own values. With fewer than 30 in the take so far there is no ±. The figure itself is still read from the reading's own values.
+- **Enough values (decided 12 Nov, #1470; not yet built):** the scatter and ρ behind a ± are read from at least 30 values (to be `confidence::MIN_NOISE_VALUES`). A reading with fewer, such as a live 10 s average of five 2 s windows, takes them from the latest 30 values ending where it ends, in the same stretches rules, and its n_eff from its own values. With fewer than 30 in the take so far there is no ±. The figure itself is still read from the reading's own values.
 - **What it is:** an estimate of precision from the take itself, under an AR(1) noise model. It is not accuracy: lift angle and clock are caveats, not part of the ±.
 - **Coverage test:** a seeded test holds coverage between 55% and 85% at ρ 0, 0.5 and 0.9 (`standard_error_allows_for_correlated_readings`).
 - **Breach:** where the beat error turns over, the figure is a median of sizes, but its ± is taken from the signed values, so the turn widens the ±. Finding N1, #637.
@@ -309,7 +309,7 @@ What each figure needs before it is shown today, and what happens when data is m
 
 ## 11. Rounding and units
 
-**Rule (Peter, 12 Nov; #1470):** every figure in text is written to its place below and never finer, whatever its ± (decided over "one place finer" and "as the ± allows"). The ± measures repeatability only; the lift angle and the sound card's clock limit accuracy to about these places, so more decimals would claim a precision the reading of the watch doesn't have.
+**Rule (Peter, 12 Nov; decided, to be built in #1470):** every figure in text is written to its place below and never finer, whatever its ± (decided over "one place finer" and "as the ± allows"). The ± measures repeatability only; the lift angle and the sound card's clock limit accuracy to about these places, so more decimals would claim a precision the reading of the watch doesn't have.
 
 | Figure | Unit | Place | Sign |
 |---|---|---|---|
@@ -324,7 +324,8 @@ What each figure needs before it is shown today, and what happens when data is m
 - **The ±** is written at the figure's place, rounded up, and never below one unit of the place: a 0.3° ± on an amplitude reads "149° ± 1°", a 0.04 s/d ± on a rate "+11.4 ± 0.1 s/d". Rounding an uncertainty up is the safe direction. The exact ± and the values it came from go in the hover ("± 0.3° from 5 windows; shown to the nearest 1°").
 - **No ±:** a figure without one (too few values, section 9) is written alone at its place, with no "± —"; the hover says why.
 - **Cards:** the place is fixed, so the value's width never changes as its ± moves, and the figures are tabular (Hugh, 12 Nov).
-- **One formatter:** `figure_text` writes the value, its ± and the place for every surface (cards, tables, strip labels, the CLI, MCP and reports). Nothing else rounds a figure for text.
+- **One formatter (decided 12 Nov, #1470; not yet built):** one core formatter in `figure_text` will write the value, its ± and the place for every surface (cards, tables, strip labels, the CLI, MCP and reports), and nothing else will round a figure for text.
+- **Today the decimals are typed in each surface**: six `opt` helpers, three `signed` helpers, and the app and MCP each pick when a ± shows (app.rs:12389, 12495, 12545; MCP summary.rs:12), and `figure_text::figure_digits` lets decimals follow the ± up to 3. #1470 replaces this.
 - **Not rounded:** JSON is never rounded. CSV keeps full precision, as data. Charts and sparklines plot full precision; the rule is about text.
 - **Rate:** (P_nominal / P − 1) × 86,400, exact, with P the fitted beat period (`timing.rs:163`).
 - **Synthetic takes:** the generator steps each beat by P/(1 + r/86400) (`timing::period_s`, through `synth::period`), the period the timing fit reads r from, so a take made at +100 s/d reads +100 s/d (#816; finding N5).
