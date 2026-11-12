@@ -808,7 +808,12 @@ A take opened whole that isn't a Power Reserve Test, in one position, with
 six hours or more from its first beat heard to its last (core
 `power_reserve::from_long_take`), fills the pane the same way: the stop
 found as a test finds it, else "The take ended while the watch still
-ran", then the same charts and table. Its wind at the start is not known,
+ran", then the same charts and table. So does a take still listening,
+once it passes six hours in one position, as the Positions Test pane
+fills while listening: its run so far is read in the background once a
+minute of take, "Still listening, no stop found yet" in place of
+the take's end (core `Results::still_listening`), and once more where
+listening stops; a second position clears it. Its wind at the start is not known,
 so its run is never called a power reserve: the line reads "Ran 40 h 12
 min from the take's start" ("Ran at least…" when the take ended first),
 adding "Read from a long take, not a Power Reserve Test", and Save as
