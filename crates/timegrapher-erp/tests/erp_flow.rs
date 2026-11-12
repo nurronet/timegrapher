@@ -544,3 +544,33 @@ fn a_recording_over_the_limit_is_refused_before_it_is_sent() {
         .any(|(n, _, _)| n == "submit_recording"));
     let _ = std::fs::remove_dir_all(&b.dir);
 }
+
+/// `timegrapher session --json` of the public sample take in `guide-figures/data/quick-listen` (80 s of a
+/// dial-up reading from the public corpus), as the program wrote it, with only the file path made relative.
+const REAL_SESSION: &str = include_str!("fixtures/real_session_summary.json");
+
+#[test]
+fn a_real_session_summary_is_read_signed_and_attested_with_the_figures_the_erp_should_hold() {
+    let figures = timegrapher_erp::payload::read_summary(REAL_SESSION).unwrap();
+    assert!(figures.left_out.is_empty(), "{:?}", figures.left_out);
+    assert_eq!(figures.results.len(), 1);
+    let b = bench("real-summary");
+    let mut operator = Some(sign_in(&b));
+    let report = run(&b, &mut operator, true, &figures.results);
+    assert_eq!(statuses(&report), ["Attested"]);
+    let state = b.erp.state.lock().unwrap();
+    let sent = &state.results[0];
+    assert_eq!(sent["position"], "Dial Up");
+    let m = &sent["measurements"];
+    // each figure of the real reading, rounded to six decimals and sent as a float
+    assert_eq!(m["rate_s_per_day"], json!(0.448577));
+    assert_eq!(m["amplitude_deg"], json!(270.535044));
+    // the beat error is the size from the unlock figure (0.392342), not the drop's 0.335379
+    assert_eq!(m["beat_error_ms"], json!(0.392342));
+    assert_eq!(m["beat_frequency_bph"], json!(28800.0));
+    assert_eq!(m["lift_angle_deg"], json!(55.0));
+    // end_s 80 less start_s 20, with no masked_s in the JSON
+    assert_eq!(m["duration_seconds"], json!(60.0));
+    drop(state);
+    let _ = std::fs::remove_dir_all(&b.dir);
+}
