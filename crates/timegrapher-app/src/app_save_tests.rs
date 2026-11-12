@@ -976,3 +976,39 @@ fn the_question_before_throwing_work_away_says_what_is_lost() {
     app.session.recorder = None;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Settings > General > Run After Saving a Take runs once the save is
+/// written, with the take's folder; with no command nothing runs.
+#[cfg(not(windows))]
+#[test]
+fn the_command_set_runs_on_the_saved_take() {
+    let (mut app, base) = save_failure_fixture("after-save-command");
+    let out = base.join("ran.txt");
+    app.after_save_command = format!(
+        "printf '%s' \"$TIMEGRAPHER_TAKE\" > '{}'; true",
+        out.display()
+    );
+    app.save_into(&base.join("saved"));
+    assert!(!out.exists(), "nothing runs before the take is written");
+    app.wait_for_save();
+    let dest = app.session.saved_to().unwrap().to_path_buf();
+    let began = std::time::Instant::now();
+    while !out.exists() && began.elapsed() < std::time::Duration::from_secs(20) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // The command writes the file with its redirect before printf fills it.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        dest.display().to_string()
+    );
+    std::fs::remove_file(&out).unwrap();
+    app.after_save_command.clear();
+    append_save_test_second(&mut app, 2);
+    app.save_again();
+    app.wait_for_save();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(!out.exists(), "an empty command runs nothing");
+    app.session.discard_recording();
+    std::fs::remove_dir_all(base).unwrap();
+}
