@@ -261,3 +261,21 @@ fn the_folder_is_held_to_its_size_by_the_least_recently_used() {
     assert_eq!(left, ["mid", "new", "x.part"]);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// A window's culled sides' edges are kept in the copy and read back
+/// (#1333).
+#[test]
+fn a_copy_keeps_the_culled_sides_edges() {
+    let dir = folder("culled");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (mut log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    log.amplitude_windows[0].set_culled([Some([-21.5, 0.25]), None]);
+    log.amplitude_windows[2].set_culled([None, Some([-4.75, 0.5])]);
+    let (back, _) = decode(&encode(&log, peak)).expect("the copy reads");
+    for (b, w) in back.amplitude_windows.iter().zip(&log.amplitude_windows) {
+        assert_eq!(b.culled(), w.culled());
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

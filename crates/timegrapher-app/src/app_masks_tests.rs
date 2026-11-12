@@ -847,6 +847,7 @@ pub(super) fn long_log(hours: f64) -> BeatLog {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect(),
         clipped_beats: vec![],

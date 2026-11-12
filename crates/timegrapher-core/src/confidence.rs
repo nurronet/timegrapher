@@ -597,6 +597,7 @@ mod tests {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect();
         let kept: Vec<f64> = windows
@@ -625,6 +626,7 @@ mod tests {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect()
     }

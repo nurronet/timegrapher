@@ -173,6 +173,71 @@ const EARLIER_SOUND_MIN: f32 = 0.5;
 
 /// Lowest amplitude a window reads, degrees.
 pub const MIN_AMPLITUDE_DEG: f64 = 100.0;
+/// The highest amplitude a side is read as, degrees: above it the edges
+/// were marked on the wrong sounds.
+pub const MAX_AMPLITUDE_DEG: f64 = 380.0;
+
+/// One side's amplitude from the time from its unlock to its drop at
+/// `lift_deg`, or None outside [`MIN_AMPLITUDE_DEG`] to
+/// [`MAX_AMPLITUDE_DEG`]: the one rule, at a take's first read and at any
+/// later lift ([`at_lift`]), so the gate applies at the lift in use.
+pub fn side_deg(unlock_to_drop_s: f64, osc_period_s: f64, lift_deg: f64) -> Option<f64> {
+    let a = amplitude_deg(unlock_to_drop_s, osc_period_s, lift_deg);
+    (MIN_AMPLITUDE_DEG..=MAX_AMPLITUDE_DEG)
+        .contains(&a)
+        .then_some(a)
+}
+
+/// A side at a new lift: its amplitude, its kept edges, its culled edges.
+type SideAt = (Option<f64>, Option<[f64; 2]>, Option<[f64; 2]>);
+
+/// `w`, read at `from_lift`, as read at `to_lift`: each side whose edges
+/// were found is read again with [`side_deg`] and gated at the new lift,
+/// both ways, so a side the old lift culled can come back and one the
+/// new lift puts out of range goes (#1333). A side left out as an
+/// outlier ([`reject_side_outliers`]: edges kept, no amplitude) stays
+/// out. The unlock beat error follows the sides that pass the gate. A
+/// side with an amplitude but no edges kept (a made-up window) is scaled
+/// by the lifts' ratio and gated the same way.
+pub fn at_lift(w: &mut AmplitudeWindow, osc_period_s: f64, from_lift: f64, to_lift: f64) {
+    // Each side: (edges, kept before, outlier), then its new state.
+    let sides = [
+        (
+            w.even_unlock_ms.zip(w.even_drop_ms),
+            w.culled()[0],
+            w.even_deg,
+        ),
+        (w.odd_unlock_ms.zip(w.odd_drop_ms), w.culled()[1], w.odd_deg),
+    ];
+    let mut new: [SideAt; 2] = [(None, None, None); 2];
+    let mut changed = false;
+    for (k, (kept, culled, deg)) in sides.into_iter().enumerate() {
+        let outlier = kept.is_some() && deg.is_none();
+        let Some([u, d]) = kept.map(|(u, d)| [u, d]).or(culled) else {
+            let a = deg.map(|a| a * to_lift / from_lift);
+            new[k].0 = a.filter(|a| (MIN_AMPLITUDE_DEG..=MAX_AMPLITUDE_DEG).contains(a));
+            continue;
+        };
+        new[k] = match side_deg((d - u) / 1000.0, osc_period_s, to_lift) {
+            Some(a) => ((!outlier).then_some(a), Some([u, d]), None),
+            None => (None, None, Some([u, d])),
+        };
+        changed |= new[k].1.is_some() != kept.is_some();
+    }
+    let [(ed, ek, ec), (od, ok, oc)] = new;
+    w.even_deg = ed;
+    w.odd_deg = od;
+    (w.even_unlock_ms, w.even_drop_ms) = (ek.map(|e| e[0]), ek.map(|e| e[1]));
+    (w.odd_unlock_ms, w.odd_drop_ms) = (ok.map(|e| e[0]), ok.map(|e| e[1]));
+    w.set_culled([ec, oc]);
+    // As at the first read: the unlock beat error needs both sides' edges.
+    if changed {
+        w.beat_error_unlock_ms = match (w.beat_error_ms, ek, ok) {
+            (Some(e), Some(a), Some(b)) => Some(e + (a[0] - b[0])),
+            _ => None,
+        };
+    }
+}
 
 /// Seconds before the drop a template must start for sound 1 to be found
 /// at [`MIN_AMPLITUDE_DEG`] at this oscillation period and lift: the unlock,
@@ -202,7 +267,18 @@ pub struct AmplitudeWindow {
     pub odd_unlock_ms: Option<f64>,
     pub even_drop_ms: Option<f64>,
     pub odd_drop_ms: Option<f64>,
+    /// A side whose edges were found but whose amplitude fell outside
+    /// [`MIN_AMPLITUDE_DEG`] to [`MAX_AMPLITUDE_DEG`] at the lift it was
+    /// read with: its unlock and drop, ms from the beat time, kept so a
+    /// later lift can read it again ([`at_lift`], #1333). None for a side
+    /// kept or never found. Even side first. Boxed and None when neither
+    /// side was culled, so a long run's windows stay small. Not in the JSON.
+    #[serde(skip)]
+    pub culled_ms: Option<Box<Culled>>,
 }
+
+/// Each side's culled unlock and drop, ms from the beat time: even, odd.
+pub type Culled = [Option<[f64; 2]>; 2];
 
 impl AmplitudeWindow {
     /// The same window with Tick and Tock the other way round, for a
@@ -212,8 +288,21 @@ impl AmplitudeWindow {
         std::mem::swap(&mut self.even_deg, &mut self.odd_deg);
         std::mem::swap(&mut self.even_unlock_ms, &mut self.odd_unlock_ms);
         std::mem::swap(&mut self.even_drop_ms, &mut self.odd_drop_ms);
+        if let Some(c) = &mut self.culled_ms {
+            c.swap(0, 1);
+        }
         self.beat_error_ms = self.beat_error_ms.map(|v| -v);
         self.beat_error_unlock_ms = self.beat_error_unlock_ms.map(|v| -v);
+    }
+
+    /// Each side's culled edges (see [`AmplitudeWindow::culled_ms`]).
+    pub fn culled(&self) -> Culled {
+        self.culled_ms.as_deref().copied().unwrap_or_default()
+    }
+
+    /// Sets each side's culled edges, boxing them only if one is culled.
+    pub fn set_culled(&mut self, c: Culled) {
+        self.culled_ms = (c != [None, None]).then(|| Box::new(c));
     }
 
     pub fn mean(&self) -> Option<f64> {
@@ -306,7 +395,6 @@ pub fn windows_between(
     cfg: &AmplitudeConfig,
 ) -> Vec<AmplitudeWindow> {
     let mut out = Vec::new();
-    let plausible = |a: f64| (MIN_AMPLITUDE_DEG..=380.0).contains(&a);
     let origin = (PRE_S * fs).round() as usize;
     let long_pre_s = template_pre_s(osc_period_s, cfg.lift_deg);
     let long_origin = (long_pre_s * fs).round() as usize;
@@ -342,9 +430,9 @@ pub fn windows_between(
             hi += 1;
         }
         let win = &beats[lo..hi];
-        // Amplitude, and the unlock's and drop's offsets from the beat
-        // times, seconds.
-        let side = |even: bool| -> Option<(f64, f64, f64)> {
+        // The unlock's and drop's offsets from the beat times, seconds,
+        // and the amplitude when it passes the gate.
+        let side = |even: bool| -> Option<(Option<f64>, f64, f64)> {
             let times = side_times(win, even);
             if times.len() < 3 {
                 return None;
@@ -371,10 +459,20 @@ pub fn windows_between(
                 Some(e) => (at(e.unlock, long_origin), at(e.drop, long_origin)),
                 None => (at(guided.unlock, origin), at(guided.drop, origin)),
             };
-            let a = amplitude_deg(drop - unlock, osc_period_s, cfg.lift_deg);
-            plausible(a).then_some((a, unlock, drop))
+            let a = side_deg(drop - unlock, osc_period_s, cfg.lift_deg);
+            Some((a, unlock, drop))
         };
-        let (even, odd) = (side(true), side(false));
+        // A side outside the gate keeps only its edges, as culled.
+        let culled = |s: Option<(Option<f64>, f64, f64)>| {
+            s.filter(|s| s.0.is_none())
+                .map(|s| [s.1 * 1000.0, s.2 * 1000.0])
+        };
+        let (even_all, odd_all) = (side(true), side(false));
+        let culled_ms = Some([culled(even_all), culled(odd_all)])
+            .filter(|c| c != &[None, None])
+            .map(Box::new);
+        let kept = |s: Option<(Option<f64>, f64, f64)>| s.and_then(|s| Some((s.0?, s.1, s.2)));
+        let (even, odd) = (kept(even_all), kept(odd_all));
         let beat_error_ms = timing::beat_error_ms(win);
         let beat_error_unlock_ms = match (beat_error_ms, even, odd) {
             (Some(e), Some((_, ue, _)), Some((_, uo, _))) => Some(e + (ue - uo) * 1000.0),
@@ -391,6 +489,7 @@ pub fn windows_between(
             odd_unlock_ms: odd.map(|s| s.1 * 1000.0),
             even_drop_ms: even.map(|s| s.2 * 1000.0),
             odd_drop_ms: odd.map(|s| s.2 * 1000.0),
+            culled_ms,
         });
         start += window_s;
     }
@@ -432,6 +531,7 @@ mod tests {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect();
         // Window 30's Tock edge lands on the wrong sound.
@@ -593,5 +693,102 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A side outside the gate at the lift it was read with keeps its
+    /// edges, and a later lift reads it again from them and gates it
+    /// there, both ways; read back at the first lift it is as first read,
+    /// whatever lifts came between (#1333).
+    #[test]
+    fn a_side_culled_at_one_lift_comes_back_at_another() {
+        // 28,800 bph, sound 1 at -5.3 ms: about 390° at 52°, over the
+        // gate; 338° at 45°.
+        let fs = 48_000.0;
+        let period = 0.125;
+        let mut env = vec![0.01f32; (8.5 * fs) as usize];
+        let at = |t: f64| (t * fs).round() as usize;
+        let mut beats = Vec::new();
+        for k in 0..64i64 {
+            let t = 0.1 + k as f64 * period;
+            env[at(t - 0.0053)..at(t - 0.005)].fill(0.3);
+            env[at(t)..at(t + 0.0003)].fill(1.0);
+            beats.push(Beat {
+                index: k,
+                time: t,
+                quality: 1.0,
+            });
+        }
+        let cfg = AmplitudeConfig {
+            lift_deg: 52.0,
+            ..Default::default()
+        };
+        let osc = 2.0 * period;
+        let first = windows_between(&env, fs, &beats, osc, 2.0, 0.0, 8.0, &cfg);
+        let w = &first[1];
+        assert_eq!((w.even_deg, w.odd_deg), (None, None), "{w:?}");
+        assert_eq!((w.even_unlock_ms, w.beat_error_unlock_ms), (None, None));
+        let [u, d] = w.culled()[0].expect("the culled side's edges kept");
+        let at52 = amplitude_deg((d - u) / 1000.0, osc, 52.0);
+        assert!(at52 > MAX_AMPLITUDE_DEG, "{at52}");
+        // At 45° it passes: the same figure a read at 45° gives.
+        let mut lower = w.clone();
+        at_lift(&mut lower, osc, 52.0, 45.0);
+        let fresh = windows_between(
+            &env,
+            fs,
+            &beats,
+            osc,
+            2.0,
+            0.0,
+            8.0,
+            &AmplitudeConfig {
+                lift_deg: 45.0,
+                ..Default::default()
+            },
+        );
+        let a = lower.even_deg.expect("back at 45°");
+        assert!((a - at52 * 45.0 / 52.0).abs() < 1e-9, "{a}");
+        assert!(
+            (a - fresh[1].even_deg.unwrap()).abs() < 1.0,
+            "{a} {:?}",
+            fresh[1].even_deg
+        );
+        assert_eq!(lower.even_unlock_ms, Some(u));
+        assert_eq!(lower.culled()[0], None);
+        assert!(lower.beat_error_unlock_ms.is_some());
+        // Back to 52°, by way of 12° (under the gate): as first read.
+        let mut back = lower.clone();
+        at_lift(&mut back, osc, 45.0, 12.0);
+        assert_eq!(back.even_deg, None, "under the gate at 12°");
+        at_lift(&mut back, osc, 12.0, 52.0);
+        assert_eq!(format!("{back:?}"), format!("{w:?}"));
+        assert_eq!(back.culled(), w.culled());
+    }
+
+    /// A side left out as an outlier keeps its edges and no amplitude: a
+    /// new lift doesn't bring it back. A made-up window with no edges is
+    /// scaled by the lifts' ratio and gated.
+    #[test]
+    fn an_outlier_side_stays_out_at_a_new_lift() {
+        let mut w = AmplitudeWindow {
+            start_s: 0.0,
+            end_s: 2.0,
+            even_deg: None,
+            odd_deg: Some(300.0),
+            beat_error_ms: Some(0.1),
+            beat_error_unlock_ms: Some(0.3),
+            even_unlock_ms: Some(-7.0),
+            odd_unlock_ms: None,
+            even_drop_ms: Some(0.0),
+            odd_drop_ms: None,
+            culled_ms: None,
+        };
+        at_lift(&mut w, 0.25, 52.0, 56.0);
+        assert_eq!(w.even_deg, None);
+        assert_eq!(w.even_unlock_ms, Some(-7.0));
+        assert!((w.odd_deg.unwrap() - 300.0 * 56.0 / 52.0).abs() < 1e-9);
+        assert_eq!(w.beat_error_unlock_ms, Some(0.3), "no side changed state");
+        at_lift(&mut w, 0.25, 56.0, 70.0);
+        assert_eq!(w.odd_deg, None, "403.8° is over the gate");
     }
 }

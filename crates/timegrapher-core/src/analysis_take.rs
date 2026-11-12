@@ -32,6 +32,10 @@ pub const HEADER: &str = "analysis.json";
 pub const BEATS: &str = "beats.csv.gz";
 pub const WINDOWS: &str = "windows.csv.gz";
 pub const PROFILES: &str = "profiles.bin.gz";
+/// The edges of window sides the amplitude gate left out at the kept
+/// lift, so a later lift can read them again (#1333). Optional: a take
+/// kept before it has none, and an older version ignores it.
+pub const CULLED: &str = "culled.csv.gz";
 /// The layout's name and version, in the header's `format`.
 pub const FORMAT: &str = "timegrapher.analysis/2";
 /// The layout before #657: the same, but `usb_clock.ppm` is ppm slow. It
@@ -68,6 +72,7 @@ const PROFILE_MAGIC: &[u8; 8] = b"TGPROF\0\x01";
 const BEATS_COLUMNS: &str = "index_step,residual_us,quality,clipped";
 const WINDOWS_COLUMNS: &str = "start_s,end_s,even_deg,odd_deg,beat_error_ms,\
      beat_error_unlock_ms,even_unlock_ms,odd_unlock_ms,even_drop_ms,odd_drop_ms";
+const CULLED_COLUMNS: &str = "window,even_unlock_ms,even_drop_ms,odd_unlock_ms,odd_drop_ms";
 
 /// What `analysis/analysis.json` holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,6 +416,10 @@ pub fn files(s: &Stored) -> io::Result<Vec<(&'static str, Vec<u8>)>> {
             gzip(windows_csv(&s.log.amplitude_windows).as_bytes())?,
         ),
         (PROFILES, gzip(&profiles_bin(&s.profiles))?),
+        (
+            CULLED,
+            gzip(culled_csv(&s.log.amplitude_windows).as_bytes())?,
+        ),
     ])
 }
 
@@ -473,8 +482,12 @@ fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
     };
     let (beats, clipped) = parse_beats(&text(BEATS)?, header.bph)
         .map_err(|e| invalid(format!("{DIR}/{BEATS}: {e}")))?;
-    let windows =
+    let mut windows =
         parse_windows(&text(WINDOWS)?).map_err(|e| invalid(format!("{DIR}/{WINDOWS}: {e}")))?;
+    if dir.join(CULLED).exists() {
+        parse_culled(&text(CULLED)?, &mut windows)
+            .map_err(|e| invalid(format!("{DIR}/{CULLED}: {e}")))?;
+    }
     let profiles = parse_profiles(&gunzip(PROFILES)?)
         .map_err(|e| invalid(format!("{DIR}/{PROFILES}: {e}")))?;
     for (name, want, got) in [
@@ -680,6 +693,57 @@ fn windows_csv(windows: &[AmplitudeWindow]) -> String {
     out
 }
 
+/// One row per window with a culled side: its index and each side's
+/// unlock and drop, empty for a side not culled.
+fn culled_csv(windows: &[AmplitudeWindow]) -> String {
+    let o = |v: Option<[f64; 2]>, i: usize| v.map_or(String::new(), |v| v[i].to_string());
+    let mut out = String::from(CULLED_COLUMNS);
+    out.push('\n');
+    for (i, w) in windows.iter().enumerate() {
+        let [e, d] = w.culled();
+        if e.is_some() || d.is_some() {
+            out.push_str(&format!(
+                "{i},{},{},{},{}\n",
+                o(e, 0),
+                o(e, 1),
+                o(d, 0),
+                o(d, 1)
+            ));
+        }
+    }
+    out
+}
+
+/// Reads [`culled_csv`] onto `windows`.
+fn parse_culled(text: &str, windows: &mut [AmplitudeWindow]) -> Result<(), String> {
+    let mut lines = text.lines();
+    if lines.next() != Some(CULLED_COLUMNS) {
+        return Err(format!("the first line isn't {CULLED_COLUMNS}"));
+    }
+    for (n, line) in lines.enumerate() {
+        let bad = || format!("row {} isn't a culled window: {line}", n + 1);
+        let f: Vec<&str> = line.split(',').collect();
+        if f.len() != 5 {
+            return Err(bad());
+        }
+        let num = |s: &str| match s.parse::<f64>() {
+            Ok(v) if v.is_finite() => Ok(v),
+            _ => Err(bad()),
+        };
+        let side = |u: &str, d: &str| -> Result<Option<[f64; 2]>, String> {
+            match (u.is_empty(), d.is_empty()) {
+                (true, true) => Ok(None),
+                (false, false) => Ok(Some([num(u)?, num(d)?])),
+                _ => Err(bad()),
+            }
+        };
+        let i: usize = f[0].parse().map_err(|_| bad())?;
+        let w = windows.get_mut(i).ok_or_else(bad)?;
+        w.set_culled([side(f[1], f[2])?, side(f[3], f[4])?]);
+    }
+    Ok(())
+}
+
 fn parse_windows(text: &str) -> Result<Vec<AmplitudeWindow>, String> {
     let mut lines = text.lines();
     if lines.next() != Some(WINDOWS_COLUMNS) {
@@ -706,6 +770,7 @@ fn parse_windows(text: &str) -> Result<Vec<AmplitudeWindow>, String> {
                 odd_unlock_ms: opt(f[7])?,
                 even_drop_ms: opt(f[8])?,
                 odd_drop_ms: opt(f[9])?,
+                culled_ms: None,
             };
             let figures = [
                 Some(w.start_s),
@@ -1451,6 +1516,49 @@ mod tests {
     /// A kept analysis with numbers no measurement writes is refused with
     /// the file and what is wrong, and never panics: the five cases of the
     /// 2026-10-26 audit (finding ARCH-04).
+    #[test]
+    fn culled_sides_are_kept_and_read_back() {
+        let dir = scratch("culled");
+        let wav = take(&dir, 20.0);
+        let mut s = measure(
+            &[wav.as_path()],
+            &StreamConfig::default(),
+            &[],
+            software(),
+            |_| {},
+        )
+        .unwrap();
+        // Two windows' sides as the gate left them out (#1333).
+        s.log.amplitude_windows[1].set_culled([Some([-21.5, 0.25]), None]);
+        s.log.amplitude_windows[3].set_culled([None, Some([-4.75, 0.5])]);
+        write(&dir, &s).unwrap();
+        let back = read(&dir).unwrap();
+        let culled = |s: &Stored| -> Vec<_> {
+            s.log
+                .amplitude_windows
+                .iter()
+                .map(AmplitudeWindow::culled)
+                .collect()
+        };
+        assert_eq!(culled(&back), culled(&s));
+        // A take kept before #1333 has no such file: none culled.
+        fs::remove_file(dir.join(DIR).join(CULLED)).unwrap();
+        let old = read(&dir).unwrap();
+        assert!(old
+            .log
+            .amplitude_windows
+            .iter()
+            .all(|w| w.culled_ms.is_none()));
+        // A row with one edge of a side, or past the last window, is refused.
+        for row in ["1,-21.5,,,", "999,-21.5,0.25,,", "1,x,0.25,,"] {
+            let text = format!("{CULLED_COLUMNS}\n{row}\n");
+            fs::write(dir.join(DIR).join(CULLED), gzip(text.as_bytes()).unwrap()).unwrap();
+            let e = read(&dir).map(|_| ()).unwrap_err().to_string();
+            assert!(e.contains(CULLED), "{row}: {e}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn corrupt_numbers_are_refused_by_name() {
         let dir = scratch("corrupt");

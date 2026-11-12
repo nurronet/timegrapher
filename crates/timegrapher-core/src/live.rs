@@ -1885,6 +1885,7 @@ mod tests {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect();
         let mut live = LiveAnalyzer::from_log(log, LiveConfig::default());
@@ -1990,6 +1991,7 @@ mod tests {
             odd_unlock_ms: None,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         };
         // The jump is at 60.03 s: the window from 60 s reaches across it.
         log.amplitude_windows = vec![win(58.0, 280.0), win(60.0, 350.0), win(62.0, 280.0)];
@@ -2960,6 +2962,7 @@ mod tests {
             odd_unlock_ms: odd,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         };
         let mut a = LiveAnalyzer::new(8000, LiveConfig::default());
         a.amp = vec![

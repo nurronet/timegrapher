@@ -607,15 +607,16 @@ pub fn sound_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
 }
 
 /// A kept take's beat log with its amplitudes at `lift_deg`, the lift this
-/// reading uses, where the analysis was kept at another: amplitude scales
-/// with the lift, as the app's lift change scales it.
+/// reading uses, where the analysis was kept at another: each window's
+/// sides are read again from their edges at the new lift and gated there
+/// ([`crate::amplitude::at_lift`]), so a side the kept lift culled can
+/// come back (#1333).
 pub fn kept_at_lift(log: &BeatLog, lift_deg: f64) -> BeatLog {
     let mut log = log.clone();
-    if lift_deg > 0.0 && log.lift_deg > 0.0 && lift_deg != log.lift_deg {
-        let k = lift_deg / log.lift_deg;
+    if lift_deg > 0.0 && log.lift_deg > 0.0 && lift_deg != log.lift_deg && log.bph > 0 {
+        let osc = 7200.0 / log.bph as f64;
         for w in &mut log.amplitude_windows {
-            w.even_deg = w.even_deg.map(|a| a * k);
-            w.odd_deg = w.odd_deg.map(|a| a * k);
+            crate::amplitude::at_lift(w, osc, log.lift_deg, lift_deg);
         }
         log.lift_deg = lift_deg;
     }
@@ -1549,6 +1550,7 @@ mod tests {
             odd_unlock_ms: None,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         };
         let log = BeatLog {
             sample_rate: 48000,
@@ -1707,6 +1709,7 @@ mod tests {
             odd_unlock_ms: None,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         }];
         log.snippets = [9.5, 10.0, 50.0, 100.0].map(|t| (t, Vec::new())).to_vec();
         let pause = |audio_s| Break {

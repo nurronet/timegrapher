@@ -241,6 +241,7 @@ What each figure needs before it is shown today, and what happens when data is m
 | Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing.rs:211` |
 | 10 s rate window | a beat in every 2 s part, no hole | Window left out | `clean.rs:326` |
 | Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs:353` |
+| Amplitude, one side of a 2 s window, gate | 100° to 380° at the lift in use: at the first read, and again at every later lift from the side's kept unlock and drop, both ways (#1333) | That side missing, its edges kept so another lift can read it | `amplitude::side_deg`, `amplitude::at_lift` |
 | Amplitude reading | 1 window | No figure | `session.rs:583` |
 | Any ± | 3 values | No ± | `confidence.rs:129` |
 | Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` |

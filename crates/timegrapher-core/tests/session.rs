@@ -1348,6 +1348,7 @@ fn a_hole_is_left_out_and_cut_like_a_mask() {
         odd_unlock_ms: None,
         even_drop_ms: None,
         odd_drop_ms: None,
+        culled_ms: None,
     };
     let mut log = timegrapher_core::stream::BeatLog {
         sample_rate: 48000,
