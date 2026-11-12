@@ -9,8 +9,9 @@ Each claim below is tagged by the kind of evidence behind it (#1328):
   tests. It shows the arithmetic is right and stable, not that the figure
   is physically true.
 - **tg:** agreement with tg run on the same file. Both read the same
-  microphone at the same lift angle, so errors they share (the lift
-  angle, the landmark, the sound card's clock) cancel.
+  microphone at the same lift angle, so an error they share (the lift
+  angle, the landmark, the sound card's clock) cancels in the
+  comparison: agreeing with tg can't show it.
 - **optical:** blind video of the balance. The only independent
   reference, on two specimens only.
 
@@ -30,7 +31,7 @@ values" or "agrees with itself".
 | Tick and Tock amplitudes apart | self, tg (Patek clone) | Patek clone 239/240° against tg's 238/244/246° | Optical half-travel can't check the sides apart |
 | The ± | self | A seeded test on correlated readings (`standard_error_allows_for_correlated_readings`) keeps coverage 55–85% at three correlations | A typical spread, not a 95% interval; no coverage check on real takes |
 | Window floor, greying, unlock fallback | self, corpus | #1429: 10% and 60%; #1439: 3 of 3,084 healthy readings fall back | Rates on the corpus, not accuracy |
-| Periodic lines (period search) | self | A synthetic 60 s fourth wheel is found and named; the null's false alarm is simulated down to p 0.0003 (Baluev's 2008 bound checked by hand, #1460) | A p comes from a simulated null, not from false alarms seen on watches. Below 0.0003 the text says "under 0.0003, beyond the simulated range" (#1243); it is how often noise alone would make a line this strong in a take like this one, not the chance the line is real |
+| Periodic lines (period search) | self | A synthetic 60 s fourth wheel is found and named. The period search's null is simulated down to p 0.0003; the gappy Lomb–Scargle's false alarm uses Baluev's (2008) bound, with a test that matches it to the formula by hand (#1460) | A p comes from a simulated null, not from false alarms seen on watches. Below 0.0003 the text says "under 0.0003, beyond the simulated range" (#1243); it is how often noise alone would make a line this strong in a take like this one, not the chance the line is real |
 | `analyze` agrees with `session` | self | Four public takes, within 0.3 s/d, 1.5° and 0.03 ms (CI requires it) | Not bit-identical (in memory against 47 s chunks); live against file isn't gated (four ignored diagnostics, below) |
 | `regress` | self | Against stored tg references and engine baselines; margins in [regress.md](../developer/regress.md) | Not a fresh tg run, not physical accuracy |
 | Power reserve, isochronism, positions | self | Seeded tests only | No outside check |
