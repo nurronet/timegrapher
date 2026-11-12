@@ -6,11 +6,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// The closed hour `path`, held open, with its length: the WAV, or its
-/// FLAC once it has been kept as one. The WAV is tried first and its FLAC
-/// on any failure while the FLAC is there, never judged by a look before
-/// the open: the thread keeping it as FLAC deletes the WAV once its FLAC
-/// is in place, and between a look and an open that failed the save
-/// (#1486).
+/// FLAC once it has been kept as one. The WAV is tried first and, when
+/// it can't be opened, its FLAC, never judged by a look before the open: the thread keeping it as FLAC deletes the WAV once its
+/// FLAC is in place, and between a look and an open that failed the save
+/// (#1486). A WAV that is a link, or not a file, is refused as before,
+/// FLAC or not.
 pub(super) fn open_closed_hour(path: &Path) -> io::Result<(PathBuf, File, u64)> {
     let open = |p: &Path| -> io::Result<(File, u64)> {
         super::regular_file(p)?;
@@ -22,7 +22,8 @@ pub(super) fn open_closed_hour(path: &Path) -> io::Result<(PathBuf, File, u64)> 
         Ok((f, len)) => Ok((path.to_path_buf(), f, len)),
         Err(e) => {
             let flac = crate::flac::flac_path(path);
-            if !crate::flac::is_wav(path) || !flac.is_file() {
+            let refused = e.kind() == io::ErrorKind::InvalidInput;
+            if refused || !crate::flac::is_wav(path) {
                 return Err(e);
             }
             let (f, len) = open(&flac)?;
@@ -55,6 +56,24 @@ mod tests {
         fs::remove_file(&flac).unwrap();
         assert_eq!(opened(&wav).unwrap_err().kind(), io::ErrorKind::NotFound);
         assert_eq!(opened(&flac).unwrap_err().kind(), io::ErrorKind::NotFound);
+        // A WAV that is a link is refused, with its FLAC beside it or not.
+        #[cfg(unix)]
+        {
+            let elsewhere = dir.join("elsewhere.wav");
+            fs::write(&elsewhere, b"wav sound").unwrap();
+            std::os::unix::fs::symlink(&elsewhere, &wav).unwrap();
+            assert_eq!(
+                opened(&wav).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+            fs::write(&flac, b"flac").unwrap();
+            assert_eq!(
+                opened(&wav).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+            fs::remove_file(&wav).unwrap();
+            fs::remove_file(&flac).unwrap();
+        }
         // The WAV deleted while it is opened, as the FLAC thread does once
         // the FLAC is in place: every open finds one or the other.
         for _ in 0..2000 {
