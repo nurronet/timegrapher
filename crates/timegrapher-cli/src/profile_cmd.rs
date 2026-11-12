@@ -173,8 +173,8 @@ fn side(s: &mut String, p: &TickProfile, f: &Frame, y0: f64, (lo, hi): (f32, f32
     };
     let t = |k: usize| p.t0_ms + k as f64 * p.step_ms;
     let mut band = String::new();
-    for k in 0..n {
-        let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p90[k]));
+    for (k, &v) in p.p90.iter().enumerate().take(n) {
+        let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(v));
     }
     for k in (0..n).rev() {
         let _ = write!(band, "{:.1},{:.1} ", xs(t(k)), ys(p.p10[k]));

@@ -102,6 +102,8 @@ impl TimegrapherApp {
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
+        self.bg.reserve_live = None;
+        self.bg.reserve_live_s = 0.0;
         self.guided_unused.clear();
         self.guided_measured.clear();
         // Its masks, once nothing of the last test's is left.
@@ -522,6 +524,8 @@ impl TimegrapherApp {
         self.analysis_kept_to = None;
         self.guided = None;
         self.reserve = None;
+        self.bg.reserve_live = None;
+        self.bg.reserve_live_s = 0.0;
         self.positions_take = false;
         self.test_keep = None;
         self.guided_unused.clear();
@@ -822,6 +826,7 @@ impl TimegrapherApp {
                     .and_then(timegrapher_core::session::Position::parse)
             })
             .collect();
+        let test = self.reserve_is_test();
         let Some(r) = self.session.recorder.as_mut() else {
             return;
         };
@@ -829,9 +834,10 @@ impl TimegrapherApp {
             .unwrap_or_else(|| r.started_utc().replace(':', "."));
         // A Power Reserve Test's take is named as the test names it at
         // its end, so that save lands in the same folder.
-        let name = match self.reserve {
-            Some(_) => power_reserve_pane::reserve_take_name(&started),
-            None => library::take_name(&started, &positions),
+        let name = if test {
+            power_reserve_pane::reserve_take_name(&started)
+        } else {
+            library::take_name(&started, &positions)
         };
         let dir = library::unused_dir(takes, &name);
         if let Some(name) = dir.file_name() {
@@ -940,7 +946,7 @@ impl TimegrapherApp {
     /// The take's results files, written beside its session.toml by both
     /// Save… and Save Analysis Only…: the positions test's and the power
     /// reserve test's, when there are.
-    fn results_files(&self) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    pub(super) fn results_files(&self) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
         let about = self.guided_about();
         let mut files = Vec::new();
         if let Some(k) = self.guided.as_ref().and_then(|t| t.kept(&about)) {
@@ -948,7 +954,13 @@ impl TimegrapherApp {
                 .map_err(|e| format!("Couldn't prepare {}: {e}", guided::RESULTS_FILE))?;
             files.push((guided::RESULTS_FILE, (text + "\n").into_bytes()));
         }
-        if let Some(r) = self.reserve.as_ref().and_then(|t| t.results.as_ref()) {
+        // A long take's run read as one is never written into the take.
+        if let Some(r) = self
+            .reserve
+            .as_ref()
+            .and_then(|t| t.results.as_ref())
+            .filter(|r| r.source.is_test())
+        {
             files.push((power_reserve::FILE, r.to_json().into_bytes()));
         }
         Ok(files)
