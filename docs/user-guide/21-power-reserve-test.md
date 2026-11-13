@@ -157,5 +157,5 @@ for the last hour, a rise that never happened.
 
 ---
 
-Previous: [Positions Test](20-positions-test.md) ·
+Previous: [Dynamic Poise Test](20b-dynamic-poise-test.md) ·
 Next: [The Watches View](22-watches-view.md)

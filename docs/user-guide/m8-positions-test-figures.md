@@ -87,7 +87,8 @@ Ie    = | X(24 h) − X(full) |, each X over the positions read in both
 ## What It Helps Find
 
 - **A poise error:** it can show as one vertical position far from the
-  others.
+  others. The Dynamic Poise Test (chapter 20b, M13) measures eight
+  upright positions and fits the wave poise makes.
 - **A large horizontal-vertical split** (DVH): the balance pivots or
   jewels.
 - **A rate that runs away at 24 hours** (large Im or Ie): isochronism
