@@ -52,8 +52,10 @@ const MIN_SPAN_PLACES: f32 = 5.0;
 const TIME_MARKS: f32 = 6.0;
 /// How near the pointer must come to a point for its figure, points.
 const HOVER_R: f32 = 8.0;
-/// The gap between the key's parts, points.
+/// The gap between the key's parts, and a mark's room before its words,
+/// points.
 const KEY_GAP: f32 = 14.0;
+const KEY_MARK_W: f32 = 2.0 * RING_R + 8.0;
 
 /// One stretch on the plots: its middle, seconds from the test's start,
 /// and its measurement.
@@ -239,7 +241,7 @@ fn plots_block(
     bottom: Option<f32>,
 ) {
     let w = ui.available_width().max(PLOTS_MIN_W);
-    let key_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+    let key_h = key_height(ui, w) + 6.0;
     let plot_h = bottom.map_or(PLOT_OVER_H, |bottom| {
         let room = bottom - ui.cursor().top() - TRACK_H - AXIS_H - key_h;
         (room / 3.0).max(PLOT_MIN_H)
@@ -376,13 +378,21 @@ fn draw_track(
                 egui::Rect::from_min_max(egui::pos2(x(a), top), egui::pos2(x(b), top + TRACK_H));
             painter.rect_filled(r, 2.0, c);
         };
-        // Lighter while it settles, in the strip's proportion (Hugh's spec).
-        band(
-            settle_from,
-            from,
-            pal.control.gamma_multiply(strip::SETTLE_OF_MEASURED),
+        // One block for the stretch, its settle a lighter fill of the same
+        // bar, in the strip's proportion (Hugh's spec).
+        band(settle_from, to, pal.control);
+        let veil = egui::Rect::from_min_max(
+            egui::pos2(x(settle_from), top),
+            egui::pos2(x(from), top + TRACK_H),
         );
-        band(from, to, pal.control);
+        let left_round = egui::CornerRadius {
+            nw: 2,
+            sw: 2,
+            ne: 0,
+            se: 0,
+        };
+        let shade = pal.card.gamma_multiply(1.0 - strip::SETTLE_OF_MEASURED);
+        painter.rect_filled(veil, left_round, shade);
         painter.text(
             egui::pos2(x(settle_from) + 4.0, top + TRACK_H / 2.0),
             egui::Align2::LEFT_CENTER,
@@ -416,15 +426,6 @@ fn plot_title(
             egui::FontId::proportional(13.0),
             pal.text,
         );
-    }
-}
-
-/// The figure's colour on the plots, as the readings take it everywhere.
-fn ink(q: SeriesKind, pal: &theme::Palette) -> egui::Color32 {
-    match q {
-        SeriesKind::Amplitude => pal.trace_amplitude,
-        SeriesKind::Rate => pal.trace_rate,
-        SeriesKind::BeatError => pal.trace_beat_error,
     }
 }
 
@@ -483,7 +484,7 @@ fn draw_one(
             pal.text_secondary,
         );
     }
-    let colour = ink(q, pal);
+    let colour = crate::steady::series_colour(q, pal);
     let quiet = egui::Stroke::new(1.0_f32, pal.text_secondary);
     // The Offs joined, under the points.
     if let [(ta, a), _, (tc, c)] = figs[..] {
@@ -540,25 +541,28 @@ const KEY: [(KeyMark, &str); 4] = [
     (KeyMark::Bracket, "The difference"),
 ];
 
-/// How many of the key's parts fit in `room`, each `widths` wide with
-/// [`KEY_GAP`] between: whole parts only, the last dropped first.
-fn key_parts_that_fit(widths: &[f32], room: f32) -> usize {
-    let mut used = 0.0;
-    for (i, w) in widths.iter().enumerate() {
-        used += w + if i > 0 { KEY_GAP } else { 0.0 };
-        if used > room {
-            return i;
-        }
-    }
-    widths.len()
+/// Which row each of the key's parts sits on, each `widths` wide with
+/// [`KEY_GAP`] between, in `room`: whole parts only, a part that won't
+/// fit going to the next row, never cut (Hugh).
+fn key_rows(widths: &[f32], room: f32) -> Vec<usize> {
+    let (mut row, mut used) = (0, 0.0);
+    widths
+        .iter()
+        .map(|&w| {
+            if used > 0.0 && used + KEY_GAP + w > room {
+                row += 1;
+                used = 0.0;
+            }
+            used += if used > 0.0 { KEY_GAP } else { 0.0 } + w;
+            row
+        })
+        .collect()
 }
 
-/// The key under the plots, for all three, on one row: whole parts, the
-/// last dropped first where the row has no room.
-fn plot_key(ui: &mut egui::Ui) {
+/// The key's words laid out, and the row each part sits on in `room`.
+fn key_layout(ui: &egui::Ui, room: f32) -> (Vec<std::sync::Arc<egui::Galley>>, Vec<usize>) {
     let pal = theme::pal(ui);
     let font = egui::TextStyle::Small.resolve(ui.style());
-    let mark_w = 2.0 * RING_R + 8.0;
     let galleys: Vec<_> = KEY
         .iter()
         .map(|&(_, words)| {
@@ -566,16 +570,38 @@ fn plot_key(ui: &mut egui::Ui) {
                 .layout_no_wrap(words.to_string(), font.clone(), pal.text_secondary)
         })
         .collect();
-    let widths: Vec<f32> = galleys.iter().map(|g| mark_w + g.size().x).collect();
-    let room = ui.available_width() - LEFT;
-    let n = key_parts_that_fit(&widths, room);
+    let widths: Vec<f32> = galleys.iter().map(|g| KEY_MARK_W + g.size().x).collect();
+    let rows = key_rows(&widths, room);
+    (galleys, rows)
+}
+
+/// The key's height in `room`: a row for each its parts take.
+fn key_height(ui: &egui::Ui, room: f32) -> f32 {
+    let rows = key_layout(ui, room).1;
+    ui.text_style_height(&egui::TextStyle::Body) * rows.last().map_or(1, |r| r + 1) as f32
+}
+
+/// The key under the plots, for all three, from the plot titles' left
+/// edge: every part whole, onto a second row where one row has no room.
+fn plot_key(ui: &mut egui::Ui) {
+    let pal = theme::pal(ui);
+    let mark_w = KEY_MARK_W;
+    let (galleys, rows) = key_layout(ui, ui.available_width());
     let h = ui.text_style_height(&egui::TextStyle::Body);
-    let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), h), egui::Sense::hover());
+    let n_rows = rows.last().map_or(1, |r| r + 1);
+    let (area, _) = ui.allocate_exact_size(
+        Vec2::new(ui.available_width(), h * n_rows as f32),
+        egui::Sense::hover(),
+    );
     let painter = ui.painter();
     let quiet = egui::Stroke::new(1.0_f32, pal.text_secondary);
-    let mut left = row.left() + LEFT;
-    let cy = row.center().y;
-    for ((mark, _), galley) in KEY.iter().zip(galleys).take(n) {
+    let mut left = area.left();
+    let mut last_row = 0;
+    for (((mark, _), galley), row) in KEY.iter().zip(galleys).zip(rows) {
+        if row != last_row {
+            (left, last_row) = (area.left(), row);
+        }
+        let cy = area.top() + h * (row as f32 + 0.5);
         let c = egui::pos2(left + RING_R + 1.0, cy);
         match mark {
             KeyMark::Dot => {
@@ -607,17 +633,13 @@ fn plot_key(ui: &mut egui::Ui) {
 mod tests {
     use super::*;
 
-    /// The key drops whole parts, the last first, never one cut mid-way.
+    /// The key keeps every part whole, wrapping one that won't fit.
     #[test]
-    fn the_key_drops_whole_parts_from_the_end() {
+    fn the_key_wraps_whole_parts() {
         let widths = [100.0, 50.0, 80.0, 40.0];
-        assert_eq!(key_parts_that_fit(&widths, 1000.0), 4);
-        assert_eq!(key_parts_that_fit(&widths, 100.0 + KEY_GAP + 50.0), 2);
-        assert_eq!(
-            key_parts_that_fit(&widths, 100.0 + KEY_GAP + 50.0 + KEY_GAP + 79.0),
-            2
-        );
-        assert_eq!(key_parts_that_fit(&widths, 90.0), 0);
+        assert_eq!(key_rows(&widths, 1000.0), [0, 0, 0, 0]);
+        assert_eq!(key_rows(&widths, 100.0 + KEY_GAP + 50.0), [0, 0, 1, 1]);
+        assert_eq!(key_rows(&widths, 90.0), [0, 1, 2, 3]);
     }
 
     /// The axis steps come from the app's one ladder, in whole seconds.
