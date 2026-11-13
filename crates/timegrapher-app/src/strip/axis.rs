@@ -48,7 +48,7 @@ mod tests {
     /// 5 ms lines 25 apart); none when nothing on it leaves room (#1512: ±20 ms on a short strip, lines 5 ms and
     /// 21 pt apart, labelled −10, 0, +10).
     #[test]
-    fn the_ms_axis_labels_every_line_or_every_second_or_fifth() {
+    fn the_ms_axis_labels_step_up_the_one_two_five_series() {
         assert_eq!(label_every(5.0, 30.0, 26.0), Some(1));
         assert_eq!(label_every(5.0, 21.0, 26.0), Some(2));
         // 5 ms lines: 20 ms (every 4th) before 50, never 25 (every 5th).
