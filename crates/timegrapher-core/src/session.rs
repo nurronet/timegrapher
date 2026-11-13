@@ -627,7 +627,7 @@ pub fn noise_enough(windows: &[&AmplitudeWindow]) -> bool {
 /// noise from: every other one, as [`crate::confidence::rate_se`] takes
 /// them, [`crate::confidence::MIN_NOISE_VALUES`] times.
 pub fn rate_noise_enough(windows: &[WindowFit]) -> bool {
-    windows.len().div_ceil(2) >= crate::confidence::MIN_NOISE_VALUES
+    crate::confidence::rate_value_count(windows.len()) >= crate::confidence::MIN_NOISE_VALUES
 }
 
 /// Whether the 2 s window `w` belongs to the stretch from `from_s` to
