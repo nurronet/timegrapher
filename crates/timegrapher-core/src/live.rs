@@ -153,6 +153,14 @@ pub struct LiveReading {
     /// that says how near the ± is. Not saved.
     #[serde(skip)]
     pub rate_noise_values: usize,
+    /// The 2 s windows in the averaging time that read an amplitude, and
+    /// those the take holds up to the reading, up to the
+    /// [`crate::confidence::MIN_NOISE_VALUES`] its ± takes its scatter
+    /// from: for a hover that says why there is no ±. Not saved.
+    #[serde(skip)]
+    pub amplitude_values: usize,
+    #[serde(skip)]
+    pub amplitude_noise_values: usize,
     /// `beat_error_unlock_ms`'s ±: the standard error of its 2 s windows
     /// in the averaging time, its noise borrowed as the amplitude's.
     pub beat_error_unlock_error_ms: Option<f64>,
@@ -1099,6 +1107,12 @@ impl LiveAnalyzer {
             rate_noise_values: take_rate
                 .len()
                 .div_ceil(2)
+                .min(crate::confidence::MIN_NOISE_VALUES),
+            amplitude_values: wins.iter().filter(|w| w.mean().is_some()).count(),
+            amplitude_noise_values: take_amp
+                .iter()
+                .filter(|w| w.mean().is_some())
+                .count()
                 .min(crate::confidence::MIN_NOISE_VALUES),
             beat_error_unlock_error_ms: sided(assessment.confidence.and_then(|c| c.beat_error.se)),
             caveats,

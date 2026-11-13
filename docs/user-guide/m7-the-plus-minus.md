@@ -59,7 +59,8 @@ wild, so every ± takes its scatter and correlation from at least 30
 readings. A reading with fewer, such as a 10 s average of five 2 s
 windows, borrows them from the 30 readings nearest it in the same take,
 across breaks and positions but never across takes; its own count still
-sets how narrow the ± is. With fewer than 30 in the take there is no ±,
+sets how narrow the ± is. With fewer than 30 within an hour either side
+(live, in the take so far) there is no ±,
 and with fewer than 3 of its own neither (#1470).
 
 ## Why This Way

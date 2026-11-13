@@ -139,27 +139,51 @@ pub(super) fn rate_figure(r: &LiveReading) -> Option<String> {
 
 /// What the Rate figure's ± rests on, or what it waits for, for the
 /// figure's hover (#1470): its exact size before it is rounded up, or how
-/// many of the 10-second rates it needs the take holds so far.
+/// many of the 10 s rates it needs the take holds so far.
 pub(super) fn rate_pm_words(r: &LiveReading) -> Option<String> {
     use timegrapher_core::confidence::{MIN_NOISE_VALUES as NEED, MIN_VALUES};
     use timegrapher_core::measure::{RATE_SE_MIN_S, RATE_WINDOW_S};
     r.rate_s_per_day?;
     Some(match r.rate_error_s_per_day {
         Some(se) => format!(
-            "± {} s/d: one standard error, {se:.3} before it is rounded up. Its \
-             scatter comes from at least {NEED} 10-second rates: the run's own, or \
-             where it holds fewer, the {NEED} nearest it in this take.",
+            "± {} s/d is one standard error ({se:.3}, rounded up). It comes from at \
+             least {NEED} rates of 10 s each: this run's, or if it has fewer, the \
+             {NEED} nearest in this take.",
             pm_text(se, base::RATE)?
         ),
         None if r.rate_noise_values < NEED => format!(
-            "± after {} of beats; {} of {NEED} so far. It takes its scatter from \
-             {NEED} 10-second rates.",
+            "± after {} of beats: it needs {NEED} rates of 10 s each, and has {}.",
             fields::duration(RATE_SE_MIN_S),
             r.rate_noise_values
         ),
         None => format!(
             "± after {} of unbroken beats.",
             fields::duration(MIN_VALUES as f64 * RATE_WINDOW_S)
+        ),
+    })
+}
+
+/// What the Amplitude figure's ± rests on, or why there is none, for the
+/// figure's hover (#1470), as [`rate_pm_words`] says the rate's.
+pub(super) fn amplitude_pm_words(r: &LiveReading) -> Option<String> {
+    use timegrapher_core::confidence::{MIN_NOISE_VALUES as NEED, MIN_VALUES};
+    r.amplitude_deg?;
+    Some(match r.amplitude_error_deg {
+        Some(se) => format!(
+            "± {}° is one standard error ({se:.2}, rounded up). It comes from at \
+             least {NEED} readings of 2 s each: this average's, or if it has fewer, \
+             the {NEED} nearest in this take.",
+            pm_text(se, base::AMPLITUDE)?
+        ),
+        None if r.amplitude_noise_values < NEED => format!(
+            "± after {} of beats: it needs {NEED} readings of 2 s each, and has {}.",
+            fields::duration(NEED as f64 * timegrapher_core::distribution::STRETCH_S),
+            r.amplitude_noise_values
+        ),
+        None => format!(
+            "No ± now: {} of the 2 s readings in this average found the amplitude, \
+             and a ± needs {MIN_VALUES}.",
+            r.amplitude_values
         ),
     })
 }
@@ -683,6 +707,9 @@ impl TimegrapherApp {
             " Worked out with a lift angle of {}°, on the Calibre card.",
             fields::plain(lift_now)
         );
+        if let Some(t) = r.filter(|_| c.heard).and_then(amplitude_pm_words) {
+            behind += &format!("\n\n{t}");
+        }
         let (fig, spark, place) = sparkline::lay(rows.inner, rows.figure, rows.controls);
         let colour = theme::pal(ui).trace_amplitude;
         sparkline::draw(ui, spark, place, &c.spark, &sparkline::AMPLITUDE, colour);
@@ -925,7 +952,7 @@ impl TimegrapherApp {
                     false,
                 );
                 let secs = if secs.chars().all(|c| c == '0' || c == '.') {
-                    "less than 0.1".to_string()
+                    format!("less than {}", 10f64.powi(-(base::RATE as i32)))
                 } else {
                     secs
                 };

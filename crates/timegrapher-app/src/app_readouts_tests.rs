@@ -636,16 +636,57 @@ fn the_rate_hover_says_what_its_plus_minus_waits_for() {
     let r = app.reading().unwrap();
     assert!(r.rate_s_per_day.is_some() && r.rate_error_s_per_day.is_none());
     let words = readouts::rate_pm_words(&r).unwrap();
-    assert!(words.starts_with("± after 5 min of beats; "), "{words}");
-    let so_far = format!("{} of 30 so far", r.rate_noise_values);
-    assert!(words.contains(&so_far), "{words}");
+    let has = format!(
+        "± after 5 min of beats: it needs 30 rates of 10 s each, and has {}.",
+        r.rate_noise_values
+    );
+    assert_eq!(words, has);
     assert!((3..30).contains(&r.rate_noise_values), "{words}");
     let mut with = r.clone();
     with.rate_error_s_per_day = Some(0.1234);
     let words = readouts::rate_pm_words(&with).unwrap();
     assert!(
-        words.starts_with("± 0.2 s/d: one standard error, 0.123 before it is rounded up."),
+        words.starts_with("± 0.2 s/d is one standard error (0.123, rounded up)."),
         "{words}"
+    );
+}
+
+/// The Amplitude figure's hover says why it has no ±: too few readings
+/// in the take yet, or too few of its own in the average (#1470).
+#[test]
+fn the_amplitude_hover_says_why_it_has_no_plus_minus() {
+    let app = synthetic(60.0, 12.0);
+    let r = app.reading().unwrap();
+    let mut early = r.clone();
+    (early.amplitude_error_deg, early.amplitude_noise_values) = (None, 12);
+    assert_eq!(
+        readouts::amplitude_pm_words(&early).as_deref(),
+        Some("± after 1 min of beats: it needs 30 readings of 2 s each, and has 12.")
+    );
+    let mut few = r.clone();
+    (
+        few.amplitude_error_deg,
+        few.amplitude_noise_values,
+        few.amplitude_values,
+    ) = (None, 30, 2);
+    assert_eq!(
+        readouts::amplitude_pm_words(&few).as_deref(),
+        Some(
+            "No ± now: 2 of the 2 s readings in this average found the amplitude, \
+             and a ± needs 3."
+        )
+    );
+    let mut with = r.clone();
+    with.amplitude_error_deg = Some(12.4);
+    let words = readouts::amplitude_pm_words(&with).unwrap();
+    assert!(
+        words.starts_with("± 13° is one standard error (12.40, rounded up)."),
+        "{words}"
+    );
+    // The live reading counts them as core does.
+    assert!(
+        r.amplitude_values > 0 && r.amplitude_noise_values <= 30,
+        "{r:?}"
     );
 }
 
