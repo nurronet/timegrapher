@@ -179,6 +179,10 @@ fn the_picture_has_its_key_and_mean_and_info_says_each_fact_once() {
     for word in ["Upright positions (8)", "Fitted wave", mean.as_str()] {
         assert!(plot.contains(word), "{word}: {plot}");
     }
+    // The Mean's dotted line reaches the screen: short level dashes
+    // across the plot, apart from the grid's full-width lines.
+    let dashes = plot_dashes(&mut app);
+    assert!(dashes > 20, "{dashes} dashes");
     app.poise_view = PoiseView::Dial;
     let dial = draw(&mut app, Pane::DynamicPoise);
     assert!(
@@ -238,6 +242,31 @@ fn the_table_tightens_beside_the_picture_then_goes_under_it() {
     assert!(title.bottom() < row.top(), "{row:?} {title:?}");
     drop(tx);
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The level dashes drawn in the pane at 1280 by 820: the Plot's dotted
+/// lines, which only the Mean's is.
+fn plot_dashes(app: &mut TimegrapherApp) -> usize {
+    let ctx = themed();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            Vec2::new(1280.0, 820.0),
+        )),
+        ..Default::default()
+    };
+    let out = ctx.run(input, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| app.poise_pane(ui));
+    });
+    out.shapes
+        .iter()
+        .filter(|c| match &c.shape {
+            egui::Shape::LineSegment { points: [a, b], .. } => {
+                a.y == b.y && (b.x - a.x).abs() > 1.5 && (b.x - a.x).abs() < 4.0
+            }
+            _ => false,
+        })
+        .count()
 }
 
 fn poise_pending() -> String {

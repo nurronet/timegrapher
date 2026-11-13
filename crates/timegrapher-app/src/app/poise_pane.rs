@@ -47,6 +47,8 @@ const LEAN: f32 = 0.3;
 /// The key's line length, points, and the room round a backed label.
 const KEY_LINE: f32 = 14.0;
 const BACKING: f32 = 2.0;
+/// The plot's dotted Mean line: its dashes and gaps, points.
+const DASH: f32 = 3.0;
 /// A small label's height, points: a ring's rate this near the mean's
 /// name is left out.
 const LABEL_H: f32 = 14.0;
@@ -546,19 +548,24 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         pal.text_secondary,
     );
     if let Some(f) = pic.fit {
-        plot_wave(&painter, area, (&x, &y), f, pal);
-        if let Some((m, name)) = &pic.mean {
+        // The table's Mean, dotted across the plot under the wave, on a
+        // whole pixel so its dashes show (Hugh, Walter, #1499).
+        let mean = pic
+            .mean
+            .as_ref()
+            .map(|(m, name)| (y(*m).round() + 0.5, name));
+        if let Some((my, _)) = mean {
+            let line = [egui::pos2(area.left(), my), egui::pos2(area.right(), my)];
             let dotted = egui::Stroke::new(1.0_f32, pal.text_secondary);
-            let line = [
-                egui::pos2(area.left(), y(*m)),
-                egui::pos2(area.right(), y(*m)),
-            ];
-            painter.extend(egui::Shape::dashed_line(&line, dotted, 1.0, 3.0));
+            painter.extend(egui::Shape::dashed_line(&line, dotted, DASH, DASH));
+        }
+        plot_wave(&painter, area, (&x, &y), f, pal);
+        if let Some((my, name)) = mean {
+            // Above the line at the slowest hour, where the wave is below
+            // it (Hugh, #1499).
             backed(
                 &painter,
-                // Above the line at the slowest hour, where the wave is
-                // below it (Hugh, #1499).
-                egui::pos2(x(f.slowest().0), y(*m) - 3.0),
+                egui::pos2(x(f.slowest().0), my - 3.0),
                 egui::Align2::CENTER_BOTTOM,
                 name,
                 pal,
@@ -566,7 +573,17 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         }
     }
     plot_key(&painter, area, pic, pal);
-    // 12H is at both ends: its point is drawn at each.
+    plot_points(&painter, (&x, &y), pic, pal);
+}
+
+/// The measured points on the plot; 12H is at both ends, so its point is
+/// drawn at each.
+fn plot_points(
+    painter: &egui::Painter,
+    (x, y): (&dyn Fn(f64) -> f32, &dyn Fn(f64) -> f32),
+    pic: &Picture<'_>,
+    pal: &theme::Palette,
+) {
     for &(deg, r, se) in &pic.points {
         let ends: &[f64] = if deg.rem_euclid(360.0) == 0.0 {
             &[0.0, 360.0]
@@ -575,7 +592,7 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         };
         for &d in ends {
             point(
-                &painter,
+                painter,
                 egui::pos2(x(d), y(r)),
                 se.map(|e| y(r - e) - y(r)),
                 pal,
@@ -735,7 +752,7 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         pal.text_secondary,
     );
     if let Some(f) = pic.fit {
-        dial_wave(&painter, &dial, (f, &pic.mean), pal);
+        dial_wave(&painter, &dial, (f, pic.mean.as_ref().map(|m| m.0)), pal);
     }
     for &(deg, r, se) in &pic.points {
         let p = dial.at(deg, dial.radius(r));
@@ -754,6 +771,32 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
             egui::Stroke::new(1.5_f32, pal.card),
         );
     }
+    if let (Some(f), Some((m, name))) = (pic.fit, &pic.mean) {
+        mean_name(&painter, &dial, (f.slowest().0, *m, name), pic, pal);
+    }
+}
+
+/// The mean ring's name, on the slowest point's bearing (Hugh, #1499);
+/// half a stop round from it when a point would sit under it.
+fn mean_name(
+    painter: &egui::Painter,
+    dial: &Dial,
+    (bearing, m, name): (f64, f64, &str),
+    pic: &Picture<'_>,
+    pal: &theme::Palette,
+) {
+    let at = |deg: f64| dial.at(deg, dial.radius(m));
+    let covers = |deg: f64| {
+        pic.points
+            .iter()
+            .any(|&(d, r, _)| dial.at(d, dial.radius(r)).distance(at(deg)) < LABEL_H)
+    };
+    let deg = if covers(bearing) {
+        between(bearing)
+    } else {
+        bearing
+    };
+    backed(painter, at(deg), egui::Align2::CENTER_CENTER, name, pal);
 }
 
 /// The dial's rings at the scale's round rates, with their numbers, and
@@ -822,11 +865,11 @@ fn dial_grid(
 fn dial_wave(
     painter: &egui::Painter,
     dial: &Dial,
-    (f, mean): (&PoiseFit, &Option<(f64, String)>),
+    (f, mean): (&PoiseFit, Option<f64>),
     pal: &theme::Palette,
 ) {
     let steps = DIAL_STEPS as usize;
-    let ring_r = dial.radius(mean.as_ref().map_or(f.wave.mean.value, |m| m.0));
+    let ring_r = dial.radius(mean.unwrap_or(f.wave.mean.value));
     let ring: Vec<egui::Pos2> = (0..=steps)
         .map(|i| dial.at(360.0 * i as f64 / f64::from(DIAL_STEPS), ring_r))
         .collect();
@@ -841,15 +884,6 @@ fn dial_wave(
         wave,
         egui::Stroke::new(1.5_f32, pal.text_secondary),
     ));
-    if let Some((m, name)) = mean {
-        backed(
-            painter,
-            dial.at(f.slowest().0, dial.radius(*m)),
-            egui::Align2::CENTER_CENTER,
-            name,
-            pal,
-        );
-    }
     if !f.wave_clear {
         return;
     }
