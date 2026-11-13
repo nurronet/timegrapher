@@ -663,11 +663,13 @@ fn a_take_kept_as_analysis_only_reads_as_such() {
     crate::analysis_take::write(&t, &stored).unwrap();
     lib.scan();
     assert_eq!(lib.watches[0].takes[0].duration_s, Some(3600.0));
-    // A layout from a newer version gives none either.
+    // A layout from a newer version gives none either. Its name is
+    // longer, so the take's fingerprint changes even when the rewrite
+    // lands within the same modified-time tick.
     let text = fs::read_to_string(&header).unwrap();
     fs::write(
         &header,
-        text.replace(crate::analysis_take::FORMAT, "timegrapher.analysis/9"),
+        text.replace(crate::analysis_take::FORMAT, "timegrapher.analysis/99"),
     )
     .unwrap();
     lib.scan();
