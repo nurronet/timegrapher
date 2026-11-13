@@ -572,9 +572,11 @@ pub fn stretch_windows<'w>(
 }
 
 /// How far either side of a reading its ± looks for the values it
-/// borrows its noise from when it holds too few (#1470), s: an hour, so a
-/// figure whose windows rarely give a value (an unlock seldom found) does
-/// not search a long take end to end at every reading.
+/// borrows its noise from when it holds too few (#1470), s: an hour. Noise
+/// from further away describes a different state of the watch
+/// (math-standards section 7); it also keeps a figure whose windows
+/// rarely give a value (an unlock seldom found) from searching a long
+/// take end to end at every reading.
 pub const BORROW_LOOK_S: f64 = 3600.0;
 
 /// The windows `fetch(a, b)` gives for the take from `a` to `b` (s), over

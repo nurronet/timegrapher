@@ -1083,8 +1083,8 @@ mod tests {
     /// [`coverage`] of a reading of `n` values whose noise is borrowed
     /// from the [`MIN_NOISE_VALUES`] nearest it in its take, the reading's
     /// own last among them (#1470).
-    fn borrowed_coverage(rho: f64, n: usize, repeats: usize) -> f64 {
-        let mut rng = Rng::new(20261113);
+    fn borrowed_coverage(rho: f64, n: usize, repeats: usize, seed: u64) -> f64 {
+        let mut rng = Rng::new(seed);
         let mut within = 0;
         for _ in 0..repeats {
             let mut x = rng.normal();
@@ -1111,7 +1111,7 @@ mod tests {
         // SE either side should still hold the true centre about 68% of
         // the time (#1470).
         for rho in [0.0, 0.5] {
-            let c = borrowed_coverage(rho, 5, 2000);
+            let c = borrowed_coverage(rho, 5, 2000, 20261113);
             assert!((0.55..=0.85).contains(&c), "ρ {rho}: {c}");
         }
     }
