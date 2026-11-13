@@ -943,13 +943,13 @@ fn the_scope_says_masked_where_the_profile_does() {
     assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
 }
 
-/// Tick's and Tock's amplitudes take the decimals of the figure beside
-/// them, its ±'s, as the CLI writes them (Walter's and Rico's note).
+/// Tick's and Tock's amplitudes are at the amplitude's place, 1°, as
+/// the figure beside them and the CLI write them, whatever the ± (#1470).
 #[test]
 fn tick_and_tock_take_the_amplitudes_decimals() {
     assert_eq!(
         readouts::sides_text(279.494, 279.571, Some(0.04)),
-        "Tick 279.49°, Tock 279.57°: each side's own amplitude."
+        "Tick 279°, Tock 280°: each side's own amplitude."
     );
     // With no ±, the amplitude's base decimals, as before.
     let base = |x| {
@@ -965,9 +965,8 @@ fn tick_and_tock_take_the_amplitudes_decimals() {
     );
 }
 
-/// The Amplitude card's hover gives Tick and Tock to the decimals of the
-/// live amplitude's ±, the one beside its figure (Trevor's mutant of
-/// #1114: the card passing no ± survived).
+/// The Amplitude card's hover gives Tick and Tock at the amplitude's
+/// place, as its figure (#1114, #1470).
 #[test]
 fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
     let mut app = synthetic(60.0, 5.0);
@@ -980,7 +979,8 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
         panic!("the synthetic take reads both sides and a ±: {r:?}");
     };
     let want = readouts::sides_text(a, b, Some(se));
-    assert_ne!(want, readouts::sides_text(a, b, None), "a ± under 1°");
+    // The ± never moves the place (#1470).
+    assert_eq!(want, readouts::sides_text(a, b, None));
     let figure = readouts::amplitude_figure(&r).expect("a figure");
     let ctx = themed();
     ctx.style_mut(|s| {
@@ -1009,13 +1009,13 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
     assert!(text.contains(&want), "{want} in: {text}");
 }
 
-/// The timed clock's hint writes the ppm and its ± to the decimals the ±
-/// calls for, never one fixed decimal (#510 R8): a small ± shows more, a
-/// wide one the clock's base, and the sign is said in words after it.
+/// The timed clock's hint writes the ppm and its ± at the clock's place,
+/// 0.1 ppm, the ± rounded up there (#1470), and the sign is said in words
+/// after it.
 #[test]
-fn a_timed_clocks_decimals_follow_its_plus_minus() {
+fn a_timed_clocks_figures_are_at_its_place() {
     use super::readouts::timed_clock_text;
-    assert_eq!(timed_clock_text(0.84, 0.06), "0.84 ± 0.06");
+    assert_eq!(timed_clock_text(0.84, 0.06), "0.8 ± 0.1");
     assert_eq!(timed_clock_text(-20.24, 0.3), "20.2 ± 0.3");
-    assert_eq!(timed_clock_text(0.84, 0.0004), "0.840 ± <0.001");
+    assert_eq!(timed_clock_text(0.84, 0.0004), "0.8 ± 0.1");
 }
