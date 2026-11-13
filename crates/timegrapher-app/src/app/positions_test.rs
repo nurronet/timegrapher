@@ -463,7 +463,6 @@ impl TimegrapherApp {
             free.as_ref(),
             live.as_ref(),
             self.guided_settle_s,
-            self.guided_measure_s,
             self.open_watch().is_some(),
             note.as_deref(),
             self.position_card_title,

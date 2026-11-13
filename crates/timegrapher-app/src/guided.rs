@@ -1235,7 +1235,6 @@ pub fn pane(
     free: Option<&FreeTable>,
     live: Option<&FreeCell>,
     settle_s: f64,
-    measure_s: f64,
     watch: bool,
     note: Option<&str>,
     card: &str,
@@ -1290,7 +1289,7 @@ pub fn pane(
             }
         }
         ui.add_space(10.0);
-        let about = about_text(test, earlier, settle_s, measure_s, watch);
+        let about = about_text(test, earlier, watch);
         if !about.is_empty() {
             ui.add(egui::Label::new(RichText::new(about).color(pal.text_secondary)).wrap());
         }
@@ -1347,7 +1346,6 @@ fn this_take(ui: &mut egui::Ui, f: &FreeTable, card: &str, settle_s: f64) {
             table_duration(settle_s)
         ),
         "A position shows readings once it has 10 s.".to_string(),
-        "Each Position applies only to the guided test.".to_string(),
     ] {
         ui.label(
             RichText::new(format!("• {line}"))
@@ -1387,45 +1385,25 @@ fn earlier_section(ui: &mut egui::Ui, full: &FullWind, phase: Option<Phase>) -> 
     removed
 }
 
-/// What the pane says under its tables: how the test runs, or what to do
-/// for the test 24 hours after winding.
-fn about_text(
-    test: Option<&Test>,
-    earlier: Option<&FullWind>,
-    settle_s: f64,
-    measure_s: f64,
-    watch: bool,
-) -> String {
+/// What the pane says under its tables, in one line: the next thing to
+/// do. With nothing yet, where the test starts; with full-wind results
+/// loaded, what the next test does with them; after a full-wind test, the
+/// test 24 hours after winding. The steps are in its "?" (Hugh, #1528).
+fn about_text(test: Option<&Test>, earlier: Option<&FullWind>, watch: bool) -> &'static str {
     match (test, earlier) {
-        (None, None) => format!(
-            "Start Test, on the Listen card, leads you through the six positions:\n\
-                 1. It says which position to turn the watch to.\n\
-                 2. It lets the watch settle {settle_s:.0} s.\n\
-                 3. It measures it for {measure_s:.0} s and fills in its row.\n\
-                 After the sixth it ends by itself and keeps the take. {}",
-            if watch {
-                "For the test 24 hours after winding, leave the watch unwound and off the \
-                 wrist, then set Wind to 24 Hours After."
-            } else {
-                "For the test 24 hours after winding, save the results, leave the watch \
-                 unwound and off the wrist, then load them with Load Full-Wind Results… before Start Test."
-            }
-        ),
-        (None, Some(_)) => "Start Test runs the six positions again and sets them \
-                 against these results."
-            .to_string(),
+        (None, None) => "New Test leads you through the six positions.",
+        (None, Some(_)) => {
+            "Start Test runs the six positions again and sets them against these results."
+        }
         (Some(t), _) if t.readings.is_some() && t.full.is_none() && watch => {
             "For the same test 24 hours after winding, leave the watch unwound and off \
                  the wrist, then set Wind to 24 Hours After and press New Test."
-                .to_string()
         }
         (Some(t), _) if t.readings.is_some() && t.full.is_none() => {
-            "For the same test 24 hours after winding, save these results with Save \
-                 Results for 24 Hours… (or save the session, which keeps them), leave the \
-                 watch unwound and off the wrist, then load them and start the test again."
-                .to_string()
+            "For the same test 24 hours after winding, first keep these results with Save \
+                 Results for 24 Hours\u{2026}. \"?\" has the steps."
         }
-        _ => String::new(),
+        _ => "",
     }
 }
 
@@ -2191,7 +2169,6 @@ mod tests {
                         None,
                         live,
                         20.0,
-                        60.0,
                         false,
                         None,
                         "Current Position",

@@ -443,7 +443,7 @@ pub static POSITIONS_TEST: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
      otherwise). Start Measurement goes on once the watch is turned.",
             crate::guided::MEASURE_S
         ),
-        "5. After the sixth position the test ends by itself.".into(),
+        "5. After the sixth position the test ends by itself and keeps the take.".into(),
         "## What It Shows".into(),
         "- The table fills in as each position is measured: its rate, its difference from \
      the mean, amplitude and beat error, the same figures the command line gives."
@@ -466,10 +466,13 @@ pub static POSITIONS_TEST: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         "1. Run the test just after winding, and keep its results with Save Results for 24 \
      Hours…. Saving the session keeps them too, as positions-test.json."
             .into(),
-        "2. 24 hours later, without winding or wearing the watch in between, pick that \
-     test in Compare With (or, with no watch, Load Full-Wind Results…), then start the test."
+        "2. Leave the watch unwound and off the wrist. 24 hours later, without winding or \
+     wearing it in between, set Wind to 24 Hours After and pick that test in Compare With."
             .into(),
-        "3. The pane shows the earlier results, this test's, and both side by side with the \
+        "3. With no watch, load its results with Load Full-Wind Results… instead. Then \
+     press New Test and start the test."
+            .into(),
+        "- The pane shows the earlier results, this test's, and both side by side with the \
      change in each position."
             .into(),
         "- The largest change in rate with crown right left out is Im, and the change in \
