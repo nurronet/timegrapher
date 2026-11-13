@@ -451,12 +451,14 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let mut steps = steps(w);
     steps.sort_by_key(|s| !s.3);
     let frame = *t.frame();
+    let mut drawn = Vec::new();
     for (from, to, (t0, t1), thin) in steps {
         // A step into or out of a dot off the scale is a stub from the
         // dot on it (Hugh, 13 Nov: a full step read as data).
         let Some((a, b, (t0, t1))) = drawn_step(frame, pos(from), pos(to), (t0, t1)) else {
             continue;
         };
+        drawn.push((a, b));
         // In short runs, so its colour moves from one dot's to the next's.
         let runs = 8;
         for k in 0..runs {
@@ -488,28 +490,32 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     // Each name on a halo of the plot's background, so a trail that
     // crosses it where the walk knots leaves it readable (Walter's walk of
     // #1148).
-    let name = |at: Pos2, align: Align2, text: &str| {
-        let g = p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
-        // Kept inside the plot, so a name near an edge never sits on an
-        // axis label (Walter's walk of #1496: "8.4 h" on "120").
-        let r = keep_inside(align.anchor_size(at, g.size()), t.frame().shrink(2.0));
-        // Opaque, so a trail under a name never shows through it (Hugh,
-        // 13 Nov: "Start" sat on the purple trail).
+    let galley = |text: &str| p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
+    // Opaque, so a trail under a name never shows through it (Hugh,
+    // 13 Nov: "Start" sat on the purple trail).
+    let name = |r: egui::Rect, g| {
         p.rect_filled(r.expand(3.0), 3.0, bg);
         p.galley(r.min, g, pal.text);
     };
-    name(
-        *start + egui::vec2(-10.0, -10.0),
-        Align2::RIGHT_BOTTOM,
-        WALK_START,
-    );
-    // The end's hour off the trail, as the beads' are, past its larger
-    // dot (Walter's walk of #1148: below it, the trail crossed it).
-    let (side, align) = bead_side(&dots, dots.len() - 1);
-    name(*end + 14.0 * side, align, &w.last_text);
+    // Kept inside the plot, so a name near an edge never sits on an axis
+    // label (Walter's walk of #1496: "8.4 h" on "120").
+    let inside = frame.shrink(2.0);
+    // The start's and the end's names where they cover no dot, stub or
+    // step (Hugh, #1542: the end's name hid a stub).
+    for (at, text) in [(*start, WALK_START), (*end, w.last_text.as_str())] {
+        let g = galley(text);
+        name(place_name(at, NAME_GAP, g.size(), inside, &dots, &drawn), g);
+    }
     for b in &w.beads {
         let (side, align) = bead_side(&dots, b.dot);
-        name(dots[b.dot] + 11.0 * side, align, &b.text);
+        let g = galley(&b.text);
+        name(
+            keep_inside(
+                align.anchor_size(dots[b.dot] + 11.0 * side, g.size()),
+                inside,
+            ),
+            g,
+        );
     }
 }
 
@@ -609,6 +615,62 @@ fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Opti
     let len = from.distance(to);
     let at = |q: Pos2| (q.distance(from) / len) as f64;
     (len > 0.0).then(|| (t0 + (t1 - t0) * at(a), t0 + (t1 - t0) * at(b)))
+}
+
+/// How far the start's and the end's names sit from their dot's middle,
+/// points: clear of the start's 7 pt ring and the end's 6.5 pt dot.
+const NAME_GAP: f32 = 11.0;
+
+/// Where a name `size` big goes beside its dot at `at` (Hugh, #1542): to
+/// the right, the left, above or below, `gap` from its middle and kept
+/// inside `frame`, in the first place that covers no dot of `dots` and no
+/// drawn step of `steps`; else in the place that covers the fewest.
+fn place_name(
+    at: Pos2,
+    gap: f32,
+    size: egui::Vec2,
+    frame: egui::Rect,
+    dots: &[Pos2],
+    steps: &[(Pos2, Pos2)],
+) -> egui::Rect {
+    let places = [
+        (Align2::LEFT_CENTER, egui::vec2(gap, 0.0)),
+        (Align2::RIGHT_CENTER, egui::vec2(-gap, 0.0)),
+        (Align2::CENTER_BOTTOM, egui::vec2(0.0, -gap)),
+        (Align2::CENTER_TOP, egui::vec2(0.0, gap)),
+    ]
+    .map(|(align, off)| keep_inside(align.anchor_size(at + off, size), frame));
+    let covered = |r: &egui::Rect| {
+        let r = r.expand(3.0);
+        dots.iter().filter(|d| r.contains(**d)).count()
+            + steps.iter().filter(|(a, b)| crosses(r, *a, *b)).count()
+    };
+    // `min_by_key` keeps the first of equals, so a clear place in the
+    // order above wins.
+    places.into_iter().min_by_key(covered).unwrap_or(places[0])
+}
+
+/// Whether the segment `a` to `b` touches `r` (Liang and Barsky's clip).
+fn crosses(r: egui::Rect, a: Pos2, b: Pos2) -> bool {
+    let d = b - a;
+    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+    for (p, q) in [
+        (-d.x, a.x - r.left()),
+        (d.x, r.right() - a.x),
+        (-d.y, a.y - r.top()),
+        (d.y, r.bottom() - a.y),
+    ] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return false;
+            }
+        } else if p < 0.0 {
+            lo = lo.max(q / p);
+        } else {
+            hi = hi.min(q / p);
+        }
+    }
+    lo <= hi
 }
 
 /// `r` moved the least way to lie inside `frame`, where it fits.
@@ -897,6 +959,52 @@ mod tests {
         assert_eq!(keep_inside(r(40.0, 40.0), frame), r(40.0, 40.0));
     }
 
+    /// The start's and the end's names go right, left, above or below
+    /// their dot, in the first place clear of dots and steps; else where
+    /// they cover the fewest (Hugh, #1542).
+    #[test]
+    fn a_name_takes_the_first_clear_place_beside_its_dot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        let (at, size) = (egui::pos2(100.0, 100.0), egui::vec2(30.0, 12.0));
+        let right = egui::Rect::from_min_size(egui::pos2(111.0, 94.0), size);
+        let left = egui::Rect::from_min_size(egui::pos2(59.0, 94.0), size);
+        let above = egui::Rect::from_min_size(egui::pos2(85.0, 77.0), size);
+        let below = egui::Rect::from_min_size(egui::pos2(85.0, 111.0), size);
+        let place =
+            |dots: &[Pos2], steps: &[(Pos2, Pos2)]| place_name(at, 11.0, size, frame, dots, steps);
+        assert_eq!(place(&[], &[]), right);
+        // A stub running right from the dot (Walter's walk of #1496).
+        let stub_right = (at, egui::pos2(116.0, 100.0));
+        assert_eq!(place(&[], &[stub_right]), left);
+        let stub_left = (at, egui::pos2(84.0, 100.0));
+        assert_eq!(place(&[], &[stub_right, stub_left]), above);
+        let up = (at, egui::pos2(100.0, 70.0));
+        assert_eq!(place(&[], &[stub_right, stub_left, up]), below);
+        // None clear: the fewest covered, the first of equals.
+        let down = (at, egui::pos2(100.0, 130.0));
+        let dot_left = egui::pos2(70.0, 100.0);
+        assert_eq!(
+            place(&[dot_left], &[stub_right, stub_left, up, down]),
+            right
+        );
+        // Near an edge each place is kept inside the plot.
+        let edge = place_name(egui::pos2(195.0, 100.0), 11.0, size, frame, &[], &[]);
+        assert!(frame.contains_rect(edge), "{edge:?}");
+    }
+
+    /// A segment touches a rect when any part of it lies inside.
+    #[test]
+    fn a_segment_crosses_a_rect_where_any_part_lies_in_it() {
+        let r = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(20.0, 20.0));
+        let p = egui::pos2;
+        assert!(crosses(r, p(0.0, 15.0), p(30.0, 15.0)));
+        assert!(crosses(r, p(15.0, 15.0), p(16.0, 16.0)));
+        assert!(crosses(r, p(0.0, 0.0), p(30.0, 30.0)));
+        assert!(!crosses(r, p(0.0, 0.0), p(30.0, 0.0)));
+        assert!(!crosses(r, p(0.0, 25.0), p(25.0, 50.0)));
+        assert!(!crosses(r, p(0.0, 15.0), p(9.0, 15.0)));
+    }
+
     /// A step to a dot off the scale is drawn as its stub, coloured over
     /// the stub's own share of the step's times (Hugh, 13 Nov).
     #[test]
@@ -1015,15 +1123,12 @@ mod tests {
         );
         let t = texts(&walk());
         assert!(!t.iter().any(|t| t.starts_with("Thin:")), "{t:?}");
-        assert!(!t.iter().any(|t| t.starts_with("Faint points")), "{t:?}");
+        assert!(!t.iter().any(|t| t.starts_with("Off the scale")), "{t:?}");
         // A faint dot far off the scale is counted in the key (Hugh,
         // 13 Nov).
         w.dots[2].amplitude_deg += 1000.0;
         let t = texts(&w);
-        assert!(
-            t.iter().any(|t| t == "Faint points off the scale: 1"),
-            "{t:?}"
-        );
+        assert!(t.iter().any(|t| t == "Off the scale: 1"), "{t:?}");
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
@@ -1301,7 +1406,10 @@ mod tests {
             .find(|c| c.radius == 6.5 && c.fill == colour(1.0))
             .expect("the end's dot");
         let name = |n: &str| texts.iter().find(|t| t.0 == n).unwrap().1;
-        assert!(name("Start").max.x <= start.x && name("Start").max.y <= start.y);
+        // Beside its ring, not on it (where, by #1542's rule: tested in
+        // a_name_takes_the_first_clear_place_beside_its_dot).
+        let first = name("Start");
+        assert!(first.distance_to_pos(start) > 7.0, "{first:?}");
         let last = name(&w.last_text);
         assert!(last.distance_to_pos(end.center) > end.radius, "{last:?}");
         // Each bead's name and the end's sit clear of every dot, so never

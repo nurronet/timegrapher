@@ -302,7 +302,7 @@ const FACT_READINGS: &str = "Readings";
 const FACT_STRETCHES: &str = "2 s stretches";
 const FACT_MEDIAN: &str = "Median";
 const FACT_MIDDLE: &str = "Middle 80%";
-const FACT_OFF: &str = "Off the scale";
+pub(crate) const FACT_OFF: &str = "Off the scale";
 const FACT_PEAKS: &str = "Peaks";
 
 /// The rows a facts box sheds when short of room, in turn

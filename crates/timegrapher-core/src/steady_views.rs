@@ -681,8 +681,10 @@ pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
 
 /// The key's note for the walk's faint dots that fall off the plot whose
 /// axes run over `x` (amplitude) and `y` (rate), or `None` when none do:
-/// a dot cut at the edge is named, never lost (Hugh, 13 Nov, as the
-/// Distributions pane names its outliers). Only a thin dot can fall off,
+/// a dot cut at the edge is named, never lost (Hugh, 13 Nov), in the
+/// words the Distributions pane names its outliers in
+/// (`distribution::FACT_OFF`, Hugh, #1542). Only a thin dot can
+/// fall off,
 /// since the full ones set the axes ([`walk_spans`]).
 pub fn walk_off_scale(dots: &[WalkDot], x: (f64, f64), y: (f64, f64)) -> Option<String> {
     let inside = |v: f64, (lo, hi): (f64, f64)| (lo..=hi).contains(&v);
@@ -690,7 +692,7 @@ pub fn walk_off_scale(dots: &[WalkDot], x: (f64, f64), y: (f64, f64)) -> Option<
         .iter()
         .filter(|d| !inside(d.amplitude_deg, x) || !inside(d.rate_s_per_day, y))
         .count();
-    (off > 0).then(|| format!("Faint points off the scale: {off}"))
+    (off > 0).then(|| format!("{}: {off}", crate::distribution::FACT_OFF))
 }
 
 /// One axis's `(lo, hi, step)` over `span`: round ends on a 1-2-5 step
@@ -1646,7 +1648,7 @@ mod tests {
         let [x, y] = walk_spans(&with_thin);
         assert_eq!(
             walk_off_scale(&with_thin, x, y).as_deref(),
-            Some("Faint points off the scale: 1")
+            Some("Off the scale: 1")
         );
         assert_eq!(walk_off_scale(&full, x, y), None);
         // On the edge is on the scale.
