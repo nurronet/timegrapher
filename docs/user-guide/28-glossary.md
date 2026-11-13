@@ -26,6 +26,7 @@ The words this guide uses, each with where to read more.
 | **dBFS** (decibels relative to full scale) | Loudness against the loudest the input can record, which is 0 dBFS. | Chapter 3 |
 | **Drop** | The third sound of a beat: an escape-wheel tooth landing on the other pallet stone. Usually the loudest. | Chapter 1 |
 | **DU, DD, CU, CD, CL, CR** | The six positions: dial up, dial down, and crown up, down, left and right. Also written CH, CB, 3H, 6H, 9H, 12H. | Chapters 5, 20 |
+| **Dynamic Poise Test** | The rate in the eight upright positions, 45° apart, fitted with the wave it makes once round. | Chapter 20b, M13 |
 | **FFT** (Fast Fourier Transform) | The standard way to split a series into the regular swings it holds. The FFT view gives the size of each period's swing over the whole take. | Chapter 16, M11 |
 | **FLAC** (Free Lossless Audio Codec) | A sound file format that keeps every sample in less space than WAV. | Chapter 23 |
 | **Full wind, 24 hours after** | A positions test run just after winding, and again a day later, to see how the rate moves as the mainspring lets down. | Chapter 20 |
@@ -43,6 +44,7 @@ The words this guide uses, each with where to read more.
 | **Period** | The time a cycle takes to repeat. Steadiness names one after the wheel that turns once in it. | Chapter 11 |
 | **Position Brush** | Marks a stretch of a take as one position, after the fact. | Chapter 6 |
 | **Positions Test** | The rate, amplitude and beat error in each of six positions, guided or marked. | Chapter 20 |
+| **Poise, heavy spot** | A balance out of poise is heavier on one side, its heavy spot. Upright, it moves the rate by the hour at the top: least at 219.5° amplitude, and the other way above it. | Chapter 20b, M13 |
 | **Power Reserve Test** | How long a full wind lasts, recorded until the watch stops. | Chapter 21 |
 | **ppm** (parts per million) | A clock's error as a fraction: 1 ppm is about 0.086 s a day. | Chapter 3, M3 |
 | **Quick Listen** | Listening with no watch picked. A take kept goes to Unsorted. | Chapter 2 |

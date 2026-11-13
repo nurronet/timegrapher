@@ -110,4 +110,4 @@ weighted by their counts.
 ---
 
 Previous: [M11. Time and Frequency Maps](m11-time-and-frequency-maps.md) ·
-[Contents](README.md)
+Next: [M13. Dynamic Poise](m13-dynamic-poise.md)
