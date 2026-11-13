@@ -12,6 +12,7 @@
 //! right and early beats towards the top.
 
 use crate::strength::{self, Zero};
+use axis::{axis_ms, label_every};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
 use sweep::{Geom, Sweep};
 use timegrapher_core::beats::Beat;
@@ -21,6 +22,7 @@ use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::length_text;
 pub use timegrapher_core::timing::Anchor;
 
+mod axis;
 #[cfg(test)]
 mod still_tests;
 mod sweep;
@@ -878,20 +880,6 @@ pub fn paint_phases(
     }
 }
 
-/// A signed number of ms for an axis label.
-fn axis_ms(ms: f64) -> String {
-    if ms.abs() < 1e-9 {
-        "0 ms".into()
-    } else {
-        let sign = if ms > 0.0 { "+" } else { "−" };
-        if ms.abs() >= 1000.0 {
-            format!("{sign}{} s", fmt_ms(ms.abs() / 1000.0))
-        } else {
-            format!("{sign}{}", fmt_ms(ms.abs()))
-        }
-    }
-}
-
 /// How near a masked stretch's edge, in points along the time, a drag
 /// must begin to move that edge rather than mask anew.
 const EDGE_REACH: f32 = 8.0;
@@ -1474,16 +1462,18 @@ impl Frame<'_> {
         let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
         let step = round_step(half / 4.0);
-        // On a strip too short for its labels to stand apart, only "Early"
-        // and "Late" are named.
+        // Every line, or on a strip too short for that the fewest lines
+        // that keep the labels apart on the 1-2-5 series (Hugh, #1512);
+        // on one too short for even that, only 0, "Early" and "Late".
         let step_px =
             step / half * f64::from(if horizontal { r.height() } else { r.width() }) / 2.0;
-        let labels = step_px as f32
-            > if horizontal {
-                2.0 * font.size + 4.0
-            } else {
-                60.0
-            };
+        let need = if horizontal {
+            2.0 * font.size + 4.0
+        } else {
+            60.0
+        };
+        // 0 ms is labelled even when nothing else fits.
+        let every = label_every(step, step_px as f32, need).unwrap_or(i64::MAX);
         let mut k = (-half / step).ceil() as i64;
         while (k as f64) * step < half + 1e-9 {
             let ms = k as f64 * step;
@@ -1503,7 +1493,8 @@ impl Frame<'_> {
                     (a.x - r.left()).min(r.right() - a.x),
                 )
             };
-            if labels && room > if horizontal { 14.0 } else { 34.0 } {
+            let labelled = k % every == 0;
+            if labelled && room > if horizontal { 14.0 } else { 34.0 } {
                 painter.text(at, align, axis_ms(ms), font.clone(), text);
             }
             k += 1;
@@ -2956,14 +2947,6 @@ mod tests {
             );
             assert_eq!(edge_near(&m, g.pos(0.0, 55.0), &g), None);
         }
-    }
-
-    #[test]
-    fn axis_labels_turn_to_seconds() {
-        assert_eq!(axis_ms(0.0), "0 ms");
-        assert_eq!(axis_ms(-250.0), "−250");
-        assert_eq!(axis_ms(2000.0), "+2.0 s");
-        assert_eq!(axis_ms(-20_000.0), "−20 s");
     }
 
     #[test]
