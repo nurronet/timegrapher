@@ -2588,6 +2588,28 @@ pub const INFO_BESIDE_W: f32 = 600.0;
 /// An Info panel's width, or a third of the pane if that is less.
 pub const INFO_W: f32 = 300.0;
 
+/// An Info panel's scrolling body, `id` its own: no taller than `max_h`,
+/// the room on screen, its bar always showing so what is below the edge
+/// is not missed, and opening at its top again whenever it was not drawn
+/// the pass before.
+pub fn info_scroll(ui: &mut Ui, id: egui::Id, max_h: f32, body: impl FnOnce(&mut Ui)) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last = ui.ctx().data_mut(|d| {
+        let last = d.get_temp::<u64>(id);
+        d.insert_temp(id, pass);
+        last
+    });
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(id)
+        .max_height(max_h)
+        .auto_shrink([false, true])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+    if last.is_none_or(|l| l + 1 < pass) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show(ui, body);
+}
+
 /// A pane's body with its Info panel ("i") when `open`: at the right,
 /// [`INFO_W`] or a third of the pane wide, past a rule, in a pane at
 /// least [`INFO_BESIDE_W`] wide; over the body from the pane's top right

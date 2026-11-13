@@ -773,26 +773,8 @@ fn info_panel(
     max_h: f32,
 ) {
     let pal = theme::pal(ui);
-    // Each view's panel its own, opening at its top: from the top again
-    // when it was not drawn the pass before.
-    let id = egui::Id::new(("steady info", view));
-    let pass = ui.ctx().cumulative_pass_nr();
-    let last = ui.ctx().data_mut(|d| {
-        let last = d.get_temp::<u64>(id);
-        d.insert_temp(id, pass);
-        last
-    });
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(id)
-        // No taller than `max_h`, the room on screen, with its bar always
-        // showing so what is below the edge is not missed.
-        .max_height(max_h)
-        .auto_shrink([false, true])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
-    if last.is_none_or(|l| l + 1 < pass) {
-        area = area.vertical_scroll_offset(0.0);
-    }
-    area.show(ui, |ui| {
+    // Each view's panel its own.
+    theme::info_scroll(ui, egui::Id::new(("steady info", view)), max_h, |ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         let text = |t: &str, c: Color32| {
             egui::Label::new(RichText::new(t).small().color(c))

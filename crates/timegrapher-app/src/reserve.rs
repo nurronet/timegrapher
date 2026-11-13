@@ -336,22 +336,7 @@ fn pause_hint() -> String {
 /// their words selectable, opening at the top each time it is shown.
 fn info_panel(ui: &mut egui::Ui, lines: &[String], max_h: f32) {
     let pal = theme::pal(ui);
-    let id = egui::Id::new("reserve info panel");
-    let pass = ui.ctx().cumulative_pass_nr();
-    let last = ui.ctx().data_mut(|d| {
-        let last = d.get_temp::<u64>(id);
-        d.insert_temp(id, pass);
-        last
-    });
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(id)
-        .max_height(max_h)
-        .auto_shrink([false, true])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
-    if last.is_none_or(|l| l + 1 < pass) {
-        area = area.vertical_scroll_offset(0.0);
-    }
-    area.show(ui, |ui| {
+    theme::info_scroll(ui, egui::Id::new("reserve info panel"), max_h, |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         ui.label(theme::caption("Run").color(pal.text_secondary));
         for (i, l) in lines.iter().enumerate() {
