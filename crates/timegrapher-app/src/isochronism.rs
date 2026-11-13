@@ -484,8 +484,8 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let (Some(start), Some(end)) = (dots.first(), dots.last()) else {
         return;
     };
-    ring(*start, 7.0, 0.0);
-    p.circle(*end, 6.5, colour(1.0), Stroke::new(2.0_f32, bg));
+    ring(*start, START_RING, 0.0);
+    p.circle(*end, END_DOT, colour(1.0), Stroke::new(2.0_f32, bg));
     let font = egui::FontId::proportional(12.0);
     // Each name on a halo of the plot's background, so a trail that
     // crosses it where the walk knots leaves it readable (Walter's walk of
@@ -494,7 +494,7 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     // Opaque, so a trail under a name never shows through it (Hugh,
     // 13 Nov: "Start" sat on the purple trail).
     let name = |r: egui::Rect, g| {
-        p.rect_filled(r.expand(3.0), 3.0, bg);
+        p.rect_filled(r.expand(NAME_PAD), 3.0, bg);
         p.galley(r.min, g, pal.text);
     };
     // Kept inside the plot, so a name near an edge never sits on an axis
@@ -502,9 +502,15 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let inside = frame.shrink(2.0);
     // The start's and the end's names where they cover no dot, stub or
     // step (Hugh, #1542: the end's name hid a stub).
-    for (at, text) in [(*start, WALK_START), (*end, w.last_text.as_str())] {
+    // Each mark's outer edge: the start's ring and the end's dot with
+    // half their strokes.
+    let marks = [
+        (*start, START_RING + 1.25, WALK_START),
+        (*end, END_DOT + 1.0, w.last_text.as_str()),
+    ];
+    for (at, radius, text) in marks {
         let g = galley(text);
-        name(place_name(at, NAME_GAP, g.size(), inside, &dots, &drawn), g);
+        name(place_name(at, radius, g.size(), frame, &dots, &drawn), g);
     }
     for b in &w.beads {
         let (side, align) = bead_side(&dots, b.dot);
@@ -617,31 +623,46 @@ fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Opti
     (len > 0.0).then(|| (t0 + (t1 - t0) * at(a), t0 + (t1 - t0) * at(b)))
 }
 
-/// How far the start's and the end's names sit from their dot's middle,
-/// points: clear of the start's 7 pt ring and the end's 6.5 pt dot.
-const NAME_GAP: f32 = 11.0;
+/// The start's ring's and the end's dot's radii, points.
+const START_RING: f32 = 7.0;
+const END_DOT: f32 = 6.5;
 
-/// Where a name `size` big goes beside its dot at `at` (Hugh, #1542): to
-/// the right, the left, above or below, `gap` from its middle and kept
-/// inside `frame`, in the first place that covers no dot of `dots` and no
-/// drawn step of `steps`; else in the place that covers the fewest.
+/// How far a name's box reaches past its text, points.
+const NAME_PAD: f32 = 3.0;
+
+/// How far inside the plot's frame a name's box must sit, points, so it
+/// never meets an axis (Hugh, #1542: "7.8 h" broke the y-axis line).
+const NAME_FRAME_PT: f32 = 4.0;
+
+/// The room between a name's box and its own mark, points (Hugh, #1542:
+/// the "h" touched the end's dot).
+const NAME_MARK_PT: f32 = 3.0;
+
+/// Where a name `size` big goes beside its mark at `at`, `radius` to its
+/// outer edge (Hugh, #1542): to the right, the left, above or below, its
+/// box [`NAME_MARK_PT`] clear of the mark. A place counts only when its
+/// box lies [`NAME_FRAME_PT`] inside `frame`; of those, the first that
+/// covers no dot of `dots` and no drawn step of `steps`, else the one that
+/// covers the fewest. With none inside, the first, moved inside.
 fn place_name(
     at: Pos2,
-    gap: f32,
+    radius: f32,
     size: egui::Vec2,
     frame: egui::Rect,
     dots: &[Pos2],
     steps: &[(Pos2, Pos2)],
 ) -> egui::Rect {
+    let gap = radius + NAME_MARK_PT + NAME_PAD;
+    let room = frame.shrink(NAME_FRAME_PT + NAME_PAD);
     let places = [
         (Align2::LEFT_CENTER, egui::vec2(gap, 0.0)),
         (Align2::RIGHT_CENTER, egui::vec2(-gap, 0.0)),
         (Align2::CENTER_BOTTOM, egui::vec2(0.0, -gap)),
         (Align2::CENTER_TOP, egui::vec2(0.0, gap)),
     ]
-    .map(|(align, off)| keep_inside(align.anchor_size(at + off, size), frame));
+    .map(|(align, off)| align.anchor_size(at + off, size));
     let covered = |r: &egui::Rect| {
-        let r = r.expand(3.0);
+        let r = r.expand(NAME_PAD);
         dots.iter().filter(|d| r.contains(**d)).count()
             + steps
                 .iter()
@@ -650,7 +671,11 @@ fn place_name(
     };
     // `min_by_key` keeps the first of equals, so a clear place in the
     // order above wins.
-    places.into_iter().min_by_key(covered).unwrap_or(places[0])
+    places
+        .into_iter()
+        .filter(|r| room.contains_rect(*r))
+        .min_by_key(covered)
+        .unwrap_or_else(|| keep_inside(places[0], room))
 }
 
 /// `r` moved the least way to lie inside `frame`, where it fits.
@@ -951,7 +976,7 @@ mod tests {
         let above = egui::Rect::from_min_size(egui::pos2(85.0, 77.0), size);
         let below = egui::Rect::from_min_size(egui::pos2(85.0, 111.0), size);
         let place =
-            |dots: &[Pos2], steps: &[(Pos2, Pos2)]| place_name(at, 11.0, size, frame, dots, steps);
+            |dots: &[Pos2], steps: &[(Pos2, Pos2)]| place_name(at, 5.0, size, frame, dots, steps);
         assert_eq!(place(&[], &[]), right);
         // A stub running right from the dot (Walter's walk of #1496).
         let stub_right = (at, egui::pos2(116.0, 100.0));
@@ -967,9 +992,19 @@ mod tests {
             place(&[dot_left], &[stub_right, stub_left, up, down]),
             right
         );
-        // Near an edge each place is kept inside the plot.
-        let edge = place_name(egui::pos2(195.0, 100.0), 11.0, size, frame, &[], &[]);
-        assert!(frame.contains_rect(edge), "{edge:?}");
+        // A place counts only with its box 4 pt inside the frame (Hugh:
+        // "7.8 h" on the left broke the y-axis): near the left edge with a
+        // stub to the right, above.
+        let near = egui::pos2(45.0, 100.0);
+        let stub = (near, egui::pos2(61.0, 100.0));
+        let r = place_name(near, 5.0, size, frame, &[], &[stub]);
+        assert_eq!(r, egui::Rect::from_min_size(egui::pos2(30.0, 77.0), size));
+        // In a corner with no place inside, the first, moved inside.
+        let edge = place_name(egui::pos2(195.0, 195.0), 5.0, size, frame, &[], &[]);
+        assert!(frame.shrink(7.0).contains_rect(edge), "{edge:?}");
+        // The box clears its mark by 3 pt: radius, then 3 pt, then the
+        // box's own 3 pt.
+        assert_eq!(place(&[], &[]).left() - at.x, 5.0 + 3.0 + 3.0);
     }
 
     /// A step to a dot off the scale is drawn as its stub, coloured over
