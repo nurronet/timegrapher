@@ -316,6 +316,7 @@ mod tests {
                 odd_unlock_ms: Some(-6.0),
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect();
         // 10.2 s is beat 51, a Tock; 100.2 s is beat 501, a Tock too, and
@@ -549,6 +550,7 @@ mod tests {
             odd_unlock_ms: Some(-4.0),
             even_drop_ms: Some(0.1),
             odd_drop_ms: Some(0.5),
+            culled_ms: None,
         };
         let mut log = log();
         log.amplitude_windows = vec![window(12.0), window(60.0), window(120.0)];
