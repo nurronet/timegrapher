@@ -221,10 +221,31 @@ impl LiveAnalyzer {
             return;
         };
         let mut l = sh.live;
+        if reads_fewer_sides(&self.amp, &l.amp) {
+            // The shadow is gone and the template stays as first built.
+            self.rebuild.given_up = Some("the file's template read both sides in fewer windows");
+            return;
+        }
         l.rebuild.switch_s = Some(self.duration_s());
         l.rebuild.shift = moved(&self.beats, &l.beats);
         *self = l;
     }
+}
+
+/// Whether `new`'s windows read both sides in under three quarters as
+/// many windows as `old`'s did over the stretch `new` read again (#1500):
+/// on a sound the first chunk's template reads worse than the lock's, the
+/// takeover would lose a live amplitude the listener was being shown.
+fn reads_fewer_sides(old: &[AmplitudeWindow], new: &[AmplitudeWindow]) -> bool {
+    let Some(from) = new.first().map(|w| w.start_s) else {
+        return false;
+    };
+    let both = |ws: &[AmplitudeWindow]| {
+        ws.iter()
+            .filter(|w| w.start_s >= from - 1e-6 && w.mean().is_some())
+            .count()
+    };
+    4 * both(new) < 3 * both(old)
 }
 
 /// The median move of the beats from `old` to `new`, seconds, over the
@@ -315,5 +336,34 @@ mod tests {
         let (dt, di) = moved(&old, &new).unwrap();
         assert!((dt - 0.0003).abs() < 1e-12 && di == 1, "{dt} {di}");
         assert_eq!(moved(&old, &[at(5.0, 0)]), None);
+    }
+
+    /// The takeover is refused when the sound read again gives both sides
+    /// in fewer windows (#1500, Walter's run 11): the lock's template read
+    /// 7 of 10 windows there, the first chunk's 1.
+    #[test]
+    fn a_template_that_reads_fewer_sides_does_not_take_over() {
+        let win = |a: f64, both: bool| AmplitudeWindow {
+            start_s: a,
+            end_s: a + 2.0,
+            even_deg: both.then_some(300.0),
+            odd_deg: Some(330.0),
+            beat_error_ms: None,
+            beat_error_unlock_ms: None,
+            even_unlock_ms: None,
+            odd_unlock_ms: None,
+            even_drop_ms: None,
+            odd_drop_ms: None,
+        };
+        let run = |from: f64, n: usize, k: usize| -> Vec<AmplitudeWindow> {
+            (0..n).map(|i| win(from + 2.0 * i as f64, i < k)).collect()
+        };
+        // Windows before the stretch read again don't count.
+        let mut old = run(0.0, 20, 0);
+        old.extend(run(40.0, 10, 7));
+        assert!(reads_fewer_sides(&old, &run(41.0, 10, 1)));
+        assert!(!reads_fewer_sides(&old, &run(41.0, 10, 6)));
+        assert!(!reads_fewer_sides(&old, &run(41.0, 10, 10)));
+        assert!(!reads_fewer_sides(&old, &[]));
     }
 }

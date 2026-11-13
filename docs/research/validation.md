@@ -162,6 +162,19 @@ faster than sound comes in. Once the re-read catches up, it takes over: the
 first 47 s of readings change once, then, and there is no cut. The gathered
 sound is then let go; `memory_budget` checks that.
 
+The re-read does not take over when it reads both sides in under three
+quarters as many 2 s windows as live's first template did over the same
+stretch. Live then keeps its first template and says why
+(`template_rebuild_given_up`). Walter's live walks of #1500 played the ETA 2824
+holder take through a resampling sound server, which roughly doubled the
+timing scatter (1,090 µs against 420 µs from the file itself, run 11). In
+three of six runs the live amplitude went to "—" at the takeover; on run 11,
+from 41 s to the takeover, the first chunk's template read both sides in 1
+window in 11, against 7 in 10 for the lock's template. The guard keeps the
+lock's template on all three of those captures. `timegrapher analyze` on five of the six saved captures gives no
+whole-take amplitude either, so a file's template reads that damaged sound worse.
+No corpus take used by the test above trips the guard.
+
 The test compares live with `session::measure` over the same interval, from
 the latest cut either reading has to live's last settled beat. It uses the
 equivalence margins (0.3 s/d, 1.5°, 0.03 ms, beat errors by size) on the first
