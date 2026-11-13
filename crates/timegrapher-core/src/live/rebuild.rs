@@ -15,6 +15,12 @@ pub(super) struct Rebuild {
     done: bool,
     /// When the sound read again took over, seconds.
     switch_s: Option<f64>,
+    /// How far the beats moved then: seconds, the median over the beats
+    /// both reads found (the new template's reference point against the
+    /// old one's), and how their count moved.
+    shift: Option<(f64, i64)>,
+    /// Why the template was not built again, when it was not.
+    given_up: Option<&'static str>,
     /// The gathered sound being read again with the template built from
     /// it, a little faster than it comes in, until it catches up.
     shadow: Option<Box<Shadow>>,
@@ -43,6 +49,20 @@ impl LiveAnalyzer {
         self.rebuild.switch_s
     }
 
+    /// How far the beats moved when the first chunk read again took over:
+    /// seconds (the new template's reference point against the old one's)
+    /// and beats in the count, so a view anchored on the old beats can stay
+    /// where it was.
+    pub fn template_shift(&self) -> Option<(f64, i64)> {
+        self.rebuild.shift
+    }
+
+    /// Why the template was not built again from the first chunk, when it
+    /// was not (#1327), for the log: live and a file may then differ.
+    pub fn template_rebuild_given_up(&self) -> Option<&'static str> {
+        self.rebuild.given_up
+    }
+
     /// Whether sound is held to build the template again or being read
     /// again with it.
     pub fn gathering(&self) -> bool {
@@ -57,7 +77,10 @@ impl LiveAnalyzer {
     /// Stop building the template again: what the caller changed (a new
     /// stretch, a pause, its own breaks) has no place in the sound
     /// gathered. The template stays as first built.
-    pub(super) fn give_up_rebuild(&mut self) {
+    pub(super) fn give_up_rebuild(&mut self, why: &'static str) {
+        if !self.rebuild.done && self.template.is_some() {
+            self.rebuild.given_up = Some(why);
+        }
         self.rebuild.gather = None;
         self.rebuild.shadow = None;
         self.rebuild.done = true;
@@ -113,7 +136,7 @@ impl LiveAnalyzer {
                 .first()
                 .is_some_and(|b| b.time < g0 as f64 / self.fs)
             {
-                self.rebuild.done = true;
+                self.give_up_rebuild("the watch was heard again after a silence");
                 return;
             }
             self.rebuild.gather = Some((g0, self.buf[from..].to_vec()));
@@ -136,6 +159,7 @@ impl LiveAnalyzer {
         let Some(t) = crate::stream::first_beats_in(&env, self.fs, Some(bph), a.amplitude_window_s)
             .and_then(|f| f.template)
         else {
+            self.rebuild.given_up = Some("no watch heard in the first chunk");
             return;
         };
         drop(env);
@@ -198,6 +222,98 @@ impl LiveAnalyzer {
         };
         let mut l = sh.live;
         l.rebuild.switch_s = Some(self.duration_s());
+        l.rebuild.shift = moved(&self.beats, &l.beats);
         *self = l;
+    }
+}
+
+/// The median move of the beats from `old` to `new`, seconds, over the
+/// beats both found (each `new` beat paired with the nearest `old` one
+/// within a millisecond), and the move in their count there.
+fn moved(old: &[Beat], new: &[Beat]) -> Option<(f64, i64)> {
+    let mut d: Vec<(f64, i64)> = new
+        .iter()
+        .filter_map(|b| {
+            let i = old.partition_point(|o| o.time < b.time);
+            [i.checked_sub(1), Some(i)]
+                .into_iter()
+                .flatten()
+                .filter_map(|j| old.get(j))
+                .map(|o| (b.time - o.time, b.index - o.index))
+                .filter(|x| x.0.abs() <= 0.001)
+                .min_by(|x, y| x.0.abs().total_cmp(&y.0.abs()))
+        })
+        .collect();
+    if d.is_empty() {
+        return None;
+    }
+    d.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let dt = d[d.len() / 2].0;
+    let mut di: Vec<i64> = d.iter().map(|x| x.1).collect();
+    di.sort_unstable();
+    Some((dt, di[di.len() / 2]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::synth::{generate, SynthConfig};
+
+    fn heard(seconds: f64, then: impl Fn(&mut LiveAnalyzer, f64)) -> LiveAnalyzer {
+        let cfg = SynthConfig {
+            duration_s: seconds,
+            ..Default::default()
+        };
+        let audio = generate(&cfg, |_| 280.0, |_| 0.0);
+        let mut l = LiveAnalyzer::new(cfg.sample_rate, LiveConfig::default());
+        for c in audio.samples.chunks(960) {
+            l.push(c);
+            let t = l.duration_s();
+            then(&mut l, t);
+        }
+        l
+    }
+
+    #[test]
+    fn the_first_chunk_read_again_takes_over_with_the_beats_moved_by_little() {
+        let l = heard(80.0, |_, _| {});
+        let at = l.template_switch_s().expect("taken over");
+        // 47 s gathered, then read again four times faster than it comes.
+        assert!((55.0..70.0).contains(&at), "{at}");
+        assert!(!l.gathering());
+        let (dt, di) = l.template_shift().expect("the beats paired");
+        assert!(dt.abs() < 0.001 && di == 0, "{dt} {di}");
+        assert!(l.breaks().is_empty() && l.template_rebuild_given_up().is_none());
+    }
+
+    #[test]
+    fn a_new_stretch_before_the_takeover_keeps_the_first_template_and_says_why() {
+        let l = heard(80.0, |l, t| {
+            if (30.0..30.02).contains(&t) {
+                l.new_stretch();
+            }
+        });
+        assert_eq!(l.template_switch_s(), None);
+        assert!(!l.gathering());
+        assert_eq!(
+            l.template_rebuild_given_up(),
+            Some("a new stretch began first")
+        );
+    }
+
+    #[test]
+    fn the_beats_move_by_their_median_and_their_count_by_its_median() {
+        let at = |t: f64, index: i64| Beat {
+            time: t,
+            index,
+            quality: 1.0,
+        };
+        let old: Vec<Beat> = (0..10).map(|i| at(i as f64 * 0.2, i)).collect();
+        let new: Vec<Beat> = (0..10)
+            .map(|i| at(i as f64 * 0.2 + 0.0003, i + 1))
+            .collect();
+        let (dt, di) = moved(&old, &new).unwrap();
+        assert!((dt - 0.0003).abs() < 1e-12 && di == 1, "{dt} {di}");
+        assert_eq!(moved(&old, &[at(5.0, 0)]), None);
     }
 }

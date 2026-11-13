@@ -407,7 +407,7 @@ impl LiveAnalyzer {
     /// let go, the profiles start again, and no reading fits across the
     /// break.
     pub fn new_stretch(&mut self) {
-        self.give_up_rebuild();
+        self.give_up_rebuild("a new stretch began first");
         let now = self.duration_s();
         self.breaks.push(now);
         // The count across the handling is a guess: the sides are checked
@@ -508,7 +508,7 @@ impl LiveAnalyzer {
     /// jumps from the imported beat log. Distinct timestamps remain distinct;
     /// a position boundary is not evidence that a nearby jump is the same cut.
     pub fn set_breaks(&mut self, mut breaks: Vec<f64>) {
-        self.give_up_rebuild();
+        self.give_up_rebuild("breaks were set first");
         breaks.extend_from_slice(&self.intrinsic_breaks);
         breaks.sort_by(f64::total_cmp);
         breaks.dedup();
@@ -534,7 +534,7 @@ impl LiveAnalyzer {
     /// buffer starts afresh, and the beats after the pause carry on in time
     /// after a gap (which the readings don't fit across).
     pub fn skip(&mut self, seconds: f64) {
-        self.give_up_rebuild();
+        self.give_up_rebuild("listening paused first");
         let n = (seconds.max(0.0) * self.fs).round() as u64;
         self.total += n;
         self.buf.clear();

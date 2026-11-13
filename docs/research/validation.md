@@ -155,7 +155,9 @@ beat template from its first 47 s chunk and reads that chunk with it. Live now
 does the same. It builds a first template from the window it first hears the
 watch in, so it reads at once. It also gathers the sound until it holds 47 s,
 builds the template again with the file's own recipe
-(`stream::first_beats_in`), and reads that sound again with it, four times
+(`stream::first_beats_in`) from nearly the same sound (live's starts at the
+window it first heard the watch in, the file's where its sound starts), and
+reads that sound again with it, four times
 faster than sound comes in. Once the re-read catches up, it takes over: the
 first 47 s of readings change once, then, and there is no cut. The gathered
 sound is then let go; `memory_budget` checks that.
