@@ -1104,3 +1104,45 @@ fn an_opened_24_hour_half_shows_its_table_and_comparison() {
     }
     assert!(!texts.iter().any(|t| t == "This Take"), "not read again");
 }
+
+/// Over an opened 24 hour half, whose tables have rows, the pane shows
+/// no line for an empty table (Hugh, #1552).
+#[test]
+fn an_opened_24_hour_half_shows_no_empty_table_line() {
+    let row = |position: &str| KeptRow {
+        position: position.into(),
+        rate_s_per_day: Some(2.0),
+        amplitude_deg: Some(280.0),
+        beat_error_ms: None,
+        beat_error_source: None,
+    };
+    let full = FullWind {
+        format: RESULTS_FORMAT.into(),
+        began_utc: "2026-11-12T08:00:00.000Z".into(),
+        began_unix: 1_794_470_400.0,
+        watch: "W".into(),
+        calibre: String::new(),
+        bph: Some(28800),
+        lift_angle_deg: Some(52.0),
+        settle_s: None,
+        measure_s: None,
+        positions: vec![row("DU")],
+        wind_h: None,
+        against: None,
+    };
+    let later = FullWind {
+        wind_h: Some(24.5),
+        against: Some(Box::new(full.clone())),
+        ..full
+    };
+    let texts: Vec<String> = drawn_with(None, None, Some(&later), None)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect();
+    let start = "New Test leads you through the six positions.";
+    assert!(
+        texts.iter().any(|t| t.starts_with("This Test")),
+        "{texts:?}"
+    );
+    assert!(!texts.iter().any(|t| t == start), "{texts:?}");
+}

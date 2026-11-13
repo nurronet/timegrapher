@@ -1482,7 +1482,7 @@ pub fn pane(
                 }
             }
             ui.add_space(10.0);
-            let about = about_text(test, earlier, watch);
+            let about = about_text(test, earlier, (watch, saved.is_some()));
             if !about.is_empty() {
                 ui.add(egui::Label::new(RichText::new(about).color(pal.text_secondary)).wrap());
             }
@@ -1624,8 +1624,14 @@ fn earlier_section(ui: &mut egui::Ui, full: &FullWind, phase: Option<Phase>) -> 
 /// do. With nothing yet, where the test starts; with full-wind results
 /// loaded, what the next test does with them; after a full-wind test, the
 /// test 24 hours after winding. The steps are in its "?" (Hugh, #1528).
-fn about_text(test: Option<&Test>, earlier: Option<&FullWind>, watch: bool) -> &'static str {
+/// None over an opened 24 hour half (`saved`), whose tables have rows.
+fn about_text(
+    test: Option<&Test>,
+    earlier: Option<&FullWind>,
+    (watch, saved): (bool, bool),
+) -> &'static str {
     match (test, earlier) {
+        (None, None) if saved => "",
         (None, None) => "New Test leads you through the six positions.",
         (None, Some(_)) => {
             "Start Test runs the six positions again and sets them against these results."
