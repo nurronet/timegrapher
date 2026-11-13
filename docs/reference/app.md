@@ -885,7 +885,7 @@ when not read.
 
 **Isochronism.** A tab beside the Steadiness panes, from the same run of tests: the
 rate by amplitude in 2° steps (the median rate as a dot, with bars over the
-middle half), the curve through them and where it turns. **View** in its
+middle half; no curve is fitted since 13 Nov, #1510). **View** in its
 toolbar picks this **Curve** or the **Walk** (#741), when core has one:
 the rate against the amplitude for each
 merged stretch of time, each dot coloured by hours since the take's start

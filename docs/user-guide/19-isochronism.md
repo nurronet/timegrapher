@@ -5,15 +5,13 @@
 **What it shows:** the rate at each amplitude. As the mainspring lets
 down, the balance swings less, and a watch's rate moves with it. The pane
 sorts the take's 10 s rate readings by the amplitude of the same reading,
-2° at a time, and shows the rate in each step and the curve through
-them.
+2° at a time, and shows the rate in each step.
 
 **Why you'd use it:** a balance that kept the same rate at every
 amplitude would be **isochronous**. None is quite, and how far the rate
 moves as the amplitude falls is what decides how the watch keeps time
 through a day's wind. Use it on a run-down, or on any take that covers a
-wide range of amplitude, to see how much the rate moves per degree and
-at which amplitude it changes least. After an adjustment to the
+wide range of amplitude, to see how much the rate moves per degree. After an adjustment to the
 hairspring, the balance or the escapement, compare it with a take from
 before.
 
@@ -29,16 +27,9 @@ below shows the whole run, and why the Curve stops there.
 | 3 | The slope | "Between 207° and 251° the rate goes with the amplitude by +0.952 ± 0.005 s/d per degree": a straight line through every reading. |
 | 4 | The ends | The median rate in the lowest and the highest 2° step. |
 | 5 | A dot and its bar | The median rate in one 2° step of amplitude, and a bar over the middle half of its readings. |
-| 6 | The curve | A quadratic through the dots, each weighted by its readings. |
-
-**Where it changes least:** when the curve turns inside the range, a
-third line gives the amplitude where it turns ("It changes least near
-213°"), and a vertical line marks it. In the picture the curve doesn't
-turn, so neither is shown.
 
 **In the picture,** the dots climb in a near-straight line from
-−98.7 s/d at 207° to −57.5 s/d at 251°, and the curve runs through
-nearly every bar: the slope is +0.952 ± 0.005 s/d per degree. This watch
+−98.7 s/d at 207° to −57.5 s/d at 251°: the slope is +0.952 ± 0.005 s/d per degree. This watch
 loses about 1 s/d more for each degree of amplitude it loses, so over
 these 44 hours of the wind its rate moved by 40 s/d. That is its
 isochronism, the figure an adjustment of the hairspring or the
@@ -98,8 +89,6 @@ same amplitudes, so a degree stays put when you switch.
   corrected for the noise in the amplitude readings, with a ± that allows
   for correlated readings. It is withheld when that noise is half or more
   of their variance. M12 gives the method.
-- **The turn** is where the quadratic is flattest, given when it falls in
-  the middle 80% of the range.
 - **The walk** takes the median rate of the 10 s readings and the median
   amplitude of the 2 s windows in each 5 minutes; a 5 minutes with under
   10% of either read is left out, never filled, and one under 60% is drawn
@@ -115,10 +104,9 @@ same amplitudes, so a degree stays put when you switch.
 
 | What you see | What it can mean |
 | --- | --- |
-| A flat curve | The rate barely moves with the amplitude over this range. |
+| Flat dots | The rate barely moves with the amplitude over this range. |
 | The rate rising as the amplitude falls | The watch gains at low amplitude. |
 | The rate falling as the amplitude falls | The watch loses at low amplitude. |
-| A turn inside the range | The amplitude where the rate is least sensitive. |
 | A walk that doubles back | The amplitude rose again: a wind, or a change in the stand or the watch. |
 
 ## What It Can't Tell You
@@ -126,7 +114,7 @@ same amplitudes, so a degree stays put when you switch.
 - **The cause.** The slope says the rate and the amplitude went together.
   Anything else that changed over the take, the temperature or the
   position, moves with them.
-- **Much on a short take.** Over a few degrees, the curve is mostly
+- **Much on a short take.** Over a few degrees, the steps are mostly
   noise. It is made for a run-down of many hours.
 - **A mix of positions.** A take in several positions mixes them, and the
   pane says so.
