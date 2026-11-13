@@ -475,11 +475,18 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
         ui.label(small(&w.last_text));
         ui.label(small(WALK_SINCE));
         if let Some(key) = &w.thin_key {
-            // A faded dot and its name, as the plot draws a thin point.
+            // A full dot beside a faded one, so the fade reads against
+            // its own colour, then the name (Hugh, 13 Nov).
             ui.add_space(12.0);
-            let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-            let c = crate::tfmap::time_colour(dark, 0.5).gamma_multiply(THIN_ALPHA);
-            ui.painter().circle_filled(r.center(), 2.5, c);
+            let full = crate::tfmap::time_colour(dark, 0.5);
+            let (r, _) = ui.allocate_exact_size(egui::vec2(22.0, 10.0), egui::Sense::hover());
+            let p = ui.painter();
+            p.circle_filled(r.left_center() + egui::vec2(KEY_DOT, 0.0), KEY_DOT, full);
+            p.circle_filled(
+                r.right_center() - egui::vec2(KEY_DOT, 0.0),
+                KEY_DOT,
+                full.gamma_multiply(THIN_ALPHA),
+            );
             ui.label(small(key));
         }
     });
@@ -610,6 +617,9 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
 
 /// How strongly a thin dot and its steps are drawn, of their full colour.
 pub const THIN_ALPHA: f32 = 0.35;
+
+/// The radius of the key's two dots, full and thin, points.
+const KEY_DOT: f32 = 4.0;
 
 /// A step of the walk: where it goes from and to, the two dots' times, and
 /// whether either dot is thin.
@@ -916,6 +926,26 @@ mod tests {
         w.rate_only_text = Some("No amplitude read after 1 h.".into());
         let t = texts(&w);
         assert!(t.iter().any(|t| t == "Thin: under 60% read"), "{t:?}");
+        // The key draws a full and a faded dot side by side, at the key's
+        // size, in the same mid colour (Hugh, 13 Nov).
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dark = ctx.style().visuals.dark_mode;
+        let out = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |u| {
+                super::ui(u, Some(&run_down()), Some(&w), View::Walk);
+            });
+        });
+        let key: Vec<egui::Color32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Circle(c) if c.radius == KEY_DOT => Some(c.fill),
+                _ => None,
+            })
+            .collect();
+        let mid = crate::tfmap::time_colour(dark, 0.5);
+        assert_eq!(key, [mid, mid.gamma_multiply(THIN_ALPHA)]);
         assert!(
             t.iter().any(|t| t == "No amplitude read after 1 h."),
             "{t:?}"
