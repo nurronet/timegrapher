@@ -460,7 +460,10 @@ fn a_watch_fading_in_or_after_noise_reads_as_the_watch() {
         let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
         assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
         if let Some(lead) = lead_left_out(&got.caveats) {
-            assert!(lead <= noise_s + fade_s + RATE_WINDOW_S, "{what}: lead {lead}");
+            assert!(
+                lead <= noise_s + fade_s + RATE_WINDOW_S,
+                "{what}: lead {lead}"
+            );
         }
     }
 }
