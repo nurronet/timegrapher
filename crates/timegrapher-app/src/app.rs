@@ -48,6 +48,7 @@ use timegrapher_core::steadiness::SeriesKind;
 mod charts;
 use charts::chart_key;
 pub use charts::paint_key;
+pub use poise_pane::PoiseView;
 pub use position::Position;
 mod dialogs;
 mod distributions;
@@ -62,6 +63,7 @@ mod pane_export;
 mod pane_room;
 mod paper_strip;
 mod picks;
+mod poise_pane;
 mod position;
 mod positions_test;
 mod power_reserve_pane;
@@ -207,7 +209,29 @@ use timegrapher_core::stream::BeatLog;
 enum NewTake {
     Listen,
     Positions,
+    Poise,
     PowerReserve,
+}
+
+impl NewTake {
+    /// A test's name; Listen's is its button's.
+    fn name(self) -> &'static str {
+        match self {
+            NewTake::Listen => "Listen",
+            NewTake::Positions => guided::Kind::Positions.name(),
+            NewTake::Poise => guided::Kind::Poise.name(),
+            NewTake::PowerReserve => "Power Reserve Test",
+        }
+    }
+
+    /// The guided test this is, if it is one.
+    fn guided(self) -> Option<guided::Kind> {
+        match self {
+            NewTake::Positions => Some(guided::Kind::Positions),
+            NewTake::Poise => Some(guided::Kind::Poise),
+            _ => None,
+        }
+    }
 }
 
 /// Open Recording… or Open Folder…, asked before anything is read: add
@@ -555,13 +579,15 @@ pub enum Pane {
     Scope,
     Isochronism,
     PositionsTest,
+    DynamicPoise,
     PowerReserve,
 }
 
 impl Pane {
     /// Every pane, in the order the Panes list shows them.
-    const ALL: [Pane; 17] = [
+    const ALL: [Pane; 18] = [
         Pane::PositionsTest,
+        Pane::DynamicPoise,
         Pane::PowerReserve,
         Pane::Strip,
         Pane::Sound,
@@ -609,7 +635,7 @@ impl Pane {
         Pane::SteadyWavelet,
         Pane::Isochronism,
     ];
-    const TESTS: [Pane; 2] = [Pane::PositionsTest, Pane::PowerReserve];
+    const TESTS: [Pane; 3] = [Pane::PositionsTest, Pane::DynamicPoise, Pane::PowerReserve];
 
     fn title(self) -> &'static str {
         match self {
@@ -630,6 +656,7 @@ impl Pane {
             Pane::Scope => "Scope",
             Pane::Isochronism => "Isochronism",
             Pane::PositionsTest => "Positions Test",
+            Pane::DynamicPoise => "Dynamic Poise",
             Pane::PowerReserve => "Power Reserve",
         }
     }
@@ -639,7 +666,7 @@ impl Pane {
         match self {
             Pane::Watch => {
                 "Your watches and their takes: pick a watch to start Listen, a Positions \
-                 Test or a Power Reserve Test, or open one of its takes"
+                 Test, a Dynamic Poise Test or a Power Reserve Test, or open one of its takes"
             }
             Pane::Strip => "The beats as dots on a paper strip, like a printing timegrapher",
             Pane::Sound => "The typical tick and tock sound, with the edges the readings come from",
@@ -677,6 +704,11 @@ impl Pane {
                 "The six positions one after another, settled and measured in turn, with \
                  their table filling in as it goes, and the test 24 hours after winding \
                  against the one just after"
+            }
+            Pane::DynamicPoise => {
+                "The eight upright positions, 45° apart, settled and measured in turn: the \
+                 once-round wave in the rate as the watch turns, and where the balance's heavy \
+                 spot is"
             }
             Pane::PowerReserve => {
                 "The watch wound fully and listened to in one position until it stops: how \
@@ -725,6 +757,7 @@ fn pane_icon(pane: Pane) -> theme::Icon {
         Pane::SteadyWavelet => Icon::Wavelet,
         Pane::Isochronism => Icon::Isochronism,
         Pane::PositionsTest => Icon::Positions,
+        Pane::DynamicPoise => Icon::Poise,
         Pane::PowerReserve => Icon::Reserve,
         Pane::Charts => Icon::Charts,
         Pane::Distributions => Icon::Distributions,
@@ -808,7 +841,7 @@ const KEEP_HEARD_HINT: &str = "Keep this take in this watch: listening goes on, 
 const POSITIONS_TAKE_PAINT: &str = "A Positions Test sets its own positions; paint a Listen take.";
 /// The hover on a test's setting it can't change while it runs.
 const FIXED_IN_TEST: &str = "Fixed while the test runs.";
-const NEW_TAKES: [(NewTake, &str, &str); 3] = [
+const NEW_TAKES: [(NewTake, &str, &str); 4] = [
     (
         NewTake::Listen,
         "Listen",
@@ -820,6 +853,12 @@ const NEW_TAKES: [(NewTake, &str, &str); 3] = [
         "Positions Test",
         "The six positions one after another, settled and measured in turn, saved into the \
          watch",
+    ),
+    (
+        NewTake::Poise,
+        "Dynamic Poise Test",
+        "The eight upright positions, 45° apart, settled and measured in turn: the rate's \
+         once-round wave and the balance's heavy spot, saved into the watch",
     ),
     (
         NewTake::PowerReserve,
@@ -879,6 +918,7 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
     let steady: Vec<TileId> = Pane::STEADY.map(|p| tiles.insert_pane(p)).to_vec();
     let isochronism = tiles.insert_pane(Pane::Isochronism);
     let positions = tiles.insert_pane(Pane::PositionsTest);
+    let poise = tiles.insert_pane(Pane::DynamicPoise);
     let reserve = tiles.insert_pane(Pane::PowerReserve);
     if let Some(egui_tiles::Tile::Container(c)) = tiles.get_mut(sound) {
         c.add_child(scope);
@@ -889,6 +929,7 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
         }
         c.add_child(isochronism);
         c.add_child(positions);
+        c.add_child(poise);
         c.add_child(reserve);
     }
     // The strip across the middle and the profile across the bottom, with
@@ -1214,6 +1255,10 @@ fn upgraded_layout(mut p: Tree<Pane>) -> Tree<Pane> {
     add_missing(&mut p, Pane::Scope);
     add_missing(&mut p, Pane::Isochronism);
     add_missing(&mut p, Pane::PositionsTest);
+    if p.tiles.find_pane(&Pane::DynamicPoise).is_none() {
+        add_missing(&mut p, Pane::DynamicPoise);
+        set_pane_visible(&mut p.tiles, Pane::DynamicPoise, false);
+    }
     if p.tiles.find_pane(&Pane::PowerReserve).is_none() {
         add_missing(&mut p, Pane::PowerReserve);
         set_pane_visible(&mut p.tiles, Pane::PowerReserve, false);
@@ -1897,6 +1942,9 @@ pub struct TimegrapherApp {
     /// The Current Position card offers ten positions, the four 45°
     /// stops too, rather than six (its 6 | 10 switch, kept).
     ten_positions: bool,
+    /// The Dynamic Poise pane's view, and whether its Info panel shows.
+    poise_view: PoiseView,
+    poise_info: bool,
     guided_settle_s: f64,
     guided_measure_s: f64,
     /// Look for a newer release each time the app starts.
@@ -2234,9 +2282,10 @@ pub struct TimegrapherApp {
     /// Masks on the recording on show let go by the answer to the ask
     /// before listening, so starting doesn't ask again.
     masks_let_go: bool,
-    /// The Positions Test to begin once the ask before listening is
-    /// answered: just after winding (`None`) or the 24 hour half.
-    guided_after_ask: Option<Option<guided::FullWind>>,
+    /// The guided test to begin once the ask before listening is
+    /// answered, and for the Positions Test whether just after winding
+    /// (`None`) or the 24 hour half.
+    guided_after_ask: Option<(guided::Kind, Option<guided::FullWind>)>,
     sound_job: Option<(f64, u64, std::sync::mpsc::Receiver<Profiles>)>,
     /// Offer every input the system lists, not just one per microphone.
     all_inputs: bool,
@@ -2309,6 +2358,8 @@ impl TimegrapherApp {
             steady_info_set: self.steady_info.saved(),
             positions_settle_s: self.guided_settle_s,
             ten_positions: self.ten_positions,
+            poise_view: self.poise_view,
+            poise_info: self.poise_info,
             positions_measure_s: self.guided_measure_s,
             scope: self.scope_view,
             panes: Some(self.panes.clone()),
@@ -2367,6 +2418,8 @@ impl TimegrapherApp {
             positions_settle_s,
             positions_measure_s,
             ten_positions,
+            poise_view,
+            poise_info,
             scope,
             panes,
             panes_dragged,
@@ -2392,6 +2445,7 @@ impl TimegrapherApp {
         self.settings_last = Tab::from_key(&settings_section);
         self.listen_at_open = listen_at_open;
         self.ten_positions = ten_positions;
+        (self.poise_view, self.poise_info) = (poise_view, poise_info);
         (self.mic_set_up, self.setup_declined) = (mic_set_up, setup_declined);
         self.agc_on = agc_on;
         // A layout from before the panes moved starts afresh.
@@ -2515,6 +2569,8 @@ impl TimegrapherApp {
             stop_test_ask: false,
             guided_settle_s: guided::SETTLE_S,
             ten_positions: false,
+            poise_view: PoiseView::default(),
+            poise_info: false,
             guided_measure_s: guided::MEASURE_S,
             check_at_start: true,
             keep_awake: true,
@@ -3059,6 +3115,7 @@ impl TimegrapherApp {
                 self.positions_settings(ui);
                 self.export_button(ui, pane);
             }),
+            Pane::DynamicPoise => self.poise_tools(ui, title),
             Pane::PowerReserve => {
                 let help = help::power_reserve(self.position_card_title);
                 let help: Vec<&str> = help.iter().map(String::as_str).collect();
@@ -3122,21 +3179,21 @@ impl TimegrapherApp {
         } else if self.reserve_running() {
             Some((NewTake::PowerReserve, self.state_words().to_string()))
         } else if let Some(t) = self.guided.as_ref().filter(|_| self.test_listening()) {
-            let of = guided::ORDER.len();
+            let of = t.order().len();
             let step = (t.step + 1).min(of);
+            let kind = match t.kind {
+                guided::Kind::Positions => NewTake::Positions,
+                guided::Kind::Poise => NewTake::Poise,
+            };
             Some((
-                NewTake::Positions,
-                format!("{}, {step} of {of}", t.position().code()),
+                kind,
+                format!("{}, {step} of {of}", t.kind.code(t.position())),
             ))
         } else {
             None
         };
         if let Some((kind, state)) = test {
-            let name = if kind == NewTake::Positions {
-                "Positions Test"
-            } else {
-                "Power Reserve Test"
-            };
+            let name = kind.name();
             let watch = if named.is_empty() {
                 "No watch picked".to_string()
             } else {
@@ -3371,7 +3428,11 @@ impl TimegrapherApp {
     fn too_short(&mut self, ui: &mut egui::Ui, pane: Pane) -> bool {
         let below = match pane {
             // Their own least is kept, or they hold no plot.
-            Pane::Watch | Pane::Strip | Pane::PositionsTest | Pane::PowerReserve => return false,
+            Pane::Watch
+            | Pane::Strip
+            | Pane::PositionsTest
+            | Pane::DynamicPoise
+            | Pane::PowerReserve => return false,
             // A map's key sits under its picture.
             Pane::SteadyStft | Pane::SteadyWavelet => crate::tfmap::KEY_H,
             _ => 0.0,
@@ -3518,12 +3579,14 @@ fn chart_time_label(t: f64, step: f64, r: &std::ops::RangeInclusive<f64>) -> Str
 /// One plot for each reading `shown`, one above the other, sharing the
 /// height left in `ui` evenly. A pane too short for them all draws the
 /// first ones at a readable height and names the rest, rather than
-/// squeezing every plot flat or spilling out of the pane.
+/// squeezing every plot flat or spilling out of the pane: in a line under
+/// the plots, or with `chip`, as words `draw` puts in a grey chip under
+/// the first plot's title (#1528): what isn't shown, and what to do.
 fn stacked(
     ui: &mut egui::Ui,
     shown: [bool; 3],
-    least: f32,
-    mut draw: impl FnMut(&mut egui::Ui, SeriesKind),
+    (least, chip): (f32, bool),
+    mut draw: impl FnMut(&mut egui::Ui, SeriesKind, Option<&(String, String)>),
 ) -> [bool; 3] {
     let kinds: Vec<SeriesKind> = steady::SERIES
         .into_iter()
@@ -3531,19 +3594,23 @@ fn stacked(
         .filter_map(|(k, on)| on.then_some(k))
         .collect();
     let (gap, note) = (6.0, STACKED_NOTE_H);
+    // Each gap also takes the layout's spacing either side of it, so the
+    // last plot's axis isn't cut by the pane's foot.
+    let step_gap = gap + 2.0 * ui.spacing().item_spacing.y;
     let room = ui.available_height();
-    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * gap + note;
+    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * step_gap + note;
     let mut n = kinds.len();
     while n > 1 && fits(n) > room {
         n -= 1;
     }
     let left_out = &kinds[n..];
-    let room = if left_out.is_empty() {
+    let room = if left_out.is_empty() || chip {
         room
     } else {
         room - note
     };
-    let h = ((room - gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
+    let left = (!left_out.is_empty()).then(|| no_room_words(&kinds[..n], left_out));
+    let h = ((room - step_gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
     let w = ui.available_width();
     for (i, &k) in kinds[..n].iter().enumerate() {
         if i > 0 {
@@ -3555,31 +3622,12 @@ fn stacked(
             |ui| {
                 ui.set_min_size(Vec2::new(w, h));
                 ui.set_max_height(h);
-                draw(ui, k);
+                draw(ui, k, left.as_ref().filter(|_| chip && i == 0));
             },
         );
     }
-    if !left_out.is_empty() {
-        let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
-        // The switches are pictures: say which picture turns which off.
-        let switches: Vec<String> = kinds[..n]
-            .iter()
-            .map(|&k| {
-                let picture = match k {
-                    SeriesKind::Rate => "the hare",
-                    SeriesKind::Amplitude => "the swing",
-                    SeriesKind::BeatError => "the seesaw",
-                };
-                format!("{picture} ({})", steady::title(k))
-            })
-            .collect();
-        let line = no_room(
-            &names.join(" and "),
-            &format!(
-                "Make the pane taller, or turn off {}.",
-                switches.join(" or ")
-            ),
-        );
+    if let Some((what, remedy)) = left.as_ref().filter(|_| !chip) {
+        let line = no_room(what, remedy);
         let pal = theme::pal(ui);
         ui.add(egui::Label::new(RichText::new(line).small().color(pal.text_secondary)).truncate());
     }
@@ -3602,8 +3650,39 @@ const SHORT_PLOT_GIVE: f32 = 2.0;
 
 /// The line in place of plots with no room: what is not shown, then the
 /// remedy.
+/// What stacked plots leave out for want of room, `left_out`, in a few
+/// words ("Beat Error not shown: no room"), and what to do: turn off a
+/// plot that is `shown`, by the picture on its switch.
+fn no_room_words(shown: &[SeriesKind], left_out: &[SeriesKind]) -> (String, String) {
+    let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
+    // The switches are pictures: say which picture turns which off.
+    let switches: Vec<String> = shown
+        .iter()
+        .map(|&k| {
+            let picture = match k {
+                SeriesKind::Rate => "the hare",
+                SeriesKind::Amplitude => "the swing",
+                SeriesKind::BeatError => "the seesaw",
+            };
+            format!("{picture} ({})", steady::title(k))
+        })
+        .collect();
+    (
+        names.join(" and "),
+        format!(
+            "Make the pane taller, or turn off {}.",
+            switches.join(" or ")
+        ),
+    )
+}
+
 fn no_room(what: &str, remedy: &str) -> String {
-    format!("{what} not shown: no room. {remedy}")
+    format!("{}. {remedy}", no_room_short(what))
+}
+
+/// [`no_room`] without the remedy, for a chip.
+fn no_room_short(what: &str) -> String {
+    format!("{what} not shown: no room")
 }
 /// The line under stacked plots naming those with no room.
 const STACKED_NOTE_H: f32 = 18.0;
@@ -4504,6 +4583,10 @@ mod keep_tests;
 #[cfg(test)]
 #[path = "app_positions_tests.rs"]
 mod positions_tests;
+
+#[cfg(test)]
+#[path = "app_poise_tests.rs"]
+mod poise_tests;
 
 #[cfg(test)]
 #[path = "app_masks_tests.rs"]

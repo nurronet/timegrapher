@@ -1584,7 +1584,7 @@ fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
 /// values `session` gives, for any interface that shows them.
 #[path = "session_aggregates.rs"]
 mod session_aggregates;
-pub use session_aggregates::{sourced_indices, SourcedFigures};
+pub use session_aggregates::{sourced_indices, sourced_indices_over, SourcedFigures};
 
 fn largest(v: impl Iterator<Item = f64>) -> Option<f64> {
     v.max_by(|a, b| a.abs().total_cmp(&b.abs()))
