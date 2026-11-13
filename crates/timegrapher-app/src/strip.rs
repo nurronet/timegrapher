@@ -24,6 +24,8 @@ pub use timegrapher_core::timing::Anchor;
 
 mod axis;
 #[cfg(test)]
+mod key_tests;
+#[cfg(test)]
 mod still_tests;
 mod sweep;
 
@@ -1026,7 +1028,7 @@ pub fn draw_strip(
         lap.paint_layers(&drags);
     }
     f.paint_grid(&ms_lines, &time_lines);
-    f.paint_key();
+    f.paint_key(beats, period_s, anchor);
     f.paint_scales(&overlays);
     let Some(anchor) = anchor else {
         return input;
@@ -1725,12 +1727,14 @@ impl Frame<'_> {
 
     /// The key: Tick and Tock in their colours, in the corner left of the
     /// track when the strip lies across, else along the top; and the note.
-    fn paint_key(&self) {
+    fn paint_key(&self, beats: &[Beat], period_s: f64, anchor: Option<Anchor>) {
         let (painter, r, outer, vis, font) =
             (&self.painter, self.g.r, self.outer, &self.vis, &self.font);
         let colors = side_colors(vis.dark_mode);
         if self.g.horizontal {
-            self.paint_corner_key(colors);
+            self.paint_corner_key(colors, |area| {
+                anchor.map_or(0, |a| self.dots_in(beats, period_s, a, area))
+            });
         } else {
             let mut at = Pos2::new(r.left(), outer.top() + 3.0);
             for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
@@ -1759,10 +1763,12 @@ impl Frame<'_> {
         }
     }
 
-    /// The key lying across: in the plot's top-left corner, Tick over
-    /// Tock, each a dot and its word in its side's colour, on a plate of
-    /// the plot's ground at 80% under the beats (#1225, Peter's C2).
-    fn paint_corner_key(&self, colors: [Color32; 2]) {
+    /// The key lying across: in the plot's left corner, Tick over Tock,
+    /// each a dot and its word in its side's colour, on a plate of the
+    /// plot's ground at 80% under the beats (#1225, Peter's C2); at the
+    /// top, or at the bottom where fewer of the dots (`dots`) lie, as the
+    /// facts box moves (Hugh, #1536).
+    fn paint_corner_key(&self, colors: [Color32; 2], dots: impl Fn(Rect) -> usize) {
         let (painter, r) = (&self.painter, self.g.r);
         let rows = [("Tick", colors[0]), ("Tock", colors[1])]
             .map(|(w, c)| (painter.layout_no_wrap(w.into(), self.font.clone(), c), c));
@@ -1770,10 +1776,14 @@ impl Frame<'_> {
         let text_x = 4.0 + 2.0 * dot + 4.0;
         let row_h = rows.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max);
         let wide = rows.iter().map(|(g, _)| g.size().x).fold(0.0, f32::max);
-        let plate = Rect::from_min_size(
-            r.min + Vec2::new(4.0, 4.0),
-            Vec2::new(text_x + wide + 4.0, 2.0 * row_h + 4.0),
-        );
+        let size = Vec2::new(text_x + wide + 4.0, 2.0 * row_h + 4.0);
+        let top = Rect::from_min_size(r.min + Vec2::splat(4.0), size);
+        let bottom = Rect::from_min_size(Pos2::new(top.left(), r.bottom() - 4.0 - size.y), size);
+        let plate = if dots(bottom) < dots(top) {
+            bottom
+        } else {
+            top
+        };
         painter.rect_filled(plate, 2.0, self.vis.extreme_bg_color.gamma_multiply(0.8));
         for (i, (g, c)) in rows.into_iter().enumerate() {
             let top = plate.top() + 2.0 + i as f32 * row_h;
@@ -1937,6 +1947,18 @@ impl Frame<'_> {
     /// opaque, so crowded dots don't add up to full strength: a masked
     /// beat is still there to judge the mask by, but reads as unused
     /// (Hugh, #1068 item 2). Without, only the others.
+    /// How many of the beats on show lie in `area`.
+    fn dots_in(&self, beats: &[Beat], period_s: f64, anchor: Anchor, area: Rect) -> usize {
+        let (g, extras) = (&self.g, self.extras);
+        let lo = beats.partition_point(|b| b.time < self.oldest);
+        let hi = beats.partition_point(|b| b.time <= g.end);
+        let lead = |b: &Beat| anchor.lead_on_true(b, period_s, extras.breaks, extras.clock);
+        beats[lo..hi]
+            .iter()
+            .filter(|b| b.is_good() && area.contains(g.pos(wrap(lead(b), g.half), b.time)))
+            .count()
+    }
+
     fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor, masked: bool) {
         let (g, r, extras) = (&self.g, self.g.r, self.extras);
         let lo = beats.partition_point(|b| b.time < self.oldest);
