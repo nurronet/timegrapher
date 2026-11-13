@@ -566,15 +566,15 @@ fn the_sentence_states_the_wave_then_the_heavy_spot() {
     assert_eq!(f.text, f.sentence());
     assert_eq!(
         f.text,
-        "Once-round wave over 4 upright positions: 384.1 ± 1.4 s/d each way from the mean, \
-         fastest at 180.6 ± 0.2° (nearest 6H at the top). Twice-round terms: cos 2α +25.9 ± \
-         1.0 s/d. Amplitude 180°. Heavy spot hangs lowest with 6H at the top (180.6 ± 0.2°). The \
+        "Once-round wave over 4 upright positions: 384.1 ± 1.5 s/d each way from the mean, \
+         fastest at 181 ± 1° (nearest 6H at the top). Twice-round terms: cos 2α +25.9 ± \
+         1.0 s/d. Amplitude 180°. Heavy spot hangs lowest with 6H at the top (181 ± 1°). The \
          heavy spot is from the fit at each position's own amplitude, so it rests on the lift \
          angle."
     );
     assert_eq!(
         f.short_text,
-        "Once-round wave: 384.1 ± 1.4 s/d each way, fastest near 6H at the top · at 180°"
+        "Once-round wave: 384.1 ± 1.5 s/d each way, fastest near 6H at the top · at 180°"
     );
     for p in &mut pts {
         p.amplitude_deg = Some(260.0);
@@ -582,7 +582,7 @@ fn the_sentence_states_the_wave_then_the_heavy_spot() {
     let f = fit(&pts, None).unwrap();
     assert!(
         f.heavy_text
-            .starts_with("Heavy spot hangs lowest with 12H at the top (0.6 ± 0.2°)"),
+            .starts_with("Heavy spot hangs lowest with 12H at the top (1 ± 1°)"),
         "above 219.5° the heavy spot is opposite the fastest hour: {}",
         f.heavy_text
     );

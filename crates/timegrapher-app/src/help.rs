@@ -217,6 +217,12 @@ pub const STRIP: &[&str] = &[
      (live, the newest beat stays at the edge; looking back, the time under the pointer \
      stays put), and Alt (Option on a Mac) and the wheel the width. Drag across to slide the trace; \
      double-click for the newest beats, centred.",
+    "Still Paper (the sheet with a wrapping trace, after Direction) keeps the paper put \
+     while the pen sweeps along it and starts again at the start every Length, wiping \
+     the last lap just ahead of it, as a scope draws. Off, the paper slides along under \
+     the pen, the newest beats at its edge. The time under each stretch of ink is \
+     written beside it. On still paper, dragging moves the pen through time the same way \
+     it moves moving paper.",
     "Mask leaves stretches out of the readings, such as a bump of the stand: with it \
      on, drag along the strip over the beats to mask them (the pointer is a cross), \
      drag a masked stretch's edge to move it (a two-way arrow at the edge), drag with the right button to look back, and click a masked stretch to \

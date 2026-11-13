@@ -446,7 +446,7 @@ fn fft_renderer_paints_input_availability_in_both_rate_displays() {
                 timegrapher_core::spectrum::amplitude_spectrum(&grid, "rate", "ms", 1.0, 600)
                     .unwrap(),
             ];
-        for fft_timing in [false, true] {
+        for (fft_timing, info) in [(false, false), (true, false), (false, true), (true, true)] {
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -464,6 +464,7 @@ fn fft_renderer_paints_input_availability_in_both_rate_displays() {
                         &[true, false, false],
                         Opts {
                             fft_timing,
+                            info,
                             ..Default::default()
                         },
                     );
@@ -478,17 +479,19 @@ fn fft_renderer_paints_input_availability_in_both_rate_displays() {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert!(
+            // Off the plot, in the Info panel only (#1528).
+            assert_eq!(
                 text.contains(if missing {
                     "128 of 256 grid samples available"
                 } else {
                     "256 of 256 grid samples available"
                 }),
+                info,
                 "{text}"
             );
             assert_eq!(
                 text.contains("each size is a sine fitted to the samples present"),
-                missing
+                missing && info
             );
         }
     }

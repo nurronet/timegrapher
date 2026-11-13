@@ -449,9 +449,8 @@ fn keep_in(lo: f64, hi: f64, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
     }
 }
 
-/// A line's value at `x` as the values box writes it: the point there
-/// to the decimals of the ± of the reading it is, as its card showed it,
-/// or with none the figure's `base` decimals (#510 K3, #1063).
+/// A line's value at `x` as the values box writes it: the point there at
+/// the figure's place (`base`), as its card showed it (#1063, #1470).
 pub(super) fn line_value(
     pts: &[[f64; 2]],
     se: fn(&TrendPoint) -> Option<f64>,

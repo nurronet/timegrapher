@@ -586,8 +586,9 @@ fn a_two_way_choice_is_one_icon_wide() {
 
 /// The Paper Strip's toolbar, per the Bench design: Rate, Amplitude and
 /// Beat Error at its left end, then Width and Length; Direction is a
-/// labelled Down | Across control; Unmask All is gone (Edit ▸ Remove All
-/// Masks does it).
+/// Down | Across control in words, with no caption since Still Paper
+/// joined the row (Hugh), Still Paper right after it; Unmask All is gone
+/// (Edit ▸ Remove All Masks does it).
 #[test]
 fn the_strip_direction_is_down_or_across_in_words() {
     let ctx = egui::Context::default();
@@ -616,9 +617,10 @@ fn the_strip_direction_is_down_or_across_in_words() {
             _ => None,
         })
         .collect();
-    for w in ["Direction", "Down", "Across", "Width", "Length"] {
+    for w in ["Down", "Across", "Width", "Length"] {
         assert!(words.iter().any(|t| t == w), "{w} not drawn: {words:?}");
     }
+    assert!(!words.iter().any(|t| t == "Direction"), "{words:?}");
     let keys: Vec<String> = theme::tools_drawn_at(&ctx)
         .into_iter()
         .filter_map(|(k, _)| k.strip_prefix("Paper Strip/").map(str::to_string))
@@ -637,6 +639,7 @@ fn the_strip_direction_is_down_or_across_in_words() {
         "{keys:?}"
     );
     assert!(at("Mask") < at("Direction"), "{keys:?}");
+    assert_eq!(at("Still Paper"), at("Direction") + 1, "{keys:?}");
 }
 
 /// The strip's Width and Length fields show their widest values whole,

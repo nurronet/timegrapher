@@ -147,9 +147,9 @@ impl DeviceClock {
     }
 
     /// The error, as the command line lists a kept clock: its size in ppm
-    /// fast or slow and the rates read on it the other way, each to the
-    /// decimals its ± calls for (#510 K3), as "18.2 ± 0.4 ppm fast (rates
-    /// read 1.57 ± 0.03 s/d slow on it)".
+    /// fast or slow and the rates read on it the other way, each at its
+    /// place (#1470), as "18.2 ± 0.4 ppm fast (rates read 1.6 ± 0.1 s/d
+    /// slow on it)".
     pub fn error_text(&self) -> String {
         use crate::figure_text::{base_digits, figure, figure_with_pm};
         let (runs, reads) = if self.ppm >= 0.0 {
@@ -298,16 +298,16 @@ mod tests {
     }
 
     /// A kept clock's error reads as a size, fast or slow, with the rates
-    /// read on it the other way, each to its ±'s decimals (#514).
+    /// read on it the other way, each at its place (#514, #1470).
     #[test]
     fn a_kept_clocks_error_is_its_size_fast_or_slow() {
         assert_eq!(
             entry("a", 18.2).error_text(),
-            "18.2 ± 0.2 ppm fast (rates read 1.57 s/d slow on it)"
+            "18.2 ± 0.2 ppm fast (rates read 1.6 s/d slow on it)"
         );
         assert_eq!(
             entry("a", -18.2).error_text(),
-            "18.2 ± 0.2 ppm slow (rates read 1.57 s/d fast on it)"
+            "18.2 ± 0.2 ppm slow (rates read 1.6 s/d fast on it)"
         );
         let mut none = entry("a", 25.0);
         none.ppm_sd = None;

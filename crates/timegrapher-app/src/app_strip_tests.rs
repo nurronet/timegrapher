@@ -750,3 +750,28 @@ fn the_takes_span_ends_at_its_newest_beat_or_reading() {
     app.strip_end = None;
     assert_eq!(app.strip_end_s(), beat);
 }
+
+/// Still paper has nothing to fit: Fit leaves the Length alone while the
+/// paper is still, and its newest edge is the latest beat, as with Fit
+/// off. Moving the paper again brings Fit back as it was.
+#[test]
+fn fit_waits_while_the_paper_is_still() {
+    let mut app = synthetic(40.0, 0.0);
+    app.fit_strip();
+    app.strip.still = true;
+    app.strip.set_span(10.0);
+    app.follow_fit();
+    assert_eq!(app.strip.span_s, 10.0, "the Length is the lap");
+    assert!(!app.strip_fitted());
+    app.strip_fit = false;
+    app.fit_strip();
+    assert!(!app.strip_fit, "Fit can't be turned on over still paper");
+    app.strip_fit = true;
+    app.strip.still = false;
+    app.follow_fit();
+    let end = app.take_span().unwrap().1;
+    assert!(
+        (app.strip.span_s - end).abs() < 1e-9,
+        "moving, Fit fits again"
+    );
+}

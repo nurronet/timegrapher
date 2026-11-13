@@ -626,7 +626,7 @@ mod tests {
         };
         let line = rate_amplitude_line(&x);
         assert!(line.contains(" r 0.00 over 719 pairs"), "{line}");
-        assert!(line.contains("0.000 ± 0.002 s/d per degree"), "{line}");
+        assert!(line.contains("0.00 ± 0.01 s/d per degree"), "{line}");
         let line = rate_amplitude_line(&timegrapher_core::amplitude_slope::CrossCorrelation {
             r: 0.92,
             ..x

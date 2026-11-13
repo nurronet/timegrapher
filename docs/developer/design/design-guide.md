@@ -253,7 +253,7 @@ Every pane has one toolbar row, in three named zones that keep their place from 
 
 - **(8) Quantities:** the Rate, Amplitude and Beat Error toggles, at the left, in panes that plot them.
 - **(9) Pane Controls:** this pane's own controls, each a label followed by its control. Groups are split by a separator. When the pane is narrow, this zone folds into "…" from its right end. Quantities and Actions never fold.
-- **(10) Actions:** Export, Info and "?", at the right, in that order. Info (the "i") opens the pane's side panel of full text. Today only the nine Steadiness views have one (their headlines and statistics); a pane without long text has no "i".
+- **(10) Actions:** Export, Info and "?", at the right, in that order. Info (the "i") opens the pane's side panel of full text. A pane without long text has no "i".
 - **A switch in a pane's toolbar changes that pane only; app-wide settings live in Settings or the menus.** Each pane keeps its own switches, even where two panes show the same control, such as Wheel Periods on Periods and FFT.
 
 ### The Info panel
@@ -264,7 +264,7 @@ A pane whose findings take more than a line gets an Info panel instead of text a
 - **In the panel:** the pane's one-line description, then for each shown series its full findings and its statistics (each starting with what it counts), then the stretch it was tested over. The text is selectable, so it can be copied.
 - **Where it is:** a side panel down the right of the pane, 300 pt wide or a third of the pane, whichever is less. Below about 600 pt of pane width, it opens as a pop-over from its button instead.
 - **How it opens:** only from the "i" in the Actions zone. Each pane keeps its own, as every toolbar switch does, so opening it on one Steadiness view leaves the others as they were.
-- **Who has one:** today, the nine Steadiness views. Any pane that would otherwise print paragraphs above its plot gets one, and a pane with no long text has no "i".
+- **Who has one:** every pane with more to say than its title line and facts box ("Where text goes on a pane", section 11). A pane with nothing more has no "i".
 
 No control appears or disappears with the state of the pane. A control that doesn't apply is disabled, with its reason in its hint.
 
@@ -321,9 +321,9 @@ No control appears or disappears with the state of the pane. A control that does
 - **Axes** carry units on their labels ("15 s/d", "0.20 ms"), in Small text. Time runs left to right in minutes and seconds.
 - Overlay axes on the Paper Strip may use short names (Rate, Amp., B.E.); the hover gives the full name.
 - **Log-scale period axes step in watchmaker's units,** never in powers of ten: 1 s, 5 s, 10 s, 30 s, 1 min, 2 min, 5 min, 10 min, 30 min, 1 h, 2 h, 6 h, 12 h. They thin out to the main marks when room is short. Every log axis uses the one source for these marks (core `period_ticks.rs`), so the app, CLI and MCP charts agree.
-- **A key inside the top-right corner** names each series of dots or lines and how many there are, in the series colour: "● 10 s readings (179)". Marks named in words beside them, like the profile's edges and sounds, need no key.
+- **A key inside the top-right corner** names each series of dots or lines and how many there are, in the series colour: "● 10 s readings (179)". Marks named in words beside them, like the profile's edges and sounds, need no key. When the data fills that corner, or the pane already has a key row under the plot (the Isochronism Walk's colour scale), the key goes in that row instead.
 - **Say the scale when it isn't shared.** When rows or plots are scaled differently (each Scope row to its own loudest beat), say so in the hint and the docs.
-- **Notes on a plot are one line and never cut.** Anything longer goes in the pane's Info panel. A plot's short headline sits in its title line.
+- **Notes on a plot are one line and never cut.** Anything longer goes in the pane's Info panel. A plot's short headline sits in its title line. Where each kind of text goes is in "Where text goes on a pane" below.
 - **Give each plot room.** A plot that needs height (wavelet or STFT maps) is shown one at a time, with a choice in the toolbar.
 - **Rate first.** Where a pane can plot several measures, it opens with Rate on and Amplitude and Beat Error off. Rate is most of what people look at, Amplitude most of the rest; Beat Error is there for completeness. The three toggles stay in their fixed place at the left of the toolbar.
 - **Mark stretches of time in a track above the plot, not with lines on it.** The position track is the model: one row above the plot, one stretch per position, named at its start. Each stretch is solid while the watch settles, then fades over 40 s to a light, steady level that lasts to the end of the stretch. A thin line marks each change, and a recorded change always starts solid, so the eye finds every change without reading. A painted change starts at the fade (see "Settling on the position track" below). The same fade runs faintly down the plot behind the beats. See "The position track" in section 7 for its colours.
@@ -335,6 +335,22 @@ No control appears or disappears with the state of the pane. A control that does
   - no line runs through another mark's name: each name sits on a box of the pane's colour;
   - names never sit inside the plot. They stand a short gap away from it, so each line or leader visibly runs out to its name, and a name that would touch another moves one row further out;
   - so a line from the top is an edge, and a ring on the curve is a sound.
+
+### Where text goes on a pane
+
+A pane never prints lines of text beside or above its plot. Each kind of text has one home, and every word comes from core, so the app, CLI and MCP say the same.
+
+| Text | Home | Model |
+|---|---|---|
+| The finding, in one line | The plot's title line | Steadiness views ("Rate · repeats every 46 s, 4.0 s/d peak to peak") |
+| A few results read against the plot, up to five short rows | A facts box on the plot | Tick Tock Profile ("Unlock to Drop 15.72 ms") |
+| One caveat that changes how the plot reads | A grey chip under the title line | Dynamic Poise's band chip |
+| Full findings, statistics, method, what greys mean | The Info panel, opened by "i" (section 9) | Steadiness views |
+| How to use the pane: steps, what a control does | "?" | every pane |
+
+- **Facts box:** rows of a grey name and its value, with values right-aligned. The box is the plot's background at 80%, drawn under the data, so the trace always shows. It goes in the corner the data leaves emptiest, and in the same corner on every plot of a pane. On a short plot, it sheds rows into the hover, keeping the most important.
+- **No text touches an axis or a gridline.** A name or value on a plot sits on a box of the plot's colour, as the profile's mark names do, or in a gap between gridlines.
+- **A pane's own description** ("Rate at each amplitude as the watch runs down.") opens its Info panel. It is not printed on the pane.
 
 ### Scroll and zoom on plots
 
@@ -417,6 +433,7 @@ The same page following the rules:
 - [ ] Toolbar zones are as in section 9.
 - [ ] Title Case for names, and sentences in sentence case.
 - [ ] No text walls.
+- [ ] No lines of text beside or above a plot: each is in the title line, the facts box, a chip, the Info panel or "?" (section 11), and none touches an axis or a gridline.
 - [ ] Colours are the palette's, and a quantity's colour is used only for it.
 - [ ] Dialog buttons are at the bottom right, with the default rightmost.
 - [ ] Every count says what it counts, and every scale that isn't shared is stated.

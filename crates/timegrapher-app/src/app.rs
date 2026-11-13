@@ -2228,6 +2228,9 @@ pub struct TimegrapherApp {
     /// The jumps in the live sound's beats as of the last pass, to see a
     /// new one.
     jumps_seen: Vec<f64>,
+    /// When live's first chunk read again took over and why it was not,
+    /// as last seen (#1327).
+    rebuild_seen: (Option<f64>, Option<&'static str>),
     /// Masks on the recording on show let go by the answer to the ask
     /// before listening, so starting doesn't ask again.
     masks_let_go: bool,
@@ -2677,6 +2680,7 @@ impl TimegrapherApp {
             no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
+            rebuild_seen: (None, None),
             masks_let_go: false,
             guided_after_ask: None,
             sound_job: None,
@@ -2743,6 +2747,27 @@ impl TimegrapherApp {
         }
     }
 
+    /// Live's first chunk read again with the file's template took over
+    /// (#1327): the charts' points are read again, and the strip's anchor
+    /// moves with the beats, so the view stays where it was. A rebuild
+    /// given up is logged, once.
+    fn follow_rebuild(&mut self) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        let now = (live.template_switch_s(), live.template_rebuild_given_up());
+        if now.0 != self.rebuild_seen.0 {
+            self.trend = live.trend(self.average_s);
+            if let (Some(a), Some((dt, di))) = (self.anchor.as_mut(), live.template_shift()) {
+                (a.time, a.index) = (a.time + dt, a.index + di);
+            }
+        }
+        if let Some(why) = now.1.filter(|_| now.1 != self.rebuild_seen.1) {
+            applog::info(&format!("Live kept its first beat template: {why}"));
+        }
+        self.rebuild_seen = now;
+    }
+
     fn latest_s(&self) -> f64 {
         self.live
             .as_ref()
@@ -2761,7 +2786,7 @@ impl TimegrapherApp {
 
     /// With Fit on, the strip's length is the session so far.
     fn follow_fit(&mut self) {
-        if self.strip_fit {
+        if self.strip_fitted() {
             self.strip_end = None;
             self.strip.set_span(self.strip_end_s());
         }
