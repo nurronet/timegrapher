@@ -1657,18 +1657,26 @@ fn map_plot(ui: &mut egui::Ui, r: Row<'_>) {
     );
 }
 
-/// A series' name in the report's spectra and maps.
-/// How much of the grid series `k`'s spectrum was read from, as core
-/// words it (`SpectrumSupport::description`): for the FFT Info panel.
-fn fft_support(s: &Steadiness, k: SeriesKind) -> Option<String> {
+/// Series `k`'s spectrum in the report, when it has one: what the FFT
+/// plot draws and its Info panel's line describes.
+fn spectrum(
+    s: &Steadiness,
+    k: SeriesKind,
+) -> Option<&timegrapher_core::spectrum::AmplitudeSpectrum> {
     let name = series_name(k);
     s.report
         .spectra
         .iter()
         .find(|x| x.series == name && !x.period_s.is_empty())
-        .map(|sp| sp.support.description())
 }
 
+/// How much of the grid series `k`'s spectrum was read from, as core
+/// words it (`SpectrumSupport::description`): for the FFT Info panel.
+fn fft_support(s: &Steadiness, k: SeriesKind) -> Option<String> {
+    spectrum(s, k).map(|sp| sp.support.description())
+}
+
+/// A series' name in the report's spectra and maps.
 fn series_name(k: SeriesKind) -> &'static str {
     match k {
         SeriesKind::Rate => "rate",
@@ -1710,13 +1718,7 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
         pal,
         ..
     } = r;
-    let name = series_name(k);
-    let Some(sp) = s
-        .report
-        .spectra
-        .iter()
-        .find(|x| x.series == name && !x.period_s.is_empty())
-    else {
+    let Some(sp) = spectrum(s, k) else {
         return note(ui, "The spectrum needs a longer session.");
     };
     // Rate's spectrum is of the beat timing, in ms: drawn unless
