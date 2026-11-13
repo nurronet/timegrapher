@@ -218,8 +218,6 @@ pub fn store(storage: &mut dyn eframe::Storage, s: &Settings) {
 mod tests {
     use super::*;
 
-    /// Settings kept by a build before the dB Scale keep their choice:
-    /// a log scale then is the dB Scale now.
     /// Settings kept before the strip had still paper read as moving
     /// paper, every other choice kept.
     #[test]
@@ -233,6 +231,8 @@ mod tests {
         assert_eq!(s.strip.span_s, 120.0);
     }
 
+    /// Settings kept by a build before the dB Scale keep their choice:
+    /// a log scale then is the dB Scale now.
     #[test]
     fn an_older_log_scale_choice_is_kept_as_db() {
         let mut v = serde_json::to_value(Settings::default()).unwrap();

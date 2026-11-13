@@ -278,4 +278,28 @@ mod tests {
         // Moving paper is one stretch over the whole strip.
         assert_eq!(geom(true, Sweep::Moving, 100.0).laps()[0].1, (0.0, 1.0));
     }
+
+    /// A lap's stretch clips at the share it shows from and to, but an end
+    /// at the strip's own end reaches out to the area round it, so labels
+    /// and the track there aren't cut; across the strip, the whole area.
+    #[test]
+    fn a_lap_clips_inside_the_strip_but_not_at_its_ends() {
+        let outer = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(500.0, 400.0));
+        let g = geom(true, Sweep::Still, 100.0);
+        // Strip x from 50 to 450: a quarter along is 150, three quarters 350.
+        let c = g.clip(outer, (0.0, 0.25));
+        assert_eq!((c.left(), c.right()), (0.0, 150.0));
+        assert_eq!(c.y_range(), outer.y_range());
+        let c = g.clip(outer, (0.75, 1.0));
+        assert_eq!((c.left(), c.right()), (350.0, 500.0));
+        let c = g.clip(outer, (0.25, 0.75));
+        assert_eq!((c.left(), c.right()), (150.0, 350.0));
+        // Standing down: strip y from 20 to 320.
+        let g = geom(false, Sweep::Still, 100.0);
+        let c = g.clip(outer, (0.0, 0.5));
+        assert_eq!((c.top(), c.bottom()), (0.0, 170.0));
+        assert_eq!(c.x_range(), outer.x_range());
+        let c = g.clip(outer, (0.5, 1.0));
+        assert_eq!((c.top(), c.bottom()), (170.0, 400.0));
+    }
 }
