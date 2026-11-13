@@ -21,6 +21,8 @@ use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::length_text;
 pub use timegrapher_core::timing::Anchor;
 
+#[cfg(test)]
+mod still_tests;
 mod sweep;
 
 /// Colours of the ticks (even beats) and tocks (odd beats).
@@ -512,6 +514,13 @@ fn track_label(
     plate: Color32,
     horizontal: bool,
 ) {
+    // Only the part of the stretch that shows: on still paper a lap is cut
+    // at the wrap and the blank ahead of the pen, and a name placed by the
+    // whole stretch would be cut there too.
+    let seg = seg.intersect(painter.clip_rect());
+    if !seg.is_positive() {
+        return;
+    }
     let font = FontId::proportional(11.0);
     let room = if horizontal {
         seg.width()
