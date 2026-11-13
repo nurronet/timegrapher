@@ -1612,20 +1612,15 @@ fn the_strip_keeps_the_lift_beside_the_beat_rate_with_no_watch() {
 fn a_found_beat_rate_is_auto_then_the_rate() {
     let mut app = synthetic(40.0, 5.0);
     app.bph = None;
-    let set = app.bph_set_by_calibre();
-    if !set {
-        assert_eq!(
-            app.bph_parts(false, Some(28800)),
-            (Some("Auto"), "28800".to_string())
-        );
-        assert_eq!(app.bph_shown(false, Some(28800)), "Auto 28800");
-        assert_eq!(app.bph_shown(false, None), "Auto");
-    }
+    let found = |rate: &str| (Some("Auto"), rate.to_string());
+    assert_eq!(app.bph_parts(false, Some(28800)), found("28800"));
+    assert_eq!(app.bph_shown(false, Some(28800)), "Auto 28800");
+    assert_eq!(app.bph_parts(false, None), found(""));
+    assert_eq!(app.bph_shown(false, None), "Auto");
     app.bph = Some(21600);
-    assert_eq!(
-        app.bph_parts(false, Some(28800)),
-        (None, "21600 bph".to_string())
-    );
+    let set = (None, "21600 bph".to_string());
+    assert_eq!(app.bph_parts(false, Some(28800)), set);
+    assert_eq!(app.bph_parts(true, Some(28800)), set);
 }
 
 /// With no watch, hovering the strip's watch cell shows one tooltip: the

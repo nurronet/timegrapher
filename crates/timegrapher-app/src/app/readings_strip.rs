@@ -218,10 +218,6 @@ impl TimegrapherApp {
         }
     }
 
-    /// The watch's card in the strip: its name, then its calibre, lift
-    /// angle and beat rate; where that doesn't fit, a watch's name alone
-    /// (its record holds the rest), or in a Quick Listen the lift angle and
-    /// beat rate, which the watchmaker sets there.
     /// The watch cell's facts: the lift angle, "52°", the beat rate as
     /// the Calibre card writes it, "Auto 28800", and the rate alone,
     /// "28800" (`bph_parts`).
@@ -250,6 +246,10 @@ impl TimegrapherApp {
         format!("{calibre} · {angle} · {bph}")
     }
 
+    /// The watch's card in the strip: its name, then its calibre, lift
+    /// angle and beat rate; where that doesn't fit, a watch's name alone
+    /// (its record holds the rest), or in a Quick Listen the lift angle and
+    /// beat rate, which the watchmaker sets there.
     pub(super) fn watch_pieces(&self) -> Vec<Vec<Piece>> {
         let (angle, bph, bare) = self.watch_facts();
         let lift = format!("{angle} · {bph}");
