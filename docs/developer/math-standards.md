@@ -289,7 +289,7 @@ Each item below breaks rule 1, 2 or 4. Each gets an issue. None changes a figure
 
 - **T1. Walk 50% (`walk::walk`, `2 * r.len() < per_bin`).** A literal that differs from rule 2. To be fixed to 10%/60% in Ike's PR.
 - **T2. `session::UNLOCK_COVERAGE_LISTED` 0.6** restates `confidence::MIN_WINDOW_COVERAGE`. Use the one constant.
-- **T3. "30 readings" written five times as a literal** (`steadiness_beat_error.rs`, `amplitude_slope.rs` twice, `analysis.rs` period search, `steady_views.rs` beat error search) beside `MIN_PAIRS` and `joined::MIN_S`. Make it one named constant with `MIN_PAIRS`'s reason, or name each with its own reason.
+- **T3. "30 readings" written six times as a literal** (`steadiness_beat_error.rs`, `amplitude_slope.rs` twice, `analysis.rs` period search, `steady_views.rs` beat error search twice: in `searches` and in the views builder) beside `MIN_PAIRS` and `joined::MIN_S`. Make it one named constant with `MIN_PAIRS`'s reason, or name each with its own reason.
 - **T4. The app's strip rate line needs 6 beats** (`strip.rs` `RateLine`), restating the timing fit's 6 in `timing.rs` `solve`. Name the fit's minimum in core and use it in both.
 - **T5. The anchor's 16 beats** are written in the app (`take_io.rs`) and the CLI (`record_cmd.rs`). Use one core constant.
 - **T6. The app's "no watch yet" waits 6 s** (`readouts.rs` `no_watch_yet`), a literal in the app. Move it to core with its reason.
