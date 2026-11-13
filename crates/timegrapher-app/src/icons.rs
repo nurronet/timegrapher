@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 82] = [
+const ALL: [Icon; 83] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
@@ -91,6 +91,7 @@ const ALL: [Icon; 82] = [
     Icon::Info,
     Icon::IsoCurve,
     Icon::IsoWalk,
+    Icon::StillPaper,
 ];
 
 /// The drawing behind each icon, with the pun it makes.
@@ -388,6 +389,12 @@ fn drawing(icon: Icon) -> &'static str {
         // Dots joined in time order: The walk through the run-down.
         Icon::IsoWalk => {
             r#"<path d="M3.5 20.5h17M3.5 20.5V3.5" stroke-width="1.2"/><path d="M19 5l-4 6-3-1-3 6-3 1" stroke-width="0.8"/><circle cx="19" cy="5" r="1.1" fill="currentColor"/><circle cx="15" cy="11" r="1.1" fill="currentColor"/><circle cx="12" cy="10" r="1.1" fill="currentColor"/><circle cx="9" cy="16" r="1.1" fill="currentColor"/><circle cx="6" cy="17" r="1.1" fill="currentColor"/>"#
+        }
+        // A sheet with a rising trace that runs off its right edge and
+        // carries on from the left: Still paper, the pen wrapping every
+        // Length.
+        Icon::StillPaper => {
+            r#"<rect x="3.5" y="3.5" width="17" height="17" rx="1.5"/><path d="M7 17L20.5 12M3.5 12L12 8.85" stroke-width="1.4"/><circle cx="12" cy="8.85" r="1.2" fill="currentColor"/>"#
         }
         // A watchmaker's screwdriver: Change the watch's details.
         Icon::Screwdriver => {

@@ -425,8 +425,8 @@ of icons, each naming itself and saying what it does on hover, in the
 words this guide uses: a switch is an icon that stays pressed, tinted,
 while it is on; a choice between two settings is one icon showing the
 setting in use, and a click changes to the other (the Paper Strip's
-Direction is the exception: a labelled two-part control, **Down |
-Across**); a choice of more is a row of icons with the picked one tinted.
+Direction is the exception: a two-part control, **Down | Across**, whose
+words name it with no caption before it, "Direction" in its hover); a choice of more is a row of icons with the picked one tinted.
 Icons are for what can be clicked: a setting that holds a value (Width,
 Length, Settle, Span, Beats) shows its name in words before
 its field, with the same hover; a search box keeps the magnifying glass
@@ -1071,7 +1071,7 @@ headers (`span.rs`). No crosshair, as on the other sound plots.
 Error (Draw Over the Strip, below); Width and Length, each one field with
 its presets under its ▾, then Fit; Centre and Auto-Centre; Rate Line and
 Parallel Guides; the Mask tool (scissors) and the Position Brush;
-Direction; and Export. One dot per beat, tick and tock in two colours. Across
+Direction and Still Paper; and Export. One dot per beat, tick and tock in two colours. Across
 the strip is how early or late each beat came against a perfect clock
 beating exactly at the nominal beat rate (every 125 ms at 28,800 bph): a
 beat before that clock's beat is early, after it late, drawn as Witschi's
@@ -1115,6 +1115,22 @@ typed; the app keeps every beat of that long a take, where it used to
 keep only the last day's. Where the beats are more
 than 48 to a point along the strip, every nth tick and its tock are
 drawn, as the rest would only lie under them.
+
+**Still Paper**, the switch after Direction (a sheet with a trace that
+runs off its right edge and carries on from the left, lit while on). Off,
+the paper slides along under the pen, the newest beats at its edge. On,
+the paper stays put and the pen
+sweeps along it, back to the start every Length, as a scope draws: a time
+lies (t mod Length) / Length of the way along, laps starting at take time
+0. The last lap stays ahead of the pen, wiped just in front of it by a
+blank 4% of the strip (at least 8 points), so the strip shows the same
+Length less that blank. Time labels are the take time of the ink under
+them. Lines, bands, masks and the track are drawn a lap at a time, so none
+runs across the wrap or the blank. Looking back, paused or on an opened
+take the pen is at the strip's end, and dragging or the wheel moves it
+through time the same way it moves moving paper. Fit is greyed while the
+paper is still, with nothing to fit; zooming changes the Length about the
+pen. The choice is kept between runs.
 
 **Fit**, the switch beside Length (arrows out to two edges, lit while
 on), shows the whole session so far along the strip, up to the take's
