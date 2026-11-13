@@ -2582,3 +2582,83 @@ pub fn popups_above_dialogs(ctx: &egui::Context) {
         }
     }
 }
+
+/// Narrower than this, a pane's Info panel ("i") opens over its plots.
+pub const INFO_BESIDE_W: f32 = 600.0;
+/// An Info panel's width, or a third of the pane if that is less.
+pub const INFO_W: f32 = 300.0;
+
+/// An Info panel's scrolling body, `id` its own: no taller than `max_h`,
+/// the room on screen, its bar always showing so what is below the edge
+/// is not missed, and opening at its top again whenever it was not drawn
+/// the pass before.
+pub fn info_scroll(ui: &mut Ui, id: egui::Id, max_h: f32, body: impl FnOnce(&mut Ui)) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last = ui.ctx().data_mut(|d| {
+        let last = d.get_temp::<u64>(id);
+        d.insert_temp(id, pass);
+        last
+    });
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(id)
+        .max_height(max_h)
+        .auto_shrink([false, true])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+    if last.is_none_or(|l| l + 1 < pass) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show(ui, body);
+}
+
+/// A pane's body with its Info panel ("i") when `open`: at the right,
+/// [`INFO_W`] or a third of the pane wide, past a rule, in a pane at
+/// least [`INFO_BESIDE_W`] wide; over the body from the pane's top right
+/// corner in a narrower one. `panel` draws the panel's words no taller
+/// than the height it is given, the part of the pane on screen; `id`
+/// keeps the panel over the body apart from another pane's.
+pub fn with_info(
+    ui: &mut Ui,
+    open: bool,
+    id: egui::Id,
+    panel: impl FnOnce(&mut Ui, f32),
+    body: impl FnOnce(&mut Ui),
+) {
+    let pal = pal(ui);
+    let full = ui.available_rect_before_wrap();
+    if open && full.width() >= INFO_BESIDE_W {
+        let w = INFO_W.min(full.width() / 3.0);
+        let gap = 12.0;
+        let plots = full.with_max_x(full.right() - w - gap);
+        // Only the part of the pane on screen, so the panel scrolls rather
+        // than running off the bottom.
+        let side = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
+        ui.painter().vline(
+            side.left() - gap / 2.0,
+            side.y_range(),
+            egui::Stroke::new(1.0_f32, pal.separator),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(side), |ui| {
+            panel(ui, side.height());
+        });
+        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), body);
+        ui.allocate_rect(full, Sense::hover());
+        return;
+    }
+    body(ui);
+    if open {
+        // Over the plots, from the pane's top right corner.
+        let w = INFO_W.min(full.width() - 16.0).max(120.0);
+        let seen = full.intersect(ui.clip_rect());
+        egui::Area::new(id.with("info over"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(full.right() - w - 4.0, seen.top() + 4.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(w - 16.0);
+                    let h = (seen.height() - 24.0).max(80.0);
+                    ui.set_max_height(h);
+                    panel(ui, h);
+                });
+            });
+    }
+}

@@ -868,9 +868,11 @@ fills while listening: its run so far is read in the background once a
 minute of take, "Still listening, no stop found yet" in place of
 the take's end (core `Results::still_listening`), and once more where
 listening stops; a second position clears it. Its wind at the start is not known,
-so its run is never called a power reserve: the line reads "Ran 40 h 12
-min from the take's start" ("Ran at least…" when the take ended first),
-adding "Read from a long take, not a Power Reserve Test", and Save as
+so its run is never called a power reserve: the Info panel's sentence
+reads "Ran 40 h 12 min in … from the take's start" ("Ran at least…" when
+the take ended first), adding "Read from a long take, not a Power Reserve
+Test", the pane shows the grey chip "From a long take, not a Power
+Reserve Test" under its title, and Save as
 CSV and Copy name the row "Ran from the take's start" (core
 `power_reserve::sentence` and `Results::ran`).
 Nothing is written into the take, which stays an ordinary take in the

@@ -52,6 +52,8 @@ const DASH: f32 = 3.0;
 /// A small label's height, points: a ring's rate this near the mean's
 /// name is left out.
 const LABEL_H: f32 = 14.0;
+/// How far out past the outer ring the hours' names sit, points.
+const HOUR_OUT: f32 = 14.0;
 
 /// The upright stops round the face, 45° apart, and the step between.
 fn hours() -> (usize, f64) {
@@ -915,6 +917,19 @@ fn dial_grid(
 ) {
     let small = egui::FontId::proportional(11.0);
     let grid = egui::Stroke::new(1.0_f32, pal.separator);
+    let (n_hours, hour_step) = hours();
+    let names: Vec<(f64, std::sync::Arc<egui::Galley>)> = (0..n_hours)
+        .map(|i| {
+            let deg = i as f64 * hour_step;
+            let galley =
+                painter.layout_no_wrap(poise::hour_code(deg).to_string(), small.clone(), pal.text);
+            (deg, galley)
+        })
+        .collect();
+    let name_boxes: Vec<egui::Rect> = names
+        .iter()
+        .map(|(deg, g)| hour_name_box(dial, *deg, g.size()))
+        .collect();
     let (lo, hi, step) = dial.scale;
     let n = ((hi - lo) / step).round() as i64;
     for k in 0..=n {
@@ -928,18 +943,24 @@ fn dial_grid(
             continue;
         }
         // Each ring's rate on the slowest point's bearing, inside the
-        // wave, on the pane's background (Hugh, #1499).
+        // wave, on the pane's background (Hugh, #1499); left out where it
+        // would touch an hour's name (#1530).
+        let text = chart_scale::axis_number(v, step);
+        let size = painter
+            .layout_no_wrap(text.clone(), small.clone(), pal.text)
+            .size();
+        if !clear_of(dial.at(bearing, r), size, &name_boxes) {
+            continue;
+        }
         backed(
             painter,
             dial.at(bearing, r),
             egui::Align2::CENTER_CENTER,
-            &chart_scale::axis_number(v, step),
+            &text,
             pal,
         );
     }
-    let (n_hours, hour_step) = hours();
-    for i in 0..n_hours {
-        let deg = i as f64 * hour_step;
+    for (i, (deg, galley)) in names.into_iter().enumerate() {
         let half = i % 2 == 1;
         let ink = if half {
             pal.text_tertiary
@@ -947,24 +968,90 @@ fn dial_grid(
             pal.text_secondary
         };
         let spoke = [dial.centre, dial.at(deg, dial.outer)];
+        let name_at = hour_name_box(dial, deg, galley.size()).min;
         if half {
             painter.extend(egui::Shape::dashed_line(&spoke, grid, 2.0, 3.0));
         } else {
             painter.line_segment(spoke, grid);
         }
-        painter.text(
-            dial.at(deg, dial.outer + 14.0),
-            egui::Align2::CENTER_CENTER,
-            poise::hour_code(deg),
-            small.clone(),
-            ink,
-        );
+        painter.galley(name_at, galley, ink);
     }
+}
+
+/// Where an hour's name of `size` sits round the dial at `deg`.
+fn hour_name_box(dial: &Dial, deg: f64, size: Vec2) -> egui::Rect {
+    egui::Align2::CENTER_CENTER.anchor_size(dial.at(deg, dial.outer + HOUR_OUT), size)
+}
+
+/// Whether a label of `size` centred `at`, with its backing, keeps off
+/// every box in `others`.
+fn clear_of(at: egui::Pos2, size: Vec2, others: &[egui::Rect]) -> bool {
+    let label = egui::Align2::CENTER_CENTER
+        .anchor_size(at, size)
+        .expand(BACKING);
+    !others.iter().any(|o| o.intersects(label))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ring number that would touch an hour's name is left out (#1530):
+    /// the outer ring's on the 12H bearing, just under "12H"; one ring in
+    /// is clear.
+    #[test]
+    fn a_ring_number_keeps_off_the_hours_names() {
+        let dial = Dial {
+            centre: egui::pos2(300.0, 300.0),
+            inner: 30.0,
+            outer: 200.0,
+            scale: (0.0, 20.0, 10.0),
+        };
+        let names = [hour_name_box(&dial, 0.0, Vec2::new(22.0, 13.0))];
+        let number = Vec2::new(14.0, 13.0);
+        assert!(!clear_of(dial.at(0.0, dial.outer), number, &names));
+        assert!(clear_of(dial.at(0.0, dial.radius(10.0)), number, &names));
+    }
+
+    /// Drawn, the outer ring's number on the 12H bearing is left out while
+    /// the next ring in keeps its number (#1530, Trevor on #1546).
+    #[test]
+    fn the_drawn_dial_leaves_out_only_the_number_under_an_hours_name() {
+        let dial = Dial {
+            centre: egui::pos2(300.0, 300.0),
+            inner: 30.0,
+            outer: 200.0,
+            scale: (0.0, 20.0, 10.0),
+        };
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::splat(600.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                dial_grid(ui.painter(), &dial, theme::pal(ui), Some((0.0, None)));
+            });
+        });
+        let texts: Vec<String> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        let (outer, next_in) = (
+            chart_scale::axis_number(20.0, 10.0),
+            chart_scale::axis_number(10.0, 10.0),
+        );
+        assert!(texts.iter().any(|t| t == "12H"), "{texts:?}");
+        assert!(!texts.contains(&outer), "{texts:?}");
+        assert!(texts.contains(&next_in), "{texts:?}");
+    }
 
     /// A point under the name's end, not its centre, moves the name off
     /// its bearing: Walter's ETA 2824 run, where "Mean +11.2" on the 6H

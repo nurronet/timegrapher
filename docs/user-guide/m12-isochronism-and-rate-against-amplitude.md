@@ -62,7 +62,12 @@ allows for correlated readings, as in M7.
 
 **The walk.** One point per 5 minutes: the median rate of its 10 s
 readings and the median amplitude of its 2 s windows, each read on its
-own. A 5 minutes with under half of either is left out. Past 250
+own. Each follows the floors every window figure does: read from under
+10% of its readings or windows it is withheld, and a 5 minutes with
+either withheld is left out; under 60% it stands and is drawn faint, its
+hover giving the counts. Only full points set the axes while two stand, so
+a faint point off their range is cut at the plot's edge and counted in the
+key. Past 250
 points (a take over about 20.8 hours) neighbouring 5 minutes are merged,
 10, 15 … minutes a point: each series the mean of the joined medians,
 weighted by their counts.

@@ -531,6 +531,10 @@ pub struct WalkDot {
     /// is within [`WALK_JOIN_BINS`] merged bins, so a left-out stretch or
     /// a break is a gap in the line, never filled (Norm, #1083).
     pub joined: bool,
+    /// Read from under 60% of its windows in either series
+    /// ([`walk::WalkPoint::thin`]): drawn faint, its hover giving the
+    /// counts.
+    pub thin: bool,
 }
 
 /// How far apart, in merged bins, two points may be and still be joined.
@@ -548,6 +552,31 @@ pub struct WalkView {
     pub last_text: String,
     /// The hour beads along the trail ([`walk_beads`]).
     pub beads: Vec<WalkBead>,
+    /// The key's entry for a faint dot ([`walk_thin_key`]), only when a
+    /// dot is thin (Hugh, 11-12).
+    pub thin_key: Option<String>,
+    /// When the rate goes on [`WALK_RATE_ONLY_S`] or more past the last
+    /// point with no amplitude read ([`walk::IsochronismWalk::rate_only_to_s`]),
+    /// the line the facts box says so in (Hugh, 11-12).
+    pub rate_only_text: Option<String>,
+}
+
+/// How far past the walk's last point the rate must go on, with no
+/// amplitude, before the pane says so, seconds: three of the walk's base
+/// bins. The last point sits at its bin's middle and a take's last bin
+/// can be cut short, so a walk read to the take's end stops up to one and
+/// a half bins before it; three bins clear that edge by a whole bin, so
+/// the line names only a stretch the rate was read through with no
+/// amplitude, never the take's own end (Norm, Hugh, 11-12).
+pub const WALK_RATE_ONLY_S: f64 = 3.0 * walk::WALK_BIN_S;
+
+/// The key's entry for a faint dot, beside the colour bar, from core's
+/// coverage floor ([`crate::confidence::MIN_WINDOW_COVERAGE`]).
+pub fn walk_thin_key() -> String {
+    format!(
+        "Thin: under {:.0}% read",
+        crate::confidence::MIN_WINDOW_COVERAGE * 100.0
+    )
 }
 
 /// A bead on the walk's trail marking a round hour: the dot nearest that
@@ -626,11 +655,17 @@ pub fn curve_amp(bin_amps: &[f64], bin_deg: f64) -> Option<(f64, f64)> {
     Some(amp_padded(*bin_amps.first()?, *bin_amps.last()?, bin_deg))
 }
 
-/// The walk's amplitude and rate spans: its dots' padded
-/// ([`amp_padded`], [`rate_padded`]).
+/// The walk's amplitude and rate spans: its full dots' padded
+/// ([`amp_padded`], [`rate_padded`]). A thin dot never sets the axes
+/// while two full ones can (Walter's walk of #1496: one faint point at
+/// 263°, read from 23 of 150 windows, squeezed a 119° to 173° walk into
+/// a third of the width); it is drawn where it falls, cut at the plot's
+/// edge.
 pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
+    let full = dots.iter().filter(|d| !d.thin).count() >= 2;
     let ends = |f: fn(&WalkDot) -> f64| {
         dots.iter()
+            .filter(|d| !full || !d.thin)
             .map(f)
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
                 (l.min(v), h.max(v))
@@ -642,6 +677,20 @@ pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
         amp_padded(a_lo, a_hi, crate::steadiness::ISO_BIN_DEG),
         rate_padded(r_lo, r_hi),
     ]
+}
+
+/// The key's note for the walk's faint dots that fall off the plot whose
+/// axes run over `x` (amplitude) and `y` (rate), or `None` when none do:
+/// a dot cut at the edge is named, never lost (Hugh, 13 Nov, as the
+/// Distributions pane names its outliers). Only a thin dot can fall off,
+/// since the full ones set the axes ([`walk_spans`]).
+pub fn walk_off_scale(dots: &[WalkDot], x: (f64, f64), y: (f64, f64)) -> Option<String> {
+    let inside = |v: f64, (lo, hi): (f64, f64)| (lo..=hi).contains(&v);
+    let off = dots
+        .iter()
+        .filter(|d| !inside(d.amplitude_deg, x) || !inside(d.rate_s_per_day, y))
+        .count();
+    (off > 0).then(|| format!("Faint points off the scale: {off}"))
 }
 
 /// One axis's `(lo, hi, step)` over `span`: round ends on a 1-2-5 step
@@ -688,11 +737,17 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
                 fixed_text(p.amplitude_deg, base_digits::AMPLITUDE),
                 signed_text(p.rate_s_per_day, base_digits::RATE),
             );
-            if p.readings < WALK_FEW_READINGS {
+            if p.thin {
+                hover += &format!(
+                    " · read from {} of {} rate readings and {} of {} amplitude windows",
+                    p.readings, p.rate_slots, p.amp_windows, p.amp_slots
+                );
+            } else if p.readings < WALK_FEW_READINGS {
                 hover += &format!(" · {} readings", p.readings);
             }
             WalkDot {
                 joined: false,
+                thin: p.thin,
                 hours,
                 when: 0.0,
                 amplitude_deg: p.amplitude_deg,
@@ -713,7 +768,20 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
             d.when = (d.hours / last_hours).clamp(0.0, 1.0);
         }
     }
+    let last_t = m.points.last().map_or(0.0, |p| p.t_s);
+    let rate_only_text = w
+        .rate_only_to_s
+        .filter(|to| to - last_t >= WALK_RATE_ONLY_S)
+        .map(|to| {
+            format!(
+                "No amplitude read after {}. The rate to {} is on the Paper Strip.",
+                hours_text(last_hours),
+                hours_text(to / 3600.0)
+            )
+        });
     Some(WalkView {
+        thin_key: dots.iter().any(|d| d.thin).then(walk_thin_key),
+        rate_only_text,
         beads: walk_beads(&dots, last_hours),
         last_text: hours_text(last_hours),
         last_hours,
@@ -1558,6 +1626,80 @@ mod tests {
         assert!(k.windows(2).all(|w| w[0] < w[1]));
     }
 
+    /// A thin dot never sets the walk's axes while two full ones can;
+    /// with fewer, every dot does (Walter's walk of #1496).
+    #[test]
+    fn a_thin_dot_does_not_stretch_the_walk_axes() {
+        let dot = |a: f64, r: f64, thin: bool| WalkDot {
+            hours: 0.0,
+            when: 0.0,
+            amplitude_deg: a,
+            rate_s_per_day: r,
+            hover: String::new(),
+            joined: true,
+            thin,
+        };
+        let full = [dot(119.0, -40.0, false), dot(173.0, -59.0, false)];
+        let mut with_thin = full.to_vec();
+        with_thin.push(dot(263.0, 10.0, true));
+        assert_eq!(walk_spans(&with_thin), walk_spans(&full));
+        let [x, y] = walk_spans(&with_thin);
+        assert_eq!(
+            walk_off_scale(&with_thin, x, y).as_deref(),
+            Some("Faint points off the scale: 1")
+        );
+        assert_eq!(walk_off_scale(&full, x, y), None);
+        // On the edge is on the scale.
+        assert_eq!(walk_off_scale(&with_thin, (x.0, 263.0), (y.0, 10.0)), None);
+        // One full dot: the thin ones count.
+        let few = [dot(119.0, -40.0, false), dot(263.0, 10.0, true)];
+        assert!(walk_spans(&few)[0].1 > 263.0);
+    }
+
+    /// The facts box names a run-down's end whose rate goes on with no
+    /// amplitude, only from 15 min past the last point; the key names the
+    /// faint mark only when a dot is thin, at core's coverage floor.
+    #[test]
+    fn the_walk_says_where_the_rate_goes_on_with_no_amplitude() {
+        let mut w = walk_of(&[
+            (150.0, 301.4, -0.04, 30),
+            (450.0, 300.0, 0.0, 30),
+            (750.0, 299.0, 0.1, 30),
+            (226_650.0, 130.0, -105.0, 30),
+        ]);
+        w.rate_only_to_s = Some(226_650.0 + 899.0);
+        assert_eq!(walk_view(&w).unwrap().rate_only_text, None);
+        // From exactly WALK_RATE_ONLY_S past the last point.
+        w.rate_only_to_s = Some(226_650.0 + WALK_RATE_ONLY_S);
+        assert!(walk_view(&w).unwrap().rate_only_text.is_some());
+        w.rate_only_to_s = Some(234_000.0);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(
+            v.rate_only_text.as_deref(),
+            Some("No amplitude read after 63 h. The rate to 65 h is on the Paper Strip.")
+        );
+        assert_eq!(v.last_text, "63 h");
+        assert_eq!(v.thin_key, None);
+        w.points[0].thin = true;
+        (w.points[0].rate_slots, w.points[0].amp_slots) = (30, 150);
+        (w.points[0].readings, w.points[0].amp_windows) = (9, 45);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(v.thin_key.as_deref(), Some("Thin: under 60% read"));
+        // A thin dot's hover gives its counts; a plain one's does not.
+        assert!(
+            v.dots[0]
+                .hover
+                .ends_with(" · read from 9 of 30 rate readings and 45 of 150 amplitude windows"),
+            "{}",
+            v.dots[0].hover
+        );
+        assert!(
+            !v.dots[1].hover.contains("read from"),
+            "{}",
+            v.dots[1].hover
+        );
+    }
+
     fn walk_of(points: &[(f64, f64, f64, usize)]) -> walk::IsochronismWalk {
         walk::IsochronismWalk {
             bin_s: walk::WALK_BIN_S,
@@ -1571,9 +1713,11 @@ mod tests {
                         amplitude_deg,
                         readings,
                         amp_windows: 5 * readings,
+                        ..Default::default()
                     },
                 )
                 .collect(),
+            ..Default::default()
         }
     }
 
@@ -1613,6 +1757,7 @@ mod tests {
                 rate_s_per_day: 0.0,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect()
     }
@@ -1668,6 +1813,7 @@ mod tests {
                 rate_s_per_day: r,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect();
         // Padded as the charts are (5% or 2°, 15%), then rounded.

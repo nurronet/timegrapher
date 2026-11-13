@@ -281,10 +281,11 @@ fn rows_cut(out: &egui::FullOutput, fill: egui::Color32) -> Vec<String> {
         .collect()
 }
 
-/// Scrolled down the table, with every beat error dimmed: the key is
-/// pinned whole above the pinned titles, and a pinned title shows its
-/// hover (Walter's walk of #1084).
-fn pinned_key_and_hovers(
+/// Scrolled down the table, with every beat error dimmed: the titles are
+/// pinned whole, the grey cells' key is not over them (it is in the Info
+/// panel, #1528), and a pinned title shows its hover (Walter's walk of
+/// #1084).
+fn pinned_titles_and_hovers(
     ctx: &egui::Context,
     app: &mut TimegrapherApp,
     at: egui::Pos2,
@@ -313,11 +314,13 @@ fn pinned_key_and_hovers(
             .min_by(|a, b| a.top().total_cmp(&b.top()))
             .unwrap_or_else(|| panic!("{w}: {name} not whole: {texts:?}"))
     };
-    let key = whole(reserve::DIM_KEY_TEXT);
+    assert!(
+        !texts.iter().any(|t| t.0 == reserve::DIM_KEY_TEXT),
+        "{w}: the key over the table: {texts:?}"
+    );
     let read = whole("Read");
-    assert!(key.bottom() <= read.top(), "{w}: {key:?} {read:?}");
     // The pinned titles sit tight over the first whole row, as in their
-    // own place, the band's slack above the key (Walter's walk of #1097).
+    // own place (Walter's walk of #1097).
     let unit = whole("%");
     let next_row = texts
         .iter()
@@ -422,7 +425,7 @@ fn a_runs_table_starts_at_its_charts_plot_edge() {
             assert!(!rows || titled, "{w}, step {step}: {now:?}");
             shown.extend(now);
         }
-        pinned_key_and_hovers(&ctx, &mut app, at, screen);
+        pinned_titles_and_hovers(&ctx, &mut app, at, screen);
         let head = |name: &str| {
             shown
                 .iter()
@@ -792,7 +795,7 @@ fn a_power_reserve_test_runs_in_the_cards_position() {
     // And the steps before a run.
     let out = ctx.run(egui::RawInput::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| {
-            reserve::pane(ui, None, None, app.position_card_title, "", true);
+            reserve::pane(ui, None, None, (app.position_card_title, ""), true, false);
         });
     });
     assert!(
@@ -1379,4 +1382,19 @@ fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
     }
     assert_eq!(text(&app), text(&here));
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The Power Reserve pane's Info stays as it was left, through the
+/// settings, as the Steadiness panes' does (Trevor's review of #1538).
+#[test]
+fn the_reserve_info_is_kept_in_the_settings() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    assert!(!app.reserve_info);
+    app.reserve_info = true;
+    let mut back = TimegrapherApp::with_devices(Vec::new(), None);
+    back.apply_settings(app.settings());
+    assert!(back.reserve_info);
+    app.reserve_info = false;
+    back.apply_settings(app.settings());
+    assert!(!back.reserve_info);
 }

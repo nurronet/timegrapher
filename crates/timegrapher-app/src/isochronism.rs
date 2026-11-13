@@ -14,8 +14,9 @@ use timegrapher_core::chart_scale::{axis_number, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
-    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
-    WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
+    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_off_scale, walk_spans,
+    WalkDot, WalkView, WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE,
+    WALK_START,
 };
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
@@ -83,6 +84,14 @@ pub fn ui(
         .unwrap_or_default()
     {
         ui.label(RichText::new(line).small().color(pal.text_secondary));
+    }
+    // The facts box's line on a run-down's end whose rate goes on with no
+    // amplitude to place it at (core's, Hugh 11-12).
+    if let Some(t) = walk
+        .filter(|_| view == View::Walk)
+        .and_then(|w| w.rate_only_text.as_ref())
+    {
+        ui.label(RichText::new(t).small().color(pal.text_secondary));
     }
     match (view, curve, walk) {
         (View::Curve, None, _) => note(ui, missing),
@@ -446,6 +455,7 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
     ui.add_space(centre + head);
     let (x, y) = walk_bounds(w);
     let (x, y, grid) = axes(frame.amp.unwrap_or(x), y);
+    let off_scale = walk_off_scale(&w.dots, x, y);
     let resp = chart_plot("isochronism walk", &grid, (h, frame.gutter), x, y)
         .show(ui, |p| grid.draw(p, pal));
     paint_walk(ui, &resp.transform, w);
@@ -466,6 +476,25 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
         crate::tfmap::ramp(ui, 120.0, |t| crate::tfmap::time_colour(dark, t));
         ui.label(small(&w.last_text));
         ui.label(small(WALK_SINCE));
+        if let Some(key) = &w.thin_key {
+            // A full dot beside a faded one, so the fade reads against
+            // its own colour, then the name (Hugh, 13 Nov).
+            ui.add_space(12.0);
+            let full = crate::tfmap::time_colour(dark, 0.5);
+            let (r, _) = ui.allocate_exact_size(egui::vec2(22.0, 10.0), egui::Sense::hover());
+            let p = ui.painter();
+            p.circle_filled(r.left_center() + egui::vec2(KEY_DOT, 0.0), KEY_DOT, full);
+            p.circle_filled(
+                r.right_center() - egui::vec2(KEY_DOT, 0.0),
+                KEY_DOT,
+                full.gamma_multiply(THIN_ALPHA),
+            );
+            ui.label(small(key));
+        }
+        if let Some(off) = &off_scale {
+            ui.add_space(12.0);
+            ui.label(small(off));
+        }
     });
 }
 
@@ -488,29 +517,52 @@ fn walk_bounds(w: &WalkView) -> (Span, Span) {
 /// colour to its last's and lifted wherever core says a dot is not joined
 /// (a stretch left out or a break: never filled); the dots over it; a
 /// ring at each of core's hour beads; a ring at the start and a large dot
-/// at the end; then their names, over everything.
+/// at the end; then their names, over everything. A dot core calls thin
+/// (read from under 60% of its windows), and the steps to and from it,
+/// are drawn at [`THIN_ALPHA`].
 fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let (pal, dark) = (theme::pal(ui), ui.visuals().dark_mode);
     let bg = ui.visuals().extreme_bg_color;
     let colour = |when: f64| crate::tfmap::time_colour(dark, when as f32);
+    let faint = |c: egui::Color32, thin: bool| {
+        if thin {
+            c.gamma_multiply(THIN_ALPHA)
+        } else {
+            c
+        }
+    };
     let pos = |p: [f64; 2]| t.position_from_point(&PlotPoint::new(p[0], p[1]));
     let dots: Vec<Pos2> = w.dots.iter().map(|d| pos(dot_at(d))).collect();
+    // The trail stops at the frame; only the dots spill their radius past
+    // it (Hugh, 13 Nov: a step to a dot off the scale ran to the pane's
+    // edge).
+    let lines = ui.painter().with_clip_rect(*t.frame());
     let p = ui.painter().with_clip_rect(t.frame().expand(8.0));
-    for (from, to, (t0, t1)) in steps(w) {
-        let (a, b) = (pos(from), pos(to));
+    // Thin steps and dots first, so the full ones draw over them (Hugh).
+    let mut steps = steps(w);
+    steps.sort_by_key(|s| !s.3);
+    let frame = *t.frame();
+    for (from, to, (t0, t1), thin) in steps {
+        // A step into or out of a dot off the scale is a stub from the
+        // dot on it (Hugh, 13 Nov: a full step read as data).
+        let Some((a, b, (t0, t1))) = drawn_step(frame, pos(from), pos(to), (t0, t1)) else {
+            continue;
+        };
         // In short runs, so its colour moves from one dot's to the next's.
         let runs = 8;
         for k in 0..runs {
             let f = |k: usize| k as f32 / runs as f32;
             let mid = (f(k) + f(k + 1)) as f64 / 2.0;
-            p.line_segment(
+            lines.line_segment(
                 [a.lerp(b, f(k)), a.lerp(b, f(k + 1))],
-                Stroke::new(2.0_f32, colour(t0 + (t1 - t0) * mid)),
+                Stroke::new(2.0_f32, faint(colour(t0 + (t1 - t0) * mid), thin)),
             );
         }
     }
-    for (d, at) in w.dots.iter().zip(&dots) {
-        p.circle_filled(*at, 2.5, colour(d.when));
+    let mut order: Vec<usize> = (0..w.dots.len()).collect();
+    order.sort_by_key(|&i| !w.dots[i].thin);
+    for (d, at) in order.iter().map(|&i| (&w.dots[i], &dots[i])) {
+        p.circle_filled(*at, 2.5, faint(colour(d.when), d.thin));
     }
     let ring = |at: Pos2, r: f32, when: f64| {
         p.circle(at, r, bg, Stroke::new(2.5_f32, colour(when)));
@@ -529,8 +581,12 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     // #1148).
     let name = |at: Pos2, align: Align2, text: &str| {
         let g = p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
-        let r = align.anchor_size(at, g.size());
-        p.rect_filled(r.expand(2.0), 3.0, bg.gamma_multiply(0.85));
+        // Kept inside the plot, so a name near an edge never sits on an
+        // axis label (Walter's walk of #1496: "8.4 h" on "120").
+        let r = keep_inside(align.anchor_size(at, g.size()), t.frame().shrink(2.0));
+        // Opaque, so a trail under a name never shows through it (Hugh,
+        // 13 Nov: "Start" sat on the purple trail).
+        p.rect_filled(r.expand(3.0), 3.0, bg);
         p.galley(r.min, g, pal.text);
     };
     name(
@@ -578,33 +634,138 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
-/// A step of the walk: where it goes from and to, and the two dots' times.
-type Step = ([f64; 2], [f64; 2], (f64, f64));
+/// The stubs drawn to dot `i`, off the scale: from each dot in `frame`
+/// that a step joins it to ([`stub_toward`]).
+fn stub_ends<'a>(
+    w: &'a WalkView,
+    dots: &'a [Pos2],
+    frame: egui::Rect,
+    i: usize,
+) -> impl Iterator<Item = (Pos2, Pos2)> + 'a {
+    let before = (i > 0 && w.dots[i].joined).then(|| i - 1);
+    let after = (i + 1 < dots.len() && w.dots[i + 1].joined).then_some(i + 1);
+    [before, after].into_iter().flatten().filter_map(move |j| {
+        frame
+            .contains(dots[j])
+            .then(|| stub_toward(frame, dots[j], dots[i]).map(|end| (dots[j], end)))
+            .flatten()
+    })
+}
+
+/// How far `at` is from the segment `a` to `b`.
+fn segment_distance(a: Pos2, b: Pos2, at: Pos2) -> f32 {
+    let ab = b - a;
+    let f = if ab.length_sq() > 0.0 {
+        ((at - a).dot(ab) / ab.length_sq()).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (a + ab * f).distance(at)
+}
+
+/// How long a step into or out of a dot off the scale is drawn, points:
+/// enough to show which way it goes, short of reading as data (Hugh,
+/// 13 Nov).
+const STUB_PT: f32 = 16.0;
+
+/// Where a step from `from` toward `to` ends: at `to` when it lies in
+/// `frame`, a [`STUB_PT`] stub toward it when only `from` does, and no
+/// step when neither does.
+fn stub_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Option<Pos2> {
+    if frame.contains(to) {
+        return Some(to);
+    }
+    frame
+        .contains(from)
+        .then(|| from + (to - from).normalized() * STUB_PT.min(from.distance(to)))
+}
+
+/// The part of a step from `from` to `to`, with times `(t0, t1)`, that
+/// is drawn in `frame`: its ends ([`stub_toward`] each way) and the times
+/// they sit at ([`span_of`]), or `None` when none is drawn.
+fn drawn_step(
+    frame: egui::Rect,
+    from: Pos2,
+    to: Pos2,
+    times: (f64, f64),
+) -> Option<(Pos2, Pos2, (f64, f64))> {
+    let b = stub_toward(frame, from, to)?;
+    let a = stub_toward(frame, to, from)?;
+    Some((a, b, span_of(from, to, a, b, times)?))
+}
+
+/// The times along a step from `from` to `to` that its drawn part, `a`
+/// to `b`, covers, given the step's own `(t0, t1)`.
+fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
+    let len = from.distance(to);
+    let at = |q: Pos2| (q.distance(from) / len) as f64;
+    (len > 0.0).then(|| (t0 + (t1 - t0) * at(a), t0 + (t1 - t0) * at(b)))
+}
+
+/// `r` moved the least way to lie inside `frame`, where it fits.
+fn keep_inside(r: egui::Rect, frame: egui::Rect) -> egui::Rect {
+    let dx = (frame.left() - r.left()).max(0.0) + (frame.right() - r.right()).min(0.0);
+    let dy = (frame.top() - r.top()).max(0.0) + (frame.bottom() - r.bottom()).min(0.0);
+    r.translate(egui::vec2(dx, dy))
+}
+
+/// How strongly a thin dot and its steps are drawn, of their full colour.
+pub const THIN_ALPHA: f32 = 0.35;
+
+/// The radius of the key's two dots, full and thin, points.
+const KEY_DOT: f32 = 4.0;
+
+/// A step of the walk: where it goes from and to, the two dots' times, and
+/// whether either dot is thin.
+type Step = ([f64; 2], [f64; 2], (f64, f64), bool);
 
 /// The walk's steps from each dot to the next one core joins to it.
 fn steps(w: &WalkView) -> Vec<Step> {
     w.dots
         .windows(2)
         .filter(|p| p[1].joined)
-        .map(|p| (dot_at(&p[0]), dot_at(&p[1]), (p[0].when, p[1].when)))
+        .map(|p| {
+            (
+                dot_at(&p[0]),
+                dot_at(&p[1]),
+                (p[0].when, p[1].when),
+                p[0].thin || p[1].thin,
+            )
+        })
         .collect()
 }
 
 /// The dot nearest the pointer, within [`HOVER_PX`].
 fn nearest_dot(w: &WalkView, t: &egui_plot::PlotTransform, at: egui::Pos2) -> Option<usize> {
-    w.dots
-        .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            let pos = t.position_from_point(&egui_plot::PlotPoint::new(
-                d.amplitude_deg,
-                d.rate_s_per_day,
-            ));
-            (i, pos.distance(at))
-        })
-        .filter(|&(_, dist)| dist <= HOVER_PX)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(i, _)| i)
+    let pos =
+        |d: &WalkDot| t.position_from_point(&PlotPoint::new(d.amplitude_deg, d.rate_s_per_day));
+    let dots: Vec<Pos2> = w.dots.iter().map(pos).collect();
+    nearest_of(w, &dots, *t.frame(), at)
+}
+
+/// [`nearest_dot`] on the dots' places on screen, `dots`, in `frame`.
+fn nearest_of(w: &WalkView, dots: &[Pos2], frame: egui::Rect, at: Pos2) -> Option<usize> {
+    let nearest = |found: &mut dyn Iterator<Item = (usize, f32)>| {
+        found
+            .filter(|&(_, dist)| dist <= HOVER_PX)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    };
+    let on = |i: &usize| frame.contains(dots[*i]);
+    // A dot on the plot first; then a dot off the scale, anywhere along
+    // its stubs (Hugh, 13 Nov), since a stub starts on a dot of its own.
+    nearest(
+        &mut (0..dots.len())
+            .filter(on)
+            .map(|i| (i, dots[i].distance(at))),
+    )
+    .or_else(|| {
+        nearest(&mut (0..dots.len()).filter(|i| !on(i)).filter_map(|i| {
+            stub_ends(w, dots, frame, i)
+                .map(|(a, b)| (i, segment_distance(a, b, at)))
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+        }))
+    })
 }
 
 fn note(ui: &mut egui::Ui, text: &str) {
@@ -795,10 +956,12 @@ mod tests {
             amplitude_deg: 290.0 - 4.0 * k as f64,
             readings: 30,
             amp_windows: 150,
+            ..Default::default()
         };
         let w = IsochronismWalk {
             bin_s: WALK_BIN_S,
             points: (0..6).chain(9..12).map(at).collect(),
+            ..Default::default()
         };
         timegrapher_core::steady_views::walk_view(&w).expect("nine points")
     }
@@ -820,6 +983,195 @@ mod tests {
         for (st, from) in s.iter().zip([0, 1, 2, 3, 4, 6, 7]) {
             assert_eq!(st.2, (w.dots[from].when, w.dots[from + 1].when));
         }
+    }
+
+    /// A step to a dot off the scale is a 16 pt stub from the dot on
+    /// it; with neither on it, no step (Hugh, 13 Nov).
+    #[test]
+    fn a_step_off_the_scale_is_a_stub() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let (a, b) = (egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0));
+        assert_eq!(stub_toward(frame, a, b), Some(egui::pos2(66.0, 50.0)));
+        assert_eq!(stub_toward(frame, b, a), Some(a));
+        assert_eq!(stub_toward(frame, b, egui::pos2(300.0, 0.0)), None);
+        // The stub's colours are its share of the step's times.
+        let (t0, t1) = span_of(a, b, a, egui::pos2(66.0, 50.0), (0.0, 1.0)).unwrap();
+        assert_eq!(t0, 0.0);
+        assert!((t1 - 0.08).abs() < 1e-6, "{t1}");
+    }
+
+    /// An off-scale dot's stubs come from each dot a drawn step joins it
+    /// to, never across a break (Walter's walk of #1496), and its hover
+    /// answers along them.
+    #[test]
+    fn an_off_scale_dot_has_a_stub_from_each_joined_neighbour() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let mut w = long_walk();
+        w.dots.truncate(3);
+        let dots = [
+            egui::pos2(10.0, 50.0),
+            egui::pos2(250.0, 50.0),
+            egui::pos2(50.0, 50.0),
+        ];
+        let ends = |w: &WalkView| stub_ends(w, &dots, frame, 1).collect::<Vec<_>>();
+        w.dots[1].joined = true;
+        w.dots[2].joined = true;
+        assert_eq!(
+            ends(&w),
+            [
+                (dots[0], egui::pos2(26.0, 50.0)),
+                (dots[2], egui::pos2(66.0, 50.0))
+            ]
+        );
+        w.dots[1].joined = false;
+        assert_eq!(ends(&w), [(dots[2], egui::pos2(66.0, 50.0))]);
+        w.dots[2].joined = false;
+        assert!(ends(&w).is_empty());
+        assert_eq!(
+            segment_distance(dots[2], egui::pos2(66.0, 50.0), egui::pos2(60.0, 53.0)),
+            3.0
+        );
+    }
+
+    /// A name near the plot's edge is moved the least way to lie inside
+    /// it (Walter's walk of #1496: "8.4 h" on "120").
+    #[test]
+    fn a_name_is_kept_inside_the_plot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let r =
+            |x: f32, y: f32| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(20.0, 10.0));
+        assert_eq!(keep_inside(r(-5.0, 95.0), frame), r(0.0, 90.0));
+        assert_eq!(keep_inside(r(90.0, -3.0), frame), r(80.0, 0.0));
+        assert_eq!(keep_inside(r(40.0, 40.0), frame), r(40.0, 40.0));
+    }
+
+    /// A step to a dot off the scale is drawn as its stub, coloured over
+    /// the stub's own share of the step's times (Hugh, 13 Nov).
+    #[test]
+    fn a_drawn_stub_takes_its_share_of_the_times() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let (on, off) = (egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0));
+        let (a, b, (t0, t1)) = drawn_step(frame, on, off, (0.0, 1.0)).unwrap();
+        assert_eq!((a, b, t0), (on, egui::pos2(66.0, 50.0), 0.0));
+        assert!((t1 - 0.08).abs() < 1e-6, "{t1}");
+        // Into the plot from off it: the last share.
+        let (a, b, (t0, t1)) = drawn_step(frame, off, on, (0.0, 1.0)).unwrap();
+        assert_eq!((a, b, t1), (egui::pos2(66.0, 50.0), on, 1.0));
+        assert!((t0 - 0.92).abs() < 1e-6, "{t0}");
+        assert_eq!(
+            drawn_step(frame, off, egui::pos2(300.0, 0.0), (0.0, 1.0)),
+            None
+        );
+    }
+
+    /// The hover on a stub answers for its dot off the scale; at the dot's
+    /// own place, off the plot, nothing (Hugh, 13 Nov).
+    #[test]
+    fn the_hover_on_a_stub_answers_for_its_dot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let mut w = long_walk();
+        w.dots.truncate(2);
+        w.dots[1].joined = true;
+        let dots = [egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0)];
+        assert_eq!(
+            nearest_of(&w, &dots, frame, egui::pos2(64.0, 52.0)),
+            Some(1)
+        );
+        assert_eq!(
+            nearest_of(&w, &dots, frame, egui::pos2(51.0, 50.0)),
+            Some(0)
+        );
+        assert_eq!(nearest_of(&w, &dots, frame, egui::pos2(250.0, 50.0)), None);
+        w.dots[1].joined = false;
+        assert_eq!(nearest_of(&w, &dots, frame, egui::pos2(64.0, 52.0)), None);
+    }
+
+    /// A dot core calls thin is drawn faint, and so are the steps to and
+    /// from it; the rest at full colour (Norm's floors, 11-12).
+    #[test]
+    fn a_thin_dot_and_its_steps_are_drawn_faint() {
+        let mut w = walk();
+        w.dots[2].thin = true;
+        let thin: Vec<bool> = steps(&w).iter().map(|s| s.3).collect();
+        assert_eq!(thin, [false, true, true, false, false, false, false]);
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dark = ctx.style().visuals.dark_mode;
+        let colour = |when: f64| crate::tfmap::time_colour(dark, when as f32);
+        let out = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |u| {
+                super::ui(u, Some(&run_down()), Some(&w), View::Walk);
+            });
+        });
+        let fills: Vec<egui::Color32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Circle(c) => Some(c.fill),
+                _ => None,
+            })
+            .collect();
+        let faint = colour(w.dots[2].when).gamma_multiply(THIN_ALPHA);
+        assert!(fills.contains(&faint), "{fills:?}");
+        assert!(!fills.contains(&colour(w.dots[2].when)), "{fills:?}");
+        assert!(fills.contains(&colour(w.dots[3].when)), "{fills:?}");
+        // The key names the faint mark, and the facts box core's line on
+        // a rate read past the last point; neither when core gives none.
+        let texts = |w: &WalkView| -> Vec<String> {
+            let ctx = egui::Context::default();
+            theme::install(&ctx);
+            ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |u| {
+                    super::ui(u, Some(&run_down()), Some(w), View::Walk);
+                });
+            })
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+        };
+        w.thin_key = Some("Thin: under 60% read".into());
+        w.rate_only_text = Some("No amplitude read after 1 h.".into());
+        let t = texts(&w);
+        assert!(t.iter().any(|t| t == "Thin: under 60% read"), "{t:?}");
+        // The key draws a full and a faded dot side by side, at the key's
+        // size, in the same mid colour (Hugh, 13 Nov).
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let dark = ctx.style().visuals.dark_mode;
+        let out = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |u| {
+                super::ui(u, Some(&run_down()), Some(&w), View::Walk);
+            });
+        });
+        let key: Vec<egui::Color32> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Circle(c) if c.radius == KEY_DOT => Some(c.fill),
+                _ => None,
+            })
+            .collect();
+        let mid = crate::tfmap::time_colour(dark, 0.5);
+        assert_eq!(key, [mid, mid.gamma_multiply(THIN_ALPHA)]);
+        assert!(
+            t.iter().any(|t| t == "No amplitude read after 1 h."),
+            "{t:?}"
+        );
+        let t = texts(&walk());
+        assert!(!t.iter().any(|t| t.starts_with("Thin:")), "{t:?}");
+        assert!(!t.iter().any(|t| t.starts_with("Faint points")), "{t:?}");
+        // A faint dot far off the scale is counted in the key (Hugh,
+        // 13 Nov).
+        w.dots[2].amplitude_deg += 1000.0;
+        let t = texts(&w);
+        assert!(
+            t.iter().any(|t| t == "Faint points off the scale: 1"),
+            "{t:?}"
+        );
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
@@ -1005,11 +1357,13 @@ mod tests {
                 amplitude_deg: 290.0 - 0.2 * k as f64,
                 readings: 30,
                 amp_windows: 150,
+                ..Default::default()
             })
             .collect();
         let w = IsochronismWalk {
             bin_s: WALK_BIN_S,
             points,
+            ..Default::default()
         };
         timegrapher_core::steady_views::walk_view(&w).expect("a long walk")
     }
@@ -1109,15 +1463,32 @@ mod tests {
         for b in &w.beads {
             assert!(ring(5.0, w.dots[b.dot].when).is_some(), "{}", b.text);
         }
-        // Each name sits on a halo of the plot's background, painted
-        // just before it.
+        // The trail is clipped to the plot's frame exactly (Hugh, 13 Nov).
+        let plot = shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Rect(r) if r.fill == bg => Some(r.rect),
+                _ => None,
+            })
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the plot's background");
+        let trail: Vec<_> = shapes
+            .iter()
+            .filter(|c| matches!(&c.shape, egui::Shape::LineSegment { stroke, .. } if stroke.width == 2.0))
+            .collect();
+        assert!(!trail.is_empty());
+        for c in trail {
+            assert_eq!(c.clip_rect, plot);
+        }
+        // Each name sits on a box of the plot's background, painted just
+        // before it, opaque so no trail shows through (Hugh, 13 Nov).
         for want in ["Start", w.last_text.as_str(), "12 h", "24 h"] {
             let i = shapes
                 .iter()
                 .position(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.text() == want))
                 .unwrap();
             let halo = matches!(&shapes[i - 1].shape,
-                egui::Shape::Rect(r) if r.fill == bg.gamma_multiply(0.85)
+                egui::Shape::Rect(r) if r.fill == bg
                     && r.rect.contains_rect(name(want)));
             assert!(halo, "{want}");
         }
