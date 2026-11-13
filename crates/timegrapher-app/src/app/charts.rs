@@ -11,7 +11,7 @@ impl TimegrapherApp {
         let shown = self.chart_series;
         self.note_need(ui, Pane::Charts, STACKED_MIN_H);
         let (mut moved, mut over, mut newest) = (false, None, false);
-        self.charts_drawn = stacked(ui, shown, STACKED_MIN_H, |ui, k| {
+        self.charts_drawn = stacked(ui, shown, (STACKED_MIN_H, false), |ui, k, _| {
             let (m, hover, at_newest) = self.chart(ui, k);
             moved |= m;
             over = over.or(hover);

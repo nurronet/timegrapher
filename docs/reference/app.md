@@ -1284,7 +1284,8 @@ the swing and the seesaw in the pane's toolbar show or hide the Rate,
 Amplitude and Beat Error charts; the charts shown share the pane's
 height, and at least one stays on. A pane too short for every chart draws
 the first ones at a readable height and names the rest at its foot ("Beat
-Error not shown: no room"); the Distributions pane does the same. Each
+Error not shown: no room"); the Distributions pane names them in a grey
+chip under its first plot's title, what to do in the chip's hover. Each
 reading keeps its colour across
 the app (rate magenta, amplitude violet, beat error amber), so a second line
 of the same reading is told apart by its dashes: amplitude from the ticks

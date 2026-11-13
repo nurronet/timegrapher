@@ -40,6 +40,9 @@ pub(crate) struct FactBox {
     /// shedding rows from the top. `None`: the first rows that fit, at
     /// the full spacing, shedding rows from the bottom.
     pub(crate) keep: Option<fn(f32, usize) -> Vec<usize>>,
+    /// With no `keep`, the rows to shed first when not all fit, in turn;
+    /// the others go after them from the bottom up.
+    pub(crate) shed: Vec<usize>,
 }
 
 /// The box's distance from the plot's corner, points.
@@ -120,8 +123,18 @@ impl FactBox {
         let fit_frame = room(frame.bottom() - FACT_INSET, pad, row);
         match self.keep {
             Some(keep) => keep(self.plot_h, fit_frame),
-            None => (0..fit_frame.min(self.rows.len())).collect(),
+            None => self.kept(fit_frame),
         }
+    }
+
+    /// The `n` rows kept, top to bottom, of a box with no `keep`: those
+    /// in `shed` go first, in turn, then the rest from the bottom up.
+    fn kept(&self, n: usize) -> Vec<usize> {
+        let len = self.rows.len();
+        let mut order: Vec<usize> = self.shed.iter().copied().filter(|&i| i < len).collect();
+        order.extend((0..len).rev().filter(|i| !self.shed.contains(i)));
+        let gone = &order[..len.saturating_sub(n)];
+        (0..len).filter(|i| !gone.contains(i)).collect()
     }
 
     /// The box of `rows` in the top left corner and in the top right.
@@ -172,11 +185,11 @@ impl FactBox {
                 };
                 if !self.covers(t, r, more) {
                     let kept = if self.keep.is_some() {
-                        &shown[shown.len() - n..]
+                        shown[shown.len() - n..].to_vec()
                     } else {
-                        &shown[..n]
+                        self.kept(n)
                     };
-                    return (kept.to_vec(), r);
+                    return (kept, r);
                 }
             }
         }

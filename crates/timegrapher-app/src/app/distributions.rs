@@ -104,12 +104,27 @@ impl TimegrapherApp {
         }
         let shown = self.dist_series;
         self.note_need(ui, Pane::Distributions, DIST_MIN_H);
-        stacked(ui, shown, DIST_MIN_H, |ui, k| self.histogram(ui, k));
+        stacked(ui, shown, (DIST_MIN_H, true), |ui, k, no_room| {
+            self.histogram_with(ui, k, no_room)
+        });
     }
 
     /// How often each value of a reading came up, over the session or the
-    /// strip's length: bars, or the cumulative share.
+    /// strip's length: bars, or the cumulative share. With room for it,
+    /// as the tests draw it.
+    #[cfg(test)]
     pub(super) fn histogram(&mut self, ui: &mut egui::Ui, reading: SeriesKind) {
+        self.histogram_with(ui, reading, None);
+    }
+
+    /// A reading's distribution, with what the pane leaves out for want
+    /// of room and what to do (`no_room`) in a grey chip under its title.
+    fn histogram_with(
+        &mut self,
+        ui: &mut egui::Ui,
+        reading: SeriesKind,
+        no_room: Option<&(String, String)>,
+    ) {
         use timegrapher_core::distribution as dist;
         let pal = theme::pal(ui);
         let short = !self.hist_readings;
@@ -128,6 +143,16 @@ impl TimegrapherApp {
             None => steady::title(reading).to_string(),
         };
         ui.label(theme::caption(&title).color(pal.text_secondary));
+        if let Some((what, remedy)) = no_room {
+            let short = no_room_short(what);
+            theme::chip(
+                ui,
+                &short,
+                &short,
+                std::slice::from_ref(remedy),
+                ui.available_width(),
+            );
+        }
         // The beat error's source in a grey chip under it, core's caveats
         // in the chip's hover (#1528).
         if let Some(src) = source.as_ref().and_then(|s| s.beat_error_source) {
@@ -152,7 +177,7 @@ impl TimegrapherApp {
             );
             return;
         };
-        let facts = facts_box(ui, steady::title(reading), d.fact_rows(kind));
+        let facts = facts_box(ui, steady::title(reading), d.fact_rows(kind), d.fact_shed());
         let (x_lo, x_hi) = (d.edges[0], d.edges[d.edges.len() - 1]);
         let unit_owned = kind.suffix.to_string();
         let cumulative = self.hist_cumulative;
@@ -408,23 +433,7 @@ fn probability_paper(
         ]
     });
     let grid = Grid::new(value_grid, move |g: egui_plot::GridInput| {
-        // From 50% outwards, leaving out a share whose label would crowd
-        // the one before it.
-        let px = 8.0 / g.base_step_size;
-        let mut kept: Vec<f64> = Vec::new();
-        for &(pc, _) in &PROBABILITY_MARKS[5..] {
-            let z = hist::normal_quantile(pc / 100.0);
-            if z <= z_top && kept.last().is_none_or(|&k| (z - k) * px >= 16.0) {
-                kept.push(z);
-            }
-        }
-        kept.iter()
-            .flat_map(|&z| if z == 0.0 { vec![z] } else { vec![z, -z] })
-            .map(|value| GridMark {
-                value,
-                step_size: 1.0,
-            })
-            .collect()
+        probability_grid(8.0 / g.base_step_size, z_top)
     });
     grid.on(plot)
         .y_axis_formatter(|m, _| {
@@ -460,11 +469,11 @@ fn probability_paper(
 
 /// A series' facts box in the top left of its plot, which a rising
 /// curve leaves clear: core's rows ([`Distribution::fact_rows`],
-/// #1528), moving to the right or shedding rows from the bottom where
-/// the values run under it.
+/// #1528), moving to the right or shedding rows in core's order
+/// (`fact_shed`) where the values run under it.
 ///
 /// [`Distribution::fact_rows`]: timegrapher_core::distribution::Distribution::fact_rows
-fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>) -> FactBox {
+fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>, shed: Vec<usize>) -> FactBox {
     let pal = theme::pal(ui);
     let held = ui.id().with(("distribution facts", name));
     FactBox {
@@ -482,8 +491,45 @@ fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>) -> FactBox 
         name_color: pal.text_secondary,
         value_color: pal.text,
         keep: None,
+        shed,
     }
 }
+
+/// Probability paper's share marks, `px` points to one standard
+/// deviation, up to `z_top`: from 50% outwards, leaving out a share
+/// whose label would crowd the one before it. Where that leaves out 1%
+/// and 99%, those and 50% alone (Hugh, #1528), or 50% alone where they
+/// don't fit. The marks kept are [`LABEL_GAP`] apart at least.
+fn probability_grid(px: f64, z_top: f64) -> Vec<GridMark> {
+    use timegrapher_core::histogram as hist;
+    let z = |pc: f64| hist::normal_quantile(pc / 100.0);
+    let mut kept: Vec<f64> = Vec::new();
+    for &(pc, _) in &PROBABILITY_MARKS[5..] {
+        let at = z(pc);
+        if at <= z_top && kept.last().is_none_or(|&k| (at - k) * px >= LABEL_GAP) {
+            kept.push(at);
+        }
+    }
+    let z99 = z(99.0);
+    if z99 <= z_top && !kept.contains(&z99) {
+        kept = if z99 * px >= LABEL_GAP {
+            vec![0.0, z99]
+        } else {
+            vec![0.0]
+        };
+    }
+    // egui_plot labels a mark only where its step spans 20 pt or more,
+    // faint up to 30: the plot's whole height, as the gaps are kept here.
+    let step_size = 2.0 * z_top;
+    kept.iter()
+        .flat_map(|&z| if z == 0.0 { vec![z] } else { vec![z, -z] })
+        .map(|value| GridMark { value, step_size })
+        .collect()
+}
+
+/// The least room between two share labels up probability paper,
+/// points: more than egui_plot's least for a y label, 20.
+const LABEL_GAP: f64 = 22.0;
 
 /// A distribution's value axis: every grid line and label alike, at
 /// least 80 points apart.
@@ -494,6 +540,140 @@ fn value_grid(g: egui_plot::GridInput) -> Vec<GridMark> {
 #[cfg(test)]
 mod source_tests {
     use super::*;
+
+    /// Up a short plot, the share labels thin to 1%, 50% and 99%, each
+    /// labelled; a tall one keeps the shares between (Hugh, #1528).
+    #[test]
+    fn probability_labels_thin_to_the_ends_and_the_middle() {
+        use timegrapher_core::histogram::normal_quantile;
+        let z99 = normal_quantile(0.99);
+        let values = |m: Vec<GridMark>| m.iter().map(|g| g.value).collect::<Vec<_>>();
+        assert_eq!(values(probability_grid(14.0, 3.5)), vec![0.0, z99, -z99]);
+        // Too short even for 1% and 99%: 50% alone.
+        assert_eq!(values(probability_grid(8.0, 3.5)), vec![0.0]);
+        let tall = values(probability_grid(60.0, 3.5));
+        assert!(
+            tall.contains(&normal_quantile(0.9)) && tall.contains(&z99),
+            "{tall:?}"
+        );
+        // Every mark kept is labelled: its step spans the plot.
+        assert!(probability_grid(14.0, 3.5)
+            .iter()
+            .all(|g| g.step_size * 14.0 >= 30.0));
+    }
+
+    /// A box short of room sheds core's rows in core's order: the middle
+    /// 80% first, the values off the scale last (Hugh, #1528).
+    #[test]
+    fn a_short_box_sheds_the_middle_80_first() {
+        let v: Vec<f64> = (0..400)
+            .map(|i| f64::from(i % 50) * 0.1 + if i % 97 == 0 { 40.0 } else { 0.0 })
+            .collect();
+        let d = timegrapher_core::distribution::distribution(
+            &v,
+            timegrapher_core::distribution::RATE,
+            "readings",
+            10.0,
+        )
+        .unwrap();
+        let rows = d.fact_rows(timegrapher_core::distribution::RATE);
+        assert_eq!(rows.len(), 4, "{rows:?}");
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let b = facts_box(ui, "Rate", rows.clone(), d.fact_shed());
+                let frame =
+                    egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 72.0));
+                let t = egui_plot::PlotTransform::new(
+                    frame,
+                    egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
+                    egui::Vec2b::new(false, false),
+                );
+                let names =
+                    |k: Vec<usize>| k.iter().map(|&i| rows[i].0.clone()).collect::<Vec<_>>();
+                // Room for three rows: the middle 80% goes.
+                assert_eq!(names(b.shown(&t)), ["Readings", "Median", "Off the scale"]);
+            });
+        });
+    }
+
+    /// Three plots stacked keep the last one's axis inside the pane: each
+    /// gap's layout spacing is counted (Walter's walk of #1535).
+    #[test]
+    fn the_last_plots_axis_stays_inside_the_pane() {
+        let mut app = super::super::tests::synthetic(300.0, 5.0);
+        app.dist_series = [true; 3];
+        app.update_dist_readings(None);
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        for h in [400.0, 520.0, 700.0] {
+            let mut bottom = (0.0, 0.0);
+            for _ in 0..3 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, h),
+                    )),
+                    ..Default::default()
+                };
+                let mut inner = 0.0;
+                let out = ctx.run(input, |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        inner = ui.max_rect().bottom();
+                        app.distributions_pane(ui);
+                    });
+                });
+                let lowest = out
+                    .shapes
+                    .iter()
+                    .filter(|c| matches!(c.shape, egui::Shape::Text(_)))
+                    .map(|c| c.shape.visual_bounding_rect().bottom())
+                    .fold(0.0, f32::max);
+                bottom = (lowest, inner);
+            }
+            assert!(bottom.0 <= bottom.1 + 0.5, "{h}: {bottom:?}");
+        }
+    }
+
+    /// A pane too short for every plot names what it leaves out in a grey
+    /// chip under the first plot's title, not a line under the plots
+    /// (Hugh, #1528).
+    #[test]
+    fn no_room_is_a_chip_under_the_first_title() {
+        let mut app = super::super::tests::synthetic(122.0, 5.0);
+        app.dist_series = [true; 3];
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut texts = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 200.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.distributions_pane(ui));
+            });
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos.y)),
+                    _ => None,
+                })
+                .collect();
+        }
+        let y = |w: &str| texts.iter().find(|t| t.0 == w).map(|t| t.1);
+        let chip = "Amplitude and Beat Error not shown: no room";
+        assert!(y(chip).is_some(), "{texts:?}");
+        assert!(y("Rate") < y(chip), "{texts:?}");
+        assert!(
+            !texts.iter().any(|t| t.0.contains("Make the pane taller")),
+            "{texts:?}"
+        );
+    }
 
     /// The readings the pane counts are core's (#1144): one per Average
     /// Over, read again when Average Over changes, with the beat error's

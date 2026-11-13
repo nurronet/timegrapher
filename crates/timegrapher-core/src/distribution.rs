@@ -283,6 +283,21 @@ impl Distribution {
         }
         rows
     }
+
+    /// Which of [`Distribution::fact_rows`] a box with too little room
+    /// sheds first, in turn (Hugh, #1528): the middle 80%, then the
+    /// peaks, the median and the count. The values off the scale are
+    /// never shed before them: they say the plot leaves values out.
+    pub fn fact_shed(&self) -> Vec<usize> {
+        let peaks = (self.peaks.len() > 1).then(|| {
+            let off = usize::from(self.below + self.above > 0);
+            3 + off
+        });
+        [Some(2), peaks, Some(1), Some(0)]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
 }
 
 /// A distribution's figures as text, for [`Distribution::line`] and
@@ -636,6 +651,14 @@ mod tests {
         let off = d.below + d.above;
         assert_eq!(names.contains(&"Off the scale"), off > 0);
         assert_eq!(names.contains(&"Peaks"), d.peaks.len() > 1);
+        // Too little room sheds the middle 80% first and keeps the
+        // values off the scale longest.
+        let shed = d.fact_shed();
+        assert_eq!(shed[0], 2);
+        assert_eq!(rows[shed[0]].0, "Middle 80%");
+        if let Some(off) = names.iter().position(|n| *n == "Off the scale") {
+            assert!(!shed.contains(&off), "{shed:?}");
+        }
         let readings = distribution(&v, RATE, "readings", 10.0).unwrap();
         assert_eq!(readings.fact_rows(RATE)[0].0, "Readings");
         // Two states: the peaks row names both.
@@ -658,6 +681,9 @@ mod tests {
         let rows = d.fact_rows(RATE);
         let peaks = &rows.last().unwrap();
         assert_eq!(peaks.0, "Peaks");
+        let shed = d.fact_shed();
+        assert_eq!(rows[shed[1]].0, "Peaks", "{shed:?}");
+        assert_eq!(shed.len(), 4);
         assert!(peaks.1.contains(" s/d and "), "{rows:?}");
         assert!(peaks.1.starts_with('\u{2212}'), "{rows:?}");
     }
