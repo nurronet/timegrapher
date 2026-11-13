@@ -4,6 +4,7 @@ The words this guide uses, each with where to read more.
 
 | Word | What it means | More |
 | --- | --- | --- |
+| **1H30, 4H30, 7H30, 10H30** | The four 45° stops between the crown positions, named by the hour at the top: 1:30 Up and so on. For a stand that stops every 45°. | Chapters 4, 5 |
 | **AGC** (automatic gain control) | A microphone or sound card turning its own level up and down. Keep it off: it changes the loudness of the sounds the app times. | Chapter 3 |
 | **Allan deviation** | How the scatter of an average of the readings changes as the average gets longer. | Chapter 14, M9 |
 | **Amplitude** | How far the balance turns from rest to the end of its swing, in degrees. Worked out from the time from unlock to drop and the lift angle. | Chapter 1, M4 |
