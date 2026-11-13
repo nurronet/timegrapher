@@ -552,11 +552,8 @@ pub static ISOCHRONISM: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         "- Each dot is the median rate in a band of amplitude, with a bar over its middle \
      half."
             .into(),
-        "- The line is the curve through them, and the upright line named Turn marks where \
-     it turns, if it does."
-            .into(),
         format!(
-            "- The curve needs the amplitude to fall through at least {ISO_MIN_BINS} bands of \
+            "- The Curve view needs the amplitude to fall through at least {ISO_MIN_BINS} bands of \
      {ISO_BIN_DEG:.0}° with {ISO_MIN_READINGS} readings in each, which a session of some \
      hours from full wind gives."
         ),
