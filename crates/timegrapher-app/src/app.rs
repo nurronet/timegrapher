@@ -47,7 +47,11 @@ use timegrapher_core::steadiness::SeriesKind;
 
 mod charts;
 use charts::chart_key;
-pub use charts::paint_key;
+pub use charts::{lane_text, lane_width, paint_key, LANE_AFTER_TITLE, LANE_GAP};
+pub use poise_pane::PoiseView;
+pub use position::Position;
+mod complication_pane;
+use new_take::{NewTake, NEW_TAKES};
 mod dialogs;
 mod distributions;
 mod dock;
@@ -60,10 +64,13 @@ mod listen_card;
 pub(crate) mod mac_menu;
 mod masks;
 mod menus;
+mod new_take;
 mod pane_export;
 mod pane_room;
 mod paper_strip;
 mod picks;
+mod poise_pane;
+mod position;
 mod positions_test;
 mod power_reserve_pane;
 mod readings_strip;
@@ -74,6 +81,7 @@ mod settings_pane;
 mod steadiness_panes;
 mod take_io;
 mod take_reads;
+mod test_body;
 mod watches_pane;
 
 use dock::PaneBehavior;
@@ -206,15 +214,7 @@ use crate::session::{self, Action, Session};
 use timegrapher_core::analysis_take;
 use timegrapher_core::recorder::{self, Recorder, SavedCopy, SessionInfo};
 use timegrapher_core::session::{self as core_session, Manifest, RecordedPosition, RecordingEntry};
-use timegrapher_core::stream::{BeatLog, StreamConfig};
-
-/// The kinds of take New Take starts for the watch picked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NewTake {
-    Listen,
-    Positions,
-    PowerReserve,
-}
+use timegrapher_core::stream::BeatLog;
 
 /// Open Recording… or Open Folder…, asked before anything is read: add
 /// the recording to a watch, with what its files don't say filled in, or
@@ -504,98 +504,6 @@ enum CaptureFailure {
     Input(String),
 }
 
-/// The six standard test positions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Position {
-    DialUp,
-    DialDown,
-    CrownUp,
-    CrownDown,
-    CrownLeft,
-    CrownRight,
-}
-
-impl Position {
-    /// A position by any name the session files take: DU, CH, "dial up"…
-    pub(crate) fn from_name(s: &str) -> Option<Position> {
-        Self::of_core(timegrapher_core::session::Position::parse(s)?)
-    }
-
-    /// The window's position for core's, by its common code.
-    pub(crate) fn of_core(p: timegrapher_core::session::Position) -> Option<Position> {
-        let common = p.common();
-        Position::ALL.into_iter().find(|p| p.code() == common)
-    }
-
-    pub const ALL: [Position; 6] = [
-        Position::DialUp,
-        Position::DialDown,
-        Position::CrownUp,
-        Position::CrownDown,
-        Position::CrownLeft,
-        Position::CrownRight,
-    ];
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Position::DialUp => "DU",
-            Position::DialDown => "DD",
-            Position::CrownUp => "CU",
-            Position::CrownDown => "CD",
-            Position::CrownLeft => "CL",
-            Position::CrownRight => "CR",
-        }
-    }
-
-    /// Witschi's name: the hour that points up for a crown position, CH
-    /// and CB (cadran haut, cadran bas) lying flat.
-    pub fn witschi(self) -> &'static str {
-        match self {
-            Position::DialUp => "CH",
-            Position::DialDown => "CB",
-            Position::CrownUp => "3H",
-            Position::CrownDown => "9H",
-            Position::CrownLeft => "6H",
-            Position::CrownRight => "12H",
-        }
-    }
-
-    /// How the watch lies, for its picture on the Current Position card.
-    fn lying(self) -> crate::icons::Lying {
-        use crate::icons::Lying;
-        match self {
-            Position::DialUp => Lying::DialUp,
-            Position::DialDown => Lying::DialDown,
-            Position::CrownUp => Lying::Hour(3),
-            Position::CrownDown => Lying::Hour(9),
-            Position::CrownLeft => Lying::Hour(6),
-            Position::CrownRight => Lying::Hour(12),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Position::DialUp => "Dial Up (DU)",
-            Position::DialDown => "Dial Down (DD)",
-            Position::CrownUp => "Crown Up (CU, 3H)",
-            Position::CrownDown => "Crown Down (CD, 9H)",
-            Position::CrownLeft => "Crown Left (CL, 6H)",
-            Position::CrownRight => "Crown Right (CR, 12H)",
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Position::DialUp => "Dial Up",
-            Position::DialDown => "Dial Down",
-            Position::CrownUp => "Crown Up",
-            Position::CrownDown => "Crown Down",
-            Position::CrownLeft => "Crown Left",
-            Position::CrownRight => "Crown Right",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Input {
     Microphone,
@@ -654,13 +562,17 @@ pub enum Pane {
     Scope,
     Isochronism,
     PositionsTest,
+    DynamicPoise,
+    Complication,
     PowerReserve,
 }
 
 impl Pane {
     /// Every pane, in the order the Panes list shows them.
-    const ALL: [Pane; 17] = [
+    const ALL: [Pane; 19] = [
         Pane::PositionsTest,
+        Pane::DynamicPoise,
+        Pane::Complication,
         Pane::PowerReserve,
         Pane::Strip,
         Pane::Sound,
@@ -708,7 +620,12 @@ impl Pane {
         Pane::SteadyWavelet,
         Pane::Isochronism,
     ];
-    const TESTS: [Pane; 2] = [Pane::PositionsTest, Pane::PowerReserve];
+    const TESTS: [Pane; 4] = [
+        Pane::PositionsTest,
+        Pane::DynamicPoise,
+        Pane::Complication,
+        Pane::PowerReserve,
+    ];
 
     fn title(self) -> &'static str {
         match self {
@@ -729,6 +646,8 @@ impl Pane {
             Pane::Scope => "Scope",
             Pane::Isochronism => "Isochronism",
             Pane::PositionsTest => "Positions Test",
+            Pane::DynamicPoise => "Dynamic Poise",
+            Pane::Complication => "Complication",
             Pane::PowerReserve => "Power Reserve",
         }
     }
@@ -738,7 +657,8 @@ impl Pane {
         match self {
             Pane::Watch => {
                 "Your watches and their takes: pick a watch to start Listen, a Positions \
-                 Test or a Power Reserve Test, or open one of its takes"
+                 Test, a Dynamic Poise Test, a Complication Test or a Power Reserve Test, or \
+                 open one of its takes"
             }
             Pane::Strip => "The beats as dots on a paper strip, like a printing timegrapher",
             Pane::Sound => "The typical tick and tock sound, with the edges the readings come from",
@@ -776,6 +696,16 @@ impl Pane {
                 "The six positions one after another, settled and measured in turn, with \
                  their table filling in as it goes, and the test 24 hours after winding \
                  against the one just after"
+            }
+            Pane::DynamicPoise => {
+                "The eight upright positions, 45° apart, settled and measured in turn: the \
+                 once-round wave in the rate as the watch turns, and where the balance's heavy \
+                 spot is"
+            }
+            Pane::Complication => {
+                "One position with a complication off, on, then off again, settled and \
+                 measured in turn: how much it lowers the amplitude and moves the rate and \
+                 beat error"
             }
             Pane::PowerReserve => {
                 "The watch wound fully and listened to in one position until it stops: how \
@@ -824,6 +754,8 @@ fn pane_icon(pane: Pane) -> theme::Icon {
         Pane::SteadyWavelet => Icon::Wavelet,
         Pane::Isochronism => Icon::Isochronism,
         Pane::PositionsTest => Icon::Positions,
+        Pane::DynamicPoise => Icon::Poise,
+        Pane::Complication => Icon::Complication,
         Pane::PowerReserve => Icon::Reserve,
         Pane::Charts => Icon::Charts,
         Pane::Distributions => Icon::Distributions,
@@ -907,25 +839,6 @@ const KEEP_HEARD_HINT: &str = "Keep this take in this watch: listening goes on, 
 const POSITIONS_TAKE_PAINT: &str = "A Positions Test sets its own positions; paint a Listen take.";
 /// The hover on a test's setting it can't change while it runs.
 const FIXED_IN_TEST: &str = "Fixed while the test runs.";
-const NEW_TAKES: [(NewTake, &str, &str); 3] = [
-    (
-        NewTake::Listen,
-        "Listen",
-        "Listen to the watch in the position on the {card} card, for as long as you like; \
-         Stop saves the take into the watch",
-    ),
-    (
-        NewTake::Positions,
-        "Positions Test",
-        "The six positions one after another, settled and measured in turn, saved into the \
-         watch",
-    ),
-    (
-        NewTake::PowerReserve,
-        "Power Reserve Test",
-        "Wind the watch fully and listen in one position until it stops, saved into the watch",
-    ),
-];
 const NEW_SESSION_HINT: &str = "Clear everything and start again with the next watch or position. \
      Listening carries on into the new session, unless closing the kept sound fails. Unsaved \
      sound is asked about first, except a Quick Listen's, which goes without a question.";
@@ -978,6 +891,8 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
     let steady: Vec<TileId> = Pane::STEADY.map(|p| tiles.insert_pane(p)).to_vec();
     let isochronism = tiles.insert_pane(Pane::Isochronism);
     let positions = tiles.insert_pane(Pane::PositionsTest);
+    let poise = tiles.insert_pane(Pane::DynamicPoise);
+    let complication = tiles.insert_pane(Pane::Complication);
     let reserve = tiles.insert_pane(Pane::PowerReserve);
     if let Some(egui_tiles::Tile::Container(c)) = tiles.get_mut(sound) {
         c.add_child(scope);
@@ -988,6 +903,8 @@ fn default_layout(horizontal: bool) -> Tree<Pane> {
         }
         c.add_child(isochronism);
         c.add_child(positions);
+        c.add_child(poise);
+        c.add_child(complication);
         c.add_child(reserve);
     }
     // The strip across the middle and the profile across the bottom, with
@@ -1039,8 +956,11 @@ const CALIBRE_COMPACT_W: f32 = 126.0;
 /// and the lift side by side.
 const TWO_FIELDS_W: f32 = CALIBRE_ROOMY_W - 2.0 * 16.0;
 /// The Current Position card's picture, and on a compact card.
-const POSITION_PIC: f32 = 66.0;
+const POSITION_PIC: f32 = 46.0;
 const POSITION_PIC_COMPACT: f32 = 40.0;
+/// The picture on the card at 10, and its two rows of buttons' height.
+const POSITION_PIC_TEN: f32 = 30.0;
+const POSITION_ROW_TEN: f32 = 22.0;
 /// The Listen card's buttons.
 const LISTEN_BUTTON: f32 = 40.0;
 
@@ -1310,6 +1230,14 @@ fn upgraded_layout(mut p: Tree<Pane>) -> Tree<Pane> {
     add_missing(&mut p, Pane::Scope);
     add_missing(&mut p, Pane::Isochronism);
     add_missing(&mut p, Pane::PositionsTest);
+    if p.tiles.find_pane(&Pane::DynamicPoise).is_none() {
+        add_missing(&mut p, Pane::DynamicPoise);
+        set_pane_visible(&mut p.tiles, Pane::DynamicPoise, false);
+    }
+    if p.tiles.find_pane(&Pane::Complication).is_none() {
+        add_missing(&mut p, Pane::Complication);
+        set_pane_visible(&mut p.tiles, Pane::Complication, false);
+    }
     if p.tiles.find_pane(&Pane::PowerReserve).is_none() {
         add_missing(&mut p, Pane::PowerReserve);
         set_pane_visible(&mut p.tiles, Pane::PowerReserve, false);
@@ -1969,6 +1897,8 @@ pub struct TimegrapherApp {
     /// The full-wind test's results the next test is set against as its
     /// 24 hour half: picked from `guided_choices`, or loaded from a file.
     guided_earlier: Option<guided::FullWind>,
+    /// An opened 24 hour half's saved results, which the pane shows again.
+    guided_saved: Option<guided::FullWind>,
     /// For a watch set up for 24 Hours After, its full-wind tests from 12
     /// to 36 hours ago, newest first, for Compare With to pick from.
     guided_choices: Vec<guided::FullWind>,
@@ -1990,6 +1920,14 @@ pub struct TimegrapherApp {
     stop_test_ask: bool,
     /// Seconds of settling and of measuring in each position, for the
     /// next test.
+    /// The Current Position card offers ten positions, the four 45°
+    /// stops too, rather than six (its 6 | 10 switch, kept).
+    ten_positions: bool,
+    /// The Dynamic Poise pane's view, and whether its Info panel shows.
+    poise_view: PoiseView,
+    poise_info: bool,
+    /// Whether the Complication pane's Info panel shows.
+    complication_info: bool,
     guided_settle_s: f64,
     guided_measure_s: f64,
     /// Look for a newer release each time the app starts.
@@ -2157,6 +2095,10 @@ pub struct TimegrapherApp {
     pane_top: f32,
     /// Show the cumulative share instead of the probability plot.
     hist_cumulative: bool,
+    /// The Power Reserve and Positions Test panes' Info panels open
+    /// (#1528).
+    reserve_info: bool,
+    positions_info: bool,
     /// The histograms count the readings rather than each 2 seconds of
     /// beats.
     hist_readings: bool,
@@ -2323,12 +2265,16 @@ pub struct TimegrapherApp {
     /// The jumps in the live sound's beats as of the last pass, to see a
     /// new one.
     jumps_seen: Vec<f64>,
+    /// When live's first chunk read again took over and why it was not,
+    /// as last seen (#1327).
+    rebuild_seen: (Option<f64>, Option<&'static str>),
     /// Masks on the recording on show let go by the answer to the ask
     /// before listening, so starting doesn't ask again.
     masks_let_go: bool,
-    /// The Positions Test to begin once the ask before listening is
-    /// answered: just after winding (`None`) or the 24 hour half.
-    guided_after_ask: Option<Option<guided::FullWind>>,
+    /// The guided test to begin once the ask before listening is
+    /// answered, and for the Positions Test whether just after winding
+    /// (`None`) or the 24 hour half.
+    guided_after_ask: Option<(guided::Kind, Option<guided::FullWind>)>,
     sound_job: Option<(f64, u64, std::sync::mpsc::Receiver<Profiles>)>,
     /// Offer every input the system lists, not just one per microphone.
     all_inputs: bool,
@@ -2386,6 +2332,8 @@ impl TimegrapherApp {
             chart_series: self.chart_series,
             dist_series: self.dist_series,
             hist_cumulative: self.hist_cumulative,
+            reserve_info: self.reserve_info,
+            positions_info: self.positions_info,
             hist_readings: self.hist_readings,
             iso_view: self.iso_view,
             sound: self.sound_opts,
@@ -2402,6 +2350,10 @@ impl TimegrapherApp {
             steady_info: self.steady_info.unset,
             steady_info_set: self.steady_info.saved(),
             positions_settle_s: self.guided_settle_s,
+            ten_positions: self.ten_positions,
+            poise_view: self.poise_view,
+            poise_info: self.poise_info,
+            complication_info: self.complication_info,
             positions_measure_s: self.guided_measure_s,
             scope: self.scope_view,
             panes: Some(self.panes.clone()),
@@ -2442,6 +2394,8 @@ impl TimegrapherApp {
             chart_series,
             dist_series,
             hist_cumulative,
+            reserve_info,
+            positions_info,
             hist_readings,
             iso_view,
             sound,
@@ -2459,6 +2413,10 @@ impl TimegrapherApp {
             steady_info_set,
             positions_settle_s,
             positions_measure_s,
+            ten_positions,
+            poise_view,
+            poise_info,
+            complication_info,
             scope,
             panes,
             panes_dragged,
@@ -2482,9 +2440,10 @@ impl TimegrapherApp {
         } = s;
         (self.watch_list_shows, self.after_save_command) = (watch_list_shows, after_save_command);
         self.settings_last = Tab::from_key(&settings_section);
-        self.listen_at_open = listen_at_open;
+        (self.listen_at_open, self.ten_positions) = (listen_at_open, ten_positions);
+        (self.poise_view, self.poise_info) = (poise_view, poise_info);
+        (self.complication_info, self.agc_on) = (complication_info, agc_on);
         (self.mic_set_up, self.setup_declined) = (mic_set_up, setup_declined);
-        self.agc_on = agc_on;
         // A layout from before the panes moved starts afresh.
         let panes = panes.filter(|_| layout >= LAYOUT);
         self.library_dir = library;
@@ -2509,14 +2468,12 @@ impl TimegrapherApp {
         let some = |s: [bool; 3]| if s.contains(&true) { s } else { RATE_ONLY };
         self.chart_series = some(chart_series);
         self.dist_series = some(dist_series);
-        self.hist_cumulative = hist_cumulative;
-        self.hist_readings = hist_readings;
-        self.iso_view = iso_view;
-        self.sound_opts = sound;
+        (self.hist_cumulative, self.reserve_info) = (hist_cumulative, reserve_info);
+        (self.positions_info, self.sound_opts) = (positions_info, sound);
+        (self.hist_readings, self.iso_view) = (hist_readings, iso_view);
         self.folded = folded.into_iter().collect();
         self.theme = theme;
-        self.periods_db = periods_db;
-        self.fft_timing = fft_timing;
+        (self.periods_db, self.fft_timing) = (periods_db, fft_timing);
         self.maps_db = steady::PerPane::new(maps_db_set, maps_db);
         self.show_wheels = steady::PerPane::new(show_wheels_set, show_wheels);
         self.steady_info = steady::PerPane::new(steady_info_set, steady_info);
@@ -2598,6 +2555,7 @@ impl TimegrapherApp {
             guided_unused: Vec::new(),
             guided_measured: Vec::new(),
             guided_earlier: None,
+            guided_saved: None,
             guided_choices: Vec::new(),
             guided_earlier_file: false,
             guided_earlier_for: None,
@@ -2605,6 +2563,10 @@ impl TimegrapherApp {
             test_ready: None,
             stop_test_ask: false,
             guided_settle_s: guided::SETTLE_S,
+            ten_positions: false,
+            poise_view: PoiseView::default(),
+            poise_info: false,
+            complication_info: false,
             guided_measure_s: guided::MEASURE_S,
             check_at_start: true,
             keep_awake: true,
@@ -2693,6 +2655,8 @@ impl TimegrapherApp {
             panes_short: std::collections::HashSet::new(),
             pane_top: 0.0,
             hist_cumulative: false,
+            reserve_info: false,
+            positions_info: false,
             steady_series: Default::default(),
             periods_db: false,
             fft_timing: false,
@@ -2771,6 +2735,7 @@ impl TimegrapherApp {
             no_sound: None,
             analysis_kept_to: None,
             jumps_seen: Vec::new(),
+            rebuild_seen: (None, None),
             masks_let_go: false,
             guided_after_ask: None,
             sound_job: None,
@@ -2837,6 +2802,27 @@ impl TimegrapherApp {
         }
     }
 
+    /// Live's first chunk read again with the file's template took over
+    /// (#1327): the charts' points are read again, and the strip's anchor
+    /// moves with the beats, so the view stays where it was. A rebuild
+    /// given up is logged, once.
+    fn follow_rebuild(&mut self) {
+        let Some(live) = &self.live else {
+            return;
+        };
+        let now = (live.template_switch_s(), live.template_rebuild_given_up());
+        if now.0 != self.rebuild_seen.0 {
+            self.trend = live.trend(self.average_s);
+            if let (Some(a), Some((dt, di))) = (self.anchor.as_mut(), live.template_shift()) {
+                (a.time, a.index) = (a.time + dt, a.index + di);
+            }
+        }
+        if let Some(why) = now.1.filter(|_| now.1 != self.rebuild_seen.1) {
+            applog::info(&format!("Live kept its first beat template: {why}"));
+        }
+        self.rebuild_seen = now;
+    }
+
     fn latest_s(&self) -> f64 {
         self.live
             .as_ref()
@@ -2855,7 +2841,7 @@ impl TimegrapherApp {
 
     /// With Fit on, the strip's length is the session so far.
     fn follow_fit(&mut self) {
-        if self.strip_fit {
+        if self.strip_fitted() {
             self.strip_end = None;
             self.strip.set_span(self.strip_end_s());
         }
@@ -3120,21 +3106,14 @@ impl TimegrapherApp {
                 });
                 self.steady_info.set(view, info);
             }
-            Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
+            Pane::Isochronism => isochronism::toolbar(ui, title, |ui| {
                 isochronism::view_choice(ui, &mut self.iso_view);
                 self.export_button(ui, pane)
             }),
-            Pane::PositionsTest => theme::pane_toolbar(ui, title, &help::POSITIONS_TEST, |ui| {
-                self.positions_settings(ui);
-                self.export_button(ui, pane);
-            }),
-            Pane::PowerReserve => {
-                let help = help::power_reserve(self.position_card_title);
-                let help: Vec<&str> = help.iter().map(String::as_str).collect();
-                theme::pane_toolbar(ui, title, &help, |ui| {
-                    self.reserve_settings(ui);
-                })
-            }
+            Pane::PositionsTest => self.positions_tools(ui, title),
+            Pane::DynamicPoise => self.poise_tools(ui, title),
+            Pane::Complication => self.complication_tools(ui, title),
+            Pane::PowerReserve => self.reserve_toolbar(ui, title),
             Pane::Distributions => theme::pane_toolbar(ui, title, &help::HISTOGRAMS, |ui| {
                 steady::series_switches(ui, &mut self.dist_series);
                 theme::bar_gap(ui);
@@ -3191,21 +3170,17 @@ impl TimegrapherApp {
         } else if self.reserve_running() {
             Some((NewTake::PowerReserve, self.state_words().to_string()))
         } else if let Some(t) = self.guided.as_ref().filter(|_| self.test_listening()) {
-            let of = guided::ORDER.len();
+            let of = t.order().len();
             let step = (t.step + 1).min(of);
             Some((
-                NewTake::Positions,
-                format!("{}, {step} of {of}", t.position().code()),
+                NewTake::of(t.kind),
+                format!("{}, {step} of {of}", t.step_code(t.step.min(of - 1))),
             ))
         } else {
             None
         };
         if let Some((kind, state)) = test {
-            let name = if kind == NewTake::Positions {
-                "Positions Test"
-            } else {
-                "Power Reserve Test"
-            };
+            let name = kind.name();
             let watch = if named.is_empty() {
                 "No watch picked".to_string()
             } else {
@@ -3443,7 +3418,12 @@ impl TimegrapherApp {
     fn too_short(&mut self, ui: &mut egui::Ui, pane: Pane) -> bool {
         let below = match pane {
             // Their own least is kept, or they hold no plot.
-            Pane::Watch | Pane::Strip | Pane::PositionsTest | Pane::PowerReserve => return false,
+            Pane::Watch
+            | Pane::Strip
+            | Pane::PositionsTest
+            | Pane::DynamicPoise
+            | Pane::Complication
+            | Pane::PowerReserve => return false,
             // A map's key sits under its picture.
             Pane::SteadyStft | Pane::SteadyWavelet => crate::tfmap::KEY_H,
             _ => 0.0,
@@ -3502,7 +3482,7 @@ fn value_at(points: &[[f64; 2]], x: f64) -> Option<f64> {
 /// Which point is nearest `x` in points sorted by x: none in a gap in the
 /// line ([`strip::gap_before`]), or further past either end than the step
 /// beside it.
-fn nearest_at(points: &[[f64; 2]], x: f64) -> Option<usize> {
+pub(crate) fn nearest_at(points: &[[f64; 2]], x: f64) -> Option<usize> {
     let n = points.len();
     let i = points.partition_point(|p| p[0] < x);
     let step = |j: usize| points[j][0] - points[j - 1][0];
@@ -3543,7 +3523,8 @@ impl Default for WatchSetup {
 }
 
 /// The position a recording's file or folder name carries, as a word of
-/// its own: `reverso_DU_01.flac` is dial up.
+/// its own: `reverso_DU_01.flac` is dial up, `ym42_7H30.flac` is 7:30 up
+/// (the hour codes in capitals, so `2h` stays a duration).
 fn position_in_name(path: &Path) -> Option<Position> {
     let name = path.file_stem()?.to_str()?;
     let words: Vec<&str> = name
@@ -3552,10 +3533,11 @@ fn position_in_name(path: &Path) -> Option<Position> {
         .collect();
     let found: Vec<Position> = words
         .iter()
-        .filter(|w| w.len() == 2)
         .filter_map(|w| {
             let up = w.to_ascii_uppercase();
-            Position::ALL.into_iter().find(|p| p.code() == up)
+            Position::TEN.into_iter().find(|p| {
+                (w.len() == 2 && p.code() == up) || (p.core().is_vertical() && p.witschi() == *w)
+            })
         })
         .collect();
     // Exactly one, or it is no guess at all.
@@ -3588,12 +3570,14 @@ fn chart_time_label(t: f64, step: f64, r: &std::ops::RangeInclusive<f64>) -> Str
 /// One plot for each reading `shown`, one above the other, sharing the
 /// height left in `ui` evenly. A pane too short for them all draws the
 /// first ones at a readable height and names the rest, rather than
-/// squeezing every plot flat or spilling out of the pane.
+/// squeezing every plot flat or spilling out of the pane: in a line under
+/// the plots, or with `chip`, as words `draw` puts in a grey chip under
+/// the first plot's title (#1528): what isn't shown, and what to do.
 fn stacked(
     ui: &mut egui::Ui,
     shown: [bool; 3],
-    least: f32,
-    mut draw: impl FnMut(&mut egui::Ui, SeriesKind),
+    (least, chip): (f32, bool),
+    mut draw: impl FnMut(&mut egui::Ui, SeriesKind, Option<&(String, String)>),
 ) -> [bool; 3] {
     let kinds: Vec<SeriesKind> = steady::SERIES
         .into_iter()
@@ -3601,19 +3585,23 @@ fn stacked(
         .filter_map(|(k, on)| on.then_some(k))
         .collect();
     let (gap, note) = (6.0, STACKED_NOTE_H);
+    // Each gap also takes the layout's spacing either side of it, so the
+    // last plot's axis isn't cut by the pane's foot.
+    let step_gap = gap + 2.0 * ui.spacing().item_spacing.y;
     let room = ui.available_height();
-    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * gap + note;
+    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * step_gap + note;
     let mut n = kinds.len();
     while n > 1 && fits(n) > room {
         n -= 1;
     }
     let left_out = &kinds[n..];
-    let room = if left_out.is_empty() {
+    let room = if left_out.is_empty() || chip {
         room
     } else {
         room - note
     };
-    let h = ((room - gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
+    let left = (!left_out.is_empty()).then(|| no_room_words(&kinds[..n], left_out));
+    let h = ((room - step_gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
     let w = ui.available_width();
     for (i, &k) in kinds[..n].iter().enumerate() {
         if i > 0 {
@@ -3625,31 +3613,12 @@ fn stacked(
             |ui| {
                 ui.set_min_size(Vec2::new(w, h));
                 ui.set_max_height(h);
-                draw(ui, k);
+                draw(ui, k, left.as_ref().filter(|_| chip && i == 0));
             },
         );
     }
-    if !left_out.is_empty() {
-        let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
-        // The switches are pictures: say which picture turns which off.
-        let switches: Vec<String> = kinds[..n]
-            .iter()
-            .map(|&k| {
-                let picture = match k {
-                    SeriesKind::Rate => "the hare",
-                    SeriesKind::Amplitude => "the swing",
-                    SeriesKind::BeatError => "the seesaw",
-                };
-                format!("{picture} ({})", steady::title(k))
-            })
-            .collect();
-        let line = no_room(
-            &names.join(" and "),
-            &format!(
-                "Make the pane taller, or turn off {}.",
-                switches.join(" or ")
-            ),
-        );
+    if let Some((what, remedy)) = left.as_ref().filter(|_| !chip) {
+        let line = no_room(what, remedy);
         let pal = theme::pal(ui);
         ui.add(egui::Label::new(RichText::new(line).small().color(pal.text_secondary)).truncate());
     }
@@ -3672,8 +3641,39 @@ const SHORT_PLOT_GIVE: f32 = 2.0;
 
 /// The line in place of plots with no room: what is not shown, then the
 /// remedy.
+/// What stacked plots leave out for want of room, `left_out`, in a few
+/// words ("Beat Error not shown: no room"), and what to do: turn off a
+/// plot that is `shown`, by the picture on its switch.
+fn no_room_words(shown: &[SeriesKind], left_out: &[SeriesKind]) -> (String, String) {
+    let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
+    // The switches are pictures: say which picture turns which off.
+    let switches: Vec<String> = shown
+        .iter()
+        .map(|&k| {
+            let picture = match k {
+                SeriesKind::Rate => "the hare",
+                SeriesKind::Amplitude => "the swing",
+                SeriesKind::BeatError => "the seesaw",
+            };
+            format!("{picture} ({})", steady::title(k))
+        })
+        .collect();
+    (
+        names.join(" and "),
+        format!(
+            "Make the pane taller, or turn off {}.",
+            switches.join(" or ")
+        ),
+    )
+}
+
 fn no_room(what: &str, remedy: &str) -> String {
-    format!("{what} not shown: no room. {remedy}")
+    format!("{}. {remedy}", no_room_short(what))
+}
+
+/// [`no_room`] without the remedy, for a chip.
+fn no_room_short(what: &str) -> String {
+    format!("{what} not shown: no room")
 }
 /// The line under stacked plots naming those with no room.
 const STACKED_NOTE_H: f32 = 18.0;
@@ -4068,18 +4068,7 @@ fn take_folder(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// Bytes in the files under `dir`, all the way down.
-fn folder_size(dir: &Path) -> u64 {
-    std::fs::read_dir(dir).map_or(0, |d| {
-        d.filter_map(|e| e.ok())
-            .map(|e| match e.file_type() {
-                Ok(t) if t.is_dir() => folder_size(&e.path()),
-                Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
-                _ => 0,
-            })
-            .sum()
-    })
-}
+use timegrapher_core::library::folder_bytes as folder_size;
 
 /// A library move's outcome, from its thread ([`library::move_library`]).
 type LibraryMove = std::sync::mpsc::Receiver<Result<Option<String>, String>>;
@@ -4144,41 +4133,8 @@ impl TimegrapherApp {
                 self.run_menu_command(ctx, c);
             }
         }
-        // Keys 1 to 6, alone, put the watch in a position: never with a
-        // modifier held, nor in the Watches view, nor while a field is
-        // being typed in, nor behind a dialog. The modifiers are the key
-        // event's own, as a shortcut's are: one pressed and let go within
-        // a frame is gone from the frame's by the time it is read.
-        let dialog = ctx.memory(|m| m.top_modal_layer().is_some());
-        if self.view == View::Bench && !ctx.wants_keyboard_input() && !dialog {
-            let keys = [
-                egui::Key::Num1,
-                egui::Key::Num2,
-                egui::Key::Num3,
-                egui::Key::Num4,
-                egui::Key::Num5,
-                egui::Key::Num6,
-            ];
-            let pressed = ctx.input(|i| {
-                i.events.iter().find_map(|e| match e {
-                    egui::Event::Key {
-                        key,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } if modifiers.is_none() => keys.iter().position(|k| k == key),
-                    _ => None,
-                })
-            });
-            if let Some(p) = pressed
-                .map(|n| Position::ALL[n])
-                .filter(|_| self.position_editable())
-            {
-                if p != self.position {
-                    self.change_position(p);
-                }
-            }
-        }
+        // The position keys (U, D and the hour digits), alone.
+        self.position_keys(ctx);
         egui::CentralPanel::default()
             .frame(bar.inner_margin(egui::Margin {
                 left: 12,
@@ -4306,6 +4262,7 @@ impl eframe::App for TimegrapherApp {
         self.setup_sheet_dialog(ctx);
         self.take_ask_dialog(ctx);
         self.poll_take_keep();
+        self.reread_library_on_focus(ctx);
         if let Some(m) = self.report.ui(ctx) {
             self.info_msg(m);
         }
@@ -4623,6 +4580,13 @@ mod keep_tests;
 #[cfg(test)]
 #[path = "app_positions_tests.rs"]
 mod positions_tests;
+
+#[cfg(test)]
+#[path = "app_complication_tests.rs"]
+mod complication_tests;
+#[cfg(test)]
+#[path = "app_poise_tests.rs"]
+mod poise_tests;
 
 #[cfg(test)]
 #[path = "app_masks_tests.rs"]

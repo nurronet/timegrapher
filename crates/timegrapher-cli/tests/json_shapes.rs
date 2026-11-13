@@ -239,21 +239,20 @@ fn session_keeps_its_fields() {
         line.contains("rate ") && line.contains(" s/d, amplitude ") && line.contains(" ms"),
         "{line}"
     );
-    // Each figure carries its ± from the reading's standard error.
-    assert_eq!(line.matches(" ± ").count(), 3, "{line}");
+    // Each figure carries its ± from the reading's standard error. A
+    // minute's file holds 6 of the 30 rate values the rate's ± takes its
+    // scatter from, so the rate has none (#1470).
+    assert_eq!(line.matches(" ± ").count(), 2, "{line}");
     let m = &take["readings"][0]["measurement"];
+    assert!(m["confidence"]["rate"]["se"].is_null(), "{m}");
     let pm = |k: &str, d: usize| {
         timegrapher_core::library::pm_text(m["confidence"][k]["se"].as_f64().unwrap(), d).unwrap()
     };
-    for (t, unit) in [
-        (pm("rate", 1), " s/d"),
-        (pm("amplitude", 0), "°"),
-        (pm("beat_error", 2), " ms"),
-    ] {
+    for (t, unit) in [(pm("amplitude", 0), "°"), (pm("beat_error", 2), " ms")] {
         assert!(line.contains(&format!(" ± {t}{unit}")), "{t}{unit}: {line}");
     }
     // The whole file's rate, amplitude and beat error carry as many
-    // decimals as their ± (decimals follow the ±, #510 K3).
+    // decimals as their ± (both at the figure's place, #1470).
     let decimals = |t: &str| t.split_once('.').map_or(0, |(_, d)| d.len());
     for head in ["Rate         ", "Amplitude    ", "Beat error   "] {
         let line = text[at("Whole file ")..]
@@ -261,6 +260,11 @@ fn session_keeps_its_fields() {
             .find(|l| l.starts_with(head))
             .unwrap_or_else(|| panic!("no {head:?} in\n{text}"));
         let words: Vec<&str> = line[head.len()..].split_whitespace().collect();
+        // The rate's ± waits for 30 values, as above.
+        if head.starts_with("Rate") {
+            assert_ne!(words[1], "±", "{line}");
+            continue;
+        }
         assert_eq!(words[1], "±", "{line}");
         assert_eq!(decimals(words[0]), decimals(words[2]), "{line}");
         // Tick and Tock, and the drop's beat error, take the same decimals
@@ -381,6 +385,8 @@ fn watches_keep_their_fields() {
             "result":{"rate_s_per_day":6.0,"amplitude_deg":275.0,"beat_error_unlock_ms":0.4}}"#,
     )
     .unwrap();
+    // Let go, as the app does when it closes, so a change can be made.
+    drop(lib);
     let config = dir.join("config");
     let r = root.to_str().unwrap();
     check(
@@ -392,6 +398,13 @@ fn watches_keep_their_fields() {
         &json(
             &config,
             &["watches", "show", "Pepsi", "--library", r, "--json"],
+        ),
+    );
+    check(
+        "watches_change",
+        &json(
+            &config,
+            &["watches", "new", "Daytona", "--library", r, "--json"],
         ),
     );
     let _ = std::fs::remove_dir_all(&dir);

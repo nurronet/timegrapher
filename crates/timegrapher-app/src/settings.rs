@@ -36,6 +36,9 @@ pub struct Settings {
     pub chart_series: [bool; 3],
     pub dist_series: [bool; 3],
     pub hist_cumulative: bool,
+    /// The Power Reserve and Positions Test panes' Info panels open.
+    pub reserve_info: bool,
+    pub positions_info: bool,
     pub hist_readings: bool,
     /// The Isochronism pane's view: the curve, or the walk.
     pub iso_view: crate::isochronism::View,
@@ -68,10 +71,18 @@ pub struct Settings {
     pub steady_info: bool,
     /// Each Steadiness pane's own Info panel.
     pub steady_info_set: Vec<(steady::View, bool)>,
-    /// The Positions Test's settling and measuring in each position,
-    /// seconds.
+    /// The guided tests' settling and measuring in each position or
+    /// stretch, seconds: one pair every guided test shares (#1577).
     pub positions_settle_s: f64,
     pub positions_measure_s: f64,
+    /// The Current Position card's 6 | 10: ten offers the four 45° stops
+    /// too. One setting with the Dynamic Poise pane's.
+    pub ten_positions: bool,
+    /// The Dynamic Poise pane's Plot | Dial, and its Info panel.
+    pub poise_view: crate::app::PoiseView,
+    pub poise_info: bool,
+    /// The Complication pane's Info panel.
+    pub complication_info: bool,
     pub scope: scope::View,
     pub panes: Option<egui_tiles::Tree<Pane>>,
     /// The rows and columns of `panes` whose divider was dragged by hand.
@@ -149,6 +160,7 @@ impl Default for Settings {
                 half_width_ms: 10.0,
                 span_s: timegrapher_core::live::DEFAULT_STRIP_S,
                 horizontal: true,
+                still: false,
             },
             rate_line: true,
             rate_guides: true,
@@ -157,6 +169,8 @@ impl Default for Settings {
             chart_series: RATE_ONLY,
             dist_series: RATE_ONLY,
             hist_cumulative: false,
+            reserve_info: false,
+            positions_info: false,
             hist_readings: true,
             iso_view: Default::default(),
             sound: profiles::Options::default(),
@@ -174,6 +188,10 @@ impl Default for Settings {
             steady_info_set: Vec::new(),
             positions_settle_s: crate::guided::SETTLE_S,
             positions_measure_s: crate::guided::MEASURE_S,
+            ten_positions: false,
+            poise_view: Default::default(),
+            poise_info: false,
+            complication_info: false,
             scope: scope::View::default(),
             panes: None,
             panes_dragged: Vec::new(),
@@ -212,6 +230,19 @@ pub fn store(storage: &mut dyn eframe::Storage, s: &Settings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Settings kept before the strip had still paper read as moving
+    /// paper, every other choice kept.
+    #[test]
+    fn older_settings_read_as_moving_paper() {
+        let mut v = serde_json::to_value(Settings::default()).unwrap();
+        let strip = v["strip"].as_object_mut().unwrap();
+        strip.remove("still");
+        strip.insert("span_s".into(), serde_json::json!(120.0));
+        let s: Settings = serde_json::from_value(v).unwrap();
+        assert!(!s.strip.still);
+        assert_eq!(s.strip.span_s, 120.0);
+    }
 
     /// Settings kept by a build before the dB Scale keep their choice:
     /// a log scale then is the dB Scale now.

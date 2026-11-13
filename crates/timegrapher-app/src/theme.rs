@@ -353,6 +353,54 @@ pub fn help_size() -> f32 {
     16.0
 }
 
+/// The room between the lines of a "?", points; a group's heading has
+/// [`HELP_HEADING_ABOVE`] more above it (Hugh, #1520).
+const HELP_GAP: f32 = 4.0;
+const HELP_HEADING_ABOVE: f32 = 6.0;
+/// How far a bullet's or a step's words hang in from its mark, so their
+/// wrapped lines align with the words, not the mark.
+const HELP_HANG: f32 = 12.0;
+/// A "?"'s type size.
+const HELP_PT: f32 = 12.5;
+
+/// One line of a "?" text, drawn as its kind says (#1520): the answer
+/// and short paragraphs plain, a heading semibold with room above it, a
+/// bullet or a step hanging from its mark in tertiary.
+fn help_line(ui: &mut Ui, line: crate::help::Line<'_>) {
+    use crate::help::Line;
+    let plain = |ui: &mut Ui, text: &str| {
+        ui.add(egui::Label::new(RichText::new(text).size(HELP_PT)).wrap());
+    };
+    match line {
+        Line::Answer(t) | Line::Paragraph(t) => plain(ui, t),
+        Line::Heading(t) => {
+            ui.add_space(HELP_HEADING_ABOVE);
+            ui.label(RichText::new(t).font(semibold(HELP_PT)));
+        }
+        Line::Bullet(t) => hanging(ui, "\u{2022}", t),
+        Line::Step(n, t) => hanging(ui, n, t),
+    }
+}
+
+/// `text` hanging from `mark`, the mark in tertiary at the left and the
+/// words' every line [`HELP_HANG`] in, or the mark's width and a space
+/// where that is wider (a step of two digits).
+fn hanging(ui: &mut Ui, mark: &str, text: &str) {
+    let tertiary = pal(ui).text_tertiary;
+    let font = egui::FontId::proportional(HELP_PT);
+    let galley = ui.fonts_mut(|f| f.layout_no_wrap(mark.to_string(), font, tertiary));
+    let hang = HELP_HANG.max(galley.size().x + 4.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let (r, _) = ui.allocate_exact_size(Vec2::new(hang, galley.size().y), Sense::hover());
+        ui.painter().galley(r.min, galley, tertiary);
+        ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width());
+            ui.add(egui::Label::new(RichText::new(text).size(HELP_PT)).wrap());
+        });
+    });
+}
+
 /// [`help`], ending with a key to a toolbar: each icon drawn beside its
 /// name, so a picture that can't be guessed can be looked up.
 pub fn help_with_key(
@@ -384,14 +432,14 @@ pub fn help_with_key(
     // little; a click shows it all.
     let body = |ui: &mut Ui, pinned: bool| {
         ui.set_max_width(360.0);
-        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.spacing_mut().item_spacing.y = HELP_GAP;
         ui.label(RichText::new(title).font(semibold(14.0)));
         let shown = if pinned { paragraphs.len() } else { 1 };
-        for para in &paragraphs[..shown.min(paragraphs.len())] {
-            ui.add(egui::Label::new(RichText::new(*para).size(12.5)).wrap());
+        for (i, text) in paragraphs[..shown.min(paragraphs.len())].iter().enumerate() {
+            help_line(ui, crate::help::line(i, text));
         }
         if pinned && !key.is_empty() {
-            ui.label(RichText::new("The Toolbar's Icons").font(semibold(12.5)));
+            help_line(ui, crate::help::Line::Heading("The Toolbar's Icons"));
             let pal = pal(ui);
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing.y = 3.0;
@@ -872,15 +920,31 @@ pub fn segmented<T: PartialEq + Copy>(
     choices: &[(T, &str, &str)],
 ) -> bool {
     if in_toolbar(ui) {
-        return ui.horizontal(|ui| segmented_body(ui, value, choices)).inner;
+        return ui
+            .horizontal(|ui| segmented_body(ui, value, choices, SEGMENT_H))
+            .inner;
     }
-    segmented_body(ui, value, choices)
+    segmented_body(ui, value, choices, SEGMENT_H)
+}
+
+/// A segment's height in [`segmented`].
+const SEGMENT_H: f32 = 20.0;
+
+/// [`segmented`] small enough for a card's title row
+/// ([`TITLE_ROW_H`]): the Current Position card's 6 | 10.
+pub fn segmented_in_title<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> bool {
+    segmented_body(ui, value, choices, TITLE_ROW_H - 4.0)
 }
 
 fn segmented_body<T: PartialEq + Copy>(
     ui: &mut Ui,
     value: &mut T,
     choices: &[(T, &str, &str)],
+    h: f32,
 ) -> bool {
     let p = pal(ui);
     let mut changed = false;
@@ -891,7 +955,12 @@ fn segmented_body<T: PartialEq + Copy>(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
-                ui.spacing_mut().button_padding = Vec2::new(10.0, 2.0);
+                ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.min(h);
+                ui.spacing_mut().button_padding = if h < SEGMENT_H {
+                    Vec2::new(6.0, 0.0)
+                } else {
+                    Vec2::new(10.0, 2.0)
+                };
                 let two = choices.len() == 2;
                 for (i, &(v, label, hint)) in choices.iter().enumerate() {
                     let selected = *value == v;
@@ -905,7 +974,7 @@ fn segmented_body<T: PartialEq + Copy>(
                         .stroke(Stroke::NONE)
                         .frame_when_inactive(selected)
                         .corner_radius(CornerRadius::same(CONTROL_RADIUS - 1))
-                        .min_size(Vec2::new(0.0, 20.0));
+                        .min_size(Vec2::new(0.0, h));
                     let mut r = ui.add(b);
                     let other = if two { choices[1 - i] } else { choices[i] };
                     if two && selected {
@@ -1601,6 +1670,29 @@ pub fn pane_toolbar(ui: &mut Ui, title: &str, help_text: &[&str], controls: impl
     pane_toolbar_full(ui, title, help_text, None, controls)
 }
 
+/// [`pane_toolbar`] with the pane's Info toggle ("i") pinned just left of
+/// the "?", `hint` its hover: `info` flips when it is clicked.
+pub fn pane_toolbar_info(
+    ui: &mut Ui,
+    title: &str,
+    help_text: &[&str],
+    (info, hint): (&mut bool, &str),
+    controls: impl FnMut(&mut Ui),
+) {
+    let mut on = *info;
+    let mut pin = |ui: &mut Ui| {
+        let accent = pal(ui).accent;
+        if icon_toggle(ui, Icon::Info, on, accent)
+            .on_hover_text(hint)
+            .clicked()
+        {
+            on = !on;
+        }
+    };
+    pane_toolbar_pinned(ui, title, help_text, Some(&mut pin), controls);
+    *info = on;
+}
+
 /// [`pane_toolbar`] with one control `pinned` just left of the "?": it
 /// never folds and never moves, however the row's controls fold.
 pub fn pane_toolbar_pinned(
@@ -1640,7 +1732,7 @@ fn pane_toolbar_full(
         ui.scope_builder(egui::UiBuilder::new().max_rect(r), |ui| pin(ui));
     }
     let mut text = help_text.to_vec();
-    text.push(crate::help::TOOLBAR);
+    text.extend_from_slice(crate::help::TOOLBAR);
     // The key from the row as last drawn.
     let key: Vec<(Icon, String)> = ui
         .ctx()
@@ -1979,6 +2071,24 @@ pub fn tool_field<R>(
     })
 }
 
+/// A [`tool_field`] whose control says what it is in its own words, such
+/// as "Down | Across": no caption before it in a toolbar, its name only in
+/// its hover and, folded, under "…" or in a settings list (Hugh).
+pub fn tool_words<R>(
+    ui: &mut Ui,
+    label: &str,
+    hint: &str,
+    control: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    bar_item(ui, label, |ui| {
+        if in_toolbar(ui) {
+            control(ui)
+        } else {
+            row(ui, label, Some(hint), control)
+        }
+    })
+}
+
 /// A search box in a toolbar: the magnifying glass every app puts beside
 /// one, then the box; with its name under "…" or in a settings list.
 pub fn tool_search<R>(ui: &mut Ui, hint: &str, control: impl FnOnce(&mut Ui) -> R) -> Option<R> {
@@ -2124,6 +2234,8 @@ pub enum Icon {
     Microphone,
     Isochronism,
     Positions,
+    Poise,
+    Complication,
     /// The readings themselves: a hare, a swing and a seesaw, wherever
     /// the app shows or toggles one of them.
     Rate,
@@ -2192,6 +2304,8 @@ pub enum Icon {
     /// Isochronism's views: the curve, and the walk.
     IsoCurve,
     IsoWalk,
+    /// The Paper Strip's still paper.
+    StillPaper,
 }
 
 /// What an alert says about itself: a warning (a triangle in the text
@@ -2538,5 +2652,117 @@ pub fn popups_above_dialogs(ctx: &egui::Context) {
         if l.order == egui::Order::Foreground && egui::Popup::is_id_open(ctx, l.id) {
             ctx.move_to_top(l);
         }
+    }
+}
+
+/// Narrower than this, a pane's Info panel ("i") opens over its plots.
+pub const INFO_BESIDE_W: f32 = 600.0;
+/// An Info panel's width, or a third of the pane if that is less.
+pub const INFO_W: f32 = 300.0;
+
+/// An Info panel of paragraphs under a `caption`, in [`info_scroll`]: the
+/// first in the text's colour, the rest secondary, their words selectable.
+pub fn info_text(ui: &mut Ui, id: egui::Id, (caption, lines): (&str, &[String]), max_h: f32) {
+    let pal = pal(ui);
+    info_scroll(ui, id, max_h, |ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.label(crate::theme::caption(caption).color(pal.text_secondary));
+        for (i, l) in lines.iter().enumerate() {
+            let colour = if i == 0 { pal.text } else { pal.text_secondary };
+            ui.add(
+                egui::Label::new(RichText::new(l).small().color(colour))
+                    .wrap()
+                    .selectable(true),
+            );
+        }
+    });
+}
+
+/// An Info panel's scrolling body, `id` its own: no taller than `max_h`,
+/// the room on screen, its bar always showing so what is below the edge
+/// is not missed, and opening at its top again whenever it was not drawn
+/// the pass before.
+pub fn info_scroll(ui: &mut Ui, id: egui::Id, max_h: f32, body: impl FnOnce(&mut Ui)) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last = ui.ctx().data_mut(|d| {
+        let last = d.get_temp::<u64>(id);
+        d.insert_temp(id, pass);
+        last
+    });
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(id)
+        .max_height(max_h)
+        .auto_shrink([false, true])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+    if last.is_none_or(|l| l + 1 < pass) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show(ui, body);
+}
+
+/// Where an open Info panel drawn over a pane's body starts, in a pane
+/// `full` too narrow for it beside the body ([`INFO_BESIDE_W`]): its
+/// left edge. None while Info is shut or beside the body. Text the body
+/// draws to be read, such as a readout, stops there (#1580).
+pub fn info_over_left(full: egui::Rect, open: bool) -> Option<f32> {
+    (open && full.width() < INFO_BESIDE_W).then(|| full.right() - info_over_w(full) - 4.0)
+}
+
+/// How wide Info is over a pane's body: [`INFO_W`], or less in a narrow
+/// pane.
+fn info_over_w(full: egui::Rect) -> f32 {
+    INFO_W.min(full.width() - 16.0).max(120.0)
+}
+
+/// A pane's body with its Info panel ("i") when `open`: at the right,
+/// [`INFO_W`] or a third of the pane wide, past a rule, in a pane at
+/// least [`INFO_BESIDE_W`] wide; over the body from the pane's top right
+/// corner in a narrower one. `panel` draws the panel's words no taller
+/// than the height it is given, the part of the pane on screen; `id`
+/// keeps the panel over the body apart from another pane's.
+pub fn with_info(
+    ui: &mut Ui,
+    open: bool,
+    id: egui::Id,
+    panel: impl FnOnce(&mut Ui, f32),
+    body: impl FnOnce(&mut Ui),
+) {
+    let pal = pal(ui);
+    let full = ui.available_rect_before_wrap();
+    if open && full.width() >= INFO_BESIDE_W {
+        let w = INFO_W.min(full.width() / 3.0);
+        let gap = 12.0;
+        let plots = full.with_max_x(full.right() - w - gap);
+        // Only the part of the pane on screen, so the panel scrolls rather
+        // than running off the bottom.
+        let side = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
+        ui.painter().vline(
+            side.left() - gap / 2.0,
+            side.y_range(),
+            egui::Stroke::new(1.0_f32, pal.separator),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(side), |ui| {
+            panel(ui, side.height());
+        });
+        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), body);
+        ui.allocate_rect(full, Sense::hover());
+        return;
+    }
+    body(ui);
+    if let Some(left) = info_over_left(full, open) {
+        // Over the plots, from the pane's top right corner.
+        let w = info_over_w(full);
+        let seen = full.intersect(ui.clip_rect());
+        egui::Area::new(id.with("info over"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(left, seen.top() + 4.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(w - 16.0);
+                    let h = (seen.height() - 24.0).max(80.0);
+                    ui.set_max_height(h);
+                    panel(ui, h);
+                });
+            });
     }
 }

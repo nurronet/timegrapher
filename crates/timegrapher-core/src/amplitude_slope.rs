@@ -114,9 +114,8 @@ pub(crate) const MIN_RELIABILITY: f64 = 0.5;
 pub(crate) const TOO_NOISY: &str =
     "the amplitude readings' own noise is half or more of their variance";
 
-/// A slope and its ± in s/d per degree, each to the decimals the ± calls
-/// for from the slope's base ([`crate::figure_text::figure_with_pm`],
-/// #510 K3), a slope that rounds to zero given no sign: the one text
+/// A slope and its ± in s/d per degree, each at the slope's place
+/// ([`crate::figure_text::figure_with_pm`], #1470), a slope that rounds to zero given no sign: the one text
 /// every surface prints for the slopes against the amplitude (#734).
 pub fn slope_pm_text(slope: f64, se: f64) -> String {
     use crate::figure_text::{base_digits, figure_with_pm};
@@ -491,12 +490,13 @@ mod tests {
         assert_eq!(slope_text(&e(-0.004)), "0.00 ± 0.01 s/d per degree");
         assert_eq!(slope_text(&e(-0.02)), "-0.02 ± 0.01 s/d per degree");
         assert_eq!(slope_text(&e(0.5)), "+0.50 ± 0.01 s/d per degree");
-        // Decimals follow the ± (#510 K3): a smaller ± adds one, a larger
-        // never goes under the slope's base of two.
+        // At the slope's place, two decimals, whatever the ±; the ±
+        // rounded up there, never under 0.01 (#1470).
         let at = |slope, se| slope_pm_text(slope, se);
-        assert_eq!(at(0.0123, 0.004), "+0.012 ± 0.004 s/d per degree");
+        assert_eq!(at(0.0123, 0.004), "+0.01 ± 0.01 s/d per degree");
         assert_eq!(at(0.5, 0.3), "+0.50 ± 0.30 s/d per degree");
-        assert_eq!(at(0.5, 1e-5), "+0.500 ± <0.001 s/d per degree");
+        assert_eq!(at(0.5, 0.031), "+0.50 ± 0.04 s/d per degree");
+        assert_eq!(at(0.5, 1e-5), "+0.50 ± 0.01 s/d per degree");
     }
 
     /// A figure in the rate-against-amplitude headline that rounds to zero

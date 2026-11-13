@@ -12,13 +12,22 @@
 //! right and early beats towards the top.
 
 use crate::strength::{self, Zero};
+use axis::{axis_ms, label_every};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use sweep::{Geom, Sweep};
 use timegrapher_core::beats::Beat;
 use timegrapher_core::breaks::Break;
 use timegrapher_core::chart_scale::{axis_number, round_step, steady_ends};
 use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::length_text;
 pub use timegrapher_core::timing::Anchor;
+
+mod axis;
+#[cfg(test)]
+mod key_tests;
+#[cfg(test)]
+mod still_tests;
+mod sweep;
 
 /// Colours of the ticks (even beats) and tocks (odd beats).
 pub fn side_colors(dark: bool) -> [Color32; 2] {
@@ -40,6 +49,10 @@ pub struct StripView {
     /// Time runs left to right (newest on the right) instead of down the
     /// strip (newest at the top).
     pub horizontal: bool,
+    /// The paper is still and the pen sweeps along it, back to the start
+    /// every `span_s` ([`Sweep::Still`]), instead of the paper moving.
+    #[serde(default)]
+    pub still: bool,
 }
 
 /// The most beats drawn to a point along the strip.
@@ -159,45 +172,6 @@ fn scale_ms((lo, hi, _): Scale, v: f64, half: f64) -> f64 {
 fn ticks((lo, hi, step): Scale) -> impl Iterator<Item = f64> {
     let n = ((hi - lo) / step).round() as i64;
     (0..=n).map(move |k| lo + k as f64 * step)
-}
-
-/// Places points on the strip from (lead in ms, time in s).
-struct Geom {
-    r: Rect,
-    half: f64,
-    span: f64,
-    end: f64,
-    horizontal: bool,
-}
-
-impl Geom {
-    /// The time at a point on the strip.
-    fn time_at(&self, p: Pos2) -> f64 {
-        let r = self.r;
-        let back = if self.horizontal {
-            (r.right() - p.x) / r.width().max(1.0)
-        } else {
-            (p.y - r.top()) / r.height().max(1.0)
-        };
-        self.end - back as f64 * self.span
-    }
-
-    fn pos(&self, ms: f64, t: f64) -> Pos2 {
-        let r = self.r;
-        let across = (ms / self.half) as f32;
-        let back = ((self.end - t) / self.span) as f32;
-        if self.horizontal {
-            Pos2::new(
-                r.right() - back * r.width(),
-                r.center().y - across * r.height() / 2.0,
-            )
-        } else {
-            Pos2::new(
-                r.center().x + across * r.width() / 2.0,
-                r.top() + back * r.height(),
-            )
-        }
-    }
 }
 
 /// The rate reading to draw over the beats it was fitted to.
@@ -544,6 +518,13 @@ fn track_label(
     plate: Color32,
     horizontal: bool,
 ) {
+    // Only the part of the stretch that shows: on still paper a lap is cut
+    // at the wrap and the blank ahead of the pen, and a name placed by the
+    // whole stretch would be cut there too.
+    let seg = seg.intersect(painter.clip_rect());
+    if !seg.is_positive() {
+        return;
+    }
     let font = FontId::proportional(11.0);
     let room = if horizontal {
         seg.width()
@@ -817,6 +798,8 @@ fn settle_word(painter: &egui::Painter, seg: Rect, horizontal: bool) {
 /// of the faint text colour.
 const MEASURED_SHADE: f32 = 0.16;
 const SETTLING_SHADE: f32 = 0.07;
+/// A settling's shade as a share of a measured stretch's, for other tracks.
+pub(crate) const SETTLE_OF_MEASURED: f32 = SETTLING_SHADE / MEASURED_SHADE;
 /// The phase name [`paint_phase`] takes for a measured stretch.
 const MEASURED: &str = "Measured";
 
@@ -897,20 +880,6 @@ pub fn paint_phases(
             } else {
                 painter.hline(r.x_range(), p, edge);
             }
-        }
-    }
-}
-
-/// A signed number of ms for an axis label.
-fn axis_ms(ms: f64) -> String {
-    if ms.abs() < 1e-9 {
-        "0 ms".into()
-    } else {
-        let sign = if ms > 0.0 { "+" } else { "−" };
-        if ms.abs() >= 1000.0 {
-            format!("{sign}{} s", fmt_ms(ms.abs() / 1000.0))
-        } else {
-            format!("{sign}{}", fmt_ms(ms.abs()))
         }
     }
 }
@@ -1020,17 +989,23 @@ pub fn draw_strip(
     if view.horizontal {
         crate::theme::note_time_span(ui.ctx(), r.x_range());
     }
+    let g = Geom {
+        r,
+        half: view.half_width_ms,
+        span: view.span_s,
+        end: end_s,
+        horizontal: view.horizontal,
+        sweep: if view.still {
+            Sweep::Still
+        } else {
+            Sweep::Moving
+        },
+    };
     let f = Frame {
         painter,
         outer: resp.rect,
         lane,
-        g: Geom {
-            r,
-            half: view.half_width_ms,
-            span: view.span_s,
-            end: end_s,
-            horizontal: view.horizontal,
-        },
+        g,
         view,
         extras,
         vis,
@@ -1038,7 +1013,7 @@ pub fn draw_strip(
         font,
         row_h,
         cols,
-        oldest,
+        oldest: g.oldest(),
     };
     let mut input = StripInput::default();
     let drags = f.pointer(ui, &resp, &mut input);
@@ -1048,16 +1023,23 @@ pub fn draw_strip(
     if let Some(anchor) = anchor {
         f.paint_beats(beats, period_s, anchor, true);
     }
-    f.paint_layers(&drags);
+    // Stretches and lines a lap at a time on still paper, so none runs
+    // across the wrap or the blank ahead of the pen.
+    let laps = f.laps();
+    for lap in &laps {
+        lap.paint_layers(&drags);
+    }
     f.paint_grid(&ms_lines, &time_lines);
-    f.paint_key();
+    f.paint_key(beats, period_s, anchor);
     f.paint_scales(&overlays);
     let Some(anchor) = anchor else {
         return input;
     };
     f.paint_beats(beats, period_s, anchor, false);
-    f.paint_overlay_lines(&overlays);
-    f.paint_rate_line(beats, period_s, anchor, step);
+    for lap in &laps {
+        lap.paint_overlay_lines(&overlays);
+        lap.paint_rate_line(beats, period_s, anchor, step);
+    }
     f.paint_cursor();
     input
 }
@@ -1131,6 +1113,7 @@ fn strip_rects(
 }
 
 /// One frame of the strip: where it draws, and what with.
+#[derive(Clone)]
 struct Frame<'a> {
     painter: egui::Painter,
     outer: Rect,
@@ -1166,6 +1149,20 @@ struct Drags {
 }
 
 impl Frame<'_> {
+    /// This frame a lap at a time ([`Geom::laps`]): each laid out without
+    /// wrapping and drawing only where its lap shows. Moving paper is one.
+    fn laps(&self) -> Vec<Self> {
+        self.g
+            .laps()
+            .into_iter()
+            .map(|(g, share)| Frame {
+                painter: self.painter.with_clip_rect(self.g.clip(self.outer, share)),
+                g,
+                ..self.clone()
+            })
+            .collect()
+    }
+
     /// The time at `p`, kept on the strip.
     fn at(&self, p: Option<Pos2>) -> Option<f64> {
         p.map(|p| self.g.time_at(p).clamp(self.oldest, self.g.end))
@@ -1302,9 +1299,11 @@ impl Frame<'_> {
             }
             if zoom != 1.0 {
                 input.span_factor = 1.0 / zoom as f64;
+                // Still paper zooms about the pen: a time's place on it
+                // is its place in its lap, which a new Length moves.
                 input.zoom_at = resp
                     .hover_pos()
-                    .filter(|p| r.contains(*p))
+                    .filter(|p| r.contains(*p) && g.sweep == Sweep::Moving)
                     .map(|p| g.time_at(p));
             }
         }
@@ -1467,16 +1466,18 @@ impl Frame<'_> {
         let mut lines = Vec::new();
         let text = self.vis.weak_text_color();
         let step = round_step(half / 4.0);
-        // On a strip too short for its labels to stand apart, only "Early"
-        // and "Late" are named.
+        // Every line, or on a strip too short for that the fewest lines
+        // that keep the labels apart on the 1-2-5 series (Hugh, #1512);
+        // on one too short for even that, only 0, "Early" and "Late".
         let step_px =
             step / half * f64::from(if horizontal { r.height() } else { r.width() }) / 2.0;
-        let labels = step_px as f32
-            > if horizontal {
-                2.0 * font.size + 4.0
-            } else {
-                60.0
-            };
+        let need = if horizontal {
+            2.0 * font.size + 4.0
+        } else {
+            60.0
+        };
+        // 0 ms is labelled even when nothing else fits.
+        let every = label_every(step, step_px as f32, need).unwrap_or(i64::MAX);
         let mut k = (-half / step).ceil() as i64;
         while (k as f64) * step < half + 1e-9 {
             let ms = k as f64 * step;
@@ -1496,7 +1497,8 @@ impl Frame<'_> {
                     (a.x - r.left()).min(r.right() - a.x),
                 )
             };
-            if labels && room > if horizontal { 14.0 } else { 34.0 } {
+            let labelled = k % every == 0;
+            if labelled && room > if horizontal { 14.0 } else { 34.0 } {
                 painter.text(at, align, axis_ms(ms), font.clone(), text);
             }
             k += 1;
@@ -1727,12 +1729,14 @@ impl Frame<'_> {
 
     /// The key: Tick and Tock in their colours, in the corner left of the
     /// track when the strip lies across, else along the top; and the note.
-    fn paint_key(&self) {
+    fn paint_key(&self, beats: &[Beat], period_s: f64, anchor: Option<Anchor>) {
         let (painter, r, outer, vis, font) =
             (&self.painter, self.g.r, self.outer, &self.vis, &self.font);
         let colors = side_colors(vis.dark_mode);
         if self.g.horizontal {
-            self.paint_corner_key(colors);
+            self.paint_corner_key(colors, |area| {
+                anchor.map_or(0, |a| self.dots_in(beats, period_s, a, area))
+            });
         } else {
             let mut at = Pos2::new(r.left(), outer.top() + 3.0);
             for (label, c) in [("Tick", colors[0]), ("Tock", colors[1])] {
@@ -1761,10 +1765,12 @@ impl Frame<'_> {
         }
     }
 
-    /// The key lying across: in the plot's top-left corner, Tick over
-    /// Tock, each a dot and its word in its side's colour, on a plate of
-    /// the plot's ground at 80% under the beats (#1225, Peter's C2).
-    fn paint_corner_key(&self, colors: [Color32; 2]) {
+    /// The key lying across: in the plot's left corner, Tick over Tock,
+    /// each a dot and its word in its side's colour, on a plate of the
+    /// plot's ground at 80% under the beats (#1225, Peter's C2); at the
+    /// top, or at the bottom where fewer of the dots (`dots`) lie, as the
+    /// facts box moves (Hugh, #1536).
+    fn paint_corner_key(&self, colors: [Color32; 2], dots: impl Fn(Rect) -> usize) {
         let (painter, r) = (&self.painter, self.g.r);
         let rows = [("Tick", colors[0]), ("Tock", colors[1])]
             .map(|(w, c)| (painter.layout_no_wrap(w.into(), self.font.clone(), c), c));
@@ -1772,10 +1778,14 @@ impl Frame<'_> {
         let text_x = 4.0 + 2.0 * dot + 4.0;
         let row_h = rows.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max);
         let wide = rows.iter().map(|(g, _)| g.size().x).fold(0.0, f32::max);
-        let plate = Rect::from_min_size(
-            r.min + Vec2::new(4.0, 4.0),
-            Vec2::new(text_x + wide + 4.0, 2.0 * row_h + 4.0),
-        );
+        let size = Vec2::new(text_x + wide + 4.0, 2.0 * row_h + 4.0);
+        let top = Rect::from_min_size(r.min + Vec2::splat(4.0), size);
+        let bottom = Rect::from_min_size(Pos2::new(top.left(), r.bottom() - 4.0 - size.y), size);
+        let plate = if dots(bottom) < dots(top) {
+            bottom
+        } else {
+            top
+        };
         painter.rect_filled(plate, 2.0, self.vis.extreme_bg_color.gamma_multiply(0.8));
         for (i, (g, c)) in rows.into_iter().enumerate() {
             let top = plate.top() + 2.0 + i as f32 * row_h;
@@ -1933,6 +1943,28 @@ impl Frame<'_> {
         }
     }
 
+    /// The beats on show: from the oldest on the strip to its end.
+    fn shown<'b>(&self, beats: &'b [Beat]) -> &'b [Beat] {
+        let lo = beats.partition_point(|b| b.time < self.oldest);
+        let hi = beats.partition_point(|b| b.time <= self.g.end);
+        &beats[lo..hi]
+    }
+
+    /// Where beat `b` is drawn on the strip.
+    fn beat_at(&self, b: &Beat, period_s: f64, anchor: Anchor) -> Pos2 {
+        let (g, extras) = (&self.g, self.extras);
+        let lead = anchor.lead_on_true(b, period_s, extras.breaks, extras.clock);
+        g.pos(wrap(lead, g.half), b.time)
+    }
+
+    /// How many of the good beats on show lie in `area`.
+    fn dots_in(&self, beats: &[Beat], period_s: f64, anchor: Anchor, area: Rect) -> usize {
+        self.shown(beats)
+            .iter()
+            .filter(|b| b.is_good() && area.contains(self.beat_at(b, period_s, anchor)))
+            .count()
+    }
+
     /// The beats on the strip as dots, Tick and Tock in their colours,
     /// faint while the watch settles. With `masked`, only the beats in a
     /// masked stretch, at 30% of their colour over the strip's ground and
@@ -1941,9 +1973,7 @@ impl Frame<'_> {
     /// (Hugh, #1068 item 2). Without, only the others.
     fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor, masked: bool) {
         let (g, r, extras) = (&self.g, self.g.r, self.extras);
-        let lo = beats.partition_point(|b| b.time < self.oldest);
-        let hi = beats.partition_point(|b| b.time <= g.end);
-        let shown = &beats[lo..hi];
+        let shown = self.shown(beats);
         // Dots shrink when the strip is crowded.
         let along = if g.horizontal { r.width() } else { r.height() };
         let per_px = shown.len() as f32 / along.max(1.0);
@@ -1963,13 +1993,7 @@ impl Frame<'_> {
             if in_mask != masked {
                 continue;
             }
-            let p = g.pos(
-                wrap(
-                    anchor.lead_on_true(b, period_s, extras.breaks, extras.clock),
-                    g.half,
-                ),
-                b.time,
-            );
+            let p = self.beat_at(b, period_s, anchor);
             let mut c = colors[b.index.rem_euclid(2) as usize];
             if in_mask {
                 c = ground.lerp_to_gamma(c, MASKED_BEAT);
@@ -2164,6 +2188,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let masked = [(40.0, 60.0)];
         let extras = Extras {
@@ -2280,6 +2305,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let track = [
             (0.0, 50.0, "Dial Up (DU)", "DU"),
@@ -2432,6 +2458,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 240.0,
                 horizontal,
+                still: false,
             };
             let extras = Extras {
                 gutter: 46.0,
@@ -2479,6 +2506,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 100.0,
                 horizontal,
+                still: false,
             };
             let extras = Extras {
                 gutter: 46.0,
@@ -2545,6 +2573,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let track = [(0.0, f64::INFINITY, "Crown Up (CU, 3H)", "CU")];
         let masked = [(12.0, 20.0)];
@@ -2626,6 +2655,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 100.0,
                 horizontal: true,
+                still: false,
             };
             let track = [
                 (0.0, 50.0, "Dial Up (DU)", "DU"),
@@ -2907,6 +2937,7 @@ mod tests {
                 span: 60.0,
                 end: 100.0,
                 horizontal,
+                sweep: Sweep::Moving,
             };
             for t in [40.0, 55.5, 100.0] {
                 assert!((g.time_at(g.pos(3.0, t)) - t).abs() < 1e-3);
@@ -2925,6 +2956,7 @@ mod tests {
                 span: 60.0,
                 end: 100.0,
                 horizontal,
+                sweep: Sweep::Moving,
             };
             let m = [(50.0, 60.0), (60.5, 70.0)];
             assert_eq!(
@@ -2941,14 +2973,6 @@ mod tests {
             );
             assert_eq!(edge_near(&m, g.pos(0.0, 55.0), &g), None);
         }
-    }
-
-    #[test]
-    fn axis_labels_turn_to_seconds() {
-        assert_eq!(axis_ms(0.0), "0 ms");
-        assert_eq!(axis_ms(-250.0), "−250");
-        assert_eq!(axis_ms(2000.0), "+2.0 s");
-        assert_eq!(axis_ms(-20_000.0), "−20 s");
     }
 
     #[test]

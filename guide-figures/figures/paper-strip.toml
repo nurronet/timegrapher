@@ -5,11 +5,11 @@ output = "paper-strip.png"
 # 1 Draw Over the Strip, 2 Width, 3 Length, 4 Fit, 5 Centre and
 # Auto-Centre, 6 Rate Line and Parallel Guides, 7 Mask, 8 Position Brush,
 # 9 Direction, 10 Export, 11 the track, 12 Settling, 13 Tick and Tock,
-# 14 the amplitude drawn over the strip.
+# 14 the amplitude drawn over the strip, 15 Still Paper.
 marks = [[1, 110, 328], [2, 258, 328], [3, 410, 328], [4, 479, 328],
          [5, 544, 328], [6, 626, 328], [7, 690, 328], [8, 748, 328],
-         [9, 910, 328], [10, 1007, 328], [11, 492, 352], [12, 330, 352],
-         [13, 175, 381], [14, 880, 640]]
+         [9, 878, 328], [10, 1007, 328], [11, 492, 352], [12, 330, 352],
+         [13, 175, 381], [14, 880, 640], [15, 943, 328]]
 
 layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 

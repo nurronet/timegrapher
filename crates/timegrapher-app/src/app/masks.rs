@@ -197,7 +197,7 @@ impl TimegrapherApp {
     /// and its name, and Stop Painting while one is in use.
     fn brush_items(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) {
         let font = egui::FontId::proportional(13.0);
-        let widths = Position::ALL.map(|p| {
+        let widths = Position::TEN.map(|p| {
             ui.painter()
                 .layout_no_wrap(p.code().to_string(), font.clone(), pal.text)
                 .size()
@@ -205,7 +205,7 @@ impl TimegrapherApp {
         });
         // The names in a column of their own after the codes.
         let column = widths.iter().copied().fold(0.0, f32::max);
-        for (p, w) in Position::ALL.into_iter().zip(widths) {
+        for (p, w) in Position::TEN.into_iter().zip(widths) {
             let mut job = egui::text::LayoutJob::default();
             // The code in dark text on a teal swatch, readable in both
             // themes.
@@ -233,6 +233,7 @@ impl TimegrapherApp {
                 .clicked()
             {
                 self.brush = Some(p);
+                self.ten_positions |= p.is_half_hour();
                 self.masking = false;
                 ui.close();
             }

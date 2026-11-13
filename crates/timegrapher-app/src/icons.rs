@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 82] = [
+const ALL: [Icon; 85] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
@@ -16,6 +16,8 @@ const ALL: [Icon; 82] = [
     Icon::Scope,
     Icon::Isochronism,
     Icon::Positions,
+    Icon::Poise,
+    Icon::Complication,
     Icon::Rate,
     Icon::Amplitude,
     Icon::BeatError,
@@ -91,6 +93,7 @@ const ALL: [Icon; 82] = [
     Icon::Info,
     Icon::IsoCurve,
     Icon::IsoWalk,
+    Icon::StillPaper,
 ];
 
 /// The drawing behind each icon, with the pun it makes.
@@ -127,6 +130,14 @@ fn drawing(icon: Icon) -> &'static str {
         // A die showing six: Six faces, six positions: DU, DD, CU, CD, CL and CR.
         Icon::Positions => {
             r#"<rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><g fill="currentColor" stroke="none"><circle cx="8.5" cy="8" r="1.4"/><circle cx="8.5" cy="12" r="1.4"/><circle cx="8.5" cy="16" r="1.4"/><circle cx="15.5" cy="8" r="1.4"/><circle cx="15.5" cy="12" r="1.4"/><circle cx="15.5" cy="16" r="1.4"/></g>"#
+        }
+        // A Ferris wheel: Each seat comes to the top in turn, as each hour does in a Dynamic Poise test.
+        Icon::Poise => {
+            r#"<circle cx="12" cy="10" r="7"/><path d="M12 3v14M5 10h14M7 5l10 10M17 5L7 15"/><path d="M12 10l-4.5 11.5M12 10l4.5 11.5M5 21.5h14"/><g fill="currentColor" stroke="none"><circle cx="12" cy="3" r="1.3"/><circle cx="17" cy="5" r="1.3"/><circle cx="19" cy="10" r="1.3"/><circle cx="17" cy="15" r="1.3"/><circle cx="12" cy="17" r="1.3"/><circle cx="7" cy="15" r="1.3"/><circle cx="5" cy="10" r="1.3"/><circle cx="7" cy="5" r="1.3"/></g>"#
+        }
+        // A light switch: Off, on, then off again, as the Complication Test turns it.
+        Icon::Complication => {
+            r#"<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><rect x="9.5" y="6.5" width="5" height="11" rx="1.5"/><path d="M10.2 12h3.6"/><path d="M10.8 12l-1.4-4.6h5.2L13.2 12" fill="currentColor"/>"#
         }
         // A leaping hare: Gaining or losing: how fast the watch runs.
         Icon::Rate => {
@@ -388,6 +399,12 @@ fn drawing(icon: Icon) -> &'static str {
         // Dots joined in time order: The walk through the run-down.
         Icon::IsoWalk => {
             r#"<path d="M3.5 20.5h17M3.5 20.5V3.5" stroke-width="1.2"/><path d="M19 5l-4 6-3-1-3 6-3 1" stroke-width="0.8"/><circle cx="19" cy="5" r="1.1" fill="currentColor"/><circle cx="15" cy="11" r="1.1" fill="currentColor"/><circle cx="12" cy="10" r="1.1" fill="currentColor"/><circle cx="9" cy="16" r="1.1" fill="currentColor"/><circle cx="6" cy="17" r="1.1" fill="currentColor"/>"#
+        }
+        // A sheet with a rising trace that runs off its right edge and
+        // carries on from the left: Still paper, the pen wrapping every
+        // Length.
+        Icon::StillPaper => {
+            r#"<rect x="3.5" y="3.5" width="17" height="17" rx="1.5"/><path d="M7 17L20.5 12M3.5 12L12 8.85" stroke-width="1.4"/><circle cx="12" cy="8.85" r="1.2" fill="currentColor"/>"#
         }
         // A watchmaker's screwdriver: Change the watch's details.
         Icon::Screwdriver => {
@@ -996,14 +1013,15 @@ mod tests {
 }
 
 /// How the watch lies on the Current Position card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Lying {
     /// Flat, dial up: the face in perspective, its side wall below.
     DialUp,
     /// Flat, dial down: the case back, crown on the left.
     DialDown,
-    /// Standing, the hour that points up (3 for Crown Up, 9, 6 or 12).
-    Hour(u8),
+    /// Standing, the hour at the top as its angle clockwise from 12,
+    /// degrees: 90 for Crown Up (3H), 45 for 1H30.
+    Top(f32),
 }
 
 /// The watch itself, no stand, filling the square `r`: the case in
@@ -1024,10 +1042,10 @@ pub fn watch(
     let k = r.width().min(r.height()) / 100.0;
     let origin = r.center() - egui::vec2(50.0, 50.0) * k;
     let turn = match lying {
-        Lying::Hour(h) => -(f32::from(h) * 30.0).to_radians(),
+        Lying::Top(deg) => -deg.to_radians(),
         _ => 0.0,
     };
-    let flat = !matches!(lying, Lying::Hour(_));
+    let flat = !matches!(lying, Lying::Top(_));
     let (sin, cos) = turn.sin_cos();
     // A point on the grid, turned about the centre or squashed flat.
     let at = |x: f32, y: f32| -> Pos2 {

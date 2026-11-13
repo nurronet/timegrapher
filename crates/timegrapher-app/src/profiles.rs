@@ -2,6 +2,7 @@
 //! tocks, with the band most beats fall in and the marks the engine read
 //! the amplitude and beat error from.
 
+use crate::fact_box::{widest, FactBox};
 use crate::marks::{self, Rank, LANE, LANE_GAP, ROW_H};
 use crate::strength::{self, Grid, Strength};
 use crate::strip::side_colors;
@@ -73,251 +74,6 @@ fn keep_rows(plot_h: f32, fit_frame: usize) -> Vec<usize> {
     let mut keep = [3, 0, 1, 2][..by_height].to_vec();
     keep.sort_unstable();
     keep
-}
-
-/// A side's facts in the plot's top-left corner, as a plot item so they
-/// sit over the grid and under the band and the trace: a spike that runs
-/// into them still shows. The same box at the same place on both plots,
-/// so Tick and Tock compare row against row.
-#[derive(Clone)]
-struct FactBox {
-    base: egui_plot::PlotItemBase,
-    /// The four facts, or the one line saying there are none yet.
-    rows: Vec<(String, String)>,
-    plot_h: f32,
-    /// The trace at each time, plot coordinates: the box takes the top
-    /// right corner where it would cover the trace in the left and not
-    /// there.
-    tops: Vec<[f64; 2]>,
-    /// Where `held` keeps the rows and corner last drawn, and those rows'
-    /// count and whether in the right corner: another layout must clear
-    /// the trace by `FACT_HOLD` more, so a trace on the edge doesn't make
-    /// the box flick between two from frame to frame.
-    held: egui::Id,
-    was: Option<(usize, bool)>,
-    /// The values' column, right-aligned, as wide as the widest value on
-    /// either side; and the names' column likewise.
-    name_w: f32,
-    value_w: f32,
-    /// The same for the two rows a short plot keeps.
-    short_name_w: f32,
-    short_value_w: f32,
-    fill: Color32,
-    name_color: Color32,
-    value_color: Color32,
-}
-
-/// The box's distance from the plot's corner, points.
-const FACT_INSET: f32 = 4.0;
-/// Room inside the box around its rows, and each row's height, points.
-const FACT_PAD: f32 = 8.0;
-const FACT_ROW: f32 = 16.0;
-/// The room around the rows in a short plot's box, and each row's height.
-const FACT_PAD_SHORT: f32 = 3.0;
-const FACT_ROW_SHORT: f32 = 14.0;
-/// Between the names' column and the values'.
-const FACT_GAP: f32 = 16.0;
-/// How much further from the trace a facts box must be to take a layout
-/// other than the one last drawn, points.
-const FACT_HOLD: f32 = 6.0;
-/// The facts' type size.
-const FACT_SIZE: f32 = 12.0;
-
-impl FactBox {
-    /// Where the box goes in a plot whose frame is `frame`, `rows` tall.
-    /// Fewer than four rows of facts make a short box, as narrow as its
-    /// rows and tight around them.
-    fn rect(&self, frame: egui::Rect, rows: usize) -> egui::Rect {
-        let short = rows < 4 && self.rows.len() == 4;
-        let (name_w, value_w) = if short {
-            (self.short_name_w, self.short_value_w)
-        } else {
-            (self.name_w, self.value_w)
-        };
-        let pad = Self::pad(rows, self.rows.len());
-        egui::Rect::from_min_size(
-            frame.min + egui::vec2(FACT_INSET, FACT_INSET),
-            egui::vec2(
-                name_w + FACT_GAP + value_w + 2.0 * pad,
-                rows as f32 * Self::row_h(rows, self.rows.len()) + 2.0 * pad,
-            ),
-        )
-    }
-
-    /// The room around `rows` of a box holding `of` facts.
-    fn pad(rows: usize, of: usize) -> f32 {
-        if rows < 4 && of == 4 {
-            FACT_PAD_SHORT
-        } else {
-            FACT_PAD
-        }
-    }
-
-    /// Each row's height in a box of `rows` holding `of` facts.
-    fn row_h(rows: usize, of: usize) -> f32 {
-        if rows < 4 && of == 4 {
-            FACT_ROW_SHORT
-        } else {
-            FACT_ROW
-        }
-    }
-
-    /// The rows shown in the plot as `t` draws it: inside the plot.
-    fn shown(&self, t: &egui_plot::PlotTransform) -> Vec<usize> {
-        let frame = *t.frame();
-        let top = frame.top() + FACT_INSET;
-        let room = |bottom: f32, pad: f32, row: f32| {
-            ((bottom - top - 2.0 * pad) / row).floor().max(0.0) as usize
-        };
-        // A short plot's box is tight around its rows.
-        let full =
-            self.plot_h >= SHORT_PLOT && room(frame.bottom() - FACT_INSET, FACT_PAD, FACT_ROW) >= 4;
-        let (pad, row) = if full || self.rows.len() != 4 {
-            (FACT_PAD, FACT_ROW)
-        } else {
-            (FACT_PAD_SHORT, FACT_ROW_SHORT)
-        };
-        let fit_frame = room(frame.bottom() - FACT_INSET, pad, row);
-        match self.rows.len() {
-            4 => keep_rows(self.plot_h, fit_frame),
-            1 if fit_frame >= 1 => vec![0],
-            _ => Vec::new(),
-        }
-    }
-
-    /// The box of `rows` in the top left corner and in the top right.
-    fn corners(&self, t: &egui_plot::PlotTransform, rows: usize) -> (egui::Rect, egui::Rect) {
-        let frame = *t.frame();
-        let r = self.rect(frame, rows);
-        (
-            r,
-            r.translate(egui::vec2(frame.right() - FACT_INSET - r.right(), 0.0)),
-        )
-    }
-
-    /// Whether the trace runs under `r`, or within `more` points under it
-    /// short of the plot's foot, where a trace at rest lies.
-    fn covers(&self, t: &egui_plot::PlotTransform, r: egui::Rect, more: f32) -> bool {
-        let edge = r.bottom() + 2.0;
-        let edge = edge + more.min(t.frame().bottom() - 0.5 - edge).max(0.0);
-        self.tops.iter().any(|p| {
-            let x = t.position_from_point_x(p[0]);
-            x >= r.left() && x <= r.right() && t.position_from_point_y(p[1]) < edge
-        })
-    }
-
-    /// The rows drawn and where: those [`Self::shown`] keeps, in the top
-    /// left corner, or the top right where the trace runs under the left
-    /// and not the right. Where the trace runs under both corners the
-    /// box keeps fewer rows, Unlock to Drop last, and none where even one row
-    /// would sit on it: the picture comes first, and the box's hover has
-    /// all four. A layout other than the one last drawn must clear the
-    /// trace by [`FACT_HOLD`] more.
-    fn layout(&self, t: &egui_plot::PlotTransform) -> (Vec<usize>, egui::Rect) {
-        let shown = self.shown(t);
-        if self.tops.is_empty() || shown.is_empty() {
-            let r = self.corners(t, shown.len().max(1)).0;
-            return (shown, r);
-        }
-        for n in (1..=shown.len()).rev() {
-            let (left, right) = self.corners(t, n);
-            for (r, right) in [(left, false), (right, true)] {
-                let more = if self.was.is_none_or(|w| w == (n, right)) {
-                    0.0
-                } else {
-                    FACT_HOLD
-                };
-                if !self.covers(t, r, more) {
-                    return (shown[shown.len() - n..].to_vec(), r);
-                }
-            }
-        }
-        (Vec::new(), self.corners(t, 1).0)
-    }
-
-    /// The span of x the box takes, as `t` draws it, its sides 0 wide at
-    /// the plot's left edge with no rows shown: nothing names itself over
-    /// it.
-    fn span(&self, t: &egui_plot::PlotTransform) -> (f32, f32) {
-        let (shown, r) = self.layout(t);
-        if shown.is_empty() {
-            (t.frame().left(), t.frame().left())
-        } else {
-            (r.left() - FACT_INSET, r.right())
-        }
-    }
-}
-
-impl egui_plot::PlotItem for FactBox {
-    fn shapes(
-        &self,
-        ui: &egui::Ui,
-        transform: &egui_plot::PlotTransform,
-        shapes: &mut Vec<egui::Shape>,
-    ) {
-        let (shown, r) = self.layout(transform);
-        // Kept for the next frame's layout, as `held` reads it.
-        let right = r.right() >= transform.frame().right() - FACT_INSET - 0.5;
-        ui.ctx()
-            .data_mut(|d| d.insert_temp(self.held, (shown.len(), right)));
-        if shown.is_empty() {
-            return;
-        }
-        let pad = Self::pad(shown.len(), self.rows.len());
-        let row = Self::row_h(shown.len(), self.rows.len());
-        shapes.push(egui::Shape::rect_filled(r, 6.0, self.fill));
-        let font = egui::FontId::proportional(FACT_SIZE);
-        for (i, (name, value)) in shown.iter().map(|&k| &self.rows[k]).enumerate() {
-            let y = r.top() + pad + (i as f32 + 0.5) * row;
-            ui.fonts_mut(|f| {
-                let g = f.layout_no_wrap(name.clone(), font.clone(), self.name_color);
-                let at = egui::pos2(r.left() + pad, y - g.size().y / 2.0);
-                shapes.push(egui::Shape::galley(at, g, self.name_color));
-                let g = f.layout_no_wrap(value.clone(), font.clone(), self.value_color);
-                let at = egui::pos2(r.right() - pad - g.size().x, y - g.size().y / 2.0);
-                shapes.push(egui::Shape::galley(at, g, self.value_color));
-            });
-        }
-    }
-
-    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
-
-    fn color(&self) -> Color32 {
-        self.value_color
-    }
-
-    fn geometry(&self) -> egui_plot::PlotGeometry<'_> {
-        egui_plot::PlotGeometry::None
-    }
-
-    fn bounds(&self) -> egui_plot::PlotBounds {
-        egui_plot::PlotBounds::NOTHING
-    }
-
-    fn base(&self) -> &egui_plot::PlotItemBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut egui_plot::PlotItemBase {
-        &mut self.base
-    }
-}
-
-/// The widest of `texts` in the facts' type, points.
-fn widest<'a>(ui: &egui::Ui, texts: impl Iterator<Item = &'a str>) -> f32 {
-    texts
-        .map(|t| {
-            ui.fonts_mut(|f| {
-                f.layout_no_wrap(
-                    t.to_owned(),
-                    egui::FontId::proportional(FACT_SIZE),
-                    Color32::WHITE,
-                )
-                .size()
-                .x
-            })
-        })
-        .fold(0.0, f32::max)
 }
 
 /// How the pane is drawn: set in its toolbar.
@@ -559,6 +315,11 @@ fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
             fill: box_fill,
             name_color: pal.text_secondary,
             value_color: pal.text,
+            keep: facts[k]
+                .is_some()
+                .then_some(keep_rows as fn(f32, usize) -> Vec<usize>),
+            shed: Vec::new(),
+            flow: false,
         }
     };
     [fact_box(0), fact_box(1)]
@@ -738,7 +499,7 @@ fn facts_hover(
     if shown.len() < FACT_NAMES.len() || note.is_some() {
         // Where no row is drawn, the corner a one-row box would take.
         let r = if shown.is_empty() {
-            facts_here.corners(&resp.transform, 1).0
+            facts_here.corners(&resp.transform, 1, 1).0
         } else {
             r
         };
@@ -1233,6 +994,7 @@ impl Marker<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fact_box::*;
 
     /// The level axis takes its decimals from its grid step: small levels
     /// on a tall plot read 0.002, 0.004, not 0.00 at every mark.
@@ -1310,6 +1072,9 @@ mod tests {
             fill: Color32::WHITE,
             name_color: Color32::GRAY,
             value_color: Color32::BLACK,
+            keep: Some(keep_rows),
+            shed: Vec::new(),
+            flow: false,
         };
         let frame = egui::Rect::from_min_size(egui::pos2(50.0, 30.0), egui::vec2(800.0, 150.0));
         let r = b.rect(frame, 4);
@@ -1414,6 +1179,9 @@ mod tests {
             fill: Color32::WHITE,
             name_color: Color32::GRAY,
             value_color: Color32::BLACK,
+            keep: Some(keep_rows),
+            shed: Vec::new(),
+            flow: false,
         };
         assert_eq!(b.rect(frame, 1).bottom(), 54.0);
         // First drawn, or drawn in the left corner last frame: the left.

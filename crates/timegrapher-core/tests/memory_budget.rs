@@ -9,6 +9,12 @@
 //! the amplitude windows (one a window step), the tick and tock sound
 //! kept for the Tick Tock Profile (thinned by core's `thin_sound`), and
 //! the capture queue (bounded at `QUEUE_BLOCKS`).
+//!
+//! One store is transient and not in the total: the sound live gathers
+//! from when a watch is first heard until it holds a file's first chunk
+//! (47 s), to build its beat template again as a file's reading does
+//! (#1327), about 9 MB at 48 kHz and 18 MB at 96 kHz. It is let go once
+//! the template is built and that sound read again, which the test checks.
 
 use std::mem::size_of;
 use timegrapher_core::amplitude::AmplitudeWindow;
@@ -22,8 +28,10 @@ use timegrapher_core::synth::{generate, SynthConfig};
 
 /// The run the budget is for: an 80 h Power Reserve test.
 const RUN_S: f64 = 80.0 * 3600.0;
-/// What the stores above may hold together after [`RUN_S`].
-const BUDGET_BYTES: f64 = 160e6;
+/// What the stores above may hold together after [`RUN_S`]: 160 MB until
+/// #1333 gave each amplitude window its culled sides (Peter, 13 Nov:
+/// 165 MB).
+const BUDGET_BYTES: f64 = 165e6;
 /// The input rates the budget holds at (decided on #1115).
 const RATES: [u32; 2] = [48_000, 96_000];
 /// The shortest amplitude window step the test allows: the budget counts
@@ -84,8 +92,17 @@ fn run_at(rate: u32) -> (usize, String) {
     }
 
     // Each store as the rule allows. A steady watch has no breaks or jumps,
-    // and candidates wait only for the next pass.
+    // and candidates wait only for the next pass. The sound gathered to
+    // build the template again is let go once it is built.
     assert_eq!(live.beats().len(), cap);
+    assert!(
+        live.template_switch_s().is_some(),
+        "the template built again"
+    );
+    assert!(
+        !live.gathering(),
+        "the sound gathered for the template is kept"
+    );
     assert!(live.breaks().is_empty() && live.by_count().is_empty() && live.jumps().is_empty());
     assert!(live.candidates().len() < 4 * beats_per_s as usize);
     // The beat sound the verdict reads, sampled across the take within

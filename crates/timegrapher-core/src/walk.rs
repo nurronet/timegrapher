@@ -10,6 +10,7 @@
 //! 100 to 250 points a take. Bins of an hour or more smear steps and pull
 //! the extremes in.
 
+use crate::confidence::{too_few_windows, Coverage};
 use crate::dsp::median_of;
 use crate::longterm::Grid;
 use serde::Serialize;
@@ -21,7 +22,7 @@ pub const WALK_MAX_POINTS: usize = 250;
 
 /// One stretch of the take: the median of its rate readings and the
 /// median of its amplitude's 2 s windows.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct WalkPoint {
     /// The stretch's middle, seconds from the take's start, and hours
     /// since full wind.
@@ -33,15 +34,58 @@ pub struct WalkPoint {
     /// (`readings` kept as the rate's, its name since #1080).
     pub readings: usize,
     pub amp_windows: usize,
+    /// The rate readings and amplitude windows the stretch could have
+    /// held: the denominators of its coverage.
+    pub rate_slots: usize,
+    pub amp_slots: usize,
+    /// Whether either series was read from under
+    /// [`crate::confidence::MIN_WINDOW_COVERAGE`] of its slots
+    /// ([`Coverage::is_thin`]); a merged point is thin when any of its
+    /// bins is (Norm, 11-12).
+    pub thin: bool,
 }
 
-/// The walk on its base bins, in time order. A bin with under half its
-/// rate readings or under half its amplitude windows is left out, never
-/// filled.
-#[derive(Debug, Clone, Serialize)]
+impl WalkPoint {
+    /// The rate's and the amplitude's coverage.
+    pub fn coverage(&self) -> [Coverage; 2] {
+        [
+            Coverage {
+                windows_used: self.readings,
+                windows_in_span: self.rate_slots,
+            },
+            Coverage {
+                windows_used: self.amp_windows,
+                windows_in_span: self.amp_slots,
+            },
+        ]
+    }
+}
+
+/// The walk on its base bins, in time order. Each series follows the
+/// floors every window figure does (math-standards.md section 7, Norm
+/// 11-12): read from under [`crate::confidence::MIN_WINDOW_SHARE`] of its
+/// slots it is withheld, and under
+/// [`crate::confidence::MIN_WINDOW_COVERAGE`] it stands, thin. A bin
+/// needs both series to place a point: one with either withheld is left
+/// out, never filled.
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct IsochronismWalk {
     pub bin_s: f64,
     pub points: Vec<WalkPoint>,
+    /// Where the rate is still read after the last point but the
+    /// amplitude is not (a run-down's end): the end of the last such bin,
+    /// seconds from the take's start. The walk has no x for those rates,
+    /// so it says so rather than draw them (Norm, Hugh, 11-12).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_only_to_s: Option<f64>,
+}
+
+/// One base bin of the walk: a point, a rate with no amplitude to place
+/// it at (ending at the given second), or nothing.
+enum Bin {
+    Point(WalkPoint),
+    RateOnly(f64),
+    Empty,
 }
 
 /// The walk from the rate's readings (the steadiness report's) and the
@@ -66,32 +110,68 @@ pub fn walk(rate: &Grid, amp: &Grid, wind_h: f64) -> Option<IsochronismWalk> {
             }
         }
     }
-    let points: Vec<WalkPoint> = (0..n)
+    let bins: Vec<Bin> = (0..n)
         .step_by(per_bin)
         .zip(&windows)
-        .filter_map(|(i0, a)| {
+        .map(|(i0, a)| {
             let end = (i0 + per_bin).min(n);
             let r: Vec<f64> = rate.y[i0..end]
                 .iter()
                 .copied()
                 .filter(|v| v.is_finite())
                 .collect();
-            if 2 * r.len() < per_bin || 2 * a.len() < per_bin_windows {
-                return None;
+            // A take's last bin can end early: its slots are its own.
+            let rate_slots = end - i0;
+            let amp_slots = if rate_slots == per_bin {
+                per_bin_windows
+            } else {
+                (rate_slots as f64 * rate.step / amp.step).round().max(1.0) as usize
+            };
+            if too_few_windows(r.len(), rate_slots) {
+                return Bin::Empty;
             }
-            // The middle of what the bin holds: the take's last bin can end early.
+            if too_few_windows(a.len(), amp_slots) {
+                return Bin::RateOnly(rate.t0 + end as f64 * rate.step);
+            }
+            // The middle of what the bin holds.
             let t_s = rate.t0 + (i0 + end) as f64 / 2.0 * rate.step;
-            Some(WalkPoint {
+            let (Some(rate_s_per_day), Some(amplitude_deg)) =
+                (median_of(r.iter().copied()), median_of(a.iter().copied()))
+            else {
+                return Bin::Empty;
+            };
+            let mut p = WalkPoint {
                 t_s,
                 wind_h: wind_h + t_s / 3600.0,
-                rate_s_per_day: median_of(r.iter().copied())?,
-                amplitude_deg: median_of(a.iter().copied())?,
+                rate_s_per_day,
+                amplitude_deg,
                 readings: r.len(),
                 amp_windows: a.len(),
-            })
+                rate_slots,
+                amp_slots,
+                thin: false,
+            };
+            p.thin = p.coverage().iter().any(|c| c.is_thin());
+            Bin::Point(p)
         })
         .collect();
-    (points.len() >= 2).then_some(IsochronismWalk { bin_s, points })
+    let last = bins.iter().rposition(|b| matches!(b, Bin::Point(_)))?;
+    let rate_only_to_s = bins[last..].iter().rev().find_map(|b| match b {
+        Bin::RateOnly(end) => Some(*end),
+        _ => None,
+    });
+    let points: Vec<WalkPoint> = bins
+        .into_iter()
+        .filter_map(|b| match b {
+            Bin::Point(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    (points.len() >= 2).then_some(IsochronismWalk {
+        bin_s,
+        points,
+        rate_only_to_s,
+    })
 }
 
 /// How many base bins to merge so the walk has at most
@@ -123,6 +203,7 @@ pub fn merged(w: &IsochronismWalk, k: usize) -> IsochronismWalk {
     IsochronismWalk {
         bin_s: width,
         points: out,
+        rate_only_to_s: w.rate_only_to_s,
     }
 }
 
@@ -143,6 +224,9 @@ fn merge(g: &[&WalkPoint]) -> WalkPoint {
         amplitude_deg: mean(|p| p.amplitude_deg, amp_n),
         readings: g.iter().map(|p| p.readings).sum(),
         amp_windows: g.iter().map(|p| p.amp_windows).sum(),
+        rate_slots: g.iter().map(|p| p.rate_slots).sum(),
+        amp_slots: g.iter().map(|p| p.amp_slots).sum(),
+        thin: g.iter().any(|p| p.thin),
     }
 }
 
@@ -185,23 +269,114 @@ mod tests {
             && q[1].rate_s_per_day > q[0].rate_s_per_day));
     }
 
+    /// Keep the first `keep` of `per` values from bin `bin` of `y`.
+    fn thin_bin(y: &mut [f64], per: usize, bin: usize, keep: usize) {
+        y[bin * per + keep..(bin + 1) * per].fill(f64::NAN);
+    }
+
+    /// Each series on the floors every window figure takes (Norm, 11-12):
+    /// at 5% of its slots withheld, so the bin draws nothing; at 30% kept
+    /// and thin; at 70% plain. The amplitude in bins 2 to 4, the rate in
+    /// bins 5 to 7.
     #[test]
-    fn a_bin_under_half_read_in_either_series_is_left_out_not_filled() {
+    fn a_bin_is_withheld_under_a_tenth_and_thin_under_three_fifths_in_either_series() {
         let (mut rate, mut amp) = run_down(1.0);
-        // The rate keeps 15 of bin 2's 30 readings and 14 of bin 3's; the
-        // amplitude keeps 75 of bin 4's 150 windows and 74 of bin 5's.
-        rate.y[60..75].fill(f64::NAN);
-        rate.y[90..106].fill(f64::NAN);
-        amp.y[600..675].fill(f64::NAN);
-        amp.y[750..826].fill(f64::NAN);
+        for (bin, share) in [(2, 0.05), (3, 0.3), (4, 0.7)] {
+            thin_bin(&mut amp.y, 150, bin, (150.0 * share) as usize);
+        }
+        for (bin, share) in [(5, 0.05), (6, 0.3), (7, 0.7)] {
+            thin_bin(&mut rate.y, 30, bin, (30.0_f64 * share).round() as usize);
+        }
         let w = walk(&rate, &amp, 0.0).unwrap();
-        let ts: Vec<f64> = w.points.iter().map(|p| p.t_s).collect();
+        let got: Vec<(f64, usize, usize, bool)> = w
+            .points
+            .iter()
+            .map(|p| (p.t_s, p.readings, p.amp_windows, p.thin))
+            .collect();
         assert_eq!(
-            ts,
-            [150.0, 450.0, 750.0, 1350.0, 1950.0, 2250.0, 2550.0, 2850.0, 3150.0, 3450.0]
+            got,
+            [
+                (150.0, 30, 150, false),
+                (450.0, 30, 150, false),
+                (1050.0, 30, 45, true),
+                (1350.0, 30, 105, false),
+                (1950.0, 9, 150, true),
+                (2250.0, 21, 150, false),
+                (2550.0, 30, 150, false),
+                (2850.0, 30, 150, false),
+                (3150.0, 30, 150, false),
+                (3450.0, 30, 150, false),
+            ]
         );
-        assert_eq!((w.points[2].readings, w.points[2].amp_windows), (15, 150));
-        assert_eq!((w.points[3].readings, w.points[3].amp_windows), (30, 75));
+        assert!(w
+            .points
+            .iter()
+            .all(|p| (p.rate_slots, p.amp_slots) == (30, 150)));
+    }
+
+    /// The floor is the share's own: 3 of a bin's 30 rate readings (10%)
+    /// stand, 2 do not; 15 of its 150 amplitude windows stand, 14 do not.
+    #[test]
+    fn a_tenth_of_the_slots_stands_and_one_fewer_does_not() {
+        let (mut rate, mut amp) = run_down(1.0);
+        thin_bin(&mut rate.y, 30, 2, 3);
+        thin_bin(&mut rate.y, 30, 3, 2);
+        thin_bin(&mut amp.y, 150, 4, 15);
+        thin_bin(&mut amp.y, 150, 5, 14);
+        let ts: Vec<f64> = walk(&rate, &amp, 0.0)
+            .unwrap()
+            .points
+            .iter()
+            .map(|p| p.t_s)
+            .collect();
+        assert!(ts.contains(&750.0) && ts.contains(&1350.0));
+        assert!(!ts.contains(&1050.0) && !ts.contains(&1650.0));
+    }
+
+    /// Where the rate goes on past the last point with no amplitude read,
+    /// the walk keeps the end of the last such bin; a bin with neither
+    /// read, or one before the last point, does not count.
+    #[test]
+    fn the_rate_read_past_the_last_point_with_no_amplitude_is_kept_as_its_end() {
+        let (mut rate, mut amp) = run_down(1.0);
+        // Bin 3's amplitude is withheld mid-take; bins 8 to 10 keep their
+        // rate with no amplitude; bin 11 has neither.
+        thin_bin(&mut amp.y, 150, 3, 0);
+        for bin in 8..12 {
+            thin_bin(&mut amp.y, 150, bin, 5);
+        }
+        thin_bin(&mut rate.y, 30, 11, 1);
+        let w = walk(&rate, &amp, 0.0).unwrap();
+        assert_eq!(w.points.last().unwrap().t_s, 2250.0);
+        assert_eq!(w.rate_only_to_s, Some(3300.0));
+        assert_eq!(merged(&w, 4).rate_only_to_s, Some(3300.0));
+        // A bin whose amplitude is withheld before the last point only is
+        // not past it.
+        let (rate, mut amp) = run_down(1.0);
+        thin_bin(&mut amp.y, 150, 3, 0);
+        assert_eq!(walk(&rate, &amp, 0.0).unwrap().rate_only_to_s, None);
+        // Read to the end, there is nothing past it.
+        let (rate, amp) = run_down(1.0);
+        assert_eq!(walk(&rate, &amp, 0.0).unwrap().rate_only_to_s, None);
+    }
+
+    /// A merged point is thin when any of its bins is, and its weights
+    /// stay each series' own counts.
+    #[test]
+    fn a_merged_point_is_thin_when_any_of_its_bins_is() {
+        let (rate, mut amp) = run_down(1.0);
+        thin_bin(&mut amp.y, 150, 1, 45);
+        let m = merged(&walk(&rate, &amp, 0.0).unwrap(), 2);
+        assert!(m.points[0].thin);
+        assert!(!m.points[1].thin);
+        assert_eq!(
+            (
+                m.points[0].amp_windows,
+                m.points[0].amp_slots,
+                m.points[0].rate_slots
+            ),
+            (195, 300, 60)
+        );
     }
 
     /// With 82% of the windows read, as on dd3235_DU_30min, nearly every
@@ -235,6 +410,34 @@ mod tests {
             (13, 3700.0, 20, 100)
         );
         assert_eq!(w.points[11].t_s, 3450.0);
+        assert_eq!(
+            (last.rate_slots, last.amp_slots, last.thin),
+            (20, 100, false)
+        );
+    }
+
+    /// A short last bin is judged on its own slots, not a full bin's: 14
+    /// of its 20 readings and 70 of its 100 windows (70%) are plain,
+    /// where against a full bin's 30 and 150 (47%) they would be thin.
+    #[test]
+    fn a_last_bin_cut_short_is_judged_on_its_own_slots() {
+        let (mut rate, mut amp) = run_down(1.0);
+        rate.y
+            .extend((0..20).map(|i| if i < 14 { 0.0 } else { f64::NAN }));
+        amp.y
+            .extend((0..100).map(|i| if i < 70 { 200.0 } else { f64::NAN }));
+        let last = walk(&rate, &amp, 0.0).unwrap().points.pop().unwrap();
+        assert_eq!(
+            (
+                last.t_s,
+                last.readings,
+                last.rate_slots,
+                last.amp_windows,
+                last.amp_slots
+            ),
+            (3700.0, 14, 20, 70, 100)
+        );
+        assert!(!last.thin);
     }
 
     #[test]

@@ -38,7 +38,8 @@
 //! `.library.lock` at its top while it has it open. Another copy opens it
 //! read-only: it lists the watches but changes nothing, not even the
 //! cache. The system lets go of the lock when the app ends, however it
-//! ends.
+//! ends. The command line's changes take the same lock, but for adding a
+//! take ([`Library::open_to_add`]), which needs none.
 
 use crate::session::{Manifest, Position};
 use crate::take;
@@ -129,7 +130,9 @@ pub struct Field {
 /// field left out (`None`) is one the user removed or never filled.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Watch {
-    /// Random, made when the watch is added; never shown.
+    /// Random, made when the watch is added; never shown in the app, and
+    /// given in `watches list` and `show` JSON so a program can find the
+    /// watch again after a rename.
     pub id: String,
     /// Shown everywhere, unique in the library.
     pub name: String,
@@ -151,7 +154,107 @@ pub struct Watch {
     pub fields: Vec<Field>,
 }
 
+/// The lift angle and beat rate a watch's calibre gives, each where the
+/// calibre table has it. A figure given is the calibre's: the watch takes
+/// it, and it can't be set by hand while that calibre is picked.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FromCalibre {
+    pub lift: Option<f64>,
+    pub bph: Option<u32>,
+}
+
+impl FromCalibre {
+    /// What `c` gives.
+    pub fn of(c: &crate::take::Calibre) -> Self {
+        FromCalibre {
+            lift: c.lift_angle_deg,
+            bph: c.bph,
+        }
+    }
+}
+
 impl Watch {
+    /// Pick the calibre `name` (empty: none), which gives `given`: the
+    /// watch takes each figure the calibre gives and keeps its own for
+    /// one it doesn't.
+    pub fn pick_calibre(&mut self, name: &str, given: FromCalibre) {
+        let name = name.trim();
+        self.calibre = (!name.is_empty()).then(|| name.to_string());
+        self.hold_calibre(given);
+    }
+
+    /// Keep the figures the watch's calibre gives (`given`) over any set
+    /// by hand.
+    pub fn hold_calibre(&mut self, given: FromCalibre) {
+        self.lift = given.lift.or(self.lift);
+        self.bph = given.bph.or(self.bph);
+    }
+
+    /// Set the lift angle by hand: refused when the calibre gives one
+    /// (`given`), or out of range.
+    pub fn set_lift(&mut self, lift: f64, given: FromCalibre) -> Result<(), String> {
+        if let Some(l) = given.lift {
+            return Err(format!(
+                "the calibre gives the lift angle ({l}°): set no calibre to set it by hand"
+            ));
+        }
+        self.lift = Some(crate::input_domain::lift_deg(lift)?);
+        Ok(())
+    }
+
+    /// Set the beat rate by hand (`None`: found from the sound): refused
+    /// when the calibre gives one (`given`).
+    pub fn set_bph(&mut self, bph: Option<u32>, given: FromCalibre) -> Result<(), String> {
+        if let Some(b) = given.bph {
+            return Err(format!(
+                "the calibre gives the beat rate ({b} bph): set no calibre to set it by hand"
+            ));
+        }
+        self.bph = match bph {
+            Some(b) => Some(crate::input_domain::bph(u64::from(b))?),
+            None => None,
+        };
+        Ok(())
+    }
+
+    /// Set the added field `label` (ignoring case) to `value`, or add it
+    /// as text at the end when the watch has none of that label.
+    pub fn set_field(&mut self, label: &str, value: &str) -> Result<(), String> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err("a field needs a label".into());
+        }
+        match self
+            .fields
+            .iter_mut()
+            .find(|f| f.label.eq_ignore_ascii_case(label))
+        {
+            Some(f) => f.value = value.to_string(),
+            None => self.fields.push(Field {
+                label: label.to_string(),
+                kind: FieldKind::Text,
+                value: value.to_string(),
+            }),
+        }
+        Ok(())
+    }
+
+    /// Remove the added field `label` (ignoring case): an error when the
+    /// watch has none.
+    pub fn remove_field(&mut self, label: &str) -> Result<(), String> {
+        let before = self.fields.len();
+        self.fields
+            .retain(|f| !f.label.eq_ignore_ascii_case(label.trim()));
+        if self.fields.len() == before {
+            return Err(format!(
+                "\"{}\" has no field \"{}\"",
+                self.name,
+                label.trim()
+            ));
+        }
+        Ok(())
+    }
+
     /// A new watch of this name, with a fresh id.
     pub fn new(name: &str) -> Watch {
         Watch {
@@ -847,11 +950,9 @@ pub fn length_text(t: f64) -> String {
 }
 
 // A figure's text (`signed_text`, `fixed_text`, `pm_text`) and its
-// decimals (`figure_digits`, #510 K3) live in `figure_text`; these paths
+// place (`figure_digits`, #1470) live in `figure_text`; these paths
 // stay for every caller.
-pub use crate::figure_text::{
-    base_digits, figure_digits, fixed_text, pm_text, signed_text, MAX_DIGITS,
-};
+pub use crate::figure_text::{base_digits, figure_digits, fixed_text, pm_text, signed_text};
 
 /// A size on disk as the app shows it: `7.7 GB`, `58.3 MB`, `912 kB`,
 /// `40 bytes`.
@@ -902,6 +1003,9 @@ pub struct Library {
     pub read_only: Option<String>,
     /// The lock held while the library is open here, shared by clones.
     lock: Option<std::sync::Arc<fs::File>>,
+    /// Opened with [`Library::open_to_add`] without the lock: takes may
+    /// be added, nothing else changed.
+    adding: bool,
 }
 
 /// A take's fingerprint for the cache: the bytes and newest change of
@@ -953,6 +1057,19 @@ impl Library {
         Library::open_as(root, false)
     }
 
+    /// The library at `root`, to add takes to even while a copy of the app
+    /// has it open: with the lock when it is free, so anything can be
+    /// changed, else without it, and then only [`Library::add_take`]
+    /// works. A take is put together beside its place and moved in whole,
+    /// a new folder nothing else writes, so the app reads it at its next
+    /// scan; a watch's details, which the app may be writing, are left
+    /// alone. For the command line.
+    pub fn open_to_add(root: &Path) -> Result<Library, String> {
+        let mut lib = Library::open(root)?;
+        lib.adding = lib.lock.is_none();
+        Ok(lib)
+    }
+
     fn open_as(root: &Path, locked: bool) -> Result<Library, String> {
         let p = root.join(LIBRARY_FILE);
         let text = fs::read_to_string(&p).map_err(|e| {
@@ -986,6 +1103,7 @@ impl Library {
             unreadable: Vec::new(),
             read_only,
             lock,
+            adding: false,
         };
         lib.scan();
         Ok(lib)
@@ -1169,16 +1287,24 @@ impl Library {
         Ok(())
     }
 
-    /// The watch whose `takes/` holds the take folder `take`.
+    /// The watch whose `takes/` holds the take folder `take`. A path that
+    /// isn't plain ([`plain`]) is no take: `<watch>/takes/..` has
+    /// `takes/` for its parent but is the watch's own folder (Felix on
+    /// #1487).
     pub fn watch_of(&self, take: &Path) -> Option<&WatchEntry> {
+        if !plain(take) {
+            return None;
+        }
         let parent = take.parent()?;
         self.watches.iter().find(|w| w.dir.join(TAKES) == parent)
     }
 
     /// Whether `take` is a take folder in Unsorted.
     pub fn is_unsorted(&self, take: &Path) -> bool {
-        self.unsorted_dir()
-            .is_ok_and(|d| take.parent() == Some(d.as_path()))
+        plain(take)
+            && self
+                .unsorted_dir()
+                .is_ok_and(|d| take.parent() == Some(d.as_path()))
     }
 
     /// `take`'s watch (Unsorted for one there), where this copy of the app
@@ -1339,7 +1465,7 @@ impl Library {
     /// in place of `take`: the take is moved aside, `kept` takes its name,
     /// and only then is the take with its sound deleted. `Ok(Some(why))`
     /// when the kept take is in place but some of the old one couldn't be
-    /// deleted.
+    /// deleted. On an error the take is as it was, and so is `kept`.
     pub fn replace_take(&mut self, take: &Path, kept: &Path) -> Result<Option<String>, String> {
         self.take_in_library(take)?;
         if kept.parent() != take.parent() || !crate::analysis_take::is_analysis_only(kept) {
@@ -1364,6 +1490,20 @@ impl Library {
         }))
     }
 
+    /// Keep Analysis Only's last step, one for the app and the CLI: the
+    /// take `take` written as its analysis alone in `kept`
+    /// ([`crate::analysis_take::write_kept`]) put in its place
+    /// ([`Library::replace_take`]). On an error the take is as it was,
+    /// and `kept` is removed where it is the folder `write_kept` writes
+    /// beside the take (never any other).
+    pub fn put_kept(&mut self, take: &Path, kept: &Path) -> Result<Option<String>, String> {
+        let placed = self.replace_take(take, kept);
+        if placed.is_err() && kept == crate::analysis_take::kept_beside(take) {
+            let _ = fs::remove_dir_all(kept);
+        }
+        placed
+    }
+
     /// Add the take folder `from`, from outside the library, to a watch
     /// (by its id): copied, or moved when `keep_original` is false. It is
     /// copied beside its new place first and moved in whole, so a copy cut
@@ -1376,7 +1516,17 @@ impl Library {
         watch_id: &str,
         keep_original: bool,
     ) -> Result<(PathBuf, Option<String>), String> {
-        self.writable()?;
+        if !self.adding {
+            self.writable()?;
+        } else if !keep_original {
+            // Without the lock the app may move or delete the watch while
+            // the take goes in: only a copy keeps the original safe.
+            return Err(
+                "the app has these watches open, so a take can only be copied in, not moved: \
+                 leave out --move, or close the app first"
+                    .into(),
+            );
+        }
         if !(from.join(take::MANIFEST).is_file() || from.join(take::RECORD).is_file()) {
             return Err(format!(
                 "{} is not a take folder (it has no session.toml or session.json)",
@@ -1386,6 +1536,10 @@ impl Library {
         if resolved(from).starts_with(resolved(&self.root)) {
             return Err(format!("{} is already in your watches", from.display()));
         }
+        if from.join(take::MANIFEST).is_file() {
+            // A session file that doesn't read would show as a broken take.
+            manifest_of(from).map_err(|e| format!("this take's session file doesn't read: {e}"))?;
+        }
         stays_readable(from, "add the take again")?;
         let to_watch = self
             .watches
@@ -1393,22 +1547,38 @@ impl Library {
             .find(|w| w.watch.id == watch_id)
             .ok_or("That watch is no longer in your watches")?;
         let takes = to_watch.dir.join(TAKES);
-        fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
+        if self.adding {
+            // Never make again a watch the app has just renamed or deleted.
+            if !to_watch.dir.join(WATCH_FILE).is_file() {
+                return Err(format!(
+                    "\"{}\" is no longer in your watches",
+                    to_watch.watch.name
+                ));
+            }
+            match fs::create_dir(&takes) {
+                Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                    return Err(format!("{}: {e}", takes.display()))
+                }
+                _ => {}
+            }
+        } else {
+            fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
+        }
         let to = unused_dir(&takes, &file_name(from));
         if !keep_original && fs::rename(from, &to).is_ok() {
             self.scan();
             return Ok((to, None));
         }
-        let staged = takes.join(format!(".adding-{}", file_name(&to)));
-        let _ = fs::remove_dir_all(&staged);
-        let copied = copy_tree(from, &staged, &[]).and_then(|_| {
-            crate::recorder::rename_settled(&staged, &to)
-                .map_err(|e| format!("{}: {e}", to.display()))
-        });
-        if let Err(e) = copied {
-            let _ = fs::remove_dir_all(&staged);
-            return Err(e);
-        }
+        let staged = staging(&takes, &to);
+        let copied = copy_tree(from, &staged, &[])
+            .and_then(|_| move_in(&staged, &takes, &file_name(from), to));
+        let to = match copied {
+            Ok(to) => to,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&staged);
+                return Err(e);
+            }
+        };
         let left = if keep_original {
             None
         } else {
@@ -1449,8 +1619,7 @@ impl Library {
         let takes = to_watch.dir.join(TAKES);
         fs::create_dir_all(&takes).map_err(|e| format!("{}: {e}", takes.display()))?;
         let to = unused_dir(&takes, name);
-        let staged = takes.join(format!(".adding-{}", file_name(&to)));
-        let _ = fs::remove_dir_all(&staged);
+        let staged = staging(&takes, &to);
         let put = (|| {
             if from.is_dir() {
                 copy_tree(from, &staged, &[])?;
@@ -1463,15 +1632,50 @@ impl Library {
                 let dst = staged.join(file);
                 fs::write(&dst, text).map_err(|e| format!("{}: {e}", dst.display()))?;
             }
-            crate::recorder::rename_settled(&staged, &to)
-                .map_err(|e| format!("{}: {e}", to.display()))
+            move_in(&staged, &takes, name, to)
         })();
-        if let Err(e) = put {
-            let _ = fs::remove_dir_all(&staged);
-            return Err(e);
-        }
+        let to = match put {
+            Ok(to) => to,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&staged);
+                return Err(e);
+            }
+        };
         self.scan();
         Ok(to)
+    }
+}
+
+/// Whether `p` names a folder plainly: no `.` or `..` in it, and a name
+/// at its end, so its parent is the folder it is in.
+fn plain(p: &Path) -> bool {
+    use std::path::Component;
+    p.file_name().is_some()
+        && p.components()
+            .all(|c| !matches!(c, Component::CurDir | Component::ParentDir))
+}
+
+/// A folder in `takes` to put a take together in before it is moved in
+/// whole as `to`: hidden, so no scan lists it, and of its own, so two
+/// programs adding a take of one name at once (the app, and the command
+/// line adding while the app is open) never clear each other's.
+fn staging(takes: &Path, to: &Path) -> PathBuf {
+    takes.join(format!(".adding-{}-{}", file_name(to), new_id()))
+}
+
+/// Move the take put together in `staged` into `takes` as `to`, or, where
+/// another program took that name meanwhile, as the next free name for
+/// `base` ([`unused_dir`]). Returns where it went.
+fn move_in(staged: &Path, takes: &Path, base: &str, to: PathBuf) -> Result<PathBuf, String> {
+    match crate::recorder::rename_settled(staged, &to) {
+        Ok(()) => Ok(to),
+        Err(_) if to.exists() => {
+            let again = unused_dir(takes, base);
+            crate::recorder::rename_settled(staged, &again)
+                .map(|()| again.clone())
+                .map_err(|e| format!("{}: {e}", again.display()))
+        }
+        Err(e) => Err(format!("{}: {e}", to.display())),
     }
 }
 
@@ -1744,6 +1948,20 @@ pub fn is_image(p: &Path) -> bool {
     })
 }
 
+/// Bytes in the files under `dir`, all the way down (links not followed
+/// nor counted): a take's size, before and after Keep Analysis Only.
+pub fn folder_bytes(dir: &Path) -> u64 {
+    fs::read_dir(dir).map_or(0, |d| {
+        d.filter_map(|e| e.ok())
+            .map(|e| match e.file_type() {
+                Ok(t) if t.is_dir() => folder_bytes(&e.path()),
+                Ok(t) if t.is_file() => e.metadata().map_or(0, |m| m.len()),
+                _ => 0,
+            })
+            .sum()
+    })
+}
+
 /// Every file under `dir`: their bytes, the newest change, and how many
 /// files and folders there are.
 fn stamp(dir: &Path) -> Stamp {
@@ -1890,6 +2108,14 @@ fn sound_length(dir: &Path, m: &Manifest) -> Option<f64> {
         .filter(|s| *s > 0.0)
 }
 
+/// How long a take kept as its analysis ran, from the analysis's own
+/// header (its sound, which gave the length, is gone).
+fn kept_length(dir: &Path) -> Option<f64> {
+    crate::analysis_take::read_header(dir)
+        .ok()
+        .map(|h| h.duration_s)
+}
+
 /// What a take folder says about itself.
 fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
     let manifest: Option<Manifest> = match fs::read_to_string(dir.join(take::MANIFEST)) {
@@ -1978,7 +2204,8 @@ fn read_take(dir: &Path, bytes: u64) -> Result<Take, String> {
             .or_else(|| {
                 let m = manifest.as_ref().filter(|_| audio && !incomplete)?;
                 sound_length(dir, m)
-            }),
+            })
+            .or_else(|| (!audio && !incomplete).then(|| kept_length(dir)).flatten()),
         positions,
         at_end,
         power_reserve: fs::read_to_string(dir.join(crate::power_reserve::FILE))

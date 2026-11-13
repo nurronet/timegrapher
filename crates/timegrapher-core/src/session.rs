@@ -44,9 +44,25 @@ pub enum Position {
     H3,
     /// 12 o'clock up: crown right (CR, PR), as the watch is worn upright.
     H12,
+    /// Half past one up (1H30): a 45° stop between 12H and 3H (#1473).
+    H1h30,
+    /// Half past four up (4H30), between 3H and 6H.
+    H4h30,
+    /// Half past seven up (7H30), between 6H and 9H.
+    H7h30,
+    /// Half past ten up (10H30), between 9H and 12H.
+    H10h30,
 }
 
-const ALIASES: [(Position, &[&str]); 6] = [
+/// The hour at the top on each half hour, from 12H at 0° clockwise in
+/// 15° steps: "12H", "12H30", "1H" … "11H30". The upright positions' codes
+/// and [`crate::poise::hour_code`] both read it, so an hour is named once.
+pub const HOUR_CODES: [&str; 24] = [
+    "12H", "12H30", "1H", "1H30", "2H", "2H30", "3H", "3H30", "4H", "4H30", "5H", "5H30", "6H",
+    "6H30", "7H", "7H30", "8H", "8H30", "9H", "9H30", "10H", "10H30", "11H", "11H30",
+];
+
+const ALIASES: [(Position, &[&str]); 10] = [
     (Position::CH, &["ch", "du", "dialup", "faceup", "fu"]),
     (Position::CB, &["cb", "dd", "dialdown", "facedown", "fd"]),
     (
@@ -65,6 +81,10 @@ const ALIASES: [(Position, &[&str]); 6] = [
         Position::H12,
         &["12h", "cr", "pr", "crownright", "pendantright", "stemright"],
     ),
+    (Position::H1h30, &["1h30", "130up"]),
+    (Position::H4h30, &["4h30", "430up"]),
+    (Position::H7h30, &["7h30", "730up"]),
+    (Position::H10h30, &["10h30", "1030up"]),
 ];
 
 impl Position {
@@ -78,14 +98,72 @@ impl Position {
         Position::H12,
     ];
 
+    /// The eight upright stops, 45° apart, in the order the stand turns
+    /// them for a Dynamic Poise test: 9H, 7H30, 6H … 10H30.
+    pub const UPRIGHT: [Position; 8] = [
+        Position::H9,
+        Position::H7h30,
+        Position::H6,
+        Position::H4h30,
+        Position::H3,
+        Position::H1h30,
+        Position::H12,
+        Position::H10h30,
+    ];
+
+    /// The four 45° stops, in hour order.
+    pub const HALF_HOURS: [Position; 4] = [
+        Position::H1h30,
+        Position::H4h30,
+        Position::H7h30,
+        Position::H10h30,
+    ];
+
+    /// All ten: [`Position::ALL`], then the four 45° stops.
+    pub const TEN: [Position; 10] = [
+        Position::CH,
+        Position::CB,
+        Position::H9,
+        Position::H6,
+        Position::H3,
+        Position::H12,
+        Position::H1h30,
+        Position::H4h30,
+        Position::H7h30,
+        Position::H10h30,
+    ];
+
+    /// The angle of the hour at the top, degrees clockwise from 12H; none
+    /// lying flat.
+    pub fn top_deg(self) -> Option<f64> {
+        let half_hours = match self {
+            Position::CH | Position::CB => return None,
+            Position::H12 => 0,
+            Position::H1h30 => 3,
+            Position::H3 => 6,
+            Position::H4h30 => 9,
+            Position::H6 => 12,
+            Position::H7h30 => 15,
+            Position::H9 => 18,
+            Position::H10h30 => 21,
+        };
+        Some(15.0 * f64::from(half_hours))
+    }
+
+    /// Whether this is one of the four 45° stops.
+    pub fn is_half_hour(self) -> bool {
+        Position::HALF_HOURS.contains(&self)
+    }
+
+    /// Witschi's code: CH and CB lying, and the hour at the top standing,
+    /// from [`HOUR_CODES`].
     pub fn code(self) -> &'static str {
         match self {
             Position::CH => "CH",
             Position::CB => "CB",
-            Position::H9 => "9H",
-            Position::H6 => "6H",
-            Position::H3 => "3H",
-            Position::H12 => "12H",
+            p => p
+                .top_deg()
+                .map_or("", |deg| HOUR_CODES[(deg / 15.0) as usize]),
         }
     }
 
@@ -97,6 +175,10 @@ impl Position {
             Position::H6 => "crown left",
             Position::H3 => "crown up",
             Position::H12 => "crown right",
+            Position::H1h30 => "1:30 up",
+            Position::H4h30 => "4:30 up",
+            Position::H7h30 => "7:30 up",
+            Position::H10h30 => "10:30 up",
         }
     }
 
@@ -109,6 +191,10 @@ impl Position {
             Position::H6 => "Crown Left",
             Position::H3 => "Crown Up",
             Position::H12 => "Crown Right",
+            Position::H1h30 => "1:30 Up",
+            Position::H4h30 => "4:30 Up",
+            Position::H7h30 => "7:30 Up",
+            Position::H10h30 => "10:30 Up",
         }
     }
 
@@ -121,16 +207,18 @@ impl Position {
 
     /// The name as the app and the text report show it: "Crown Up (CU,
     /// 3H)", the common code with Witschi's beside it, or "Dial Up (DU)"
-    /// where Witschi's is a letter code. JSON keeps [`Position::label`].
+    /// where Witschi's is a letter code, or "1:30 Up (1H30)" where the two
+    /// are one. JSON keeps [`Position::label`].
     pub fn display_label(self) -> String {
-        if self.code().starts_with(|c: char| c.is_ascii_digit()) {
+        if self.common() != self.code() && self.code().starts_with(|c: char| c.is_ascii_digit()) {
             format!("{} ({}, {})", self.name(), self.common(), self.code())
         } else {
             format!("{} ({})", self.name(), self.common())
         }
     }
 
-    /// The short name most hobby timegraphers use.
+    /// The short name most hobby timegraphers use; the 45° stops have
+    /// none but their hour code.
     pub fn common(self) -> &'static str {
         match self {
             Position::CH => "DU",
@@ -139,6 +227,7 @@ impl Position {
             Position::H6 => "CL",
             Position::H3 => "CU",
             Position::H12 => "CR",
+            p => p.code(),
         }
     }
 
@@ -162,8 +251,9 @@ impl Position {
     }
 
     /// The position named in a file name such as `ym42_DU_48000-01.flac`.
-    /// The letter names match in any case; 3H, 6H, 9H and 12H only in
-    /// capitals, so that a duration like `2h` or `12h` is not read as one.
+    /// The letter names match in any case; 3H, 6H, 9H, 12H and the 45°
+    /// stops (1H30 …) only in capitals, so that a duration like `2h` or
+    /// `12h` is not read as one.
     pub fn from_file_name(name: &str) -> Option<Position> {
         let tokens: Vec<&str> = name
             .split(|c: char| !c.is_ascii_alphanumeric())
@@ -177,12 +267,11 @@ impl Position {
             }
         });
         letters.or_else(|| {
-            tokens.iter().find_map(|t| match *t {
-                "3H" => Some(Position::H3),
-                "6H" => Some(Position::H6),
-                "9H" => Some(Position::H9),
-                "12H" => Some(Position::H12),
-                _ => None,
+            tokens.iter().find_map(|t| {
+                Position::TEN
+                    .into_iter()
+                    .filter(|p| p.is_vertical())
+                    .find(|p| p.code() == *t)
             })
         })
     }
@@ -482,6 +571,80 @@ pub fn stretch_windows<'w>(
         .collect()
 }
 
+/// How far either side of a reading its ± looks for the values it
+/// borrows its noise from when it holds too few (#1470), s: an hour. Noise
+/// from further away describes a different state of the watch
+/// (math-standards section 7); it also keeps a figure whose windows
+/// rarely give a value (an unlock seldom found) from searching a long
+/// take end to end at every reading.
+pub const BORROW_LOOK_S: f64 = 3600.0;
+
+/// How far a saved reading's borrowing of the rate's windows first
+/// reaches, s: the 300 s its 30 values need ([`RATE_SE_MIN_S`]), since a
+/// reading short enough to borrow holds few of them itself. Live starts
+/// shorter (`live::RATE_FIRST_REACH_S`), its run counting with the pool.
+pub const RATE_FIRST_REACH_S: f64 = RATE_SE_MIN_S;
+
+/// How far borrowing of the amplitude's windows first reaches, saved or
+/// live, s: 600 s, ten times the minute their 30 values of 2 s need, so a
+/// take whose unlock is often missed is still found in one reach.
+pub const AMPLITUDE_FIRST_REACH_S: f64 = crate::confidence::MIN_NOISE_VALUES as f64
+    * crate::distribution::STRETCH_S
+    * AMPLITUDE_REACH_MARGIN;
+/// [`AMPLITUDE_FIRST_REACH_S`] over the time its values need.
+const AMPLITUDE_REACH_MARGIN: f64 = 10.0;
+
+/// The windows `fetch(a, b)` gives for the take from `a` to `b` (s), over
+/// the least reach either side of a reading from `from_s` to `to_s` that
+/// gives `enough`: back first, as far as the take's start, then on past
+/// the reading towards `end_s`, the take's end (#1470). Each reach starts
+/// at `first_s` and doubles, up to [`BORROW_LOOK_S`].
+pub fn nearest_windows<T>(
+    (from_s, to_s, end_s): (f64, f64, f64),
+    first_s: f64,
+    fetch: impl Fn(f64, f64) -> Vec<T>,
+    enough: impl Fn(&[T]) -> bool,
+) -> Vec<T> {
+    let reach = |at: &dyn Fn(f64) -> (f64, f64), done: &dyn Fn(f64) -> bool| {
+        let mut look = first_s;
+        loop {
+            let (a, b) = at(look);
+            let w = fetch(a, b);
+            if enough(&w) || done(look) || look >= BORROW_LOOK_S {
+                return (w, look);
+            }
+            look *= 2.0;
+        }
+    };
+    let back = |look: f64| ((from_s - look).max(0.0), to_s);
+    let (w, look) = reach(&back, &|look| from_s - look <= 0.0);
+    if enough(&w) || to_s >= end_s {
+        return w;
+    }
+    let a = back(look).0;
+    reach(&|on| (a, (to_s + on).min(end_s)), &|on| to_s + on >= end_s).0
+}
+
+/// Whether enough of a figure's values are among `windows` to borrow its
+/// noise from: [`crate::confidence::MIN_NOISE_VALUES`] of each of the
+/// amplitude and the unlock beat error.
+pub fn noise_enough(windows: &[&AmplitudeWindow]) -> bool {
+    let n = crate::confidence::MIN_NOISE_VALUES;
+    windows.iter().filter(|w| w.mean().is_some()).count() >= n
+        && windows
+            .iter()
+            .filter(|w| w.beat_error_unlock_ms.is_some())
+            .count()
+            >= n
+}
+
+/// Whether enough rate windows are among `windows` to borrow the rate's
+/// noise from: every other one, as [`crate::confidence::rate_se`] takes
+/// them, [`crate::confidence::MIN_NOISE_VALUES`] times.
+pub fn rate_noise_enough(windows: &[WindowFit]) -> bool {
+    crate::confidence::rate_value_count(windows.len()) >= crate::confidence::MIN_NOISE_VALUES
+}
+
 /// Whether the 2 s window `w` belongs to the stretch from `from_s` to
 /// `to_s` (seconds on the windows' own clock): its midpoint lies in the
 /// stretch, from `from_s` up to but not at `to_s`, so each window belongs
@@ -634,7 +797,7 @@ pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
-use crate::measure::{RATE_WINDOW_S, RATE_WINDOW_STEP_S};
+use crate::measure::{RATE_SE_MIN_S, RATE_WINDOW_S, RATE_WINDOW_STEP_S};
 
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
@@ -700,8 +863,10 @@ pub const LEAD_SCATTER_FLOOR: f64 = 0.0002;
 /// (1.5 to 4% of a beat on a stand), and a watch far less, so a noise
 /// lead can outweigh the watch after it in the whole stretch's verdict.
 /// Where the beats jumped (`jumps`, audio seconds) between that window's
-/// start and the one before's, the watch starts at the last such jump
-/// instead: there the beats stepped from the noise's onto the watch's.
+/// start and the one before's, no more than one grid step back, the watch
+/// starts at the last such jump instead: there the beats stepped from the
+/// noise's onto the watch's. Where windows are missing before it, a jump
+/// further back is in the noise (#1423).
 /// A whole file leaves the lead out; a reading of a set average (live or
 /// saved) does not, so a watch heard briefly after noise there is still
 /// no watch.
@@ -746,7 +911,9 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
             return None;
         }
         if watch(k) {
-            let after = windows[k - 1].start_s;
+            // Only a jump within one step of it: where the grid before it
+            // is broken, a jump further back is in the noise (#1423).
+            let after = windows[k - 1].start_s.max(w.start_s - RATE_WINDOW_STEP_S);
             let jump = jumps
                 .iter()
                 .copied()
@@ -1057,9 +1224,38 @@ pub fn measure_masked(
         confidence: None,
         caveats: Vec::new(),
     };
-    let a = crate::measure::assess(
+    // The take's windows nearest the stretch, to borrow the ±'s noise
+    // from where it holds too few values (#1470).
+    let span = (from_s, to_s, log.duration_s);
+    let take_rate = nearest_windows(
+        span,
+        RATE_FIRST_REACH_S,
+        |a, b| {
+            let near = holes.beats(&log.beats[stretch_beats(&log.beats, a, b)]);
+            scatter_windows(&holes, &near, log.bph, map(a), map(b), part)
+        },
+        rate_noise_enough,
+    );
+    let take_amp = nearest_windows(
+        span,
+        AMPLITUDE_FIRST_REACH_S,
+        |a, b| {
+            log.amplitude_windows
+                .iter()
+                .filter(|w| window_in(w, a, b))
+                .filter(|w| holes.clear(map(w.start_s), map(w.end_s)))
+                .collect()
+        },
+        |w: &[&AmplitudeWindow]| noise_enough(w),
+    );
+    let take = crate::measure::TakeWindows {
+        rate: &take_rate,
+        amplitude: &take_amp,
+    };
+    let a = crate::measure::assess_in(
         &windows,
         &amp,
+        take,
         &crate::measure::Context {
             watch_heard: m.watch_heard,
             no_watch_reason: no_watch.unwrap_or_default(),
@@ -1491,7 +1687,7 @@ fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
 /// values `session` gives, for any interface that shows them.
 #[path = "session_aggregates.rs"]
 mod session_aggregates;
-pub use session_aggregates::{sourced_indices, SourcedFigures};
+pub use session_aggregates::{sourced_indices, sourced_indices_over, SourcedFigures};
 
 fn largest(v: impl Iterator<Item = f64>) -> Option<f64> {
     v.max_by(|a, b| a.abs().total_cmp(&b.abs()))
@@ -1627,7 +1823,13 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             state(k as f64 / 10.0, &rs)
         })
         .collect();
+    evaluate_states(states, findings(readings))
+}
 
+/// [`evaluate`] from the states of wind already read, fullest first,
+/// with the conditions `findings`: for figures kept without their
+/// readings, such as a saved Positions Test's.
+pub fn evaluate_states(states: Vec<StateIndices>, findings: Vec<Finding>) -> SessionReport {
     // Isochronism: each position from the fullest to the least wound
     // state it was measured in.
     let mut isochronism = Vec::new();
@@ -1689,7 +1891,6 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
         }
         _ => None,
     };
-    let findings = findings(readings);
     SessionReport {
         states,
         isochronism,
@@ -2126,6 +2327,7 @@ mod manifest_input_tests {
             odd_unlock_ms: None,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         };
         // Midpoint 11 s: in 10..20 and 11..12, not 0..11 or 12..20.
         assert!(window_in(&w(10.0), 10.0, 20.0));

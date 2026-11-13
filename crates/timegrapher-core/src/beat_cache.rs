@@ -33,7 +33,8 @@ use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
 
 /// The layout's name and version, first in every copy.
-pub const FORMAT: &[u8; 16] = b"timegrapher.bc/1";
+/// Version 2 adds each window's culled sides' edges (#1333).
+pub const FORMAT: &[u8; 16] = b"timegrapher.bc/2";
 /// Bytes in each span of a sound file read into the key.
 const HEAD_BYTES: usize = 1 << 16;
 /// Spans of each sound file read into the key: the first at its start,
@@ -253,7 +254,10 @@ pub fn encode(log: &BeatLog, peak: f32) -> Vec<u8> {
     o
 }
 
-fn window_options(w: &AmplitudeWindow) -> [Option<f64>; 8] {
+fn window_options(w: &AmplitudeWindow) -> [Option<f64>; 12] {
+    let [even, odd] = w.culled();
+    let [eu, ed] = even.map_or([None; 2], |e| e.map(Some));
+    let [ou, od] = odd.map_or([None; 2], |e| e.map(Some));
     [
         w.even_deg,
         w.odd_deg,
@@ -263,6 +267,10 @@ fn window_options(w: &AmplitudeWindow) -> [Option<f64>; 8] {
         w.odd_unlock_ms,
         w.even_drop_ms,
         w.odd_drop_ms,
+        eu,
+        ed,
+        ou,
+        od,
     ]
 }
 
@@ -373,7 +381,7 @@ pub fn decode(bytes: &[u8]) -> Option<(BeatLog, f32)> {
 fn read_window(r: &mut Bytes) -> Option<AmplitudeWindow> {
     let start_s = r.f64()?;
     let end_s = r.f64()?;
-    let mut v = [None; 8];
+    let mut v = [None; 12];
     for x in &mut v {
         *x = match r.u8()? {
             0 => None,
@@ -381,9 +389,9 @@ fn read_window(r: &mut Bytes) -> Option<AmplitudeWindow> {
             _ => return None,
         };
     }
-    let [even_deg, odd_deg, beat_error_ms, beat_error_unlock_ms, even_unlock_ms, odd_unlock_ms, even_drop_ms, odd_drop_ms] =
+    let [even_deg, odd_deg, beat_error_ms, beat_error_unlock_ms, even_unlock_ms, odd_unlock_ms, even_drop_ms, odd_drop_ms, eu, ed, ou, od] =
         v;
-    Some(AmplitudeWindow {
+    let mut w = AmplitudeWindow {
         start_s,
         end_s,
         even_deg,
@@ -394,7 +402,13 @@ fn read_window(r: &mut Bytes) -> Option<AmplitudeWindow> {
         odd_unlock_ms,
         even_drop_ms,
         odd_drop_ms,
-    })
+        culled_ms: None,
+    };
+    w.set_culled([
+        eu.zip(ed).map(|(u, d)| [u, d]),
+        ou.zip(od).map(|(u, d)| [u, d]),
+    ]);
+    Some(w)
 }
 
 #[cfg(test)]

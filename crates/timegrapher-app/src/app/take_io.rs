@@ -141,7 +141,7 @@ impl TimegrapherApp {
     pub(super) fn listen_after_ask(&mut self) {
         self.masks_let_go = true;
         match self.guided_after_ask.take() {
-            Some(half) => self.start_guided(half),
+            Some((kind, half)) => self.start_guided_test(kind, half),
             None => self.start_microphone(),
         }
         self.masks_let_go = false;
@@ -527,6 +527,7 @@ impl TimegrapherApp {
         self.bg.reserve_live = None;
         self.bg.reserve_live_s = 0.0;
         self.positions_take = false;
+        self.guided_saved = None;
         self.test_keep = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
@@ -1361,12 +1362,31 @@ impl TimegrapherApp {
                 live: true,
                 end_s: total,
                 about,
+                cfg: None,
+                kept: None,
             });
         }
         let path = PathBuf::from(self.file_path.trim());
         if self.file_path.trim().is_empty() || !path.exists() {
             return None;
         }
+        let manifest = read_manifest(&path).ok().flatten();
+        if analysis_take::is_analysis_only(&path) {
+            return Some(report::Source {
+                files: Vec::new(),
+                total_s: 0.0,
+                name: capture_label(&path),
+                live: false,
+                end_s: 0.0,
+                about: serde_json::Value::Null,
+                cfg: None,
+                kept: Some(path),
+            });
+        }
+        // How the take was read, so its beats come from what was found.
+        let cfg = take_entry(&path, manifest.as_ref())
+            .ok()
+            .map(|o| self.entry_settings(&o.1).stream);
         let files = recordings_in(&path).ok()?;
         let mut total = 0.0;
         for f in &files {
@@ -1397,6 +1417,8 @@ impl TimegrapherApp {
             live: false,
             end_s: end,
             about,
+            cfg,
+            kept: None,
         })
     }
 
@@ -1507,6 +1529,7 @@ impl TimegrapherApp {
             path.parent().unwrap_or(path)
         };
         self.positions_take = timegrapher_core::library::is_positions_test(dir);
+        self.load_saved_test(dir);
         // A test's take opens on its results.
         if self.positions_take {
             self.reveal_pane(Pane::PositionsTest);
@@ -2231,6 +2254,12 @@ impl TimegrapherApp {
     /// One block of a capture, or a break core's gap rule found before the
     /// next: saved and read.
     fn take_live(&mut self, l: Live) -> Result<(), CaptureFailure> {
+        let taken = self.take_block(l);
+        self.follow_rebuild();
+        taken
+    }
+
+    fn take_block(&mut self, l: Live) -> Result<(), CaptureFailure> {
         let (Some(cap), Some(live)) = (self.capture.as_ref(), self.live.as_mut()) else {
             return Ok(());
         };

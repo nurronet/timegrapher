@@ -19,6 +19,7 @@ mod shape_cmd;
 mod synth_cmd;
 mod update_cmd;
 mod watches_cmd;
+mod watches_edit;
 
 use clap::{Parser, Subcommand};
 use std::fs::File;
@@ -462,6 +463,12 @@ enum Command {
         /// With --file the file is played back in real time.
         #[arg(long)]
         live: Option<PathBuf>,
+        /// End the recording early once this file exists, as the app's
+        /// Stop does: a way for another program to stop it. The take is
+        /// kept and checked; a Power Reserve Test ends "by hand" with its
+        /// hours. Refused if the file is already there.
+        #[arg(long)]
+        stop_file: Option<PathBuf>,
     },
     /// Read a watch measured in several positions (and states of wind)
     /// into one multi-position report, Witschi style.
@@ -578,6 +585,10 @@ enum Command {
         /// Leave the audio out.
         #[arg(long)]
         no_audio: bool,
+        /// Leave the take's analysis (its beats and amplitude windows) out,
+        /// which saves reading the whole recording once more.
+        #[arg(long)]
+        no_analysis: bool,
         /// What the report is about (default: reading with a recording, bug
         /// without).
         #[arg(long, value_enum)]
@@ -603,7 +614,7 @@ enum Command {
         cc0: bool,
         /// Run the commands of this bundle (zip or unpacked folder) with
         /// this build and show what moved.
-        #[arg(long, conflicts_with_all = ["recording", "no_audio", "note", "out", "cc0", "listened_back"])]
+        #[arg(long, conflicts_with_all = ["recording", "no_audio", "no_analysis", "note", "out", "cc0", "listened_back"])]
         replay: Option<PathBuf>,
         /// Print the manifest (or the replay) as JSON.
         #[arg(long)]
@@ -630,7 +641,9 @@ enum Command {
         json: bool,
     },
     /// The watches in the library the app keeps, with their details and
-    /// takes, and the takes Quick Listen left in Unsorted. It only reads.
+    /// takes, and the takes Quick Listen left in Unsorted; and the changes
+    /// the app's Watches view makes (new, edit, add-take, move-take,
+    /// keep-analysis-only, delete-take, add-photos, delete-photo).
     Watches {
         #[command(subcommand)]
         action: WatchesAction,
@@ -699,6 +712,8 @@ enum WatchesAction {
     /// folder to pass to `session`, `long` or `series`. `Unsorted` shows
     /// the takes Quick Listen made.
     Show { name: String },
+    #[command(flatten)]
+    Change(watches_edit::Change),
 }
 
 #[derive(Subcommand)]
@@ -1062,6 +1077,7 @@ fn session_command(c: Command) -> Result<(), String> {
             at,
             span,
             no_audio,
+            no_analysis,
             kind,
             note,
             bph,
@@ -1084,6 +1100,7 @@ fn session_command(c: Command) -> Result<(), String> {
                     at,
                     span,
                     no_audio,
+                    no_analysis,
                     kind,
                     note,
                     bph,
@@ -1151,6 +1168,7 @@ fn table_command(c: Command) -> Result<(), String> {
         } => match action {
             WatchesAction::List { all } => watches_cmd::list(library.as_deref(), all, json),
             WatchesAction::Show { name } => watches_cmd::show(&name, library.as_deref(), json),
+            WatchesAction::Change(c) => watches_edit::run(&c, library.as_deref(), json),
         },
         Command::Devices {
             json,
@@ -1236,6 +1254,7 @@ fn tool_command(c: Command) -> Result<(), String> {
             json,
             live,
             power_reserve,
+            stop_file,
         } => {
             let o = record_cmd::Options {
                 folder,
@@ -1252,6 +1271,7 @@ fn tool_command(c: Command) -> Result<(), String> {
                 json,
                 live,
                 power_reserve,
+                stop_file,
             };
             record_cmd::run(&o)
         }
@@ -1591,9 +1611,8 @@ fn print_summary(
         opt(s.rate_p05, 1),
         opt(s.rate_p95, 1)
     );
-    // Tick and Tock have no ± of their own, so they take the decimals of
-    // the amplitude beside them (decimals follow the ±, #510 K3): never
-    // 269.53 beside a Tick of 270.
+    // Tick and Tock have no ± of their own; they are at the amplitude's
+    // place, as the figure beside them (#1470).
     let side = |x: Option<f64>| {
         x.map_or("-".into(), |x| {
             figure(x, s.amplitude_se_deg, base_digits::AMPLITUDE, false)
@@ -1616,10 +1635,9 @@ fn print_summary(
 }
 
 /// The rate, corrected for the card's clock where it can be, and the beat
-/// error, each with its ± and to the decimals the ± calls for (core's
-/// `figure_with_pm`: decimals follow the ±, #510 K3). The rate on the
-/// card's clock and the beat error from the drop take the same decimals
-/// as the figure beside them.
+/// error, each with its ± at the figure's place (core's `figure_with_pm`,
+/// #1470). The rate on the card's clock and the beat error from the drop
+/// take the same place as the figure beside them.
 fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, String)>) {
     let c = s.confidence.as_ref();
     if let Some(f) = &s.overall {

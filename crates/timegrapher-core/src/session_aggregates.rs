@@ -14,7 +14,19 @@ pub type SourcedFigures = (
 /// Values with unknown provenance remain available to callers as individual rows,
 /// but never enter a pooled beat-error figure.
 pub fn sourced_indices(wind_h: f64, figures: &[SourcedFigures]) -> StateIndices {
-    let positions: Vec<PositionValue> = Position::ALL
+    sourced_indices_over(wind_h, figures, &Position::ALL)
+}
+
+/// [`sourced_indices`] over `over`, the positions a test takes in: the
+/// six for the Positions Test and `session`, the eight upright stops
+/// ([`Position::UPRIGHT`]) for a Dynamic Poise test. Figures of other
+/// positions are left out of the means.
+pub fn sourced_indices_over(
+    wind_h: f64,
+    figures: &[SourcedFigures],
+    over: &[Position],
+) -> StateIndices {
+    let positions: Vec<PositionValue> = over
         .iter()
         .filter_map(|&p| {
             let rs: Vec<&SourcedFigures> = figures.iter().filter(|f| f.0 == p).collect();

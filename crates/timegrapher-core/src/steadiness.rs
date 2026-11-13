@@ -133,6 +133,15 @@ pub fn unit_after(unit: &str) -> (&'static str, &str) {
 }
 
 impl SeriesKind {
+    /// The name as a title, a column head or a plot writes it: "Rate",
+    /// "Amplitude", "Beat Error".
+    pub fn title(self) -> &'static str {
+        match self {
+            SeriesKind::Rate => "Rate",
+            SeriesKind::Amplitude => "Amplitude",
+            SeriesKind::BeatError => "Beat Error",
+        }
+    }
     pub fn name(self) -> &'static str {
         match self {
             SeriesKind::Rate => "rate",
@@ -148,19 +157,73 @@ impl SeriesKind {
         }
     }
 
-    fn fmt(self, v: f64) -> String {
+    /// The decimals this series' readings are written to (math guide
+    /// section 11).
+    pub fn digits(self) -> usize {
+        use crate::figure_text::base_digits;
         match self {
-            SeriesKind::Rate => format!("{v:+.1} s/d"),
-            SeriesKind::Amplitude => format!("{v:.0}°"),
-            SeriesKind::BeatError => format!("{v:.2} ms"),
+            SeriesKind::Rate => base_digits::RATE,
+            SeriesKind::Amplitude => base_digits::AMPLITUDE,
+            SeriesKind::BeatError => base_digits::BEAT_ERROR,
         }
     }
-    fn fmt_size(self, v: f64) -> String {
+    /// A value with this series' unit after it, as [`unit_after`] spaces
+    /// it: "1.2 s/d", "270°".
+    fn with_unit(self, text: String) -> String {
+        let (gap, u) = unit_after(self.unit());
+        format!("{text}{gap}{u}")
+    }
+    /// A reading with its unit, at the series' place: "+1.2 s/d",
+    /// "270°", "0.20 ms" ([`Self::number`]).
+    pub fn fmt(self, v: f64) -> String {
+        self.with_unit(self.number(v))
+    }
+    /// A reading without its unit, at the series' place: the rate signed,
+    /// "+1.2", the others as they are, "270", "0.20"; one that rounds to
+    /// zero takes no sign ([`crate::figure_text`]).
+    pub fn number(self, v: f64) -> String {
+        let d = self.digits();
         match self {
-            SeriesKind::Rate => format!("{v:.1} s/d"),
-            SeriesKind::Amplitude => format!("{v:.1}°"),
-            SeriesKind::BeatError => format!("{v:.2} ms"),
+            SeriesKind::Rate => crate::figure_text::signed_text(v, d),
+            SeriesKind::Amplitude | SeriesKind::BeatError => crate::figure_text::fixed_text(v, d),
         }
+    }
+    /// A within-take difference (a cycle's peak to peak), one place finer
+    /// than a reading ([`crate::figure_text::difference_digits`]).
+    fn fmt_size(self, v: f64) -> String {
+        let d = crate::figure_text::difference_digits(self.digits());
+        self.with_unit(format!("{v:.d$}"))
+    }
+    /// A within-take size in `unit` ("s/d", "deg", "ms"), as
+    /// [`Self::fmt_size`] writes the series of that unit: the period
+    /// search's sizes, a rate's in ms of beat timing among them, are the
+    /// same fact as a cycle's peak to peak (Norm, #1470).
+    fn fmt_size_in(unit: &str, v: f64) -> String {
+        let k = match unit {
+            "s/d" => SeriesKind::Rate,
+            "deg" => SeriesKind::Amplitude,
+            "ms" => SeriesKind::BeatError,
+            other => {
+                debug_assert!(false, "a size in an unknown unit: {other}");
+                SeriesKind::BeatError
+            }
+        };
+        k.fmt_size(v)
+    }
+    /// A within-take change per hour, signed, one place finer than a
+    /// reading, as [`Self::fmt_size`].
+    pub fn fmt_per_hour(self, v: f64) -> String {
+        let d = crate::figure_text::difference_digits(self.digits());
+        self.with_unit(crate::figure_text::signed_text(v, d))
+    }
+    /// A spread written after "±", at the series' place and rounded up,
+    /// as every ± is ([`crate::figure_text::pm_text`]).
+    pub fn fmt_pm(self, v: f64) -> String {
+        let d = self.digits();
+        // Never below one unit of the place, a zero spread too (section 11).
+        let unit = 10f64.powi(-(d as i32));
+        let text = crate::figure_text::pm_text(v.max(unit), d).unwrap_or_default();
+        self.with_unit(text)
     }
 }
 
@@ -369,6 +432,16 @@ pub struct SeriesCheck {
     /// level change or trend". No series name and no full stop; the
     /// caller puts the series' title before it.
     pub summary: String,
+    /// `headline` and `summary` as a screen shows them: each figure with
+    /// a true minus, the words as they are
+    /// ([`crate::figure_text::figure_minus`], #1437). The app and the MCP
+    /// view show these; files, pipes and the model keep the ASCII minus.
+    pub screen_headline: String,
+    pub screen_summary: String,
+    /// [`SeriesCheck::stats_line`], the statistics behind the headline on
+    /// one line, as a screen shows it (true minus): the app's Steadiness
+    /// Info and the MCP view show this one text.
+    pub screen_stats: String,
     /// Length of each reading, seconds; readings used; readings left out
     /// as outliers.
     pub step_s: f64,
@@ -456,14 +529,6 @@ pub struct IsochronismCurve {
     /// The share of the amplitude readings' spread that is the amplitude
     /// and not their noise (from each reading's own 2 s windows).
     pub reliability: Option<f64>,
-    /// A quadratic through the bins: rate = c0 + c1·(A − centre) +
-    /// c2·(A − centre)², and the share of the bins' spread it explains.
-    pub curve_centre_deg: f64,
-    pub curve: [f64; 3],
-    pub curve_explained: f64,
-    /// The amplitude where the curve turns (the rate changes least with
-    /// amplitude), when it falls inside the amplitudes covered.
-    pub turn_deg: Option<f64>,
     pub headline: String,
 }
 
@@ -1012,6 +1077,9 @@ pub fn check_series(
         lead: Lead::TooShort,
         headline: String::new(),
         summary: String::new(),
+        screen_headline: String::new(),
+        screen_summary: String::new(),
+        screen_stats: String::new(),
         step_s: g.step,
         cycle_step_s: fine.as_ref().map_or(g.step, |f| f.step),
         readings: n,
@@ -1043,6 +1111,7 @@ pub fn check_series(
             g.span()
         );
         out.summary = format!("{n} readings, too few to search");
+        out.set_screen_text();
         return out;
     }
     let (mean, sd) = mean_sd(y).unwrap();
@@ -1224,6 +1293,7 @@ pub fn check_series(
     if let Some(more) = search_also(&out) {
         out.headline = format!("{} {more}", out.headline);
     }
+    out.set_screen_text();
     out
 }
 
@@ -1253,8 +1323,7 @@ fn search_also(s: &SeriesCheck) -> Option<String> {
     };
     let mut lines = Vec::new();
     if !fast && !named.iter().any(|&n| near(p.period_s, n)) {
-        let (gap, u) = unit_after(p.size_unit);
-        let size = format!("{:.2}{gap}{u}", p.size);
+        let size = SeriesKind::fmt_size_in(p.size_unit, p.size);
         let wheel = p
             .wheel
             .as_ref()
@@ -1843,6 +1912,10 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
     };
     let every = every_text;
     let step = every(s.step_s);
+    // Without a short-term SD the clause is left out, not written "±0".
+    let spread = s.short_term_sd.map_or(String::new(), |v| {
+        format!(", ±{} from one reading to the next", k.fmt_pm(v))
+    });
     match s.lead {
         // check_series states the too-short case, with its rule, before
         // the tests run.
@@ -1851,22 +1924,22 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
             // A period-search line the headline adds is a cycle: say
             // nothing of cycles here.
             None if search_also(s).is_some() => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected.",
+                "{cap}: {} {step} readings, median {}{}; no level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
             None => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no cycle, level change, trend or correlation between readings detected.",
+                "{cap}: {} {step} readings, median {}{}; no cycle, level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
             Some(line) => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected; {line}.",
+                "{cap}: {} {step} readings, median {}{}; no level change, trend or correlation between readings detected; {line}.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
         },
                 Lead::Periodic => match (&s.cycle, &s.two_state) {
@@ -1926,11 +1999,7 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
                 "{cap} slides from {} to {} ({} per hour).",
                 k.fmt(t.start),
                 k.fmt(t.end),
-                match k {
-                    SeriesKind::Rate => format!("{:+.1} s/d", t.per_hour),
-                    SeriesKind::Amplitude => format!("{:+.1}°", t.per_hour),
-                    SeriesKind::BeatError => format!("{:+.2} ms", t.per_hour),
-                }
+                k.fmt_per_hour(t.per_hour)
             )
         }
         Lead::Wandering => {
@@ -1969,6 +2038,14 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
 }
 
 impl SeriesCheck {
+    /// Writes the screen copies of the headline and summary; called
+    /// whenever either has its last words.
+    fn set_screen_text(&mut self) {
+        self.screen_headline = crate::figure_text::figure_minus(&self.headline);
+        self.screen_summary = crate::figure_text::figure_minus(&self.summary);
+        self.screen_stats = crate::figure_text::figure_minus(&self.stats_line());
+    }
+
     /// The period search's line when it turns in under three of the
     /// readings cycles are folded in (the 2 s windows for the amplitude and
     /// beat error), so they cannot show it, whether or not they show a
@@ -1996,9 +2073,7 @@ fn fast_line(s: &SeriesCheck) -> Option<String> {
         .wheel
         .as_ref()
         .map_or(String::new(), |w| format!(", the {w}'s period"));
-    // Two decimals, as the period search's own line in the report.
-    let (gap, u) = unit_after(p.size_unit);
-    let size = format!("{:.2}{gap}{u}", p.size);
+    let size = SeriesKind::fmt_size_in(p.size_unit, p.size);
     let also = if s.cycle.is_some() { " also" } else { "" };
     Some(format!(
         "{what}{also} repeats every {:.1} s{wheel}, {size} peak to peak; {} readings are too coarse to show it",
@@ -2344,6 +2419,7 @@ pub fn check(
             }
         }
     }
+    series.iter_mut().for_each(SeriesCheck::set_screen_text);
     let findings: Vec<Finding> = series.iter().filter_map(findings).collect();
     // A take over several positions: said with each figure that reads the
     // rate against the amplitude, wherever its headline is shown (#651).
@@ -2610,16 +2686,6 @@ pub const ISO_BIN_DEG: f64 = 2.0;
 pub const ISO_MIN_READINGS: usize = 10;
 pub const ISO_MIN_BINS: usize = 3;
 
-/// Weighted least squares of y on 1, x, x²; returns the coefficients.
-fn wquad(x: &[f64], y: &[f64], w: &[f64]) -> Option<[f64; 3]> {
-    let rows = x
-        .iter()
-        .zip(y)
-        .zip(w)
-        .map(|((&xi, &yi), &wi)| ([1.0, xi, xi * xi], yi, wi));
-    crate::dsp::least_squares(rows, 1e-12)
-}
-
 /// The 2° bins of `(amplitude, rate, hours from wind)` from `lo` to `hi`
 /// that hold at least [`ISO_MIN_READINGS`] readings.
 fn amplitude_bins(pairs: &[(f64, f64, f64)], lo: f64, hi: f64) -> Vec<AmplitudeBin> {
@@ -2684,31 +2750,11 @@ fn isochronism_curve(
     if bins.len() < ISO_MIN_BINS {
         return None;
     }
-    let w: Vec<f64> = bins.iter().map(|b| b.readings as f64).collect();
-    let sw: f64 = w.iter().sum();
-    let centre = bins
-        .iter()
-        .zip(&w)
-        .map(|(b, w)| b.amplitude_deg * w)
-        .sum::<f64>()
-        / sw;
-    let bx: Vec<f64> = bins.iter().map(|b| b.amplitude_deg - centre).collect();
+    // No curve is fitted through the bins: a quadratic has no source as
+    // an isochronism method and its turn came from the fit's form, not
+    // the watch (Norm; Peter, 13 Nov).
     let by: Vec<f64> = bins.iter().map(|b| b.rate_s_per_day).collect();
-    let my = by.iter().zip(&w).map(|(y, w)| y * w).sum::<f64>() / sw;
-    let curve = wquad(&bx, &by, &w)?;
-    let at = |x: f64| curve[0] + curve[1] * x + curve[2] * x * x;
-    let sst: f64 = by.iter().zip(&w).map(|(y, w)| w * (y - my).powi(2)).sum();
-    let sse: f64 = bx
-        .iter()
-        .zip(&by)
-        .zip(&w)
-        .map(|((x, y), w)| w * (y - at(*x)).powi(2))
-        .sum();
-    let curve_explained = if sst > 0.0 { 1.0 - sse / sst } else { 0.0 };
     let (b0, b1) = (bins[0].amplitude_deg, bins[bins.len() - 1].amplitude_deg);
-    let turn = (curve[2] != 0.0)
-        .then(|| centre - curve[1] / (2.0 * curve[2]))
-        .filter(|t| *t > b0 + 0.1 * (b1 - b0) && *t < b1 - 0.1 * (b1 - b0));
     // Said as going together, not as cause: the amplitude and the rate
     // can both change with what else changes over the take.
     let goes = match (shown, eiv) {
@@ -2719,16 +2765,13 @@ fn isochronism_curve(
     // The end bins as a sentence of their own: two medians, not the
     // slope's own evidence.
     let headline = format!(
-        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}.",
+        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°.",
         b0,
         b1,
         crate::library::signed_text(by[0], 1),
         b0,
         crate::library::signed_text(by[by.len() - 1], 1),
         b1,
-        turn.map_or(String::new(), |t| format!(
-            "; it changes least near {t:.0}°"
-        ))
     );
     Some(IsochronismCurve {
         step_s: rate.step,
@@ -2740,10 +2783,6 @@ fn isochronism_curve(
         s_per_day_per_deg_se: shown.map(|e| e.se),
         reliability: eiv.map(|e| e.reliability),
         rate_change_s_per_day: shown.map(|e| e.slope * (b1 - b0)),
-        curve_centre_deg: centre,
-        curve,
-        curve_explained,
-        turn_deg: turn,
         headline,
     })
 }
@@ -2766,6 +2805,9 @@ mod cycle_search;
 
 #[path = "steadiness_white.rs"]
 mod white;
+
+#[path = "steadiness_stats.rs"]
+mod stats;
 use cycle_search::cycle;
 #[cfg(test)]
 use cycle_search::{refined_candidates, same_peaks_once, strongest_cycle};
@@ -2798,6 +2840,7 @@ mod window_grid_tests {
                         odd_unlock_ms: None,
                         even_drop_ms: None,
                         odd_drop_ms: None,
+                        culled_ms: None,
                     }
                 })
                 .collect(),

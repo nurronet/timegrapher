@@ -421,11 +421,40 @@ pub fn solve<const N: usize>(mut a: [[f64; N]; N], mut b: [f64; N], tiny: f64) -
 /// Weighted least squares: the coefficients `x` that minimise
 /// `sum w (y - row . x)^2` over the `(row, y, w)` given, through the
 /// normal equations and [`solve`] (`None` as there).
-#[allow(clippy::needless_range_loop)]
 pub fn least_squares<const N: usize>(
     rows: impl IntoIterator<Item = ([f64; N], f64, f64)>,
     tiny: f64,
 ) -> Option<[f64; N]> {
+    let (a, b) = normal_equations(rows);
+    solve(a, b, tiny)
+}
+
+/// [`least_squares`] with the coefficients' covariance (XᵀWX)⁻¹, which
+/// is their covariance when each `w` is 1/σ² of its `y` (#1474). The
+/// inverse is [`solve`] against each unit vector, so `None` as there.
+#[allow(clippy::needless_range_loop)]
+pub fn least_squares_cov<const N: usize>(
+    rows: impl IntoIterator<Item = ([f64; N], f64, f64)>,
+    tiny: f64,
+) -> Option<([f64; N], [[f64; N]; N])> {
+    let (a, b) = normal_equations(rows);
+    let x = solve(a, b, tiny)?;
+    let mut cov = [[0.0f64; N]; N];
+    for j in 0..N {
+        let e: [f64; N] = std::array::from_fn(|i| f64::from(u8::from(i == j)));
+        let col = solve(a, e, tiny)?;
+        for i in 0..N {
+            cov[i][j] = col[i];
+        }
+    }
+    Some((x, cov))
+}
+
+/// XᵀWX and XᵀWy over the `(row, y, w)` given.
+#[allow(clippy::needless_range_loop)]
+fn normal_equations<const N: usize>(
+    rows: impl IntoIterator<Item = ([f64; N], f64, f64)>,
+) -> ([[f64; N]; N], [f64; N]) {
     let mut a = [[0.0f64; N]; N];
     let mut b = [0.0f64; N];
     for (r, y, w) in rows {
@@ -436,12 +465,33 @@ pub fn least_squares<const N: usize>(
             }
         }
     }
-    solve(a, b, tiny)
+    (a, b)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The covariance is the inverse of the normal matrix, and the fit is
+    /// [`least_squares`]'s.
+    #[test]
+    fn least_squares_cov_inverts_the_normal_matrix() {
+        let rows = [
+            ([1.0, 0.0], 1.0, 4.0),
+            ([1.0, 1.0], 3.0, 1.0),
+            ([1.0, 2.0], 4.0, 1.0),
+        ];
+        let (x, cov) = least_squares_cov(rows, 1e-12).unwrap();
+        assert_eq!(Some(x), least_squares(rows, 1e-12));
+        // XᵀWX = [[6, 3], [3, 5]], whose inverse is [[5, -3], [-3, 6]] / 21.
+        let want = [[5.0 / 21.0, -3.0 / 21.0], [-3.0 / 21.0, 6.0 / 21.0]];
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((cov[i][j] - want[i][j]).abs() < 1e-12, "{cov:?}");
+            }
+        }
+        assert!(least_squares_cov([([1.0, 1.0], 1.0, 1.0)], 1e-12).is_none());
+    }
 
     /// The table matches 200,000 simulated medians of k normal values
     /// each to 1% (k = 3: 1.349; 4: 1.194; 5: 1.432; 10: 1.387), and a

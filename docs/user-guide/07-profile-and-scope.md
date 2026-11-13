@@ -67,8 +67,8 @@ recording opened from a file, it is worked out from the file.
 
 **What it shows:** the sound itself, beat by beat, as the microphone
 heard it, filtered above 1 kHz. Not an average. It is the scope view of
-a Witschi timegrapher, with the same 20, 200 and 400 ms spans (Witschi
-training course, doc. 71.1010D35e, p. 12).
+a Witschi timegrapher, with the same 20, 200 and 400 ms spans (Witschi,
+_Testing Methods for Mechanical Watches_, 2025, p. 23).
 
 **Why you'd use it:** to see single beats. A beat that differs from the
 rest, a double sound, a rattle or a hum shows here, where an average

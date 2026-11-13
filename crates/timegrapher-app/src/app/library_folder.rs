@@ -207,6 +207,22 @@ impl TimegrapherApp {
         self.read_library();
     }
 
+    /// Read the Watches folder again when the window comes back to the
+    /// front, so a take another program added while the app was open
+    /// (`timegrapher watches add-take`, a sync) is listed without a
+    /// restart. Its cache keeps this quick: only a take whose files
+    /// changed is read again.
+    pub(super) fn reread_library_on_focus(&mut self, ctx: &egui::Context) {
+        let back = ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::WindowFocused(true)))
+        });
+        if let (true, Ok(Some(l))) = (back, &mut self.library) {
+            l.scan();
+        }
+    }
+
     /// Move Library… asks first, saying what moves and where.
     pub(super) fn library_move_dialog(&mut self, ctx: &egui::Context) {
         let (Some(to), Some(from)) = (self.library_move_ask.clone(), self.library_root()) else {

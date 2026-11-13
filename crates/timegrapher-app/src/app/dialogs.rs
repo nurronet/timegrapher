@@ -373,7 +373,11 @@ impl TimegrapherApp {
             _ => Vec::new(),
         };
         let name = match kind {
-            TestKeep::Positions => "Positions Test",
+            // A guided test: the Positions Test or the Dynamic Poise Test.
+            TestKeep::Positions => self
+                .guided
+                .as_ref()
+                .map_or("Positions Test", |t| t.kind.name()),
             TestKeep::PowerReserve => "Power Reserve Test",
         };
         let mut answer: TestKeepAnswer = None;
@@ -1195,7 +1199,7 @@ fn open_ask_fields(ui: &mut egui::Ui, a: &mut OpenAsk, asks: OpenNeed, started_o
                     .width(ui.available_width())
                     .selected_text(a.position.map_or("Choose a Position", |p| p.label()))
                     .show_ui(ui, |ui| {
-                        for p in Position::ALL {
+                        for p in Position::TEN {
                             ui.selectable_value(&mut a.position, Some(p), p.label());
                         }
                     });

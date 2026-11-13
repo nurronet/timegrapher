@@ -128,3 +128,16 @@ fn a_jump_in_the_noise_is_not_where_the_watch_starts() {
     let mid = [(35.0, 0.02), (40.0, 0.02), (45.0, 0.02)];
     assert_eq!(watch_lead_s(&lead(&mid, 50.0), BPH, &[12.0]), Some(50.0));
 }
+
+/// Where windows are missing before the watch's first (the noise gave too
+/// few beats to fit), a jump in that gap is in the noise: the watch
+/// starts at a jump no more than one grid step before its first window
+/// (#1423).
+#[test]
+fn a_jump_across_missing_windows_is_not_where_the_watch_starts() {
+    let w = lead(&[], 80.0);
+    assert_eq!(watch_lead_s(&w, BPH, &[60.0]), Some(80.0));
+    assert_eq!(watch_lead_s(&w, BPH, &[75.0]), Some(80.0));
+    assert_eq!(watch_lead_s(&w, BPH, &[77.0]), Some(77.0));
+    assert_eq!(watch_lead_s(&w, BPH, &[60.0, 77.0]), Some(77.0));
+}

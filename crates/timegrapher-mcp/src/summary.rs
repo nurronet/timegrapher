@@ -555,10 +555,11 @@ mod tests {
             "caveats": [{ "code": "lift_unknown" }],
         });
         let s = lead(&doc, &Map::new()).unwrap();
-        // Each figure to its ±'s decimals; the rate has no ± (#510 K3).
+        // Each figure at its place, its ± rounded up there; the rate has
+        // no ± (#1470).
         assert!(
             s.starts_with(
-                "Readings: rate +6.0 s/d, amplitude 269.60 ± 0.04°, beat error 0.400 ± 0.004 ms."
+                "Readings: rate +6.0 s/d, amplitude 270 ± 1°, beat error 0.40 ± 0.01 ms."
             ),
             "{s}"
         );

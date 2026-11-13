@@ -245,44 +245,18 @@ impl State {
     /// watch is first heard in it after beats were already kept; none
     /// where the chunk holds no sound.
     fn first_beats(&mut self, env: &[f32]) -> Option<(Vec<Beat>, bool)> {
-        let fs = self.fs;
         let a = &self.cfg.analysis;
+        let f = first_beats_in(env, self.fs, a.bph, a.amplitude_window_s)?;
+        self.bph = f.bph;
         let mut heard_first = false;
-        // Until a regular beat is heard, each chunk is looked at
-        // afresh from where its sound starts, and the template is
-        // kept only once its beats are a watch's (#476): silence or
-        // noise before the watch is placed sets neither the rate nor
-        // the beat's sound for the rest of the file.
-        let from = beats::sound_onset(env, fs)?;
-        self.bph = a.bph.unwrap_or_else(|| beats::guess_bph(env, fs));
-        let (b, t, level) = beats::detect_levelled(&env[from..], fs, self.bph);
-        let shift = from as f64 / fs;
-        let b: Vec<Beat> = b
-            .into_iter()
-            .map(|x| Beat {
-                time: x.time + shift,
-                ..x
-            })
-            .collect();
-        // Judged as every reading judges a stretch: the median
-        // timing scatter of its 10 s windows.
-        let windows = crate::session::scatter_windows(
-            &crate::clean::Cuts::new(None, &[], &[]),
-            &b,
-            self.bph,
-            0.0,
-            env.len() as f64 / fs,
-            a.amplitude_window_s,
-        );
-        let jitter_us = crate::session::scatter_jitter_us(&windows);
-        if beats::watch_heard(jitter_us, self.bph) {
+        if let Some(t) = f.template {
             self.template = Some(t);
-            self.level = level;
+            self.level = f.level;
             // The beats found before the watch was heard are noise,
             // and no count of beats runs on from them.
             heard_first = !self.beats.is_empty();
         }
-        Some((b, heard_first))
+        Some((f.beats, heard_first))
     }
 
     /// Clipping, counted on this chunk's own stretch: its clipped samples
@@ -804,6 +778,58 @@ impl State {
             snippets: self.snippets.into_items(),
         }
     }
+}
+
+/// The beats of the first stretch a watch may be heard in, and the
+/// template they give.
+pub struct FirstBeats {
+    /// The rate set, or else guessed from `env`.
+    pub bph: u32,
+    /// The beats found, times from the start of `env`.
+    pub beats: Vec<Beat>,
+    /// The beat template, kept only when the beats are a watch's.
+    pub template: Option<Vec<f32>>,
+    /// The level to carry on to the sound after ([`beats::detect_after`]).
+    pub level: Option<f32>,
+}
+
+/// The beat template as a file's reading builds it, from the envelope
+/// `env` of its first chunk: looked at from where its sound starts, at
+/// the rate set (`bph`) or a guessed one, and kept only once its beats
+/// are a watch's (#476), judged as every reading judges a stretch: the
+/// median timing scatter of its `window_s` windows. Silence or noise
+/// before the watch is placed sets neither the rate nor the beat's sound.
+/// Live builds its template again this way once it has a chunk's sound
+/// (#1327), so both read with the same template. None when `env` holds
+/// no sound.
+pub fn first_beats_in(env: &[f32], fs: f64, bph: Option<u32>, window_s: f64) -> Option<FirstBeats> {
+    let from = beats::sound_onset(env, fs)?;
+    let bph = bph.unwrap_or_else(|| beats::guess_bph(env, fs));
+    let (b, t, level) = beats::detect_levelled(&env[from..], fs, bph);
+    let shift = from as f64 / fs;
+    let beats: Vec<Beat> = b
+        .into_iter()
+        .map(|x| Beat {
+            time: x.time + shift,
+            ..x
+        })
+        .collect();
+    let windows = crate::session::scatter_windows(
+        &crate::clean::Cuts::new(None, &[], &[]),
+        &beats,
+        bph,
+        0.0,
+        env.len() as f64 / fs,
+        window_s,
+    );
+    let jitter_us = crate::session::scatter_jitter_us(&windows);
+    let heard = beats::watch_heard(jitter_us, bph);
+    Some(FirstBeats {
+        bph,
+        beats,
+        template: heard.then_some(t),
+        level: if heard { level } else { None },
+    })
 }
 
 #[cfg(test)]

@@ -132,9 +132,9 @@ test("the tiles show the server's ± text, and none without it", () => {
   assert.ok(take.includes("± 0.2 seconds per day") && take.includes("± 1.5 seconds per day") && take.includes("± 3°"), take);
 });
 
-// Decimals follow the ± (#510 K3): each figure is written to the decimals
-// the server gives beside its ± (core's library::figure_digits), and to
-// core's base without them.
+// Each figure is written to the decimals the server gives beside its ±
+// (core's library::figure_digits, its fixed place, #1470), and to core's
+// base without them.
 test("each figure takes the decimals the server gives with its ±", () => {
   const doc = listed(undefined);
   doc.take = undefined;

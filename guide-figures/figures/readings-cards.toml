@@ -4,11 +4,12 @@ output = "readings-cards.png"
 
 # 1 position, 2 position buttons, 3 Watch line, 4 Calibre, 5 Lift and beat
 # rate, 6 Listen, 7 Save, 8 length and state, 9 Average Over, 10 Rate,
-# 11 a sparkline, 12 a card's "?", 13 Amplitude, 14 Beat Error.
-marks = [[1, 240, 168], [2, 302, 216], [3, 522, 137], [4, 566, 174],
+# 11 a sparkline, 12 a card's "?", 13 Amplitude, 14 Beat Error, 15 the
+# Current Position card's 6 | 10.
+marks = [[1, 202, 186], [2, 302, 216], [3, 522, 137], [4, 566, 174],
          [5, 566, 216], [6, 652, 138], [7, 690, 200], [8, 772, 172],
          [9, 787, 216], [10, 985, 176], [11, 846, 213], [12, 1076, 137],
-         [13, 1292, 176], [14, 1655, 176]]
+         [13, 1292, 176], [14, 1655, 176], [15, 205, 144]]
 
 layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
 

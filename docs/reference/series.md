@@ -20,12 +20,12 @@ detect, and adds a sentence for the others:
 | a trend | the start and end level and the change per hour |
 | correlation between readings | the lag-1 correlation, the Ljung–Box p, how long the correlation lasts, and the Allan excess |
 | none of these | the number of readings, the median and the reading-to-reading scatter |
-| a period search line faster than the readings | the period, the wheel whose turn it matches, the size peak to peak and that the readings are too coarse to show it, e.g. "the beat timing repeats every 5.0 s, the escape wheel's period, 0.24 ms peak to peak; 10 s readings are too coarse to show it". The "none of these" and correlation headlines carry it in place of "no cycle"; the cycle, two levels, level change and trend headlines add it as a sentence of its own ("The beat timing also repeats every 5.0 s, …" beside a slower cycle). For the rate a line under 30 s is the beat timing's swing in ms, and a slower one (with `--reading 20` or longer) the rate's swing in s/d; "faster than the readings" means under three of the readings cycles are looked for in: the 2 s windows for the amplitude and beat error, the readings for the rate |
+| a period search line faster than the readings | the period, the wheel whose turn it matches, the size peak to peak and that the readings are too coarse to show it, e.g. "the beat timing repeats every 5.0 s, the escape wheel's period, 0.240 ms peak to peak; 10 s readings are too coarse to show it". The "none of these" and correlation headlines carry it in place of "no cycle"; the cycle, two levels, level change and trend headlines add it as a sentence of its own ("The beat timing also repeats every 5.0 s, …" beside a slower cycle). For the rate a line under 30 s is the beat timing's swing in ms, and a slower one (with `--reading 20` or longer) the rate's swing in s/d; "faster than the readings" means under three of the readings cycles are looked for in: the 2 s windows for the amplitude and beat error, the readings for the rate |
 | too few readings | N readings over N s (it needs 30 over 120 s) |
 
 After these, the headline names the period search's lines it has not
 named yet, as a last sentence: "The amplitude's period search also finds
-45 s (7.37° peak to peak)." Only the search's strongest line has a size;
+45 s (7.4° peak to peak)." Only the search's strongest line has a size;
 the others are given by period, in seconds. A line counts as named when
 it is within the resolution (the period squared over the take, at least
 1%) of the cycle or the shorter cycle inside it, or when it is the fast line above. The
@@ -411,10 +411,11 @@ windows). It comes
 with a ± that allows for correlated readings, and is withheld below a
 reliability of 0.5. It is a going-together, not a cause: anything else
 that changes over the take moves with it, and a take in several positions carries a
-`positions` caveat. A quadratic through the bins gives the curve, and the amplitude where it turns (where the
-rate changes least) when that is inside the range. On a short take the
-amplitude covers only a few degrees and the curve is mostly noise; a
-run-down of many hours is what it is for. The cyclic co-movement inside
+`positions` caveat. No curve is fitted through the bins: a quadratic
+has no source as an isochronism method, and the amplitude where it
+turned came from the fit's form, not the watch (dropped 13 Nov). On a
+short take the amplitude covers only a few degrees and the bins are
+mostly noise; a run-down of many hours is what they are for. The cyclic co-movement inside
 half an hour is the rate-to-amplitude line above, not this curve.
 
 The isochronism walk (#741) keeps the time the curve leaves out: one
@@ -457,7 +458,7 @@ app's settings: Freedman–Diaconis widths rounded to 1, 2 or 5 times a
 power of ten, never finer than 0.1 s/d, 0.5° or 0.01 ms, and the outer
 0.5% each side left off the scale. The text output prints the whole take's summary lines.
 
-## JSON (`timegrapher.series/2`)
+## JSON (`timegrapher.series/3`)
 
 The usual envelope (see [agent-interface.md](agent-interface.md)), then
 the fields below. Version 2 removed the one-word `verdict` of each
@@ -471,8 +472,8 @@ headlines state facts. Everything else is as in version 1.
 | `caveats[]` | conditions detected, each with a `code`: `sides_by_count` (`count`: the breaks across which Tick and Tock were named by the beat count, not told apart by their sound) and `beat_error_as_size` (the beat error's sign differs either side of a break, so its readings are sizes, positive, not signed), as for `analyze`; empty when none |
 | `config` | the detection settings used |
 | `series[]` | one entry each for `rate` (s/d), `amplitude` (deg) and `beat_error` (ms, from the unlock), in that order |
-| `isochronism` | the rate by amplitude: `step_s`, `bin_deg`, `bins[]` (`amplitude_deg`, `readings`, `rate_s_per_day`, `rate_q25`, `rate_q75`, `from_wind_h`, `to_wind_h`), `amplitude_from_deg`, `amplitude_to_deg`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (null when withheld), `rate_change_s_per_day` (the slope over the bins' amplitudes; null when withheld), `reliability`, `curve_centre_deg`, `curve` (`[c0, c1, c2]` in A − centre), `curve_explained`, `turn_deg`, `headline`; null with fewer than three bins |
-| `walk` | the rate against the amplitude by time: `bin_s` (300), `points[]` (`t_s`, the stretch's middle from the take's start; `wind_h`; `rate_s_per_day`; `amplitude_deg`; `readings`, the rate's 10 s readings; `amp_windows`, the amplitude's 2 s windows), in time order; null with fewer than two points |
+| `isochronism` | the rate by amplitude: `step_s`, `bin_deg`, `bins[]` (`amplitude_deg`, `readings`, `rate_s_per_day`, `rate_q25`, `rate_q75`, `from_wind_h`, `to_wind_h`), `amplitude_from_deg`, `amplitude_to_deg`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (null when withheld), `rate_change_s_per_day` (the slope over the bins' amplitudes; null when withheld), `reliability`, `headline` (`curve_centre_deg`, `curve`, `curve_explained` and `turn_deg`, the quadratic, were removed 13 Nov); null with fewer than three bins |
+| `walk` | the rate against the amplitude by time: `bin_s` (300), `points[]` (`t_s`, the stretch's middle from the take's start; `wind_h`; `rate_s_per_day`; `amplitude_deg`; `readings`, the rate's 10 s readings; `amp_windows`, the amplitude's 2 s windows; `rate_slots` and `amp_slots`, how many of each the stretch could hold; `thin`, true when either was read from under 60% of its slots), in time order. A stretch whose rate or amplitude is read from under 10% of its slots is left out, as every window figure is withheld below that share. `rate_only_to_s`, when the rate is still read after the last point but the amplitude is not (a run-down's end), is the end of the last such stretch, seconds from the take's start; absent otherwise; null with fewer than two points |
 | `wind_down` | `start` and `end` (`from_wind_h`, `to_wind_h`, `readings`, `rate_s_per_day`, `amplitude_deg`, `beat_error_ms`), `hours_apart`, `at_24h`, `rate_change_s_per_day`, `amplitude_change_deg`, `beat_error_change_ms`, `headline`; null under two hours |
 | `distributions` | `overall[]`, `stretch_s` (0 when the take is not split) and `stretches[]` (`start_s`, `end_s`, `distributions[]`); each distribution has `series` (`rate`, `amplitude`, `beat_error`), `unit`, `values` (`readings` or `2 s`), `step_s`, `n`, `median`, `p10`, `p90`, `bin_width`, `edges` (one more than `counts`; bin i is from `edges[i]` up to `edges[i+1]`), `counts`, `below` and `above` (off the scale, counted in `n`), `peaks` (bin centres of separate peaks), `normal_line` (`centre`, `spread`: the straight line on probability paper; null with no spread), `quantiles` (`[share, value]` at 0.1%, 1, 5, 10, 25, 50, 75, 90, 95, 99 and 99.9% where the count resolves them), `points` (with `--views`, on the whole take's distributions only: the probability plot the app draws, `[value, z]` lowest first: each value against the normal score of its rank, every value up to 400 and evenly by rank beyond, the lowest and highest always kept), `summary` (the line beside the histogram, for files and pipes: an ASCII minus) and `screen_summary` (the same line as a screen shows it, each figure with a true minus, U+2212, its words as they are; the app and the MCP view show this one). A series with fewer than three values has no entry. |
 | `rate_amplitude` | the rate against the amplitude: `step_s`, `readings` (pairs), `r`, `effective_readings`, `p_value`, `s_per_day_per_deg` and `s_per_day_per_deg_se` (within half an hour, corrected for the amplitude's noise as the isochronism's is; null below a `reliability` of 0.5), `reliability`, `take_r` and `take_s_per_day_per_deg` (whole take, no lag, drift included), `headline` (all of these as numbers, whatever their size) |
@@ -491,7 +492,9 @@ Each entry of `series[]`:
 | Field | Contents |
 |---|---|
 | `series`, `unit`, `headline` | what it is, and what the tests found in one plain sentence |
-| `summary` | the headline's lead in a few words, one line, with no series name and no full stop, for a plot's title after the series' own: e.g. "repeats every 46 s, 4.0 s/d peak to peak", "shifts level 1 time: +4.9 s/d, then +9.1 s/d" (in the headline's own words, every level when there are four or fewer), "slides from 280° to 260°", "switches between 293° and 312°, about every 78 s", "successive readings correlated; no cycle, level change or trend", "no cycle, level change or trend", "20 readings, too few to search", and, for a cycle without one period to size, "drops to a low level and back, about every 78 s" or "repeats on a cycle". It says "no cycle" only when the headline names none. |
+| `summary` | the headline's lead in a few words, one line, with no series name and no full stop, for a plot's title after the series' own: e.g. "repeats every 46 s, 4.00 s/d peak to peak", "shifts level 1 time: +4.9 s/d, then +9.1 s/d" (in the headline's own words, every level when there are four or fewer), "slides from 280° to 260°", "switches between 293° and 312°, about every 78 s", "successive readings correlated; no cycle, level change or trend", "no cycle, level change or trend", "20 readings, too few to search", and, for a cycle without one period to size, "drops to a low level and back, about every 78 s" or "repeats on a cycle". It says "no cycle" only when the headline names none. |
+| `screen_headline`, `screen_summary` | the headline and the summary as a screen shows them: each figure's minus a true minus (U+2212), the words' hyphens as they are; the app and the MCP view show these, and files, pipes and the model read `headline` and `summary` (ASCII minus) |
+| `screen_stats` | the statistics behind the headline on one line, as the app's Steadiness Info shows them: readings tested, outliers left out, median, SD, ± from one reading to the next, lag-1 r and Ljung–Box p, the trend per hour and the stretches of one level (each with why the headline leaves it out), and the period; each at the place the headline uses, with a true minus. The app and the MCP view show this one text |
 | `step_s`, `readings`, `outliers` | reading length (the rate's for all three series), readings used, readings left out |
 | `median`, `sd`, `short_term_sd`, `long_run_sd` | level, spread, reading-to-reading scatter, and the scatter allowing for correlated readings (the short-term σ × √(1+ρ)/(1−ρ), ρ the lag-one correlation once the largest step is out, bias-corrected), which the CUSUM is scaled by |
 | `autocorrelation` | `lag_s[]`, `r[]` (thinned to about 600 points), `band`, `band_by_lag[]` (the band at each of `lag_s`, 1.96/√pairs from the pairs that lag was read from: wider than `band` where gaps leave fewer pairs; null where none), `ljung_box_q`, `ljung_box_lags`, `p_value`, `max_short_lag_r`, `memory_s`, `repeat_lag_s`, `repeat_r` |

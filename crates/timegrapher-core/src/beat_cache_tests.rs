@@ -222,6 +222,28 @@ fn a_short_file_is_keyed_on_every_byte() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// The length is in the key on its own (#1350): two long files of the
+/// same bytes everywhere the spans read (all zeros), at one place and time,
+/// differ only in length, and each has its own key.
+#[test]
+fn a_file_of_another_length_has_another_key() {
+    let dir = folder("length");
+    let f = dir.join("zeros.wav");
+    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    let cfg = StreamConfig::default();
+    let mut keys = Vec::new();
+    for len in [
+        (SPANS as usize + 4) * HEAD_BYTES,
+        (SPANS as usize + 9) * HEAD_BYTES,
+    ] {
+        fs::write(&f, vec![0u8; len]).unwrap();
+        set_changed(&f, hour_ago);
+        keys.push(key(&[f.as_path()], &cfg).unwrap());
+    }
+    assert_ne!(keys[0], keys[1]);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// No copy is kept of a take whose files changed in the last two minutes:
 /// it may still be recording.
 #[test]
@@ -259,5 +281,23 @@ fn the_folder_is_held_to_its_size_by_the_least_recently_used() {
         .collect();
     left.sort();
     assert_eq!(left, ["mid", "new", "x.part"]);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A window's culled sides' edges are kept in the copy and read back
+/// (#1333).
+#[test]
+fn a_copy_keeps_the_culled_sides_edges() {
+    let dir = folder("culled");
+    let files = take(&dir);
+    let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
+    let cfg = StreamConfig::default();
+    let (mut log, peak) = crate::stream::analyze_files_peak(&paths, &cfg, |_| {}).unwrap();
+    log.amplitude_windows[0].set_culled([Some([-21.5, 0.25]), None]);
+    log.amplitude_windows[2].set_culled([None, Some([-4.75, 0.5])]);
+    let (back, _) = decode(&encode(&log, peak)).expect("the copy reads");
+    for (b, w) in back.amplitude_windows.iter().zip(&log.amplitude_windows) {
+        assert_eq!(b.culled(), w.culled());
+    }
     let _ = fs::remove_dir_all(&dir);
 }

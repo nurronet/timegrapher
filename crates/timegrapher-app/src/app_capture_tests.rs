@@ -4,6 +4,7 @@
 use super::tests::{queued_capture, save_failure_fixture};
 use super::*;
 use std::sync::mpsc::Sender;
+use timegrapher_core::synth::{generate, SynthConfig};
 
 /// Pause and Stop keep the sound the input had already sent: the blocks
 /// still queued when the input closes are saved and read too (#873).
@@ -313,4 +314,61 @@ fn block(ms: u64) -> Event {
         samples: vec![0.0; 960],
         at: std::time::UNIX_EPOCH + Duration::from_millis(ms),
     })
+}
+
+/// Live's first chunk read again with the file's template takes over
+/// about a minute in (#1327): the readings carry on with an amplitude, the
+/// charts' points are read again with none past the newest, and the strip's
+/// anchor moves with the beats by under a millisecond, so the view stays.
+#[test]
+fn listening_carries_on_when_the_first_chunk_read_again_takes_over() {
+    let (mut app, base) = save_failure_fixture("takeover");
+    let tx = queued_capture(&mut app, &base);
+    let cfg = SynthConfig {
+        duration_s: 80.0,
+        ..Default::default()
+    };
+    let audio = generate(&cfg, |_| 280.0, |_| 0.0);
+    let mut before = None;
+    for (k, c) in audio.samples.chunks(480).enumerate() {
+        tx.send(Event::Audio(timegrapher_core::capture::Block {
+            samples: c.to_vec(),
+            at: std::time::UNIX_EPOCH + Duration::from_millis(2000 + 10 * k as u64),
+        }))
+        .unwrap();
+        if k % 50 == 49 {
+            let live = app.live.as_ref().unwrap();
+            if live.template_switch_s().is_none() {
+                before = app.anchor.map(|a| (a, live.beats().to_vec()));
+            }
+            app.poll();
+        }
+    }
+    // Each poll takes in what a frame's time allows: all of it, in time.
+    for _ in 0..1000 {
+        app.poll();
+        if app.live.as_ref().unwrap().duration_s() >= 79.9 {
+            break;
+        }
+    }
+    let live = app.live.as_ref().unwrap();
+    assert!(live.template_switch_s().is_some(), "not taken over");
+    assert!(app.reading().and_then(|r| r.amplitude_deg).is_some());
+    assert!(app.trend.windows(2).all(|w| w[0].t < w[1].t));
+    // A beat 30 s in stands where it stood on the strip, within the
+    // scatter of a beat's time between two templates.
+    let (a0, beats0) = before.expect("an anchor before the takeover");
+    let a1 = app.anchor.expect("an anchor after");
+    let period = 3600.0 / live.bph().unwrap() as f64;
+    let lead = |a: &timegrapher_core::timing::Anchor, beats: &[timegrapher_core::beats::Beat]| {
+        let b = beats
+            .iter()
+            .min_by(|x, y| (x.time - 30.0).abs().total_cmp(&(y.time - 30.0).abs()));
+        let b = b.unwrap();
+        b.time - a.time - (b.index - a.index) as f64 * period
+    };
+    let moved = lead(&a1, live.beats()) - lead(&a0, &beats0);
+    assert!(moved.abs() < 2e-4, "{moved}");
+    drop(tx);
+    let _ = std::fs::remove_dir_all(base);
 }

@@ -1,0 +1,31 @@
+# Chapter 6, The Paper Strip: Still Paper on, live, the pen part way
+# through its third lap of 30 s, the last lap still ahead of it.
+output = "paper-strip-still.png"
+
+# 1 Still Paper, 2 the pen with the blank ahead of it, 3 the last lap's
+# time labels.
+marks = [[1, 968, 304], [2, 1155, 480], [3, 1288, 708]]
+
+layout = ["column", [0.615, "Strip"], [0.385, ["tabs", "Sound", "Scope"]]]
+
+actions = [["sleep", 5], ["stand", "DU"], ["click", 571, 107], ["sleep", 1]]
+
+[data]
+corpus = "dd3235_DU_30min"
+file = "take_part01-001.flac"
+start = 300
+seconds = 120
+mode = "microphone"
+
+[wait]
+exact = 78
+
+[window]
+size = [1800, 1000]
+
+[settings]
+rate_line = true
+rate_guides = true
+
+[settings.strip]
+still = true

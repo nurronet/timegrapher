@@ -5,6 +5,7 @@ calibre
 caveats
 fields
 folder
+id
 input
 input.library
 input.name

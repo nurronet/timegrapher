@@ -298,6 +298,7 @@ adds a **Sound** row saying none was kept and what measured it.
 | `beats.csv.gz` | Every beat, gzipped CSV with the header line `index_step,residual_us,quality,clipped`: the step in the beat's number from the beat before (from 0 for the first; the numbers are the beat log's own, after Tick and Tock are matched across jumps, so their parity gives the side), the beat's time in whole µs less where the beat before and that many nominal beats at the header's `bph` put it (from 0 µs for the first), its quality written in full (the shortest decimal that reads back to the same value), and 1 when it clipped, else 0. Times read back to within 0.5 µs |
 | `windows.csv.gz` | Every 2-second amplitude window, gzipped CSV with the header line `start_s,end_s,even_deg,odd_deg,beat_error_ms,beat_error_unlock_ms,even_unlock_ms,odd_unlock_ms,even_drop_ms,odd_drop_ms` (the beat log's fields, each written so it reads back exactly; empty where there is none) |
 | `profiles.bin.gz` | The Tick Tock profiles of each 2 seconds, gzipped binary, below |
+| `culled.csv.gz` | The window sides the amplitude gate (100° to 380°) left out at the kept lift, gzipped CSV with the header line `window,even_unlock_ms,even_drop_ms,odd_unlock_ms,odd_drop_ms`: the window's row in `windows.csv.gz` from 0, and each culled side's unlock and drop, ms from the beat time (empty for a side not culled). Only windows with a culled side have a row. When the take is read at another lift, these sides are read again and gated at it (#1333). Optional: a take kept before it has none, and is read without it |
 
 `analysis.json` holds `format` (`"timegrapher.analysis/2"`; a later
 version is refused by name, and `/1`, written before #657, is read with
@@ -338,7 +339,7 @@ anything lower, read back as 0). Stretches with no beats are left out.
 ## What each reading is
 
 After `settle_s` (default 20 s: the "20 s stabilisation time" of Witschi's
-*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, about p. 34), to the end
+*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, p. 33), to the end
 of the recording or for `measure_s`. A `settle_s` given (on the entry, the
 session file or `--settle`) is kept as it is: an entry it leaves nothing
 of is left out with a note naming it, and the rest are read. The 20 s
@@ -369,7 +370,8 @@ Each reading is:
   and Tock `amplitude_odd_deg`);
 - jitter, and the median and the 5th to 95th percentile of rate in 10 s
   windows: how steady the rate is. A 10 s window is used only when each
-  2 s of it holds a beat and it reaches into no cut; it needs no beat at
+  2 s of it holds a good beat (one the fit times from) and it reaches
+  into no cut (#1432); it needs no beat at
   or after its end, so a stretch of exactly 10 s has one. The headline rate is the fit over
   every beat (over the stretches between cuts, as above), the average the
   hands keep; where the rate wanders with dips (the Yacht-Master crown

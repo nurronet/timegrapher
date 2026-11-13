@@ -1,7 +1,8 @@
 //! `timegrapher watches`: the watches in the library the app keeps, each
 //! with its details and its takes, and the takes Quick Listen left in
-//! Unsorted (see `timegrapher_core::library`). It takes no lock and writes
-//! nothing in the library, so the app can have it open; each take's own
+//! Unsorted (see `timegrapher_core::library`). `list` and `show` take no
+//! lock and write nothing in the library, so the app can have it open
+//! (the changes are `watches_edit`'s); each take's own
 //! reading is worked out once and kept in the user's settings folder
 //! ([`library::reading`]).
 
@@ -50,6 +51,7 @@ pub fn list(library: Option<&Path>, all: bool, json: bool) -> Result<(), String>
             "watches": watches.iter().map(|e| {
                 let w = &e.watch;
                 json!({
+                    "id": w.id,
                     "name": w.name,
                     "calibre": w.calibre,
                     "bph": w.bph,
@@ -115,6 +117,7 @@ pub fn show(name: &str, library: Option<&Path>, json: bool) -> Result<(), String
         let input = json!({ "library": lib.root.display().to_string(), "name": name });
         let body = json!({
             "library": lib.root.display().to_string(),
+            "id": (!w.id.is_empty()).then_some(&w.id),
             "name": w.name,
             "unsorted": w.id.is_empty(),
             "folder": e.dir.display().to_string(),

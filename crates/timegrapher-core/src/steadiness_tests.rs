@@ -262,7 +262,7 @@ fn a_fast_rate_line_is_stated_as_the_beat_timing_in_ms() {
     );
     assert_eq!(s.lead, Lead::Steady, "{}", s.headline);
     assert!(
-        s.headline.ends_with("; the beat timing repeats every 5.0 s, the escape wheel's period, 0.04 ms peak to peak; 10 s readings are too coarse to show it."),
+        s.headline.ends_with("; the beat timing repeats every 5.0 s, the escape wheel's period, 0.043 ms peak to peak; 10 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -302,7 +302,7 @@ fn an_amplitude_line_is_judged_against_the_2_s_windows() {
         &Config::default(),
     );
     assert!(
-        s.headline.ends_with("; the amplitude repeats every 4.0 s, 0.80° peak to peak; 2 s readings are too coarse to show it."),
+        s.headline.ends_with("; the amplitude repeats every 4.0 s, 0.8° peak to peak; 2 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -322,7 +322,7 @@ fn an_amplitude_line_is_judged_against_the_2_s_windows() {
     // The search's line is named, and the lead says nothing of cycles.
     assert!(
         s.headline.ends_with(
-            "; no level change, trend or correlation between readings detected. The amplitude's period search also finds 20.0 s (0.80° peak to peak)."
+            "; no level change, trend or correlation between readings detected. The amplitude's period search also finds 20.0 s (0.8° peak to peak)."
         ),
         "{}",
         s.headline
@@ -346,7 +346,7 @@ fn a_fast_line_beside_a_level_change_is_its_own_sentence() {
     );
     assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
     assert!(
-        s.headline.ends_with(". The beat timing repeats every 4.0 s, the escape wheel's period, 0.04 ms peak to peak; 2 s readings are too coarse to show it."),
+        s.headline.ends_with(". The beat timing repeats every 4.0 s, the escape wheel's period, 0.043 ms peak to peak; 2 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -533,7 +533,7 @@ fn a_search_line_the_headline_does_not_name_is_added() {
     );
     assert!(
         s.headline.ends_with(
-            " The amplitude's period search also finds 45 s (0.80° peak to peak) and 600 s."
+            " The amplitude's period search also finds 45 s (0.8° peak to peak) and 600 s."
         ),
         "{}",
         s.headline
@@ -734,7 +734,7 @@ fn a_summary_names_each_lead_in_a_few_words() {
         (
             &cycle,
             Lead::Periodic,
-            "repeats every 46 s, 5.8 s/d peak to peak",
+            "repeats every 46 s, 5.84 s/d peak to peak",
         ),
         (
             &levels,
@@ -878,8 +878,34 @@ fn a_long_take_names_the_cycle_inside_a_slower_one() {
     );
     assert_eq!(
         s.summary,
-        "repeats every 4 min, 5 turns of 48 s, 9.7 s/d peak to peak"
+        "repeats every 4 min, 5 turns of 48 s, 9.74 s/d peak to peak"
     );
+}
+
+/// A rate that bends with the amplitude, flattest near 245°, still gets
+/// no fitted curve and no turn: the headline is the slope and the ends
+/// (Peter, 13 Nov).
+#[test]
+fn the_isochronism_headline_names_no_turn() {
+    let mut z = Noise(5);
+    let n = 26 * 360;
+    let amp: Vec<f64> = (0..n)
+        .map(|i| 270.0 - 52.0 * i as f64 / n as f64 + 2.0 * z.next())
+        .collect();
+    let rate: Vec<f64> = amp
+        .iter()
+        .map(|a| 0.05 * (a - 245.0).powi(2) + 1.5 * z.next())
+        .collect();
+    let c = isochronism_curve(
+        &grid(rate, 10.0),
+        &grid(amp, 10.0),
+        &vec![4.0; n],
+        &Config::default(),
+    )
+    .unwrap();
+    assert!(!c.headline.contains("changes least"), "{}", c.headline);
+    assert!(c.headline.contains("The rate reads"), "{}", c.headline);
+    assert!(c.headline.ends_with("°."), "{}", c.headline);
 }
 
 #[test]
@@ -1672,6 +1698,7 @@ fn a_window_goes_in_the_cell_its_middle_lies_in() {
         odd_unlock_ms: None,
         even_drop_ms: None,
         odd_drop_ms: None,
+        culled_ms: None,
     };
     let log = BeatLog {
         sample_rate: 48000,
@@ -2347,4 +2374,123 @@ fn a_unit_follows_its_number_as_the_sentences_write_it() {
     assert_eq!(unit_after(SeriesKind::Amplitude.unit()), ("", "°"));
     assert_eq!(unit_after(SeriesKind::Rate.unit()), (" ", "s/d"));
     assert_eq!(unit_after(SeriesKind::BeatError.unit()), (" ", "ms"));
+}
+
+/// A level shift below zero, as on the YM42's last hours: the screen
+/// copies set each figure with a true minus, the words keep their
+/// hyphens, and the plain headline and summary keep the ASCII minus for
+/// files, pipes and the model (#1437).
+#[test]
+fn the_screen_copies_carry_a_true_minus_on_figures_only() {
+    let mut z = Noise(1437);
+    let s = check_series(
+        SeriesKind::Rate,
+        grid(
+            (0..3000)
+                .map(|i| if i < 1500 { -5.0 } else { -12.0 } + 2.0 * z.next())
+                .collect(),
+            2.0,
+        ),
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
+    assert!(s.summary.contains(": -"), "{}", s.summary);
+    assert!(!s.headline.contains('\u{2212}'), "{}", s.headline);
+    assert_eq!(
+        s.screen_headline,
+        crate::figure_text::figure_minus(&s.headline)
+    );
+    assert_eq!(
+        s.screen_summary,
+        crate::figure_text::figure_minus(&s.summary)
+    );
+    assert!(
+        s.screen_summary.contains(": \u{2212}"),
+        "{}",
+        s.screen_summary
+    );
+    assert!(!s.screen_summary.contains('-'), "{}", s.screen_summary);
+    // Through `check` too, after its last words are added.
+    let sc = crate::scenarios::find("rub").unwrap();
+    let log = crate::scenarios::beat_log(&sc, 1);
+    let lc = crate::longterm::LongConfig {
+        wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+        ..Default::default()
+    };
+    let long = crate::longrun::analyse(&log, None, &lc);
+    let r = check(&log, None, &long, &lc, &Config::default());
+    for c in &r.series {
+        assert_eq!(
+            c.screen_headline,
+            crate::figure_text::figure_minus(&c.headline)
+        );
+        assert_eq!(
+            c.screen_summary,
+            crate::figure_text::figure_minus(&c.summary)
+        );
+    }
+}
+
+/// A spread after a ± is at the series' place, rounded up; a within-take
+/// difference (a peak to peak, a change per hour) one place finer (Norm's
+/// ruling on #1470, math guide section 11).
+#[test]
+fn spreads_and_differences_take_their_places() {
+    use SeriesKind::{Amplitude, BeatError, Rate};
+    assert_eq!(Amplitude.fmt_pm(5.8), "6°");
+    assert_eq!(Rate.fmt_pm(0.04), "0.1 s/d");
+    assert_eq!(BeatError.fmt_pm(0.011), "0.02 ms");
+    assert_eq!(Amplitude.fmt_pm(0.0), "1°");
+    assert_eq!(Rate.fmt_pm(0.0), "0.1 s/d");
+    assert_eq!(Amplitude.fmt_size(0.44), "0.4°");
+    assert_eq!(Rate.fmt_size(5.836), "5.84 s/d");
+    assert_eq!(BeatError.fmt_size(0.1234), "0.123 ms");
+    assert_eq!(Amplitude.fmt_per_hour(0.49), "+0.5°");
+    assert_eq!(Rate.fmt_per_hour(1.27), "+1.27 s/d");
+    assert_eq!(BeatError.fmt_per_hour(-0.0004), "0.000 ms");
+}
+
+/// The stats line is core's one text for every screen: `screen_stats` is
+/// `stats_line` with a true minus on each figure, and its figures sit at
+/// the headline's places (#1470; Max, the app and the MCP view alike).
+#[test]
+fn the_stats_line_is_one_text_with_a_screen_copy() {
+    let y: Vec<f64> = (0..60)
+        .map(|i| -5.0 + 0.3 * (i as f64 * 1.7).sin())
+        .collect();
+    let s = check_series(
+        SeriesKind::Rate,
+        Grid {
+            t0: 0.0,
+            step: 10.0,
+            y,
+        },
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    let line = s.stats_line();
+    assert!(
+        line.starts_with("Tested on 60 10 s readings · median -5.0 s/d"),
+        "{line}"
+    );
+    let pm = s.series.fmt_pm(s.short_term_sd.expect("a short-term SD"));
+    assert!(
+        line.contains(&format!("±{pm} reading to reading")),
+        "{line}"
+    );
+    assert!(line.contains("lag-1 r "), "{line}");
+    assert_eq!(s.screen_stats, crate::figure_text::figure_minus(&line));
+    assert!(
+        s.screen_stats.contains("median \u{2212}5.0 s/d"),
+        "{}",
+        s.screen_stats
+    );
+    assert!(s.screen_stats.contains("lag-1 r"), "{}", s.screen_stats);
 }

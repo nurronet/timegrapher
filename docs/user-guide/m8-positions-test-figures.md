@@ -23,7 +23,8 @@ Suisse, the Swiss watch industry's standards; the project's
 | CR, crown right | 12H | vertical |
 
 Witschi's codes count round the dial with the crown at 3 o'clock, so crown
-up is 3H and crown right 12H.
+up is 3H and crown right 12H (Witschi, _Testing Methods for Mechanical Watches_, 2025,
+p. 21).
 
 ## How It Is Worked Out
 
@@ -86,7 +87,8 @@ Ie    = | X(24 h) − X(full) |, each X over the positions read in both
 ## What It Helps Find
 
 - **A poise error:** it can show as one vertical position far from the
-  others.
+  others. The Dynamic Poise Test (chapter 20b, M13) measures eight
+  upright positions and fits the wave poise makes.
 - **A large horizontal-vertical split** (DVH): the balance pivots or
   jewels.
 - **A rate that runs away at 24 hours** (large Im or Ie): isochronism

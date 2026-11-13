@@ -93,8 +93,11 @@ const RECORDINGS: Param = p(
     Kind::Paths,
     Arg::Positional,
     true,
-    "Full paths of the recording: one file, a folder of segments, or several files read \
-     as one continuous recording in the order given.",
+    "Full paths of the recording: a take's folder (one holding session.toml), read as \
+     saved with its lift angle, beat rate, calibre, masks and clock; or one file, a folder \
+     of segments, or several files read as one continuous recording in the order given. \
+     For a take, give its folder, not a sound file inside it: a file alone is read with \
+     the default lift angle and settings.",
 );
 const LIBRARY: Param = p(
     "library",
@@ -571,7 +574,9 @@ pub const TOOLS: &[ToolSpec] = &[
         title: "Make a Report Bundle",
         description: "Make a zip the person can attach to a GitHub issue when a reading \
             looks wrong or something failed: an excerpt of the recording, what was \
-            measured, the system and logs, with home folder, user and host names removed. \
+            measured, the take's analysis (its beats and amplitude windows, read from the \
+            whole recording, so a long take takes a while), the system and logs, with home \
+            folder, user and host names removed. \
             Nothing is uploaded; the person attaches it themselves. Only the person can \
             say they listened to the excerpt or offer it to the public test corpus, so \
             this tool never does either.",
@@ -582,7 +587,8 @@ pub const TOOLS: &[ToolSpec] = &[
                 Kind::Path,
                 Arg::Positional,
                 false,
-                "Full path of the recording the report is about, if any.",
+                "Full path of the recording the report is about, if any: a sound file, or a take \
+                 folder, including one kept as its analysis alone (which has no excerpt).",
             ),
             p(
                 "at_s",

@@ -627,6 +627,69 @@ fn stopping_keeps_the_last_heard_readings() {
     assert!(after.time_s <= 62.0, "{}", after.time_s);
 }
 
+/// The Rate figure's hover says what its ± waits for, until the take
+/// holds the 30 values it takes its scatter from, and then its exact
+/// size (#1470).
+#[test]
+fn the_rate_hover_says_what_its_plus_minus_waits_for() {
+    let app = synthetic(60.0, 12.0);
+    let r = app.reading().unwrap();
+    assert!(r.rate_s_per_day.is_some() && r.rate_error_s_per_day.is_none());
+    let words = readouts::rate_pm_words(&r).unwrap();
+    let has = format!(
+        "± after 5 min of beats: it needs 30 rates of 10 s each, and has {}.",
+        r.rate_noise_values
+    );
+    assert_eq!(words, has);
+    assert!((3..30).contains(&r.rate_noise_values), "{words}");
+    let mut with = r.clone();
+    with.rate_error_s_per_day = Some(0.1234);
+    let words = readouts::rate_pm_words(&with).unwrap();
+    assert!(
+        words.starts_with("± 0.2 s/d is one standard error (0.123, rounded up)."),
+        "{words}"
+    );
+}
+
+/// The Amplitude figure's hover says why it has no ±: too few readings
+/// in the take yet, or too few of its own in the average (#1470).
+#[test]
+fn the_amplitude_hover_says_why_it_has_no_plus_minus() {
+    let app = synthetic(60.0, 12.0);
+    let r = app.reading().unwrap();
+    let mut early = r.clone();
+    (early.amplitude_error_deg, early.amplitude_noise_values) = (None, 12);
+    assert_eq!(
+        readouts::amplitude_pm_words(&early).as_deref(),
+        Some("± after 1 min of beats: it needs 30 readings of 2 s each, and has 12.")
+    );
+    let mut few = r.clone();
+    (
+        few.amplitude_error_deg,
+        few.amplitude_noise_values,
+        few.amplitude_values,
+    ) = (None, 30, 2);
+    assert_eq!(
+        readouts::amplitude_pm_words(&few).as_deref(),
+        Some(
+            "No ± now: 2 of the 2 s readings in this average found the amplitude, \
+             and a ± needs 3."
+        )
+    );
+    let mut with = r.clone();
+    with.amplitude_error_deg = Some(12.4);
+    let words = readouts::amplitude_pm_words(&with).unwrap();
+    assert!(
+        words.starts_with("± 13° is one standard error (12.40, rounded up)."),
+        "{words}"
+    );
+    // The live reading counts them as core does.
+    assert!(
+        r.amplitude_values > 0 && r.amplitude_noise_values <= 30,
+        "{r:?}"
+    );
+}
+
 /// Lay out and paint frames without a window, in both strip directions,
 /// with a synthetic watch run through the live engine.
 #[test]
@@ -943,13 +1006,13 @@ fn the_scope_says_masked_where_the_profile_does() {
     assert!(scope.contains(&format!("Masked at {at}")), "{scope}");
 }
 
-/// Tick's and Tock's amplitudes take the decimals of the figure beside
-/// them, its ±'s, as the CLI writes them (Walter's and Rico's note).
+/// Tick's and Tock's amplitudes are at the amplitude's place, 1°, as
+/// the figure beside them and the CLI write them, whatever the ± (#1470).
 #[test]
 fn tick_and_tock_take_the_amplitudes_decimals() {
     assert_eq!(
         readouts::sides_text(279.494, 279.571, Some(0.04)),
-        "Tick 279.49°, Tock 279.57°: each side's own amplitude."
+        "Tick 279°, Tock 280°: each side's own amplitude."
     );
     // With no ±, the amplitude's base decimals, as before.
     let base = |x| {
@@ -965,12 +1028,12 @@ fn tick_and_tock_take_the_amplitudes_decimals() {
     );
 }
 
-/// The Amplitude card's hover gives Tick and Tock to the decimals of the
-/// live amplitude's ±, the one beside its figure (Trevor's mutant of
-/// #1114: the card passing no ± survived).
+/// The Amplitude card's hover gives Tick and Tock at the amplitude's
+/// place, as its figure (#1114, #1470).
 #[test]
 fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
-    let mut app = synthetic(60.0, 5.0);
+    // Past the 30 amplitude windows the ± takes its scatter from (#1470).
+    let mut app = synthetic(90.0, 5.0);
     let r = app.reading().expect("a reading");
     let (Some(a), Some(b), Some(se)) = (
         r.amplitude_even_deg,
@@ -980,7 +1043,8 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
         panic!("the synthetic take reads both sides and a ±: {r:?}");
     };
     let want = readouts::sides_text(a, b, Some(se));
-    assert_ne!(want, readouts::sides_text(a, b, None), "a ± under 1°");
+    // The ± never moves the place (#1470).
+    assert_eq!(want, readouts::sides_text(a, b, None));
     let figure = readouts::amplitude_figure(&r).expect("a figure");
     let ctx = themed();
     ctx.style_mut(|s| {
@@ -1009,13 +1073,13 @@ fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
     assert!(text.contains(&want), "{want} in: {text}");
 }
 
-/// The timed clock's hint writes the ppm and its ± to the decimals the ±
-/// calls for, never one fixed decimal (#510 R8): a small ± shows more, a
-/// wide one the clock's base, and the sign is said in words after it.
+/// The timed clock's hint writes the ppm and its ± at the clock's place,
+/// 0.1 ppm, the ± rounded up there (#1470), and the sign is said in words
+/// after it.
 #[test]
-fn a_timed_clocks_decimals_follow_its_plus_minus() {
+fn a_timed_clocks_figures_are_at_its_place() {
     use super::readouts::timed_clock_text;
-    assert_eq!(timed_clock_text(0.84, 0.06), "0.84 ± 0.06");
+    assert_eq!(timed_clock_text(0.84, 0.06), "0.8 ± 0.1");
     assert_eq!(timed_clock_text(-20.24, 0.3), "20.2 ± 0.3");
-    assert_eq!(timed_clock_text(0.84, 0.0004), "0.840 ± <0.001");
+    assert_eq!(timed_clock_text(0.84, 0.0004), "0.8 ± 0.1");
 }

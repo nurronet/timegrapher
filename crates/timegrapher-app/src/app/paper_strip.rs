@@ -7,6 +7,10 @@ impl TimegrapherApp {
     /// Show the whole session so far along the strip, ending at its latest
     /// beat, and keep it so as beats arrive: Fit on.
     pub(super) fn fit_strip(&mut self) {
+        // Still paper has nothing to fit: its Length is the lap.
+        if self.strip.still {
+            return;
+        }
         self.strip_fit = true;
         self.follow_fit();
     }
@@ -114,12 +118,18 @@ impl TimegrapherApp {
     /// The time at the strip's newest edge: with Fit on, the take's end,
     /// as the charts under it end (#1256).
     pub(super) fn strip_end_s(&self) -> f64 {
-        let latest = if self.strip_fit {
+        let latest = if self.strip_fitted() {
             self.take_span().map_or(0.0, |(_, end)| end)
         } else {
             self.latest_s()
         };
         self.strip_end.unwrap_or(latest).min(latest)
+    }
+
+    /// Fit is on and the paper moves: still paper has nothing to fit, so
+    /// Fit waits greyed until the paper moves again.
+    pub(super) fn strip_fitted(&self) -> bool {
+        self.strip_fit && !self.strip.still
     }
 
     /// The stretches the strip draws faintly, each with what the ticker
@@ -264,8 +274,8 @@ impl TimegrapherApp {
                 }
             },
         );
-        let mut fit = self.strip_fit;
-        if theme::tool_switch(
+        let mut fit = self.strip_fitted();
+        if theme::tool_switch_unless(
             ui,
             Icon::Fit,
             pal.accent,
@@ -274,6 +284,9 @@ impl TimegrapherApp {
             "Show the whole session along the strip, up to its latest beat (its last 80 hours \
              when it is longer), and keep it in view as beats arrive. Zooming or dragging the \
              strip's time turns it off.",
+            self.strip
+                .still
+                .then_some("The paper is still, so there's nothing to fit"),
         ) {
             if fit {
                 self.fit_strip();
@@ -315,36 +328,53 @@ impl TimegrapherApp {
         }
     }
 
-    /// The strip settings' Direction: Down or Across.
+    /// The strip settings' Direction: Down or Across. In the toolbar the
+    /// segment's words say it with no caption (Hugh, so the row fits with
+    /// Still Paper at 1000 pt); in the "…" menu it keeps its name.
     fn strip_direction(&mut self, ui: &mut egui::Ui) {
         let mut h = self.strip.horizontal;
-        theme::tool_field(
+        let choices = [
+            (
+                false,
+                "Down",
+                "Direction the paper runs: Down, newest beats at the top, the strip beside the \
+                 charts",
+            ),
+            (
+                true,
+                "Across",
+                "Direction the paper runs: Across, newest beats at the right, the strip above \
+                 the charts",
+            ),
+        ];
+        theme::tool_words(
             ui,
             "Direction",
-            "Which way time runs along the strip",
-            |ui| {
-                theme::segmented(
-                    ui,
-                    &mut h,
-                    &[
-                        (
-                            false,
-                            "Down",
-                            "Down: newest beats at the top, the strip beside the charts",
-                        ),
-                        (
-                            true,
-                            "Across",
-                            "Across: newest beats at the right, the strip above the charts",
-                        ),
-                    ],
-                )
-            },
+            "Direction the paper runs: Down or Across",
+            |ui| theme::segmented(ui, &mut h, &choices),
         );
         if h != self.strip.horizontal {
             self.strip.horizontal = h;
             self.relayout(h);
         }
+    }
+
+    /// The strip settings' Still Paper switch, after Direction (Hugh: a
+    /// toggle, so the row fits at 1000 pt).
+    fn strip_paper(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) {
+        let hint = if self.strip.still {
+            "On. The pen wraps every Length; Fit is off"
+        } else {
+            "Hold the paper still and sweep the pen across it, wrapping every Length"
+        };
+        theme::tool_switch(
+            ui,
+            Icon::StillPaper,
+            pal.accent,
+            "Still Paper",
+            &mut self.strip.still,
+            hint,
+        );
     }
 
     pub(super) fn strip_settings(&mut self, ui: &mut egui::Ui) {
@@ -394,6 +424,7 @@ impl TimegrapherApp {
         self.strip_mask_brush(ui, pal);
         theme::bar_gap(ui);
         self.strip_direction(ui);
+        self.strip_paper(ui, pal);
         theme::bar_gap(ui);
         self.export_button(ui, Pane::Strip);
     }

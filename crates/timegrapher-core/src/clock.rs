@@ -133,20 +133,18 @@ pub struct Withheld {
 }
 
 /// A sound card's error, ppm fast, with its standard error `sd` where it
-/// has one, as every surface writes it: signed, to the decimals its ±
-/// calls for from the clock's base ([`crate::figure_text::figure_with_pm`],
-/// #510 K3), so a ± too small to show at the cap reads `<0.001`, never
-/// `0`; with none, at the clock's base.
+/// has one, as every surface writes it: signed, at the clock's place,
+/// 0.1 ppm, with the ± rounded up there ([`crate::figure_text::figure_with_pm`],
+/// #1470).
 pub fn ppm_pm_text(ppm: f64, sd: Option<f64>) -> String {
     use crate::figure_text::{base_digits, figure_with_pm};
     figure_with_pm(ppm, sd, base_digits::CLOCK, true)
 }
 
 /// A sound card's error in words, "12.3 ppm fast" or "0.84 ppm slow":
-/// its size to the decimals its standard error `sd` calls for from the
-/// clock's base ([`crate::figure_text::figure`], #510 K3, #1271), at the
-/// base with none, then which way it runs. One that rounds to zero reads
-/// "0.0 ppm" (to its decimals), with no way, as it keeps time.
+/// its size at the clock's place ([`crate::figure_text::figure`], #1470,
+/// #1271), then which way it runs; `sd` never moves the place. One that
+/// rounds to zero reads "0.0 ppm", with no way, as it keeps time.
 pub fn ppm_words(ppm: f64, sd: Option<f64>) -> String {
     use crate::figure_text::{base_digits, figure};
     let size = figure(ppm.abs(), sd, base_digits::CLOCK, false);
@@ -1210,19 +1208,19 @@ fn columns_guessed(
 mod tests {
     use super::*;
 
-    /// A clock's error in words follows its ± (#1271): the same clock
-    /// kept and timed reads to the same decimals, and one that rounds to
-    /// zero says so with no way.
+    /// A clock's error in words is at the clock's place, 0.1 ppm,
+    /// whatever its ± (#1470), so the same clock kept and timed reads
+    /// alike; one that rounds to zero says so with no way (#1271).
     #[test]
-    fn a_clocks_words_follow_its_plus_minus() {
-        assert_eq!(ppm_words(0.84, Some(0.06)), "0.84 ppm fast");
+    fn a_clocks_words_are_at_its_place() {
+        assert_eq!(ppm_words(0.84, Some(0.06)), "0.8 ppm fast");
         assert_eq!(ppm_words(-20.24, Some(0.3)), "20.2 ppm slow");
         assert_eq!(ppm_words(-12.3, None), "12.3 ppm slow");
         assert_eq!(ppm_words(12.3, Some(0.0)), "12.3 ppm fast");
-        assert_eq!(ppm_words(0.8401, Some(0.0004)), "0.840 ppm fast");
+        assert_eq!(ppm_words(0.8401, Some(0.0004)), "0.8 ppm fast");
         assert_eq!(ppm_words(-0.01, None), "0.0 ppm");
-        assert_eq!(ppm_words(0.004, Some(0.06)), "0.00 ppm");
-        assert_eq!(ppm_words(0.006, Some(0.06)), "0.01 ppm fast");
+        assert_eq!(ppm_words(0.04, Some(0.06)), "0.0 ppm");
+        assert_eq!(ppm_words(0.06, Some(0.06)), "0.1 ppm fast");
     }
 
     /// Two measures of one clock are apart by no less than either is
@@ -1336,7 +1334,7 @@ mod tests {
             w.note()
         );
         // Too few entries for their scatter to say how sure the line is:
-        // the figure at the clock's base, with no ± (#510 K3).
+        // the figure at the clock's place, with no ± (#1470).
         assert!(
             w.note().contains(&format!(
                 "at {} ppm;",
@@ -1355,7 +1353,7 @@ mod tests {
         let w = fit.withheld.unwrap();
         assert_eq!(w.reason, "unsure");
         assert!(w.ppm_sd > MAX_SD_PPM, "{w:?}");
-        // Its figure is written to its ±'s decimals (#510 K3).
+        // Its figure and ± are at the clock's place (#1470).
         assert!(
             w.note()
                 .contains(&format!("at {} ppm;", ppm_pm_text(w.ppm, Some(w.ppm_sd)))),
@@ -1558,7 +1556,7 @@ unix_s,frames
         assert!(d.log_ppm_sd < 1e-3, "{}", d.log_ppm_sd);
         assert_eq!(
             d.note(),
-            "the USB lines measure the sound card at -120.0 ppm and the clock log at -20.000 ± <0.001 ppm; the rates are corrected by the USB lines"
+            "the USB lines measure the sound card at -120.0 ppm and the clock log at -20.0 ± 0.1 ppm; the rates are corrected by the USB lines"
         );
         // The correction is the USB lines' all the same.
         assert_eq!(fit.ppm, -120.0);

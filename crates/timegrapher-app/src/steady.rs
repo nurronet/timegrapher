@@ -16,7 +16,7 @@ use egui_plot::{
     Text, VLine,
 };
 use serde::{Deserialize, Serialize};
-use timegrapher_core::figure_text::true_minus;
+use timegrapher_core::figure_text::{figure_minus, true_minus};
 use timegrapher_core::library::length_text;
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
@@ -367,70 +367,15 @@ pub fn compute_with(
     }
 }
 
-/// The statistics behind a series' headline, on one line: readings,
-/// median, spread, scatter from one reading to the next, lag-1
-/// correlation and Ljung–Box p, the trend and the stretches of one level
-/// (each with why the headline leaves it out, if it does), and the
-/// period when found.
+/// The statistics behind a series' headline, on one line, as core writes
+/// it for every screen ([`SeriesCheck::stats_line`], with a true minus).
+/// Read fresh, not from `screen_stats`, so a check changed after it was
+/// made (as tests do) says what it holds.
 fn stats_line(c: &SeriesCheck) -> String {
-    let (sp, u) = steadiness::unit_after(c.unit);
-    // A true minus sign, as in the readings.
-    let n = |v: f64| true_minus(&format!("{v:.2}"));
-    let signed = |v: f64| true_minus(&format!("{v:+.2}"));
-    let mut parts = vec![format!("Tested on {}", counted(c.readings, c.step_s))];
-    if c.outliers > 0 {
-        parts.push(format!(
-            "{} left out as more than 6 σ from their 5-minute level",
-            c.outliers
-        ));
-    }
-    if let Some(m) = c.median {
-        parts.push(format!("median {}{sp}{u}", n(m)));
-    }
-    if let Some(sd) = c.sd {
-        parts.push(format!("SD {}{sp}{u}", n(sd)));
-    }
-    if let Some(st) = c.short_term_sd {
-        parts.push(format!("±{}{sp}{u} reading to reading", n(st)));
-    }
-    if let Some(a) = &c.autocorrelation {
-        let lag1 = a.lag_s.iter().zip(&a.r).find(|(l, _)| **l > 0.0);
-        if let Some((_, r1)) = lag1 {
-            parts.push(format!("lag-1 r {}", n(*r1)));
-        }
-        parts.push(format!("Ljung–Box p {}", steadiness::p_text(a.p_value)));
-    }
-    // A trend or a split of levels the headline leaves out says why, in
-    // core's words (Trend::note, Changes::note), as `series` and the MCP
-    // view say it.
-    let why = |n: &Option<String>| n.as_ref().map_or(String::new(), |n| format!(", {n}"));
-    if let Some(t) = &c.trend {
-        parts.push(format!(
-            "trend {}{sp}{u}/h{}",
-            signed(t.per_hour),
-            why(&t.note)
-        ));
-    }
-    if let Some(ch) = c.changes.as_ref().filter(|ch| ch.segments.len() > 1) {
-        parts.push(format!(
-            "{} stretches of one level{}",
-            ch.segments.len(),
-            why(&ch.note)
-        ));
-    }
-    if let Some(p) = &c.period {
-        parts.push(format!("period {:.0} s", p.period_s));
-    }
-    parts.join(" · ")
+    figure_minus(&c.stats_line())
 }
 
-/// What a count of readings `step_s` long counts: "179 10 s readings";
-/// readings shorter than 10 s are windows, "880 2 s windows".
-fn counted(n: usize, step_s: f64) -> String {
-    format!("{n} {}", steady_views::readings_kind(step_s))
-}
-
-fn series_colour(k: SeriesKind, pal: &theme::Palette) -> Color32 {
+pub(crate) fn series_colour(k: SeriesKind, pal: &theme::Palette) -> Color32 {
     match k {
         SeriesKind::Rate => pal.trace_rate,
         SeriesKind::Amplitude => pal.trace_amplitude,
@@ -440,11 +385,7 @@ fn series_colour(k: SeriesKind, pal: &theme::Palette) -> Color32 {
 
 /// A reading's name, as its series, chart, distribution and switch show it.
 pub fn title(k: SeriesKind) -> &'static str {
-    match k {
-        SeriesKind::Rate => "Rate",
-        SeriesKind::Amplitude => "Amplitude",
-        SeriesKind::BeatError => "Beat Error",
-    }
+    k.title()
 }
 
 /// A value in a series' units for an axis or a note.
@@ -719,11 +660,6 @@ pub fn flip_series(shown: &mut [bool; 3], i: usize) {
     }
 }
 
-/// Narrower than this, the Info panel opens over the plots.
-const INFO_BESIDE_W: f32 = 600.0;
-/// The Info panel's width, or a third of the pane if that is less.
-const INFO_W: f32 = 300.0;
-
 /// Draw the pane: a row for each series shown with the chosen view, and,
 /// when `opts.info`, the Info panel at the right with what the view shows,
 /// each series' findings and statistics in full, and what was tested.
@@ -755,79 +691,34 @@ pub fn draw(
                 .is_none_or(|j| shown[j])
         })
         .collect();
-    let full = ui.available_rect_before_wrap();
-    let beside = full.width() >= INFO_BESIDE_W;
-    if opts.info && beside {
-        let w = INFO_W.min(full.width() / 3.0);
-        let gap = 12.0;
-        let plots = full.with_max_x(full.right() - w - gap);
-        // Only the part of the pane on screen, so the panel scrolls rather
-        // than running off the bottom.
-        let panel = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
-        ui.painter().vline(
-            panel.left() - gap / 2.0,
-            panel.y_range(),
-            egui::Stroke::new(1.0_f32, pal.separator),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
-            info_panel(ui, &series, status, view, panel.height());
-        });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), |ui| {
-            rows(ui, s, &series, view, opts);
-        });
-        ui.allocate_rect(full, egui::Sense::hover());
-    } else {
-        rows(ui, s, &series, view, opts);
-        if opts.info {
-            // Over the plots, from the pane's top right corner.
-            let w = INFO_W.min(full.width() - 16.0).max(120.0);
-            let seen = full.intersect(ui.clip_rect());
-            egui::Area::new(ui.id().with("steady info over"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(egui::pos2(full.right() - w - 4.0, seen.top() + 4.0))
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.set_width(w - 16.0);
-                        let h = (seen.height() - 24.0).max(80.0);
-                        ui.set_max_height(h);
-                        info_panel(ui, &series, status, view, h);
-                    });
-                });
-        }
-    }
+    // Where Info over the rows starts, in a pane too narrow for it beside
+    // them: the readouts stop there (#1580).
+    let covered = theme::info_over_left(ui.available_rect_before_wrap(), opts.info);
+    theme::with_info(
+        ui,
+        opts.info,
+        egui::Id::new(("steady info", view)),
+        |ui, h| info_panel(ui, s, &series, status, view, h),
+        |ui| rows(ui, s, &series, (view, opts), covered),
+    );
 }
 
 /// The Info panel: what the view shows, then a block for each series
 /// shown under its coloured title (its findings and statistics in full),
-/// then what was tested. It scrolls, and its words can be selected.
+/// then what was tested. It scrolls, and its words can be selected. On
+/// FFT, each series' block also says how much of the grid its spectrum
+/// was read from (#1528), kept off the plot.
 fn info_panel(
     ui: &mut egui::Ui,
+    s: &Steadiness,
     series: &[(usize, &SeriesCheck)],
     status: &str,
     view: View,
     max_h: f32,
 ) {
     let pal = theme::pal(ui);
-    // Each view's panel its own, opening at its top: from the top again
-    // when it was not drawn the pass before.
-    let id = egui::Id::new(("steady info", view));
-    let pass = ui.ctx().cumulative_pass_nr();
-    let last = ui.ctx().data_mut(|d| {
-        let last = d.get_temp::<u64>(id);
-        d.insert_temp(id, pass);
-        last
-    });
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(id)
-        // No taller than `max_h`, the room on screen, with its bar always
-        // showing so what is below the edge is not missed.
-        .max_height(max_h)
-        .auto_shrink([false, true])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
-    if last.is_none_or(|l| l + 1 < pass) {
-        area = area.vertical_scroll_offset(0.0);
-    }
-    area.show(ui, |ui| {
+    // Each view's panel its own.
+    theme::info_scroll(ui, egui::Id::new(("steady info", view)), max_h, |ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         let text = |t: &str, c: Color32| {
             egui::Label::new(RichText::new(t).small().color(c))
@@ -842,9 +733,15 @@ fn info_panel(
             // With too few readings the row already says so in place of
             // its plot: the panel doesn't say it twice.
             if c.autocorrelation.is_some() {
-                ui.add(text(&c.headline, pal.text));
+                ui.add(text(&c.screen_headline, pal.text));
             }
             ui.add(text(&stats_line(c), pal.text_secondary));
+            if let Some(support) = (view == View::Fft)
+                .then(|| fft_support(s, c.series))
+                .flatten()
+            {
+                ui.add(text(&support, pal.text_tertiary));
+            }
         }
         if !status.is_empty() {
             ui.add_space(8.0);
@@ -854,17 +751,24 @@ fn info_panel(
 }
 
 /// Each series' row with the view's plot: one above another, filling the
-/// pane, or side by side when it is wide and short.
+/// pane, or side by side when it is wide and short. `covered` is where
+/// Info over the rows starts, if it is over them.
 fn rows(
     ui: &mut egui::Ui,
     s: &Steadiness,
     series: &[(usize, &SeriesCheck)],
-    view: View,
-    opts: Opts,
+    (view, opts): (View, Opts),
+    covered: Option<f32>,
 ) {
     let n = series.len().max(1);
     let gap = 10.0;
     let (w, h) = (ui.available_width(), ui.available_height());
+    // The time under the pointer on any row's Readings Over Time: every
+    // row reads it, those above the one under it a frame late, as the
+    // Charts' lanes do (#1277).
+    let over_id = egui::Id::new(READINGS_OVER);
+    let was: Option<f64> = ui.ctx().data(|d| d.get_temp(over_id)).flatten();
+    let mut over = None;
     // Each gap also takes the layout's spacing either side of it.
     let step_gap = gap + 2.0 * ui.spacing().item_spacing.y;
     let fits = |count: usize, room: f32| (room - step_gap * (count as f32 - 1.0)) / count as f32;
@@ -882,7 +786,7 @@ fn rows(
                 for (k, &(i, c)) in series.iter().enumerate() {
                     ui.allocate_ui(Vec2::new(ui.available_width(), row_h), |ui| {
                         ui.set_min_height(row_h);
-                        row(ui, s, i, c, view, opts);
+                        over = over.or(row(ui, (s, i, c), view, opts, (was, covered)));
                     });
                     if k + 1 < n {
                         ui.add_space(gap);
@@ -898,12 +802,21 @@ fn rows(
                 ui.allocate_ui(Vec2::new(col_w, h), |ui| {
                     ui.set_width(col_w);
                     ui.set_min_height(h);
-                    ui.vertical(|ui| row(ui, s, i, c, view, opts));
+                    let drawn_row =
+                        ui.vertical(|ui| row(ui, (s, i, c), view, opts, (was, covered)));
+                    over = over.or(drawn_row.inner);
                 });
             }
         });
     }
+    if over != was {
+        ui.ctx().data_mut(|d| d.insert_temp(over_id, over));
+        ui.ctx().request_repaint();
+    }
 }
+
+/// Where [`rows`] keeps the time under the pointer on Readings Over Time.
+const READINGS_OVER: &str = "steadiness readings over";
 
 /// An x-axis label made by `text`, left off within 18 pt of the plot's
 /// right edge, where it would run past the plot into what is beside it.
@@ -942,19 +855,31 @@ fn level_lines(c: &SeriesCheck) -> Vec<[[f64; 2]; 2]> {
         })
 }
 
-/// One series' title and plot. Its findings and statistics are in the
-/// Info panel.
-fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View, opts: Opts) {
+/// One series' title and plot, and the time under the pointer on its
+/// Readings Over Time; `over` is that time on any row, and `covered`
+/// where Info over the rows starts. Its findings and statistics are in
+/// the Info panel.
+fn row(
+    ui: &mut egui::Ui,
+    (s, i, c): (&Steadiness, usize, &SeriesCheck),
+    view: View,
+    opts: Opts,
+    (over, covered): (Option<f64>, Option<f32>),
+) -> Option<f64> {
     let pal = theme::pal(ui);
     // A map's key names its series ("Timing Swing (ms)"), so the map
     // takes the title's line for its picture.
-    if !view.is_map() {
-        ui.label(theme::caption(title(c.series)).color(pal.text_secondary));
-    }
+    let title_rect = if view.is_map() {
+        egui::Rect::NOTHING
+    } else {
+        ui.label(theme::caption(title(c.series)).color(pal.text_secondary))
+            .rect
+    };
     // Too few readings: no tests ran, so there is nothing to draw; the
     // headline says how many it needs.
     if c.autocorrelation.is_none() {
-        return note(ui, &c.headline);
+        note(ui, &c.screen_headline);
+        return None;
     }
     let k = c.series;
     let colour = series_colour(k, pal);
@@ -989,7 +914,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         pal,
     };
     match view {
-        View::Readings => readings_plot(ui, r),
+        View::Readings => return readings_plot(ui, r, (title_rect, over, covered)),
         View::Periods => periods_plot(ui, r),
         View::Cycle => cycle_plot(ui, r),
         View::Autocorrelation => autocorrelation_plot(ui, r),
@@ -998,6 +923,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         View::Stft | View::Wavelet => map_plot(ui, r),
         View::Fft => fft_plot(ui, r),
     }
+    None
 }
 
 /// What every view of a series' row draws with.
@@ -1016,8 +942,15 @@ struct Row<'a> {
     pal: &'static theme::Palette,
 }
 
-/// The readings over the session, with the level changes and the two levels.
-fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
+/// The readings over the session, with the level changes and the two
+/// levels; the time under the pointer on it. While the pointer is over
+/// any row's, the time there and the reading drawn nearest it are read
+/// out beside the title (`title_rect`), as the Charts' lanes do (#1277).
+fn readings_plot(
+    ui: &mut egui::Ui,
+    r: Row<'_>,
+    (title_rect, over, covered): (egui::Rect, Option<f64>, Option<f32>),
+) -> Option<f64> {
     let Row {
         s,
         i,
@@ -1033,6 +966,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let g = &s.grids[i];
     let drawn = steady_views::thin_readings(g);
     let pts: Vec<[f64; 2]> = drawn.iter().map(|d| [d.t, d.mean]).collect();
+    let near = pts.clone();
     // A long series is drawn in chunks, each the band from its lowest
     // reading to its highest, on the scale of the readings themselves: a
     // band reaching past it is clipped at the plot's edge (#1034).
@@ -1105,14 +1039,111 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
                 p.hline(call_out(HLine::new("state", v), dashed, pal));
             }
         }
+        p.pointer_coordinate().map(|at| at.x)
     });
+    let frame = *resp.transform.frame();
     crate::app::paint_key(
         ui.painter(),
-        resp.transform.frame().to_owned(),
+        frame,
         &[(key.as_str(), colour, None)],
         (ui, f32::NEG_INFINITY),
         pal,
     );
+    let hover = resp.inner.filter(|_| resp.response.hovered());
+    if let Some(x) = hover.or(over) {
+        let painter = ui.painter_at(*resp.transform.frame());
+        strength::time_line(&painter, &resp.transform, x, Strength::Axis, pal);
+        let value = crate::app::nearest_at(&near, x).map(|j| drawn[j].readout_parts(k));
+        let time = hover.map(|x| readout_time(x, r.opts.joined_in));
+        let edge = (title_rect, readout_right(ui.max_rect().right(), covered));
+        paint_readout(ui, edge, (time, value.unwrap_or_default()), colour);
+    }
+    hover
+}
+
+/// The time under the pointer as Readings Over Time's readout writes
+/// it: the time on its axis, and while a position's stretches are joined
+/// end to end, whose time it is, "4:12 in DD", as the axis title says
+/// ("Time in DD", Hugh on #1256 and #1277).
+fn readout_time(x: f64, joined_in: Option<&str>) -> String {
+    let t = length_text(x);
+    joined_in.map_or_else(|| t.clone(), |code| format!("{t} in {code}"))
+}
+
+/// Readings Over Time's readout on its title's line, after the title:
+/// the time (on the row under the pointer only), then the reading drawn
+/// nearest it in the series' colour, as a Charts lane writes them, each
+/// in a slot as wide as its digits as zeros (`app::lane_width`). Nothing
+/// runs past `right` (the row's right edge, or Info's left edge over
+/// it): the longest of [`readout_choices`] that fits is drawn, so a
+/// narrow pane never shows half a figure and keeps the value longest
+/// (Hugh on #1277, #1580).
+fn paint_readout(
+    ui: &egui::Ui,
+    (title_rect, right): (egui::Rect, f32),
+    (time, value): (Option<String>, Vec<String>),
+    colour: Color32,
+) {
+    if !title_rect.is_positive() {
+        return;
+    }
+    let pal = theme::pal(ui);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let p = ui.painter();
+    let top = title_rect.center().y - font.size / 2.0;
+    let left = title_rect.right() + crate::app::LANE_AFTER_TITLE;
+    let parts = |(time, value): (Option<String>, Option<String>)| {
+        [(time, pal.text), (value, pal.axis_ink(colour))]
+            .into_iter()
+            .filter_map(|(t, ink)| t.map(|t| (true_minus(&t), ink)))
+            .collect::<Vec<_>>()
+    };
+    let width = |parts: &[(String, Color32)]| {
+        parts
+            .iter()
+            .map(|(t, _)| crate::app::lane_width(p, t, &font, true) + crate::app::LANE_GAP)
+            .sum::<f32>()
+            - crate::app::LANE_GAP
+    };
+    let Some(fits) = readout_choices(time, &value)
+        .into_iter()
+        .map(parts)
+        .find(|parts| left + width(parts) <= right)
+    else {
+        return;
+    };
+    let mut x = left;
+    for (text, ink) in fits {
+        x += crate::app::lane_text(p, (x, top), &text, (&font, ink), true) + crate::app::LANE_GAP;
+    }
+}
+
+/// What the readout can show, longest first: the time and the whole
+/// reading, then the reading losing its last part ([`timegrapher_core::steady_views::Drawn::readout_parts`]:
+/// the range, then "mean of 8") until only its value is left, then the
+/// value alone without the time. The value is dropped only when it
+/// doesn't fit on its own (Hugh on #1580).
+fn readout_choices(
+    time: Option<String>,
+    value: &[String],
+) -> Vec<(Option<String>, Option<String>)> {
+    if value.is_empty() {
+        return vec![(time, None)];
+    }
+    let mut choices: Vec<_> = (1..=value.len())
+        .rev()
+        .map(|n| (time.clone(), Some(value[..n].join(", "))))
+        .collect();
+    if time.is_some() {
+        choices.push((None, Some(value[0].clone())));
+    }
+    choices
+}
+
+/// Where a row's readout must end: the row's right edge `row_right`, or
+/// the left edge of Info over the rows when it starts sooner (#1580).
+fn readout_right(row_right: f32, covered: Option<f32>) -> f32 {
+    covered.map_or(row_right, |left| row_right.min(left))
 }
 
 /// Readings Over Time's time axis against the strip's: ending where the
@@ -1484,6 +1515,14 @@ fn autocorrelation_plot(ui: &mut egui::Ui, r: Row<'_>) {
     }
 }
 
+/// Where the Allan plot names its dashed "if the readings were
+/// independent" line: at its last point, and nowhere when it has one
+/// point, since a line with no length has nothing to name and its caption
+/// would sit on the least scatter's label (#1560).
+fn independent_caption_at(white: &[[f64; 2]]) -> Option<[f64; 2]> {
+    white.last().copied().filter(|_| white.len() > 1)
+}
+
 /// The Allan deviation by averaging time, against independent readings.
 fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let Row {
@@ -1515,7 +1554,7 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
         .y_axis_formatter(move |m, r| log_label(m, r, |v| unit_sig(k, v)))
         .show(ui, |p| {
             grid.draw(p, pal);
-            let last = white.last().copied();
+            let last = independent_caption_at(&white);
             p.line(
                 Line::new("independent", white)
                     .color(pal.callout)
@@ -1548,7 +1587,7 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
                     mark_label(
                         p,
                         at,
-                        format!("least scatter at {}: {}", secs(t), unit_sig(k, d)),
+                        format!("least scatter at {}: {}", secs(t), k.fmt_pm(d)),
                         pal.text,
                         false,
                     );
@@ -1648,6 +1687,25 @@ fn map_plot(ui: &mut egui::Ui, r: Row<'_>) {
     );
 }
 
+/// Series `k`'s spectrum in the report, when it has one: what the FFT
+/// plot draws and its Info panel's line describes.
+fn spectrum(
+    s: &Steadiness,
+    k: SeriesKind,
+) -> Option<&timegrapher_core::spectrum::AmplitudeSpectrum> {
+    let name = series_name(k);
+    s.report
+        .spectra
+        .iter()
+        .find(|x| x.series == name && !x.period_s.is_empty())
+}
+
+/// How much of the grid series `k`'s spectrum was read from, as core
+/// words it (`SpectrumSupport::description`): for the FFT Info panel.
+fn fft_support(s: &Steadiness, k: SeriesKind) -> Option<String> {
+    spectrum(s, k).map(|sp| sp.support.description())
+}
+
 /// A series' name in the report's spectra and maps.
 fn series_name(k: SeriesKind) -> &'static str {
     match k {
@@ -1690,13 +1748,7 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
         pal,
         ..
     } = r;
-    let name = series_name(k);
-    let Some(sp) = s
-        .report
-        .spectra
-        .iter()
-        .find(|x| x.series == name && !x.period_s.is_empty())
-    else {
+    let Some(sp) = spectrum(s, k) else {
         return note(ui, "The spectrum needs a longer session.");
     };
     // Rate's spectrum is of the beat timing, in ms: drawn unless
@@ -1712,11 +1764,6 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
     if pts.len() < 2 {
         return note(ui, "The spectrum needs a longer session.");
     }
-    ui.label(
-        RichText::new(sp.support.description())
-            .small()
-            .color(pal.text_tertiary),
-    );
     let ((x_lo, x_hi), (y_lo, y_hi)) = (span(&pts, 0), span(&pts, 1));
     let top = y_hi + (y_hi - y_lo).max(0.5) * 0.05;
     let (gap, unit) = if as_rate {

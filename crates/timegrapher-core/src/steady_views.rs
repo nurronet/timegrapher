@@ -14,7 +14,7 @@
 use crate::chart_scale;
 use crate::longrun::LongReport;
 use crate::longterm::{self, Grid, LongConfig, Search};
-use crate::steadiness::Report;
+use crate::steadiness::{Report, SeriesKind};
 use crate::stream::BeatLog;
 use crate::walk;
 use serde::Serialize;
@@ -78,6 +78,28 @@ pub struct Drawn {
     pub lo: f64,
     pub hi: f64,
     pub count: usize,
+}
+
+impl Drawn {
+    /// What a drawn point says under the pointer, as the Readings view's
+    /// readout writes it (#1277): one reading's value, "+3.2 s/d"; a
+    /// band's mean, how many readings it holds and its lowest and
+    /// highest, the unit once, "+3.2 s/d, mean of 8, +1.0 to +5.1" (Hugh).
+    pub fn readout(&self, k: SeriesKind) -> String {
+        self.readout_parts(k).join(", ")
+    }
+
+    /// [`Drawn::readout`]'s parts, most needed first: the value, then
+    /// "mean of 8", then the range, so a short row can drop them from
+    /// the end and keep the value (Hugh on #1580).
+    pub fn readout_parts(&self, k: SeriesKind) -> Vec<String> {
+        let mut parts = vec![k.fmt(self.mean)];
+        if self.count > 1 {
+            parts.push(format!("mean of {}", self.count));
+            parts.push(format!("{} to {}", k.number(self.lo), k.number(self.hi)));
+        }
+        parts
+    }
 }
 
 /// Whether [`thin_readings`] drew any chunk of more than one reading, so
@@ -531,6 +553,10 @@ pub struct WalkDot {
     /// is within [`WALK_JOIN_BINS`] merged bins, so a left-out stretch or
     /// a break is a gap in the line, never filled (Norm, #1083).
     pub joined: bool,
+    /// Read from under 60% of its windows in either series
+    /// ([`walk::WalkPoint::thin`]): drawn faint, its hover giving the
+    /// counts.
+    pub thin: bool,
 }
 
 /// How far apart, in merged bins, two points may be and still be joined.
@@ -548,6 +574,34 @@ pub struct WalkView {
     pub last_text: String,
     /// The hour beads along the trail ([`walk_beads`]).
     pub beads: Vec<WalkBead>,
+    /// The key's entry for a faint dot ([`walk_thin_key`]), only when a
+    /// dot is thin (Hugh, 11-12).
+    pub thin_key: Option<String>,
+    /// When the rate goes on [`WALK_RATE_ONLY_S`] or more past the last
+    /// point with no amplitude read ([`walk::IsochronismWalk::rate_only_to_s`]),
+    /// the line the facts box says so in (Hugh, 11-12).
+    pub rate_only_text: Option<String>,
+    /// The same, as the facts box's last row: [`ISO_NO_AMP_AFTER`] and
+    /// the last point's hour (Hugh, #1507).
+    pub rate_only_row: Option<(String, String)>,
+}
+
+/// How far past the walk's last point the rate must go on, with no
+/// amplitude, before the pane says so, seconds: three of the walk's base
+/// bins. The last point sits at its bin's middle and a take's last bin
+/// can be cut short, so a walk read to the take's end stops up to one and
+/// a half bins before it; three bins clear that edge by a whole bin, so
+/// the line names only a stretch the rate was read through with no
+/// amplitude, never the take's own end (Norm, Hugh, 11-12).
+pub const WALK_RATE_ONLY_S: f64 = 3.0 * walk::WALK_BIN_S;
+
+/// The key's entry for a faint dot, beside the colour bar, from core's
+/// coverage floor ([`crate::confidence::MIN_WINDOW_COVERAGE`]).
+pub fn walk_thin_key() -> String {
+    format!(
+        "Thin: under {:.0}% read",
+        crate::confidence::MIN_WINDOW_COVERAGE * 100.0
+    )
 }
 
 /// A bead on the walk's trail marking a round hour: the dot nearest that
@@ -626,11 +680,17 @@ pub fn curve_amp(bin_amps: &[f64], bin_deg: f64) -> Option<(f64, f64)> {
     Some(amp_padded(*bin_amps.first()?, *bin_amps.last()?, bin_deg))
 }
 
-/// The walk's amplitude and rate spans: its dots' padded
-/// ([`amp_padded`], [`rate_padded`]).
+/// The walk's amplitude and rate spans: its full dots' padded
+/// ([`amp_padded`], [`rate_padded`]). A thin dot never sets the axes
+/// while two full ones can (Walter's walk of #1496: one faint point at
+/// 263°, read from 23 of 150 windows, squeezed a 119° to 173° walk into
+/// a third of the width); it is drawn where it falls, cut at the plot's
+/// edge.
 pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
+    let full = dots.iter().filter(|d| !d.thin).count() >= 2;
     let ends = |f: fn(&WalkDot) -> f64| {
         dots.iter()
+            .filter(|d| !full || !d.thin)
             .map(f)
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
                 (l.min(v), h.max(v))
@@ -642,6 +702,22 @@ pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
         amp_padded(a_lo, a_hi, crate::steadiness::ISO_BIN_DEG),
         rate_padded(r_lo, r_hi),
     ]
+}
+
+/// The key's note for the walk's faint dots that fall off the plot whose
+/// axes run over `x` (amplitude) and `y` (rate), or `None` when none do:
+/// a dot cut at the edge is named, never lost (Hugh, 13 Nov), in the
+/// words the Distributions pane names its outliers in
+/// (`distribution::FACT_OFF`, Hugh, #1542). Only a thin dot can
+/// fall off,
+/// since the full ones set the axes ([`walk_spans`]).
+pub fn walk_off_scale(dots: &[WalkDot], x: (f64, f64), y: (f64, f64)) -> Option<String> {
+    let inside = |v: f64, (lo, hi): (f64, f64)| (lo..=hi).contains(&v);
+    let off = dots
+        .iter()
+        .filter(|d| !inside(d.amplitude_deg, x) || !inside(d.rate_s_per_day, y))
+        .count();
+    (off > 0).then(|| format!("{}: {off}", crate::distribution::FACT_OFF))
 }
 
 /// One axis's `(lo, hi, step)` over `span`: round ends on a 1-2-5 step
@@ -688,11 +764,17 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
                 fixed_text(p.amplitude_deg, base_digits::AMPLITUDE),
                 signed_text(p.rate_s_per_day, base_digits::RATE),
             );
-            if p.readings < WALK_FEW_READINGS {
+            if p.thin {
+                hover += &format!(
+                    " · read from {} of {} rate readings and {} of {} amplitude windows",
+                    p.readings, p.rate_slots, p.amp_windows, p.amp_slots
+                );
+            } else if p.readings < WALK_FEW_READINGS {
                 hover += &format!(" · {} readings", p.readings);
             }
             WalkDot {
                 joined: false,
+                thin: p.thin,
                 hours,
                 when: 0.0,
                 amplitude_deg: p.amplitude_deg,
@@ -713,7 +795,24 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
             d.when = (d.hours / last_hours).clamp(0.0, 1.0);
         }
     }
+    let last_t = m.points.last().map_or(0.0, |p| p.t_s);
+    let rate_only_text = w
+        .rate_only_to_s
+        .filter(|to| to - last_t >= WALK_RATE_ONLY_S)
+        .map(|to| {
+            format!(
+                "No amplitude read after {}. The rate to {} is on the Paper Strip.",
+                hours_text(last_hours),
+                hours_text(to / 3600.0)
+            )
+        });
+    let rate_only_row = rate_only_text
+        .is_some()
+        .then(|| (ISO_NO_AMP_AFTER.to_string(), hours_text(last_hours)));
     Some(WalkView {
+        thin_key: dots.iter().any(|d| d.thin).then(walk_thin_key),
+        rate_only_text,
+        rate_only_row,
         beads: walk_beads(&dots, last_hours),
         last_text: hours_text(last_hours),
         last_hours,
@@ -869,6 +968,144 @@ fn readings_of(g: &Grid) -> Readings {
     }
 }
 
+// The Isochronism pane's words off its plot (Hugh's Text Off the
+// Charts, #1528; #1507): the finding in the title line, the end rates in
+// a facts box, the dots named in a key row, and the rest in "i".
+
+/// The Isochronism title line's name, before its finding ([`iso_title`]).
+pub const ISO_TITLE: &str = "Rate";
+
+/// What the title line says in place of a slope when none is read: the
+/// reason is in "i" ([`iso_info`]).
+pub const ISO_NO_SLOPE: &str = "no slope read";
+
+/// The pane's one line on what its Curve view shows, at the top of "i".
+pub const ISO_ABOUT: &str =
+    "The rate in each step of amplitude as the mainspring lets down: a watch whose rate holds as \
+     the amplitude falls is isochronous.";
+
+/// The facts box's row name for where a run-down's amplitude stops being
+/// read while its rate goes on ([`WalkView::rate_only_row`]).
+pub const ISO_NO_AMP_AFTER: &str = "No amplitude after";
+
+/// An amplitude in degrees at the figures' own digits
+/// ([`crate::figure_text::base_digits::AMPLITUDE`]).
+fn deg(x: f64) -> String {
+    crate::figure_text::fixed_text(x, crate::figure_text::base_digits::AMPLITUDE)
+}
+
+/// A signed rate at the figures' own digits
+/// ([`crate::figure_text::base_digits::RATE`]).
+fn rate(x: f64) -> String {
+    crate::figure_text::signed_text(x, crate::figure_text::base_digits::RATE)
+}
+
+/// The first and the last bin, lowest amplitude first.
+fn iso_ends(
+    c: &crate::steadiness::IsochronismCurve,
+) -> Option<[&crate::steadiness::AmplitudeBin; 2]> {
+    Some([c.bins.first()?, c.bins.last()?])
+}
+
+/// The title line's finding: the slope with its ± and the amplitudes it
+/// was read between, "−0.17 ± 0.02 s/d per degree, 119° to 173°"
+/// ([`crate::amplitude_slope::slope_pm_text`], the headline's own), or
+/// [`ISO_NO_SLOPE`] where none is read.
+pub fn iso_title(c: &crate::steadiness::IsochronismCurve) -> String {
+    let slope = match (c.s_per_day_per_deg, c.s_per_day_per_deg_se) {
+        (Some(s), Some(se)) => crate::amplitude_slope::slope_pm_text(s, se),
+        _ => ISO_NO_SLOPE.to_string(),
+    };
+    let text = match iso_ends(c) {
+        Some([a, b]) => format!(
+            "{slope}, {}° to {}°",
+            deg(a.amplitude_deg),
+            deg(b.amplitude_deg)
+        ),
+        None => slope,
+    };
+    crate::figure_text::true_minus(&text)
+}
+
+/// The facts box's rows: the median rate at the lowest and the highest
+/// amplitude, "At 119°" "−40.2 s/d", as the headline reads them.
+pub fn iso_facts(c: &crate::steadiness::IsochronismCurve) -> Vec<(String, String)> {
+    use crate::figure_text::true_minus;
+    iso_ends(c)
+        .into_iter()
+        .flatten()
+        .map(|b| {
+            (
+                format!("At {}°", deg(b.amplitude_deg)),
+                true_minus(&format!("{} s/d", rate(b.rate_s_per_day))),
+            )
+        })
+        .collect()
+}
+
+/// The key row's name for the dots: "Median rate in each 2° of amplitude
+/// (28)", the count the dots drawn.
+pub fn iso_key(c: &crate::steadiness::IsochronismCurve) -> String {
+    format!(
+        "Median rate in each {}° of amplitude ({})",
+        deg(c.bin_deg),
+        c.bins.len()
+    )
+}
+
+/// A dot's hover: its amplitude, its median rate, its bar's ends (the
+/// middle half of its readings) and how many readings.
+pub fn iso_bin_hover(b: &crate::steadiness::AmplitudeBin) -> String {
+    crate::figure_text::true_minus(&format!(
+        "{}° · median {} s/d · middle half {} to {} s/d · {} readings",
+        deg(b.amplitude_deg),
+        rate(b.rate_s_per_day),
+        rate(b.rate_q25),
+        rate(b.rate_q75),
+        b.readings
+    ))
+}
+
+/// "i" for the Isochronism pane, a paragraph each: what the view shows
+/// (`walk` for the Walk's, [`WALK_HINT`], else [`ISO_ABOUT`] and how a
+/// dot and its bar are read), the headline in full, how the slope and its
+/// ± are read, and that the rate and the amplitude are said to go
+/// together, not one to move the other.
+pub fn iso_info(c: &crate::steadiness::IsochronismCurve, walk: bool) -> Vec<String> {
+    use crate::amplitude_slope::MIN_RELIABILITY;
+    let about = if walk {
+        format!(
+            "{WALK_HINT} Each dot is the median rate and amplitude of a stretch of the take, \
+             coloured by its time since the start."
+        )
+    } else {
+        format!(
+            "{ISO_ABOUT} Each dot is the median rate of the readings in its {}° of amplitude; \
+             its bar spans their middle half.",
+            deg(c.bin_deg)
+        )
+    };
+    let reliability = c.reliability.map_or(String::new(), |r| {
+        format!(
+            " Reliability {r:.2}: the share of the amplitude readings' variance that is the \
+             amplitude and not their noise. Under {MIN_RELIABILITY} no slope is read."
+        )
+    });
+    vec![
+        about,
+        crate::figure_text::true_minus(&c.headline),
+        format!(
+            "The slope is read from every reading's rate against its own amplitude, not from \
+             the dots, and corrected for the amplitude readings' own noise (errors in variables, \
+             Fuller 1987). Its ± is its standard error, widened because each reading follows on \
+             from the last.{reliability}"
+        ),
+        "The rate and the amplitude are said to go together, not that one moves the other: \
+         both can change with whatever else changes over the take."
+            .to_string(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -893,6 +1130,69 @@ mod tests {
              The more periods searched, the higher the line."
         );
         assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));
+    }
+
+    /// The Readings view's readout says one reading's value, and a band's
+    /// mean, count and ends, each at the series' place with no sign on a
+    /// zero (#1277).
+    #[test]
+    fn a_drawn_points_readout_says_its_value_or_its_band() {
+        use super::Drawn;
+        use crate::steadiness::SeriesKind;
+        let one = Drawn {
+            t: 10.0,
+            mean: -0.04,
+            lo: -0.04,
+            hi: -0.04,
+            count: 1,
+        };
+        assert_eq!(one.readout(SeriesKind::Rate), "0.0 s/d");
+        let band = Drawn {
+            t: 40.0,
+            mean: 3.21,
+            lo: 1.0,
+            hi: 5.14,
+            count: 8,
+        };
+        assert_eq!(
+            band.readout(SeriesKind::Rate),
+            "+3.2 s/d, mean of 8, +1.0 to +5.1"
+        );
+        // Most needed first, so a short row drops from the end (#1580).
+        assert_eq!(
+            band.readout_parts(SeriesKind::Rate),
+            ["+3.2 s/d", "mean of 8", "+1.0 to +5.1"]
+        );
+        assert_eq!(
+            band.readout(SeriesKind::Rate),
+            band.readout_parts(SeriesKind::Rate).join(", ")
+        );
+        let amp = Drawn {
+            t: 0.0,
+            mean: 271.6,
+            lo: 271.6,
+            hi: 271.6,
+            count: 1,
+        };
+        assert_eq!(amp.readout(SeriesKind::Amplitude), "272°");
+        let amp_band = Drawn {
+            count: 3,
+            lo: 269.6,
+            hi: 274.2,
+            ..amp
+        };
+        assert_eq!(
+            amp_band.readout(SeriesKind::Amplitude),
+            "272°, mean of 3, 270 to 274"
+        );
+        let be = Drawn {
+            t: 0.0,
+            mean: 0.204,
+            lo: 0.204,
+            hi: 0.204,
+            count: 1,
+        };
+        assert_eq!(be.readout(SeriesKind::BeatError), "0.20 ms");
     }
 
     #[test]
@@ -1558,6 +1858,86 @@ mod tests {
         assert!(k.windows(2).all(|w| w[0] < w[1]));
     }
 
+    /// A thin dot never sets the walk's axes while two full ones can;
+    /// with fewer, every dot does (Walter's walk of #1496).
+    #[test]
+    fn a_thin_dot_does_not_stretch_the_walk_axes() {
+        let dot = |a: f64, r: f64, thin: bool| WalkDot {
+            hours: 0.0,
+            when: 0.0,
+            amplitude_deg: a,
+            rate_s_per_day: r,
+            hover: String::new(),
+            joined: true,
+            thin,
+        };
+        let full = [dot(119.0, -40.0, false), dot(173.0, -59.0, false)];
+        let mut with_thin = full.to_vec();
+        with_thin.push(dot(263.0, 10.0, true));
+        assert_eq!(walk_spans(&with_thin), walk_spans(&full));
+        let [x, y] = walk_spans(&with_thin);
+        assert_eq!(
+            walk_off_scale(&with_thin, x, y).as_deref(),
+            Some("Off the scale: 1")
+        );
+        assert_eq!(walk_off_scale(&full, x, y), None);
+        // On the edge is on the scale.
+        assert_eq!(walk_off_scale(&with_thin, (x.0, 263.0), (y.0, 10.0)), None);
+        // One full dot: the thin ones count.
+        let few = [dot(119.0, -40.0, false), dot(263.0, 10.0, true)];
+        assert!(walk_spans(&few)[0].1 > 263.0);
+    }
+
+    /// The facts box names a run-down's end whose rate goes on with no
+    /// amplitude, only from 15 min past the last point; the key names the
+    /// faint mark only when a dot is thin, at core's coverage floor.
+    #[test]
+    fn the_walk_says_where_the_rate_goes_on_with_no_amplitude() {
+        let mut w = walk_of(&[
+            (150.0, 301.4, -0.04, 30),
+            (450.0, 300.0, 0.0, 30),
+            (750.0, 299.0, 0.1, 30),
+            (226_650.0, 130.0, -105.0, 30),
+        ]);
+        w.rate_only_to_s = Some(226_650.0 + 899.0);
+        assert_eq!(walk_view(&w).unwrap().rate_only_text, None);
+        assert_eq!(walk_view(&w).unwrap().rate_only_row, None);
+        // From exactly WALK_RATE_ONLY_S past the last point.
+        w.rate_only_to_s = Some(226_650.0 + WALK_RATE_ONLY_S);
+        assert!(walk_view(&w).unwrap().rate_only_text.is_some());
+        w.rate_only_to_s = Some(234_000.0);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(
+            v.rate_only_text.as_deref(),
+            Some("No amplitude read after 63 h. The rate to 65 h is on the Paper Strip.")
+        );
+        // The pane's facts box gives it as its last row (#1507).
+        assert_eq!(
+            v.rate_only_row,
+            Some((ISO_NO_AMP_AFTER.to_string(), "63 h".to_string()))
+        );
+        assert_eq!(v.last_text, "63 h");
+        assert_eq!(v.thin_key, None);
+        w.points[0].thin = true;
+        (w.points[0].rate_slots, w.points[0].amp_slots) = (30, 150);
+        (w.points[0].readings, w.points[0].amp_windows) = (9, 45);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(v.thin_key.as_deref(), Some("Thin: under 60% read"));
+        // A thin dot's hover gives its counts; a plain one's does not.
+        assert!(
+            v.dots[0]
+                .hover
+                .ends_with(" · read from 9 of 30 rate readings and 45 of 150 amplitude windows"),
+            "{}",
+            v.dots[0].hover
+        );
+        assert!(
+            !v.dots[1].hover.contains("read from"),
+            "{}",
+            v.dots[1].hover
+        );
+    }
+
     fn walk_of(points: &[(f64, f64, f64, usize)]) -> walk::IsochronismWalk {
         walk::IsochronismWalk {
             bin_s: walk::WALK_BIN_S,
@@ -1571,9 +1951,11 @@ mod tests {
                         amplitude_deg,
                         readings,
                         amp_windows: 5 * readings,
+                        ..Default::default()
                     },
                 )
                 .collect(),
+            ..Default::default()
         }
     }
 
@@ -1613,6 +1995,7 @@ mod tests {
                 rate_s_per_day: 0.0,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect()
     }
@@ -1668,6 +2051,7 @@ mod tests {
                 rate_s_per_day: r,
                 hover: String::new(),
                 joined: true,
+                thin: false,
             })
             .collect();
         // Padded as the charts are (5% or 2°, 15%), then rounded.
@@ -1726,5 +2110,68 @@ mod tests {
         let m = walk::merged(&w, walk::default_merge(&w));
         assert_eq!(v.dots.len(), m.points.len());
         assert_eq!(v.dots[1].amplitude_deg, m.points[1].amplitude_deg);
+    }
+
+    /// The Isochronism pane's words off the plot (Hugh's Text Off the
+    /// Charts, #1507): the title line's slope and span, the facts box's end
+    /// rates, the key row, a dot's hover and "i", all with a true minus.
+    #[test]
+    fn the_isochronism_words_off_the_plot_come_from_core() {
+        use super::*;
+        use crate::steadiness::{AmplitudeBin, IsochronismCurve};
+        let bin = |a: f64, r: f64| AmplitudeBin {
+            amplitude_deg: a,
+            readings: 40,
+            rate_s_per_day: r,
+            rate_q25: r - 0.8,
+            rate_q75: r + 1.2,
+            from_wind_h: 0.0,
+            to_wind_h: 1.0,
+        };
+        let mut c = IsochronismCurve {
+            step_s: 10.0,
+            bin_deg: 2.0,
+            bins: vec![bin(119.0, -40.2), bin(121.0, -41.0), bin(173.0, -59.1)],
+            amplitude_from_deg: 118.0,
+            amplitude_to_deg: 174.0,
+            s_per_day_per_deg: Some(-0.17),
+            s_per_day_per_deg_se: Some(0.02),
+            rate_change_s_per_day: None,
+            reliability: Some(0.93),
+            headline: "The rate goes with the amplitude by -0.17 ± 0.02 s/d per degree.".into(),
+        };
+        assert_eq!(
+            iso_title(&c),
+            "\u{2212}0.17 ± 0.02 s/d per degree, 119° to 173°"
+        );
+        assert_eq!(
+            iso_facts(&c),
+            [
+                ("At 119°".to_string(), "\u{2212}40.2 s/d".to_string()),
+                ("At 173°".to_string(), "\u{2212}59.1 s/d".to_string()),
+            ]
+        );
+        assert_eq!(iso_key(&c), "Median rate in each 2° of amplitude (3)");
+        assert_eq!(
+            iso_bin_hover(&c.bins[0]),
+            "119° · median \u{2212}40.2 s/d · middle half \u{2212}41.0 to \u{2212}39.0 s/d · \
+             40 readings"
+        );
+        let info = iso_info(&c, false);
+        assert_eq!(info.len(), 4, "{info:?}");
+        assert!(info[0].starts_with(ISO_ABOUT), "{info:?}");
+        assert!(info[0].contains("2° of amplitude"), "{info:?}");
+        assert!(info[1].contains("by \u{2212}0.17 ± 0.02"), "{info:?}");
+        assert!(info[2].contains("Fuller 1987"), "{info:?}");
+        assert!(info[2].contains("Reliability 0.93"), "{info:?}");
+        assert!(iso_info(&c, true)[0].starts_with(WALK_HINT));
+        // No slope read: the title says so, keeps the span, and "i" has no
+        // reliability to give.
+        (c.s_per_day_per_deg, c.reliability) = (None, None);
+        assert_eq!(iso_title(&c), "no slope read, 119° to 173°");
+        assert!(!iso_info(&c, false)[2].contains("Reliability"));
+        c.bins.clear();
+        assert_eq!(iso_title(&c), ISO_NO_SLOPE);
+        assert!(iso_facts(&c).is_empty());
     }
 }

@@ -44,13 +44,14 @@ gives one command's options. `timegrapher --version` gives the version.
 | `devices` | Lists the sound inputs and the rates and formats each takes. `--agc` reads a USB microphone's automatic gain; `--agc-off` turns it off (Mac and Windows). | To find a microphone's name for `--device`. |
 | `doctor` | Records a few seconds and reports the level, clipping, the background between ticks, the signal above noise and whether a regular beat is found, with the mixer changes it would make. Nothing changes without `--apply` (Linux). | When the app hears nothing, or clips (chapter 3). |
 | `clock measure` | Times a sound input against the computer's clock, kept by NTP. Twenty minutes gives its error to a fraction of a ppm. `clock list`, `set` and `forget` manage what is stored. | Once per sound input, so every rate is corrected for the card's clock (M3). |
-| `record FOLDER --position DU` | Records one position into a session folder, as the app saves a take, checks it and adds it to `session.toml`. `--power-reserve` records until the watch stops. | A positions test from a script, or with no screen. |
+| `record FOLDER --position DU` | Records one position into a session folder, as the app saves a take, checks it and adds it to `session.toml`. `--power-reserve` records until the watch stops. `--stop-file PATH` ends it early once that file appears, as Stop does in the app. | A positions test from a script, or with no screen. |
 
 **Watches, calibres and the rest**
 
 | Command | What it does | When you'd use it |
 | --- | --- | --- |
 | `watches list`, `watches show NAME` | The watches in the app's Watches folder, and each one's takes with the folder to pass to `session`, `long` or `series`. It only reads. | To find a take's folder. |
+| `watches new`, `edit`, `add-take`, `move-take`, `keep-analysis-only`, `delete-take`, `add-photos`, `delete-photo` | What the Watches view does: add or edit a watch, add a take folder to a watch, move one, keep its analysis only, delete one, add or delete photos. Close the app first; adding a take works while it is open. | To file takes from another program, such as a shop's records, or from a script. |
 | `calibres` | The calibre table, with what the app added (chapter 24). `--search "dd 3235"` finds one; a name prints its entry. | To check a calibre's beat rate, lift angle and wheels. |
 | `report` | Makes a zip to attach to an issue (chapter 27). | When something looks wrong. |
 | `excerpt RECORDING --out FILE.flac` | Writes a stretch of a recording or take (`--from`, `--to`, in seconds) as one FLAC file, its samples untouched, and never over a file already there. `--json` gives its size and SHA-256. | To keep the sound of a test beside its readings, in another program. |

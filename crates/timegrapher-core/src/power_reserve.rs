@@ -79,6 +79,19 @@ impl Ending {
             Ending::RecordingFailed => "The recording failed while the watch still ran".to_string(),
         }
     }
+
+    /// How the run ended in a word or two, as a plot's title gives it
+    /// after the run time ([`title`]): "stopped".
+    pub fn short(self) -> String {
+        match self {
+            Ending::Stopped => "stopped".to_string(),
+            Ending::ByHand => "stopped by hand".to_string(),
+            Ending::Limit => format!("reached the {} limit", limit_text()),
+            Ending::TakeEnded => "take ended".to_string(),
+            Ending::Listening => "still listening".to_string(),
+            Ending::RecordingFailed => "recording failed".to_string(),
+        }
+    }
 }
 
 /// Where a run's results came from.
@@ -107,6 +120,41 @@ impl Source {
             Source::LongTake => Some("Read from a long take, not a Power Reserve Test"),
         }
     }
+
+    /// [`Source::text`] in short, for a chip under a title (#1528).
+    pub fn chip(self) -> Option<&'static str> {
+        match self {
+            Source::Test => None,
+            Source::LongTake => Some("From a long take, not a Power Reserve Test"),
+        }
+    }
+}
+
+/// An ended run in one line, as the Power Reserve pane's title gives it
+/// (#1528): "Ran 9 h 46 min · stopped", then how many times the beats
+/// stopped and came back on the way, when they did ("· restarted 2
+/// times"). The run sentence ([`sentence`]) says it in full.
+pub fn title(run_s: f64, ending: Ending, source: Source, restarts: usize) -> String {
+    let mut line = format!(
+        "Ran {} \u{b7} {}",
+        run_words(run_s, ending, source),
+        ending.short()
+    );
+    if restarts > 0 {
+        line += &format!(" \u{b7} {}", restarted_text(restarts));
+    }
+    line
+}
+
+/// How many times the beats stopped and came back on the way, in a few
+/// words: "restarted 2 times".
+pub fn restarted_text(restarts: usize) -> String {
+    let times = if restarts == 1 {
+        "once".to_string()
+    } else {
+        format!("{restarts} times")
+    };
+    format!("restarted {times}")
 }
 
 /// The longest run, as words say it: "80 h".
@@ -549,6 +597,34 @@ pub fn run_text(s: f64) -> String {
     } else {
         let m = (s / 60.0).floor() as i64;
         format!("{} h {:02} min", m / 60, m % 60)
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    /// The title gives the run and its ending in short, and the restarts
+    /// only when there were any (#1528).
+    #[test]
+    fn the_title_gives_the_run_and_its_ending_in_short() {
+        let s = 9.0 * 3600.0 + 46.0 * 60.0;
+        assert_eq!(
+            title(s, Ending::Stopped, Source::Test, 0),
+            "Ran 9 h 46 min \u{b7} stopped"
+        );
+        assert_eq!(
+            title(s, Ending::Stopped, Source::LongTake, 2),
+            "Ran 9 h 46 min \u{b7} stopped \u{b7} restarted 2 times"
+        );
+        assert!(title(s, Ending::TakeEnded, Source::LongTake, 1)
+            .starts_with("Ran at least 9 h 46 min \u{b7} take ended \u{b7} restarted once"));
+        assert_eq!(
+            Ending::Limit.short(),
+            format!("reached the {} limit", limit_text())
+        );
+        assert_eq!(Source::Test.chip(), None);
+        assert!(Source::LongTake.chip().is_some());
     }
 }
 

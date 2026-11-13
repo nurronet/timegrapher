@@ -247,7 +247,7 @@ fn a_short_pane_names_the_plots_it_has_no_room_for() {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    fit = stacked(ui, [true; 3], STACKED_MIN_H, |ui, k| {
+                    fit = stacked(ui, [true; 3], (STACKED_MIN_H, false), |ui, k, _| {
                         drawn.push((k, ui.max_rect().height()));
                     });
                 });
@@ -533,6 +533,107 @@ fn the_position_card_only_shows_a_takes_position() {
     assert_eq!(ink(&mut app), pal.text_tertiary);
 }
 
+/// The card's 6 | 10 (#1473, Hugh's spec): at 6 the six buttons as
+/// before; clicking 10 adds the four 45° stops in a second row, in hour
+/// order, under the six, and the name and its one code on one line. A
+/// 45° stop on show keeps the card at 10 even with the switch at 6.
+#[test]
+fn the_position_card_turns_to_ten_and_back() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let frame = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let mut texts = Vec::new();
+        for events in [events, Vec::new(), Vec::new()] {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1610.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| app.panels(ctx));
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_string(),
+                        t.galley.rect.translate(t.pos.to_vec2()).center(),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+        }
+        texts
+    };
+    let at = |texts: &[(String, egui::Pos2)], words: &str| {
+        texts.iter().find(|(t, _)| t == words).map(|(_, p)| *p)
+    };
+    let six = frame(&mut app, Vec::new());
+    assert!(!app.ten_positions);
+    assert!(Position::HALF_HOURS
+        .iter()
+        .all(|p| at(&six, p.code()).is_none()));
+    let ten = at(&six, "10").expect("the 6 | 10 switch");
+    let click = |pos| {
+        let button = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        vec![egui::Event::PointerMoved(pos), button(true), button(false)]
+    };
+    let texts = frame(&mut app, click(ten));
+    assert!(app.ten_positions, "10 clicked");
+    let row = |p: Position| at(&texts, p.code()).unwrap_or_else(|| panic!("{p:?}: {texts:?}"));
+    let first = row(Position::DialUp).y;
+    for pair in Position::HALF_HOURS.windows(2) {
+        assert!(row(pair[0]).x < row(pair[1]).x, "{pair:?} in hour order");
+    }
+    for p in Position::HALF_HOURS {
+        assert!(row(p).y > first + 10.0, "{p:?} under the six");
+    }
+    for p in Position::ALL {
+        assert!((row(p).y - first).abs() < 1.0, "{p:?} on the first row");
+    }
+    // The name and its code on one line.
+    let (name, code) = (
+        at(&texts, "Dial Up").unwrap(),
+        at(&texts, "DU · CH").unwrap(),
+    );
+    assert!((name.y - code.y).abs() < 3.0 && code.x > name.x);
+    // Back to 6.
+    // The switch's 6, left of its 10 so it reads 6 | 10: the picture has a
+    // 6 of its own.
+    let ten_at = at(&texts, "10").expect("the 10");
+    let six_at = texts
+        .iter()
+        .filter(|(t, p)| {
+            t == "6" && (p.y - ten_at.y).abs() < 4.0 && p.x < ten_at.x && ten_at.x - p.x < 40.0
+        })
+        .map(|(_, p)| *p)
+        .next()
+        .expect("the 6");
+    let texts = frame(&mut app, click(six_at));
+    assert!(!app.ten_positions);
+    assert!(at(&texts, "1H30").is_none());
+    // A 45° stop on show keeps the card at 10, its code once.
+    app.set_position(Position::Up4h30);
+    let texts = frame(&mut app, Vec::new());
+    assert!(!app.ten_positions, "showing it doesn't change the setting");
+    assert!(at(&texts, "1H30").is_some(), "{texts:?}");
+    // The cards are drawn before the panes, whose strip names it too.
+    let cards = texts.iter().take_while(|(t, _)| t != "Paper Strip");
+    assert_eq!(
+        cards.filter(|(t, _)| t == "4H30").count(),
+        2,
+        "beside the name and on its button: {texts:?}"
+    );
+    assert!(at(&texts, "4:30 Up").is_some());
+}
+
 /// Each position's second code is Witschi's: the hour that points up
 /// standing, CH and CB lying flat; and the picture turns the watch so
 /// that hour is at the top.
@@ -554,12 +655,35 @@ fn each_position_has_witschis_code_and_its_hour_up() {
             ("CR", "12H")
         ]
     );
-    for p in Position::ALL {
+    let halves: Vec<(&str, &str, &str)> = Position::HALF_HOURS
+        .iter()
+        .map(|p| (p.code(), p.witschi(), p.label()))
+        .collect();
+    assert_eq!(
+        halves,
+        [
+            ("1H30", "1H30", "1:30 Up (1H30)"),
+            ("4H30", "4H30", "4:30 Up (4H30)"),
+            ("7H30", "7H30", "7:30 Up (7H30)"),
+            ("10H30", "10H30", "10:30 Up (10H30)")
+        ]
+    );
+    // The picture turns the hour at the top up: 30° an hour.
+    for p in Position::TEN {
         match p.lying() {
-            Lying::Hour(h) => assert_eq!(format!("{h}H"), p.witschi()),
+            Lying::Top(deg) => {
+                let (h, half) = p
+                    .witschi()
+                    .split_once('H')
+                    .map(|(h, m)| (h.parse::<f32>().unwrap() % 12.0, m == "30"))
+                    .unwrap();
+                assert_eq!(deg, 30.0 * h + if half { 15.0 } else { 0.0 }, "{p:?}");
+            }
             Lying::DialUp => assert_eq!(p, Position::DialUp),
             Lying::DialDown => assert_eq!(p, Position::DialDown),
         }
+        assert_eq!(Position::of_core(p.core()), Some(p));
+        assert_eq!(Position::from_name(p.code()), Some(p));
     }
 }
 
@@ -1069,21 +1193,31 @@ fn the_cards_read_position_calibre_listen_then_the_readings() {
     }
 }
 
-/// Keys 1 to 6 put the watch in each position in turn, as the
-/// Position card lists them; not while a field is typed in.
+/// Each key is the last digit of the hour at the top, U and D lying
+/// (Peter's pick, #1473): every one pinned. The 45° stops' keys turn the
+/// card to 10, and the six's leave it as it is.
 #[test]
-fn keys_one_to_six_pick_the_position() {
+fn each_hour_key_picks_its_position_and_a_45_degree_one_turns_the_card_to_10() {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
     let ctx = themed();
+    use egui::Key;
     let keys = [
-        egui::Key::Num1,
-        egui::Key::Num2,
-        egui::Key::Num3,
-        egui::Key::Num4,
-        egui::Key::Num5,
-        egui::Key::Num6,
+        (Key::U, Position::DialUp),
+        (Key::D, Position::DialDown),
+        (Key::Num3, Position::CrownUp),
+        (Key::Num9, Position::CrownDown),
+        (Key::Num6, Position::CrownLeft),
+        (Key::Num2, Position::CrownRight),
+        (Key::Num1, Position::Up1h30),
+        (Key::Num4, Position::Up4h30),
+        (Key::Num7, Position::Up7h30),
+        (Key::Num0, Position::Up10h30),
     ];
-    for (n, key) in keys.into_iter().enumerate().rev() {
+    for (key, p) in keys {
+        assert_eq!(p.key(), Some(key), "{p:?}");
+    }
+    for (key, p) in keys.into_iter().rev() {
+        app.ten_positions = false;
         let press = |pressed| egui::Event::Key {
             key,
             physical_key: None,
@@ -1098,12 +1232,17 @@ fn keys_one_to_six_pick_the_position() {
             },
             |ctx| app.panels(ctx),
         );
-        assert_eq!(app.position, Position::ALL[n], "key {}", n + 1);
+        assert_eq!(app.position, p, "{key:?}");
+        assert_eq!(app.ten_positions, p.is_half_hour(), "{key:?} at 6");
+    }
+    // Keys 5 and 8 are no one's.
+    for key in [Key::Num5, Key::Num8] {
+        assert_eq!(Position::of_key(key), None);
     }
 }
 
 /// Walter's walk of #1194: with New Watch open and no field typed in,
-/// keys 1 to 6 change nothing behind the dialog.
+/// the position keys change nothing behind the dialog.
 #[test]
 fn keys_one_to_six_wait_behind_a_dialog() {
     let mut app = TimegrapherApp::with_devices(Vec::new(), None);
@@ -1360,4 +1499,176 @@ fn the_readings_strip_opens_its_cards_over_the_panes() {
     pass(&mut app, Vec::new());
     let (hidden, _) = pass(&mut app, Vec::new());
     assert!(!hidden.contains("52° · Auto 28800"), "{hidden}");
+}
+
+/// Walter's walk of #1491: with the switch stored at 6 and a 45° stop
+/// current, the compact card's Set offers all ten, the current one among
+/// them, as the full card shows ten.
+#[test]
+fn the_compact_pop_up_offers_ten_while_a_45_degree_stop_is_current() {
+    let ctx = themed();
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    let _ = window_texts(&mut app, &ctx, 1610.0);
+    let _ = ctx.run(key_frame(egui::Key::Num4, egui::Modifiers::NONE), |ctx| {
+        app.panels(ctx)
+    });
+    // The switch put back at 6 by hand: the 45° stop still holds ten.
+    app.ten_positions = false;
+    let run = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(800.0, 600.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| app.panels(ctx));
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    t.galley.rect.translate(t.pos.to_vec2()).center(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let _ = run(&mut app, Vec::new());
+    let texts = run(&mut app, Vec::new());
+    let set = texts
+        .iter()
+        .find(|(t, _)| t == "Set")
+        .map(|(_, p)| *p)
+        .expect("Set");
+    let button = |pressed| egui::Event::PointerButton {
+        pos: set,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let _ = run(
+        &mut app,
+        vec![egui::Event::PointerMoved(set), button(true), button(false)],
+    );
+    let _ = run(&mut app, Vec::new());
+    // Each item inside the pop-up's clip, none scrolled out of view:
+    // egui still emits a clipped item's text.
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            Vec2::new(800.0, 600.0),
+        )),
+        ..Default::default()
+    };
+    let out = ctx.run(input, |ctx| app.panels(ctx));
+    let items: Vec<(String, bool)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text().contains("· key") => {
+                let r = t.galley.rect.translate(t.pos.to_vec2());
+                Some((t.galley.text().to_string(), c.clip_rect.contains_rect(r)))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(items.len(), 10, "{items:?}");
+    assert!(items.iter().all(|(_, seen)| *seen), "{items:?}");
+    assert!(
+        items.iter().any(|(t, _)| t == "4:30 Up (4H30) · key 4"),
+        "{items:?}"
+    );
+}
+
+/// With no watch, every width of the readings strip's watch cell keeps
+/// the lift angle beside the beat rate, the narrowest too, the angle
+/// first, and the narrowest the beat rate without "Auto " (Peter, #1526;
+/// Hugh): a watchmaker checks both at a glance.
+#[test]
+fn the_strip_keeps_the_lift_beside_the_beat_rate_with_no_watch() {
+    let app = synthetic(40.0, 5.0);
+    assert!(app.open_watch().is_none());
+    let (angle, _, bare) = app.watch_facts();
+    for choice in app.watch_pieces() {
+        let words: Vec<&str> = choice.iter().map(|(w, _, _)| w.as_str()).collect();
+        let text = words.join(" ");
+        let a = text.find(&angle).expect("the lift angle at every width");
+        let b = text.find(&bare).expect("the beat rate at every width");
+        assert!(a < b, "the angle comes first: {text}");
+        assert!(
+            choice.iter().all(|(_, size, _)| *size >= 13.0),
+            "one type size: {text}"
+        );
+    }
+    let narrowest = app.watch_pieces().pop().unwrap();
+    assert_eq!(narrowest[1].0, bare, "the narrowest gives the rate alone");
+}
+
+/// The beat rate's two parts: "Auto" for a rate found by listening, then
+/// the rate, which the strip writes alone where it is narrow (#1526).
+#[test]
+fn a_found_beat_rate_is_auto_then_the_rate() {
+    let mut app = synthetic(40.0, 5.0);
+    app.bph = None;
+    let found = |rate: &str| (Some("Auto"), rate.to_string());
+    assert_eq!(app.bph_parts(false, Some(28800)), found("28800"));
+    assert_eq!(app.bph_shown(false, Some(28800)), "Auto 28800");
+    assert_eq!(app.bph_parts(false, None), found(""));
+    assert_eq!(app.bph_shown(false, None), "Auto");
+    app.bph = Some(21600);
+    let set = (None, "21600 bph".to_string());
+    assert_eq!(app.bph_parts(false, Some(28800)), set);
+    assert_eq!(app.bph_parts(true, Some(28800)), set);
+}
+
+/// With no watch, hovering the strip's watch cell shows one tooltip: the
+/// calibre, lift angle and beat rate in full, then what a click does,
+/// never the strip's tooltip on top of a second one (Hugh, #1526).
+#[test]
+fn the_strip_watch_cell_shows_one_tooltip() {
+    let mut app = synthetic(40.0, 5.0);
+    app.readings_pinned = false;
+    let ctx = themed();
+    // A second a frame, so a still pointer is past the hover's delay.
+    let mut time = 0.0;
+    let mut pass = |app: &mut TimegrapherApp, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            events,
+            time: Some(time),
+            ..screen()
+        };
+        time += 1.0;
+        let out = ctx.run(input, |ctx| app.panels(ctx));
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    pass(&mut app, Vec::new());
+    let (angle, _, _) = app.watch_facts();
+    let at = pass(&mut app, Vec::new())
+        .into_iter()
+        .find(|(t, _)| t.starts_with(&angle))
+        .map(|(_, p)| p + egui::vec2(4.0, 6.0))
+        .expect("the watch cell's lift angle");
+    pass(&mut app, vec![egui::Event::PointerMoved(at)]);
+    pass(&mut app, Vec::new());
+    let shown = pass(&mut app, Vec::new());
+    let tips: Vec<&String> = shown
+        .iter()
+        .map(|(t, _)| t)
+        .filter(|t| t.contains("Open the readings' cards"))
+        .collect();
+    assert_eq!(tips.len(), 1, "one tooltip: {tips:?}");
+    assert!(tips[0].contains(&app.watch_detail()), "{tips:?}");
+    let details = shown
+        .iter()
+        .filter(|(t, _)| t.contains(&app.watch_detail()))
+        .count();
+    assert_eq!(details, 1, "the full facts once");
 }

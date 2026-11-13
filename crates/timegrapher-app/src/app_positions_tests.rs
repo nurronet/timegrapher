@@ -417,17 +417,21 @@ fn the_positions_table_reads_a_free_take() {
         let u = at(unit).unwrap_or_else(|| panic!("{unit} drawn"));
         assert!(u.bottom() <= stripe.top(), "{unit} {u:?} under {stripe:?}");
     }
-    for want in [
+    let missing: Vec<&str> = [
         "This Take",
         "Duration",
         "Not marked",
         "Average",
         "Largest Difference",
         "2 of 6",
-        "Each Position applies only to the guided test.",
-    ] {
-        assert!(drawn.contains(want), "{want}: {drawn}");
-    }
+    ]
+    .into_iter()
+    .filter(|want| !drawn.contains(want))
+    .collect();
+    // Each Position's scope is its field's hover alone, not a note on the
+    // pane (Hugh, #1528).
+    let moved_out = drawn.contains("Each Position applies only");
+    assert!(missing.is_empty() && !moved_out, "{missing:?}: {drawn}");
 
     // A position too short to read says so.
     moved(&mut app, Position::CrownUp);
@@ -654,6 +658,8 @@ fn a_ready_test_finds_the_picked_watchs_full_wind() {
     // Daytona's full-wind test, begun 31 h ago.
     std::fs::create_dir_all(&take).unwrap();
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: String::new(),
         began_unix: guided::unix_now() - 31.0 * 3600.0,
@@ -742,6 +748,8 @@ fn a_ready_tests_full_wind_search_sees_the_time_and_the_takes() {
     let now = guided::unix_now();
     std::fs::create_dir_all(&take).unwrap();
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: String::new(),
         began_unix: now - 11.5 * 3600.0,

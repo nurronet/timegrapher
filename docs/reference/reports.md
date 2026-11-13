@@ -22,12 +22,23 @@ recording and sidecar that `doctor --save` already wrote.
 | `audio/excerpt.flac.json` | The recording's sidecar from `doctor --save` (device, configuration, mixer), if it has one, plus where the excerpt was cut from |
 | `results/analyze-excerpt.json` | `analyze --json` on the excerpt |
 | `results/analyze-whole.json` or `results/long-whole.json` | `analyze --json` on the whole file, or `long --json` on a folder of segments, so the size of any difference from the excerpt shows |
+| `analysis/` | The take's analysis (#400): `analysis.json`, `beats.csv.gz`, `windows.csv.gz` and `profiles.bin.gz`, in the layout of a take kept as its analysis alone ([sessions.md](sessions.md)), so the unpacked bundle reads as such a take's folder. Every reading, chart and Steadiness figure of the whole take is read from it. It is whole, Tick Tock profiles too, when the zip stays under GitHub's 25 MB with it (about 1.5 MB an hour); otherwise the profiles are left out (`profiles.bin.gz` is empty, about 0.3 MB an hour) and `left_out` says so. From a recording it is read from the whole sound, which reads it once more, and the profiles a second time only when they can fit; `--no-analysis` leaves it out |
 | `long/clocklog.txt` | A folder's clock log |
 | `env/clock.json` | The stored sound-card clock corrections (`timegrapher clock`) |
 | `logs/` | Log and crash files from the last 7 days in the settings folder |
 
 `--bph` and `--lift` are passed to both analyses: give them as they were
 set when the problem showed.
+
+**A take kept as its analysis alone** has no sound to cut, so its report
+holds no `audio/` and no excerpt analysis: its own `analysis/` (without the
+profiles when they don't fit), `results/long-whole.json` from `long --json` on the take, and
+`left_out` says why there is no sound.
+
+**Size.** The excerpt is about 18 MB for five minutes. Beside it, a
+take's whole analysis fits up to about 4 hours, and its beats and windows
+alone up to about 20 hours. For a longer take, shorten `--span`; `report`
+warns when the zip is over 25 MB.
 
 The desktop report stores its captured screen state separately in
 `results/app.json`. Its excerpt replay command always supplies a numeric
@@ -51,7 +62,8 @@ older desktop bundles missing this wrapper can still report a clock-field change
 
 **Redaction.** Before anything is written, the home folder becomes `~`, and
 whole-word occurrences of the user name and host name become `<user>` and
-`<host>`. That covers the note, the results, the sidecar and the logs. The
+`<host>`. That covers the note, the results, the sidecar, the analysis's
+header and the logs. The
 analyses run beside the recording, so their paths are relative.
 Environment variables are never included. `redacted` counts what was
 removed, so a maintainer knows something was there.

@@ -2,7 +2,23 @@
 
 use super::*;
 
+/// The Power Reserve pane's Info button (#1528).
+const RESERVE_INFO_HINT: &str = "Info: the run in full, where its take is kept, the beats' \
+     pauses and what the grey cells mean.";
+
 impl TimegrapherApp {
+    /// The Power Reserve pane's toolbar: its settings, its "?" naming the
+    /// position card as captioned, and its Info button pinned at the right.
+    pub(super) fn reserve_toolbar(&mut self, ui: &mut egui::Ui, title: &str) {
+        let help = help::power_reserve(self.position_card_title);
+        let help: Vec<&str> = help.iter().map(String::as_str).collect();
+        let mut info = self.reserve_info;
+        theme::pane_toolbar_info(ui, title, &help, (&mut info, RESERVE_INFO_HINT), |ui| {
+            self.reserve_settings(ui);
+        });
+        self.reserve_info = info;
+    }
+
     /// Whether the pane holds a Power Reserve Test, under way or ended,
     /// not a long take's run read as one ([`power_reserve::Source`]).
     pub(super) fn reserve_is_test(&self) -> bool {
@@ -72,7 +88,7 @@ impl TimegrapherApp {
         } else {
             format!(
                 "The one position the watch runs down in, from wind to stop: the one set on \
-                 the {} card (or keys 1 to 6) when Start Test is pressed.",
+                 the {} card (or its key) when Start Test is pressed.",
                 self.position_card_title
             )
         });
@@ -612,9 +628,9 @@ impl TimegrapherApp {
             ui,
             self.reserve.as_ref(),
             free,
-            self.position_card_title,
-            &watch,
+            (self.position_card_title, &watch),
             self.ready_test() == Some(NewTake::PowerReserve),
+            self.reserve_info,
         );
     }
 }

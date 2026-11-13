@@ -727,8 +727,9 @@ fn write_html(
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("recording");
+    // No files for a take kept as its analysis alone: titled by the take.
     let title = match files.len() {
-        1 => name.to_string(),
+        0 | 1 => name.to_string(),
         n => format!("{name} and {} more", n - 1),
     };
     io(

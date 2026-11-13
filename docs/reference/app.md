@@ -35,7 +35,7 @@ Cmd+O on a Mac), Open Folder…, Save… or Save Again (Ctrl+S), Save As…
 and **Watches** (Ctrl+2); then ticks for **Readings**, **Compact
 Readings** (below), the Paper Strip, the Tick Tock Profile and the Scope,
 an **Analysis** submenu with a tick for each Analysis pane, ticks for
-**Positions Test** and **Power Reserve**, and Reset Panes. All but
+**Positions Test**, **Dynamic Poise**, **Complication** and **Power Reserve**, and Reset Panes. All but
 Bench and Watches are dimmed in Watches, as the panes are the Bench's.
 **Watches**: **New Watch…**, **Find in Watches…**, which shows the
 Watches view's list with its search ready to type in. Going back to
@@ -52,14 +52,16 @@ In Watches the pane icons hide and leave their room, so the gear stays
 exactly where it is on the Bench.
 The icons come in groups: the core panes first (the Paper
 Strip, the Tick Tock Profile and the Scope), then **Analysis** (Charts,
-Distributions, the Steadiness views and Isochronism) and **Tests** (the Positions Test and the Power Reserve Test), each
+Distributions, the Steadiness views and Isochronism) and **Tests** (the Positions Test, Dynamic Poise, the Complication Test and the Power Reserve Test), each
 under its name. The window is never smaller than 800 by 600 points, so
 the panes' toolbars and Settings always have room. Where the window is too narrow for every icon, the
 largest groups fold into a menu under their name, with the number of
 their panes showing, until the rest fit.
 Each icon is a small picture with a pun on
 its pane: a pole dancer for the Paper Strip, a stethoscope for the Tick
-Tock Profile, a die showing six for the Positions Test, a camel for
+Tock Profile, a die showing six for the Positions Test, a Ferris wheel
+for Dynamic Poise (each seat comes to the top in turn), a light switch
+for the Complication Test (off, on, then off again), a camel for
 Charts (it charts a course across the take, as across a desert), a
 jellyfish for Distributions (its body is called its bell), an Allen key
 for Allan, and so on. A pane showing has its icon in the accent blue on a
@@ -76,7 +78,10 @@ others on; each pane keeps its switches from then on.
 **Amplitude** and **Beat Error**, sharing the rest of the width. Every card is the same three rows,
 so the titles, the big figures and the controls each read in one line
 across: a title row (the caption, the card's **?** in its top-right
-corner, and what limits the reading in a small chip beside the ?), a
+corner, and what limits the reading in a small chip beside the ?; every
+**?**, a card's or a pane's, opens with a one-sentence answer, which
+hovering shows alone, then headed groups of short bullets and numbered
+steps), a
 figure row (the big figure with its ± and unit on the figure's baseline)
 and a controls row. What stands behind a figure is in its hover: the
 beats the rate is fitted to and their jitter, True Clock, the Tick and
@@ -94,8 +99,12 @@ ring, crown on the left. The picture sits at the card's left, across the
 title and figure rows; beside it are the caption, the name ("Crown
 Down") and both codes, the common one then Witschi's ("CD · 9H"; DU · CH
 and DD · CB lying flat). Across the controls row are six buttons, **DU DD
-CU CD CL CR**, the current one filled teal. Each one's hover gives its
-name, codes and key ("Crown Down (CD, 9H) · key 4") and how long each
+CU CD CL CR**, the current one filled teal. The title row's **6 | 10**
+(kept between runs) adds the four 45° stops, **1H30 4H30 7H30 10H30**
+(1:30 Up and so on), in a second row under the six, with a 30 pt picture
+and the name and code on one line; a 45° stop picked by its key, the
+Position Brush or a take on show turns the card to 10. Each button's hover
+gives its name, codes and key ("Crown Down (CD, 9H) · key 9") and how long each
 change of position settles (the Positions Test pane's Settle). Along each
 button's foot a teal bar, over a faint track, fills with the seconds
 heard in that position, in Quick Listen as in a test or a take on show:
@@ -103,7 +112,9 @@ settled and not masked, each position's own time only. It is full at the
 Positions Test pane's Each Position (60 s unless set otherwise; at 120 s, 60 s
 heard fills half), so a free-form test shows which positions still need
 time; the hover gives the seconds. While you listen, or before anything
-is on show, a button sets the position; keys 1 to 6 do the same, on the Bench,
+is on show, a button sets the position; its key does the same (U and D lying,
+and standing the last digit of the hour at the top: 3, 6, 9 and 2, and 1, 4, 7
+and 0 for the 45° stops), on the Bench,
 alone (never with Ctrl, Cmd, Alt or Shift held) and not while typing in
 a field or while a dialog is open. With a take on show, and during a Positions Test
 or a Power Reserve Test, the buttons only show the position, the take's
@@ -172,7 +183,7 @@ reading cards always keeping room for their captions whole. Compact,
 Current Position is captioned **Position**, with a smaller picture, the
 position's two-letter code beside it ("CR"; the name is in its hover),
 and under it one pop-up, **Set**, of the six positions (with their keys)
-instead of the buttons (none while a take is on show or a test runs); keys 1 to 6 still work, and the bars aren't shown. Listen keeps
+instead of the buttons (none while a take is on show or a test runs); the keys still work, and the bars aren't shown. Listen keeps
 its two icons, gives the take's length beside its caption ("Listen
 12:48"; on the narrowest windows in the Listen icon's hover instead),
 and shows Average Over's pop-up as **Avg 10 s**. Compact, Calibre keeps
@@ -349,6 +360,11 @@ changes that take, not the watch. With a watch picked, **Stop** saves
 the take into it, as **Save…** does, with no question, in a folder named by when the take
 started (in this computer's time) and its position when it used only one;
 Save Again then saves into the same take, and Save As… still asks.
+The Watches view reads the folder again each time the window comes back
+to the front, so a take another program added meanwhile
+(`timegrapher watches add-take`, which works while the app is open, or a
+sync) is listed without a restart; only takes whose files changed are
+read again.
 Watches another copy of the app has open are read only: New Watch…, Edit…, Add Photos… and a photo's Delete… are
 off, the Listen icon says Quick Listen can't keep its take, and Save…
 asks where. **New Session**, in the File menu, clears what is shown,
@@ -414,8 +430,8 @@ of icons, each naming itself and saying what it does on hover, in the
 words this guide uses: a switch is an icon that stays pressed, tinted,
 while it is on; a choice between two settings is one icon showing the
 setting in use, and a click changes to the other (the Paper Strip's
-Direction is the exception: a labelled two-part control, **Down |
-Across**); a choice of more is a row of icons with the picked one tinted.
+Direction is the exception: a two-part control, **Down | Across**, whose
+words name it with no caption before it, "Direction" in its hover); a choice of more is a row of icons with the picked one tinted.
 Icons are for what can be clicked: a setting that holds a value (Width,
 Length, Settle, Span, Beats) shows its name in words before
 its field, with the same hover; a search box keeps the magnifying glass
@@ -442,7 +458,8 @@ close it). Every setting gives a short hint when the pointer rests on it. Before
 open, the Paper Strip says where to start: **Listen**, on the Listen card,
 listens without picking a watch, and Save keeps what it heard; for a
 watch's history, **Watches** at the top lists your watches, to pick one
-and then Listen, Positions Test or Power Reserve Test, each take saved
+and then Listen, Positions Test, Dynamic Poise Test, Complication Test
+or Power Reserve Test, each take saved
 into it, or to add one with New Watch…; and recordings and folders open
 from the File menu, analysed all at once. While a recording is being
 analysed the Paper Strip shows how far the analysis has got, in hours of sound and time
@@ -525,8 +542,11 @@ the estimates too small. The
 is calculated and what has been checked. The amplitude's and beat error's ± are the
 standard errors of their 2 s windows in the averaging time. The rate's ±
 comes from the scatter of 10 s windows over the run so far (back to a
-break or a move, up to five minutes), scaled to the averaging time; it
-needs about 30 s of unbroken beats. What the ± can't show is named, as a
+break or a move, up to five minutes), scaled to the averaging time. Each
+± takes its scatter from at least 30 values: a reading with fewer borrows
+it from the 30 nearest in the take, so the rate's ± waits for about
+5 min of beats and the others for about a minute (#1470). The Rate
+figure's hover says how many of the 30 there are so far. What the ± can't show is named, as a
 plain fact, in a chip beside the reading's caption, with its sentence on
 hover (a click keeps it open, as the ? does; with several, the chip
 shows the first and how many more, "12 s of Beats +1", and the hover
@@ -679,6 +699,14 @@ positions test:
   the start of each stretch and less masked time.
 - **Readings** show once a position has 10 s. Under that it reads
   "Under 10 s"; a position never marked reads "Not marked".
+- **Info**, pinned at the toolbar's right, opens a panel with those two
+  rules, what Duration leaves out and when a position shows readings
+  (#1528). It stays open or shut across launches.
+- Under the tables is one line, the next thing to do: with nothing yet,
+  "New Test leads you through the six positions."; with full-wind
+  results loaded, what the next test does with them; after a full-wind
+  test, how to start the test 24 hours after winding. The steps are in
+  the pane's "?".
 - **Average** and **Largest Difference** follow once two positions
   have readings: the average rate, amplitude and beat error over the
   positions read (with "n of 6" in Duration), then the highest of each
@@ -728,7 +756,12 @@ takes it) and the size of the change in the mean rate (Ie), all from
 core `session::evaluate` as `timegrapher session` reads the two
 together. Its CSV and Copy add the full-wind test's start, the hours
 since and that table, and the session file marks its stretches with
-`wind_h`, the hours since full wind.
+`wind_h`, the hours since full wind. Saving the session keeps this
+test's results as `positions-test.json` too, with `wind_h` and `against`
+(below), so the take opens on This Test, N h After Full Wind and the
+Full Wind Against N Hours table again, built from the saved figures
+alone, and Watches lists it as a Positions Test (#1347). Compare With
+never offers such a file, and Load Full-Wind Results… refuses one.
 
 `positions-test.json` (format `timegrapher.positions-test/1`; later
 versions add keys) holds `format`, `began_utc` and `began_unix` (when the
@@ -740,6 +773,73 @@ position in the order measured, with `position` (DU, DD, CD, CL, CU or
 CR, as in `session.toml`), `rate_s_per_day`, `amplitude_deg` and
 `beat_error_ms` (a size), each null when not measured. Files saved before
 `bph`, `lift_angle_deg`, `settle_s` and `measure_s` were kept still load.
+A 24 hours after test's file adds `wind_h` (the hours since the
+full-wind test began, to a tenth) and `against` (the full-wind test's
+results it was set against, in this same form); a full-wind test's file
+has neither.
+
+**Dynamic Poise.** The Dynamic Poise pane (#1474), a hidden tab beside
+the Positions Test to begin with, runs the same guided test through the
+eight upright stops, 45° apart, from 9H at the top: 9H, 7H30, 6H, 4H30,
+3H, 1H30, 12H and 10H30, turned the same way round as the Positions Test.
+**New Test** in its toolbar, or **Dynamic Poise Test** under New Take in
+the Watches view, sets it up at 9H and turns the Current Position card to
+10, where it stays until switched back; Start Test on the Listen card
+starts it. The toolbar has **View** first (**Plot** or **Dial**, kept
+between runs), then Settle and Each Position, the Positions Test's own,
+then **Copy** and Export…, with **Info** at the right. The banner works as
+the Positions Test's, naming each stop by the hour at the top ("Done:
+Crown Down (1 of 8)", "Turn the watch 45°, to 7:30 Up (7H30) at the top",
+**Start 7H30 Measurement**); before the first stop is in it adds the
+amplitude so far, with a word when it is near 219.5°. The status bar
+reads, for instance, "Dynamic Poise Test · … · 7H30, 2 of 8", and the
+strip marks the time **Not Used for Dynamic Poise Test**. The table lists
+the eight in the stand's order with Rate, From Mean, Amplitude and Beat
+Error, then a Mean row; there is no Largest Difference, which is the six
+positions' figure. Beside it, or under it on a narrow pane, each rate is
+drawn at its hour with its ± (one standard error) in magenta, on a line
+from 12H to 12H with a mark every 45°, or round a watch face with 12H at
+the top, further out when faster, and the mean as a dotted ring. Once
+five stops are in, core's `poise::fit` draws the once-round wave in grey
+with a line to its fastest hour, and the line over the picture is its
+`short_text`; the line under it is `heavy_text`, the heavy spot, or, in
+a grey chip, why it is not stated near 219.5°. Until then the space reads
+"Fitted once 5 positions are measured". **Info** shows `text`, the fit in
+full with its twice-round terms, and core's note on the amplitudes that
+show the heavy spot. Copy writes the watch, the table in the pane's order
+and that sentence. A Dynamic Poise test is not set against a full-wind
+test and keeps no results for 24 hours after.
+
+**Complication.** The Complication pane (#1576), a hidden tab beside the
+Positions Test to begin with, runs the same guided test in one position,
+the one on the Current Position card, with a complication such as a
+chronograph off, then on, then off again. **New Test** in its toolbar, or
+**Complication Test** under New Take in the Watches view, sets it up
+without moving the card; Start Test on the Listen card starts it. The
+toolbar has New Test, then Settle and **Each Stretch**, the same two
+values every guided test shares (a change in one pane changes all), then
+**Copy** and Export…, with **Info** at the right. The banner names each
+stretch ("Complication Off (1 of 3)") and between them says "Turn the
+complication on", with **Start On Measurement**; the strip marks the time
+**Not Used for Complication Test**. The table has a row for each stretch,
+Off, On and Off, with Amplitude first, then Rate and Beat Error, then
+**On less Off** with its ±: core's `complication::change`, the On stretch
+less the two Offs joined in a straight line at its middle (with evenly
+spaced stretches, their mean), so a steady run-down drops out. Beside it,
+or over it on a narrow pane, three plots share one time axis in min:s,
+Amplitude, Rate and Beat Error: each stretch at its middle with its ±,
+the Offs joined dashed, a ring where On would sit with the complication
+off and a bracket from it to On. A track over them names each stretch,
+lighter while it settles. Each plot's title gives core's finding, such
+as "Amplitude · 20 ± 1° lower with the complication on"; a change is
+named only when it is more than twice its ± from zero, else it reads
+"no clear change". A figure with no ± yet (the rate's needs about five
+minutes of take) gets no verdict: "Rate · −10.0 s/d, no ± yet (too few
+readings)". Hovering a point gives its figure. **Info** shows core's
+note on the method and the ±, in short paragraphs. The key under the
+plots drops whole parts, last first, where the pane is narrow; over the
+table, the plots keep a fixed height so the table shows under them.
+Copy writes the watch, the position, the table and the findings.
 
 **Power Reserve.** The Power Reserve pane, a hidden tab beside the
 Positions Test to begin with (its icon a fuel gauge near empty), runs the
@@ -814,9 +914,11 @@ fills while listening: its run so far is read in the background once a
 minute of take, "Still listening, no stop found yet" in place of
 the take's end (core `Results::still_listening`), and once more where
 listening stops; a second position clears it. Its wind at the start is not known,
-so its run is never called a power reserve: the line reads "Ran 40 h 12
-min from the take's start" ("Ran at least…" when the take ended first),
-adding "Read from a long take, not a Power Reserve Test", and Save as
+so its run is never called a power reserve: the Info panel's sentence
+reads "Ran 40 h 12 min in … from the take's start" ("Ran at least…" when
+the take ended first), adding "Read from a long take, not a Power Reserve
+Test", the pane shows the grey chip "From a long take, not a Power
+Reserve Test" under its title, and Save as
 CSV and Copy name the row "Ran from the take's start" (core
 `power_reserve::sentence` and `Results::ran`).
 Nothing is written into the take, which stays an ordinary take in the
@@ -835,7 +937,7 @@ when not read.
 
 **Isochronism.** A tab beside the Steadiness panes, from the same run of tests: the
 rate by amplitude in 2° steps (the median rate as a dot, with bars over the
-middle half), the curve through them and where it turns. **View** in its
+middle half; no curve is fitted since 13 Nov, #1510). **View** in its
 toolbar picks this **Curve** or the **Walk** (#741), when core has one:
 the rate against the amplitude for each
 merged stretch of time, each dot coloured by hours since the take's start
@@ -846,7 +948,17 @@ start, a large dot the end with its hour, and a ring each 12 h (24 h on a
 take over 96 h) with its hour beside it; each dot's hover
 is core's. Each axis is named with its unit over the numbers, and the plot
 is never taller than 1.1 times its width. Both views span the same amplitudes, so a degree stays put
-when the view changes, and the curve's headline stays above either. The
+when the view changes. No words sit on the plot (#1507): a title line
+above either view gives the slope with its ± and the amplitudes it spans
+("Rate · −0.17 ± 0.02 s/d per degree, 119° to 173°"); a facts box in the
+emptiest top corner gives the median rate at the lowest and the highest
+step, and in the Walk, last, where the amplitude stops being read while
+the rate goes on ("No amplitude after 63 h"); a key row under the plot
+names the dots ("Median rate in each 2° of amplitude (28)") or keeps the
+Walk's colour key; a dot's hover gives its step's median, middle half and
+readings. The **i** in the toolbar opens the finding in full, how the
+slope and its ± are read (errors in variables, Fuller 1987) and, in the
+Walk, where the rate goes on with no amplitude. The view
 setting is kept between runs. The curve
 needs the amplitude to fall
 through at least three 2° steps, which a run-down over some hours gives
@@ -1032,7 +1144,7 @@ When the tick's and tock's marks disagree, or a mark sits mid-ramp, the readings
 built on them are suspect.
 
 **Scope.** The sound itself, beat by beat, like the scope view on a
-Witschi (whose training course, doc. 71.1010D35e p. 12, gives the
+Witschi (whose _Testing Methods for Mechanical Watches_, 2025, p. 23, gives the
 same 20, 200 and 400 ms spans): what the engine heard, high-passed at 1 kHz, not an average. A
 tab beside the Tick Tock Profile, set in its toolbar.
 **Span 20 ms** shows the Tick and the Tock
@@ -1060,11 +1172,12 @@ headers (`span.rs`). No crosshair, as on the other sound plots.
 Error (Draw Over the Strip, below); Width and Length, each one field with
 its presets under its ▾, then Fit; Centre and Auto-Centre; Rate Line and
 Parallel Guides; the Mask tool (scissors) and the Position Brush;
-Direction; and Export. One dot per beat, tick and tock in two colours. Across
+Direction and Still Paper; and Export. One dot per beat, tick and tock in two colours. Across
 the strip is how early or late each beat came against a perfect clock
 beating exactly at the nominal beat rate (every 125 ms at 28,800 bph): a
-beat before that clock's beat is early, after it late, the words Witschi's
-training course uses (doc. 71.1010D35e p. 6). Along it is time; both axes
+beat before that clock's beat is early, after it late, drawn as Witschi's
+Diagram view draws them, where a rising line is a watch that gains
+(_Testing Methods for Mechanical Watches_, 2025, p. 18). Along it is time; both axes
 are labelled, in ms across and in minutes and seconds along, and every
 grid line is drawn alike. **Rate Line** (on by default) draws the Rate
 reading as a thin solid magenta line over the beats it was fitted to, on top
@@ -1103,6 +1216,22 @@ typed; the app keeps every beat of that long a take, where it used to
 keep only the last day's. Where the beats are more
 than 48 to a point along the strip, every nth tick and its tock are
 drawn, as the rest would only lie under them.
+
+**Still Paper**, the switch after Direction (a sheet with a trace that
+runs off its right edge and carries on from the left, lit while on). Off,
+the paper slides along under the pen, the newest beats at its edge. On,
+the paper stays put and the pen
+sweeps along it, back to the start every Length, as a scope draws: a time
+lies (t mod Length) / Length of the way along, laps starting at take time
+0. The last lap stays ahead of the pen, wiped just in front of it by a
+blank 4% of the strip (at least 8 points), so the strip shows the same
+Length less that blank. Time labels are the take time of the ink under
+them. Lines, bands, masks and the track are drawn a lap at a time, so none
+runs across the wrap or the blank. Looking back, paused or on an opened
+take the pen is at the strip's end, and dragging or the wheel moves it
+through time the same way it moves moving paper. Fit is greyed while the
+paper is still, with nothing to fit; zooming changes the Length about the
+pen. The choice is kept between runs.
 
 **Fit**, the switch beside Length (arrows out to two edges, lit while
 on), shows the whole session so far along the strip, up to the take's
@@ -1256,7 +1385,8 @@ the swing and the seesaw in the pane's toolbar show or hide the Rate,
 Amplitude and Beat Error charts; the charts shown share the pane's
 height, and at least one stays on. A pane too short for every chart draws
 the first ones at a readable height and names the rest at its foot ("Beat
-Error not shown: no room"); the Distributions pane does the same. Each
+Error not shown: no room"); the Distributions pane names them in a grey
+chip under its first plot's title, what to do in the chip's hover. Each
 reading keeps its colour across
 the app (rate magenta, amplitude violet, beat error amber), so a second line
 of the same reading is told apart by its dashes: amplitude from the ticks
@@ -1320,8 +1450,12 @@ bend, or an S across the line. **Cumulative** draws the share of values at
 or below each value on a plain scale. Neither keeps the time order, so the
 strip and the charts show when a change happens. The scale leaves out the
 most extreme 0.5% at each end so stray readings can't squeeze the rest
-together, and the line above gives the count, the median, the middle 80%,
-the outliers left off and the peaks when there is more than one. The
+together. Each plot's title names its reading, and the position counted
+when the take has positions; a facts box in the plot's top left gives
+the count, the median, the middle 80%, the values off the scale when
+there are any and the peaks when there is more than one. The beat error's
+source is a grey chip under its title, with its caveats in the chip's
+hover. The
 statistics are in `timegrapher_core::histogram`, so the CLI and reports can
 share them.
 
@@ -1811,7 +1945,7 @@ folder can't be moved while another copy has it open. The Watches view adds watc
 - **Lift angle.** **Lift**, on the Calibre card: 52° by default. Type the calibre's angle and press Enter,
   or pick a common one. Amplitude is worked out again at once, history
   included.
-- **Position.** On the Current Position card, or keys 1 to 6: DU, DD, CU, CD, CL, CR, with the Swiss laboratory names
+- **Position.** On the Current Position card, or keys U, D, 3, 9, 6 and 2: DU, DD, CU, CD, CL, CR, with the Swiss laboratory names
   beside the crown positions, the hour that points up: Crown Up (CU, 3H),
   Crown Down (CD, 9H), Crown Left (CL, 6H) and Crown Right (CR, 12H).
   The Positions Test's table names them the same way. A new position is a new
@@ -1955,7 +2089,7 @@ when. It holds:
 | `clock.csv` | System time against frames captured, every 10 s, and on both sides of each break; frames run on across a break, with no line made up for the gap |
 | `session.json` | Watch, position, lift angle, beat rate, device, start and end, position changes, the readings at the end, and (only once the take has a break, such as the computer sleeping while it listened) `breaks`: one entry per break with `frame` (frames in the take before it), `audio_s`, `segment` (its first file), `utc` (host time of its first frame), `gap_s` (host time missing, from the clock log either side) and `device` (the input after it) |
 | `session.toml` | The session file `timegrapher session` reads: watch, calibre (with the wheels of a custom one), lift angle, beat rate, and one `[[recording]]` per stretch in one position with its `start_s` and `end_s` (for a take saved during a Positions Test, the test's own measured stretches, after each settling and for its measuring time, so `timegrapher session` reads the seconds its table did, with `wind_h` in the 24 hour half) |
-| `positions-test.json` | Only for a finished Positions Test run just after winding: its results, to load for the test 24 hours later (the format is under Full wind against 24 hours) |
+| `positions-test.json` | Only for a finished Positions Test: run just after winding, its results, to load for the test 24 hours later; run 24 hours after, its results with the full-wind ones it was set against (the format is under Full wind against 24 hours) |
 
 At start-up the app keeps as FLAC, in the background, any hour of a take
 in the Watches folder that is still a WAV (saved before hours were kept

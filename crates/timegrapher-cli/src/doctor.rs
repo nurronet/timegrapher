@@ -178,8 +178,7 @@ fn gap_rise_line(gap_rise_db: Option<f64>) -> String {
 
 /// The quick look's line: the rate signed as every surface signs it, so
 /// one that rounds to zero reads 0.0, never -0.0 (#815), and both figures
-/// to their base decimals, as a figure with no ± is written everywhere
-/// (core's `figure`, #510 K3).
+/// at their place, as every figure is written (core's `figure`, #1470).
 fn quick_look_line(rate_s_per_day: f64, beat_error_ms: f64) -> String {
     format!(
         "Quick look   rate {} s/d, beat error {} ms (on the sound card's clock)",
@@ -304,8 +303,8 @@ mod tests {
         assert!(quick_look_line(-2.36, 0.3).starts_with("Quick look   rate -2.4 s/d, "));
     }
 
-    /// The quick look's beat error has no ±, so it takes beat error's base
-    /// decimals, as the app's card and `analyze` write it (#510 K3).
+    /// The quick look's beat error is at beat error's place, as the app's
+    /// card and `analyze` write it (#1470).
     #[test]
     fn the_quick_look_beat_error_takes_its_base_decimals() {
         assert!(quick_look_line(1.0, 0.347).contains("beat error 0.35 ms"));
