@@ -279,7 +279,8 @@ fn poise_body(
     let full = ui.available_rect_before_wrap();
     let beside = info && full.width() >= INFO_BESIDE_W;
     let main_w = if beside {
-        full.width() - INFO_W - GAP
+        // Less the spacing round the two gaps, so Info ends inside the pane.
+        full.width() - INFO_W - GAP - 3.0 * ui.spacing().item_spacing.x
     } else {
         full.width()
     };
