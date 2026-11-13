@@ -49,6 +49,7 @@ fn the_cycle_columns_give_their_quartiles_and_the_line_its_swing() {
 }
 
 use super::*;
+use crate::theme::INFO_W;
 
 /// The Periods scores in dB read down from 0 dB at the tallest, every
 /// 10 dB to the floor, −30 dB.

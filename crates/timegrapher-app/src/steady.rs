@@ -719,11 +719,6 @@ pub fn flip_series(shown: &mut [bool; 3], i: usize) {
     }
 }
 
-/// Narrower than this, the Info panel opens over the plots.
-const INFO_BESIDE_W: f32 = 600.0;
-/// The Info panel's width, or a third of the pane if that is less.
-const INFO_W: f32 = 300.0;
-
 /// Draw the pane: a row for each series shown with the chosen view, and,
 /// when `opts.info`, the Info panel at the right with what the view shows,
 /// each series' findings and statistics in full, and what was tested.
@@ -755,46 +750,13 @@ pub fn draw(
                 .is_none_or(|j| shown[j])
         })
         .collect();
-    let full = ui.available_rect_before_wrap();
-    let beside = full.width() >= INFO_BESIDE_W;
-    if opts.info && beside {
-        let w = INFO_W.min(full.width() / 3.0);
-        let gap = 12.0;
-        let plots = full.with_max_x(full.right() - w - gap);
-        // Only the part of the pane on screen, so the panel scrolls rather
-        // than running off the bottom.
-        let panel = full.with_min_x(full.right() - w).intersect(ui.clip_rect());
-        ui.painter().vline(
-            panel.left() - gap / 2.0,
-            panel.y_range(),
-            egui::Stroke::new(1.0_f32, pal.separator),
-        );
-        ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
-            info_panel(ui, s, &series, status, view, panel.height());
-        });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(plots), |ui| {
-            rows(ui, s, &series, view, opts);
-        });
-        ui.allocate_rect(full, egui::Sense::hover());
-    } else {
-        rows(ui, s, &series, view, opts);
-        if opts.info {
-            // Over the plots, from the pane's top right corner.
-            let w = INFO_W.min(full.width() - 16.0).max(120.0);
-            let seen = full.intersect(ui.clip_rect());
-            egui::Area::new(ui.id().with("steady info over"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(egui::pos2(full.right() - w - 4.0, seen.top() + 4.0))
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.set_width(w - 16.0);
-                        let h = (seen.height() - 24.0).max(80.0);
-                        ui.set_max_height(h);
-                        info_panel(ui, s, &series, status, view, h);
-                    });
-                });
-        }
-    }
+    theme::with_info(
+        ui,
+        opts.info,
+        egui::Id::new(("steady info", view)),
+        |ui, h| info_panel(ui, s, &series, status, view, h),
+        |ui| rows(ui, s, &series, view, opts),
+    );
 }
 
 /// The Info panel: what the view shows, then a block for each series
