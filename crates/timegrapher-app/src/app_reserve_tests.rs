@@ -1383,3 +1383,18 @@ fn a_long_quick_listen_shows_its_run_so_far_in_the_power_reserve_pane() {
     assert_eq!(text(&app), text(&here));
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// The Power Reserve pane's Info stays as it was left, through the
+/// settings, as the Steadiness panes' does (Trevor's review of #1538).
+#[test]
+fn the_reserve_info_is_kept_in_the_settings() {
+    let mut app = TimegrapherApp::with_devices(Vec::new(), None);
+    assert!(!app.reserve_info);
+    app.reserve_info = true;
+    let mut back = TimegrapherApp::with_devices(Vec::new(), None);
+    back.apply_settings(app.settings());
+    assert!(back.reserve_info);
+    app.reserve_info = false;
+    back.apply_settings(app.settings());
+    assert!(!back.reserve_info);
+}

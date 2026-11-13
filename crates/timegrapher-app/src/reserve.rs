@@ -1600,6 +1600,66 @@ mod tests {
         }
     }
 
+    /// A running run's title says how the beats stand: waiting for the
+    /// first, running, or no beat for core's pause or longer, with the
+    /// restarts so far; and its Info says when the run will end only
+    /// once the beats have gone quiet (Trevor's review of #1538).
+    #[test]
+    fn a_running_runs_title_and_info_follow_the_beats() {
+        let mut t = Test::new(Position::DialUp, true, String::new(), 0.0);
+        assert!(t.running());
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Waiting for the first beats"),
+            "{}",
+            run_title(&t)
+        );
+        let beats: Vec<Beat> = (0..160)
+            .map(|i| Beat {
+                index: i,
+                time: i as f64 * 0.2,
+                quality: 1.0,
+            })
+            .collect();
+        t.update(&beats, 0.2, 32.0);
+        assert!(t.running());
+        let steady = run_title(&t);
+        assert!(steady.ends_with(" \u{b7} Running"), "{steady}");
+        let ends = format!(
+            "The run ends after {} min with no beat.",
+            power_reserve::STOP_AFTER_S / 60.0
+        );
+        let info = info_lines(&t, "", &[]);
+        assert!(!info[0].contains(&ends), "{info:?}");
+        // Quiet for the pause and more, short of the stop.
+        t.now_s = 31.8 + power_reserve::PAUSE_S + 60.0;
+        assert!(t.running());
+        let quiet = run_title(&t);
+        assert!(quiet.contains(" \u{b7} No beat for "), "{quiet}");
+        let info = info_lines(&t, "", &[]);
+        assert!(
+            info[0].starts_with("Running in ") && info[0].ends_with(&ends),
+            "{info:?}"
+        );
+        // Just short of the pause: still running.
+        t.now_s = 31.8 + power_reserve::PAUSE_S - 1.0;
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Running"),
+            "{}",
+            run_title(&t)
+        );
+        assert!(!info_lines(&t, "", &[])[0].contains(&ends));
+        // A restart shows while it runs.
+        t.heard.pauses.push(power_reserve::Pause {
+            from_s: 10.0,
+            to_s: 20.0,
+        });
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Running \u{b7} restarted once"),
+            "{}",
+            run_title(&t)
+        );
+    }
+
     /// A saved run's Info says where its take is kept, in the watch or
     /// in Unsorted, after the run and before the pauses and the keys; and
     /// each chart is titled with its series, over it (Hugh, #1528).
