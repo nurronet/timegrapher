@@ -253,6 +253,7 @@ Peter asked for these rules after the isochronism walk was found dropping 5 min 
 | Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing::MIN_PIECE_S` | One 10 s bin; a few seconds of beats give a rate several s/d out (its doc) |
 | 10 s rate window | a beat in every 2 s part, no hole | Window left out | `clean.rs` | The window tiling: a hole would make the window shorter than it says |
 | Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs` | Not recorded (finding T8) |
+| Amplitude reading | 1 window, then the 10% floor below | No figure | `session.rs` | A median needs one value; the share floor does the real gating |
 | Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` | Under a tenth, a median is set by the few windows that found the sound, which near a run-down's end may be noise (#1429) |
 | Any figure read from windows | 60% of nominal | Greyed, caveat with the count | `confidence::MIN_WINDOW_COVERAGE` | Set in R3; no reason recorded beyond the figure covering most of its span (finding T8) |
 | Any ± | 3 values | No ± | `confidence::MIN_VALUES` | A robust spread needs at least 3 values |
