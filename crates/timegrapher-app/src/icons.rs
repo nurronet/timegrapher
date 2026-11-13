@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 83] = [
+const ALL: [Icon; 84] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
