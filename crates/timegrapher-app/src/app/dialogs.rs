@@ -373,7 +373,11 @@ impl TimegrapherApp {
             _ => Vec::new(),
         };
         let name = match kind {
-            TestKeep::Positions => "Positions Test",
+            // A guided test: the Positions Test or the Dynamic Poise Test.
+            TestKeep::Positions => self
+                .guided
+                .as_ref()
+                .map_or("Positions Test", |t| t.kind.name()),
             TestKeep::PowerReserve => "Power Reserve Test",
         };
         let mut answer: TestKeepAnswer = None;

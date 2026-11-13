@@ -8,7 +8,7 @@ use eframe::egui::{self, epaint, Color32, Pos2, Rect, Shape, Stroke};
 use std::sync::OnceLock;
 
 /// Every icon, in the order of [`drawing`]'s arms.
-const ALL: [Icon; 83] = [
+const ALL: [Icon; 84] = [
     Icon::Readings,
     Icon::Watch,
     Icon::Strip,
@@ -16,6 +16,7 @@ const ALL: [Icon; 83] = [
     Icon::Scope,
     Icon::Isochronism,
     Icon::Positions,
+    Icon::Poise,
     Icon::Rate,
     Icon::Amplitude,
     Icon::BeatError,
@@ -128,6 +129,10 @@ fn drawing(icon: Icon) -> &'static str {
         // A die showing six: Six faces, six positions: DU, DD, CU, CD, CL and CR.
         Icon::Positions => {
             r#"<rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><g fill="currentColor" stroke="none"><circle cx="8.5" cy="8" r="1.4"/><circle cx="8.5" cy="12" r="1.4"/><circle cx="8.5" cy="16" r="1.4"/><circle cx="15.5" cy="8" r="1.4"/><circle cx="15.5" cy="12" r="1.4"/><circle cx="15.5" cy="16" r="1.4"/></g>"#
+        }
+        // A Ferris wheel: Each seat comes to the top in turn, as each hour does in a Dynamic Poise test.
+        Icon::Poise => {
+            r#"<circle cx="12" cy="10" r="7"/><path d="M12 3v14M5 10h14M7 5l10 10M17 5L7 15"/><path d="M12 10l-4.5 11.5M12 10l4.5 11.5M5 21.5h14"/><g fill="currentColor" stroke="none"><circle cx="12" cy="3" r="1.3"/><circle cx="17" cy="5" r="1.3"/><circle cx="19" cy="10" r="1.3"/><circle cx="17" cy="15" r="1.3"/><circle cx="12" cy="17" r="1.3"/><circle cx="7" cy="15" r="1.3"/><circle cx="5" cy="10" r="1.3"/><circle cx="7" cy="5" r="1.3"/></g>"#
         }
         // A leaping hare: Gaining or losing: how fast the watch runs.
         Icon::Rate => {

@@ -175,7 +175,7 @@ fn listening_asks_before_unsaved_masks_go() {
     app.confirm = None;
     app.start_guided(None);
     assert!(matches!(app.confirm, Some(Confirm::Microphone)));
-    assert_eq!(app.guided_after_ask, Some(None));
+    assert_eq!(app.guided_after_ask, Some((guided::Kind::Positions, None)));
     // Answered, with an input that can't be opened: the masks stay on
     // show, still to save.
     app.devices_listed = true;
@@ -847,6 +847,7 @@ pub(super) fn long_log(hours: f64) -> BeatLog {
                 odd_unlock_ms: None,
                 even_drop_ms: None,
                 odd_drop_ms: None,
+                culled_ms: None,
             })
             .collect(),
         clipped_beats: vec![],

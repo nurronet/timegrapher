@@ -1584,7 +1584,7 @@ fn state(wind_h: f64, readings: &[&Reading]) -> StateIndices {
 /// values `session` gives, for any interface that shows them.
 #[path = "session_aggregates.rs"]
 mod session_aggregates;
-pub use session_aggregates::{sourced_indices, SourcedFigures};
+pub use session_aggregates::{sourced_indices, sourced_indices_over, SourcedFigures};
 
 fn largest(v: impl Iterator<Item = f64>) -> Option<f64> {
     v.max_by(|a, b| a.abs().total_cmp(&b.abs()))
@@ -2219,6 +2219,7 @@ mod manifest_input_tests {
             odd_unlock_ms: None,
             even_drop_ms: None,
             odd_drop_ms: None,
+            culled_ms: None,
         };
         // Midpoint 11 s: in 10..20 and 11..12, not 0..11 or 12..20.
         assert!(window_in(&w(10.0), 10.0, 20.0));

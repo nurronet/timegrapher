@@ -580,14 +580,15 @@ impl TimegrapherApp {
     /// compact card.
     fn listen_start_test(&mut self, ui_b: &mut egui::Ui, kind: NewTake, length_hint: Option<&str>) {
         // The one place a take starts, test or not.
-        let name = if kind == NewTake::Positions {
-            "Positions Test"
-        } else {
-            "Power Reserve Test"
-        };
+        let name = kind.name();
         let why = self.start_test_why_not();
-        let mut hint = if kind == NewTake::Positions {
-            "Start the Positions Test, from Dial Up".to_string()
+        let mut hint = if let Some(g) = kind.guided() {
+            let first = g.order()[0];
+            let from = match g {
+                guided::Kind::Positions => first.name(),
+                guided::Kind::Poise => first.label(),
+            };
+            format!("Start the {name}, from {from}")
         } else {
             format!(
                 "Start the {name} in the position on the {} card and run until the watch \
@@ -1252,7 +1253,7 @@ impl TimegrapherApp {
                 self.leave_ready_test();
                 self.start_microphone();
             }
-            NewTake::Positions | NewTake::PowerReserve => self.get_ready(kind),
+            NewTake::Positions | NewTake::Poise | NewTake::PowerReserve => self.get_ready(kind),
         }
     }
 
@@ -1268,6 +1269,12 @@ impl TimegrapherApp {
             self.guided_earlier_for = None;
             self.find_full_wind();
             self.reveal_pane(Pane::PositionsTest);
+        } else if kind == NewTake::Poise {
+            // The card shows the eight with its buttons for them (Hugh's
+            // spec): at 10 from here on, until switched back.
+            self.ten_positions = true;
+            self.set_position(guided::POISE_ORDER[0]);
+            self.reveal_pane(Pane::DynamicPoise);
         } else {
             self.reveal_pane(Pane::PowerReserve);
         }
@@ -1329,6 +1336,7 @@ impl TimegrapherApp {
         self.test_ready = None;
         match kind {
             NewTake::Positions => self.start_guided(self.guided_earlier.clone()),
+            NewTake::Poise => self.start_poise(),
             _ => self.start_reserve_asked(true),
         }
     }

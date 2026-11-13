@@ -28,8 +28,10 @@ use timegrapher_core::synth::{generate, SynthConfig};
 
 /// The run the budget is for: an 80 h Power Reserve test.
 const RUN_S: f64 = 80.0 * 3600.0;
-/// What the stores above may hold together after [`RUN_S`].
-const BUDGET_BYTES: f64 = 160e6;
+/// What the stores above may hold together after [`RUN_S`]: 160 MB until
+/// #1333 gave each amplitude window its culled sides (Peter, 13 Nov:
+/// 165 MB).
+const BUDGET_BYTES: f64 = 165e6;
 /// The input rates the budget holds at (decided on #1115).
 const RATES: [u32; 2] = [48_000, 96_000];
 /// The shortest amplitude window step the test allows: the budget counts
