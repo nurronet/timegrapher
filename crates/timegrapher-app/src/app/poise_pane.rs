@@ -1013,6 +1013,46 @@ mod tests {
         assert!(clear_of(dial.at(0.0, dial.radius(10.0)), number, &names));
     }
 
+    /// Drawn, the outer ring's number on the 12H bearing is left out while
+    /// the next ring in keeps its number (#1530, Trevor on #1546).
+    #[test]
+    fn the_drawn_dial_leaves_out_only_the_number_under_an_hours_name() {
+        let dial = Dial {
+            centre: egui::pos2(300.0, 300.0),
+            inner: 30.0,
+            outer: 200.0,
+            scale: (0.0, 20.0, 10.0),
+        };
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::splat(600.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                dial_grid(ui.painter(), &dial, theme::pal(ui), Some((0.0, None)));
+            });
+        });
+        let texts: Vec<String> = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        let (outer, next_in) = (
+            chart_scale::axis_number(20.0, 10.0),
+            chart_scale::axis_number(10.0, 10.0),
+        );
+        assert!(texts.iter().any(|t| t == "12H"), "{texts:?}");
+        assert!(!texts.contains(&outer), "{texts:?}");
+        assert!(texts.contains(&next_in), "{texts:?}");
+    }
+
     /// A point under the name's end, not its centre, moves the name off
     /// its bearing: Walter's ETA 2824 run, where "Mean +11.2" on the 6H
     /// spoke covered the 6H point at +10.8.
