@@ -14,8 +14,9 @@ use timegrapher_core::chart_scale::{axis_number, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
-    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
-    WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
+    curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_off_scale, walk_spans,
+    WalkDot, WalkView, WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE,
+    WALK_START,
 };
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
@@ -454,6 +455,7 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
     ui.add_space(centre + head);
     let (x, y) = walk_bounds(w);
     let (x, y, grid) = axes(frame.amp.unwrap_or(x), y);
+    let off_scale = walk_off_scale(&w.dots, x, y);
     let resp = chart_plot("isochronism walk", &grid, (h, frame.gutter), x, y)
         .show(ui, |p| grid.draw(p, pal));
     paint_walk(ui, &resp.transform, w);
@@ -488,6 +490,10 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
                 full.gamma_multiply(THIN_ALPHA),
             );
             ui.label(small(key));
+        }
+        if let Some(off) = &off_scale {
+            ui.add_space(12.0);
+            ui.label(small(off));
         }
     });
 }
@@ -617,6 +623,35 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
+/// `to` if it lies in `frame`; else where the line from `from` toward it
+/// leaves `frame`, or `to` held to the edge when `from` lies out too.
+fn edge_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Pos2 {
+    if frame.contains(to) {
+        return to;
+    }
+    if !frame.contains(from) {
+        return frame.clamp(to);
+    }
+    // The furthest share of the way that stays inside, axis by axis.
+    let share = |a: f32, b: f32, lo: f32, hi: f32| {
+        let edge = if b < lo {
+            lo
+        } else if b > hi {
+            hi
+        } else {
+            return 1.0;
+        };
+        ((edge - a) / (b - a)).clamp(0.0, 1.0)
+    };
+    let f = share(from.x, to.x, frame.left(), frame.right()).min(share(
+        from.y,
+        to.y,
+        frame.top(),
+        frame.bottom(),
+    ));
+    from.lerp(to, f)
+}
+
 /// `r` moved the least way to lie inside `frame`, where it fits.
 fn keep_inside(r: egui::Rect, frame: egui::Rect) -> egui::Rect {
     let dx = (frame.left() - r.left()).max(0.0) + (frame.right() - r.right()).min(0.0);
@@ -652,15 +687,20 @@ fn steps(w: &WalkView) -> Vec<Step> {
 
 /// The dot nearest the pointer, within [`HOVER_PX`].
 fn nearest_dot(w: &WalkView, t: &egui_plot::PlotTransform, at: egui::Pos2) -> Option<usize> {
-    w.dots
-        .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            let pos = t.position_from_point(&egui_plot::PlotPoint::new(
-                d.amplitude_deg,
-                d.rate_s_per_day,
-            ));
-            (i, pos.distance(at))
+    let pos =
+        |d: &WalkDot| t.position_from_point(&PlotPoint::new(d.amplitude_deg, d.rate_s_per_day));
+    let dots: Vec<Pos2> = w.dots.iter().map(pos).collect();
+    let frame = *t.frame();
+    (0..dots.len())
+        .map(|i| {
+            // A dot off the scale answers where its trail meets the edge
+            // (Hugh, 13 Nov).
+            let near = if i > 0 {
+                dots[i - 1]
+            } else {
+                dots[(i + 1).min(dots.len() - 1)]
+            };
+            (i, edge_toward(frame, near, dots[i]).distance(at))
         })
         .filter(|&(_, dist)| dist <= HOVER_PX)
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -886,6 +926,19 @@ mod tests {
 
     /// A dot core calls thin is drawn faint, and so are the steps to and
     /// from it; the rest at full colour (Norm's floors, 11-12).
+    /// A dot off the scale is hovered where its trail meets the edge.
+    #[test]
+    fn an_off_scale_dot_is_found_where_its_trail_meets_the_edge() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let (a, b) = (egui::pos2(50.0, 50.0), egui::pos2(150.0, 100.0));
+        assert_eq!(edge_toward(frame, a, b), egui::pos2(100.0, 75.0));
+        assert_eq!(edge_toward(frame, a, a), a);
+        assert_eq!(
+            edge_toward(frame, egui::pos2(-5.0, 50.0), egui::pos2(150.0, 120.0)),
+            egui::pos2(100.0, 100.0)
+        );
+    }
+
     #[test]
     fn a_thin_dot_and_its_steps_are_drawn_faint() {
         let mut w = walk();
