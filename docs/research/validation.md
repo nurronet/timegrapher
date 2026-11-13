@@ -171,21 +171,22 @@ Measured on 13 November 2026, live against the file over the same interval:
 
 | Take | Interval, s | Rate, s/d | Amplitude, ° | Beat error unlock, ms | Beat error drop, ms |
 | --- | --- | --- | --- | --- | --- |
-| Daytona 4130 | 0 to 599.45 | 6.206 / 6.206 | 302.23 / 302.15 | 0.356 / 0.345 | 0.073 / 0.074 |
-| YM42, dial down | 198.57 to 599.45 | 47.169 / 47.170 | 228.83 / 228.35 | 0.037 / 0.045 | 0.159 / 0.156 |
-| Aquanaut 324 | 0 to 599.45 | −6.337 / −6.337 | 239.54 / 239.52 | 0.496 / 0.494 | 0.373 / 0.372 |
-| ETA 2824, bare | 0 to 599.45 | 10.752 / 10.752 | 300.44 / 300.27 | 0.183 / 0.187 | 0.265 / 0.268 |
+| Daytona 4130 | 0 to 599.55 | 6.206 / 6.206 | 302.17 / 302.15 | 0.356 / 0.345 | 0.073 / 0.074 |
+| YM42, dial down | 183.08 to 599.55 | 47.055 / 47.040 | 228.75 / 228.28 | 0.041 / 0.046 | 0.149 / 0.159 |
+| Aquanaut 324 | 0 to 599.55 | −6.337 / −6.337 | 239.52 / 239.52 | 0.496 / 0.494 | 0.373 / 0.372 |
+| ETA 2824, bare | 0 to 599.55 | 10.752 / 10.752 | 300.44 / 300.27 | 0.183 / 0.187 | 0.265 / 0.268 |
 
 Beat errors are by size. The YM42's interval starts later because live finds
-jumps by their timing near 195 s that the file's read does not. That is a
+jumps by their timing (near 183 and 195 s) that the file's read does not. That is a
 separate parity item, not this change.
 
 Before #1327, the whole-take comparison (live's latest stretch against the
 whole file) put the ETA in its holder 5.9° and 0.41 ms (drop beat error)
 apart. After it, the same comparison is 0.2° and 0.007 ms.
 
-In the test, a 0.1 s push takes under 0.15 s at most, including the one that
-builds the template again; the re-read is spread over the pushes after it.
+In the test, the slowest 0.1 s push took 0.13 to 0.28 s (it builds the
+template again); the re-read is spread over the pushes after it, which take
+it over about 16 s after the template is built (at 62.8 s on these takes).
 
 ## Three retained ignored diagnostics
 

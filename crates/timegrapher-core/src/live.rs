@@ -3,11 +3,9 @@
 //! Every half second the last few seconds of audio are run through the
 //! same envelope, template and beat tracker as a recording, and the beats
 //! that have settled since the previous pass are added to a running beat
-//! log. The template is built from the first seconds a watch is heard in,
-//! then once more from its first 47 s as a file's reading builds it, and
-//! those 47 s are read again with it, so live and the saved recording read
-//! with the same template from the start (#1327); from then on the beat's
-//! reference point stays put and the trace doesn't jump. The
+//! log. The template is built from the first seconds of signal, then again
+//! from the first 47 s as a file's reading builds it, which are read again
+//! (#1327); from then on the beat's reference point stays put. The
 //! readings (rate, beat error, amplitude) are fits over the last few
 //! seconds of that log, so the live screen and an analysis of the saved
 //! recording read from the same kind of per-beat records.
@@ -166,20 +164,8 @@ pub struct LiveAnalyzer {
     /// Whether `bph` is the rate Auto found, not one set.
     found_bph: bool,
     template: Option<Vec<f32>>,
-    /// The sound from the window the watch was first heard in, and the
-    /// sample it starts at, gathered until it holds a file's first chunk,
-    /// when the template is built again from it as a file's reading builds
-    /// it and the sound is read again with it (#1327). None before the
-    /// watch is heard and once built.
-    gather: Option<(u64, Vec<f32>)>,
-    /// Whether the template has been built again since the watch was
-    /// first heard.
-    rebuilt: bool,
-    /// When it was, seconds.
-    template_switch_s: Option<f64>,
-    /// The sound gathered being read again with the template built from
-    /// it, a little faster than it comes in, until it catches up.
-    shadow: Option<Box<Shadow>>,
+    /// Building the template again from the first chunk (#1327).
+    rebuild: rebuild::Rebuild,
     beats: Vec<Beat>,
     /// Times of the settled beats whose sound clipped, oldest first.
     clipped: Vec<f64>,
@@ -232,21 +218,6 @@ pub struct LiveAnalyzer {
 /// Good beats looked at for a step in their timing ([`beats::jumps`]) on
 /// each pass: enough for its typical intervals, and the beats around a
 /// step.
-/// The sound gathered read again with the template built from it
-/// ([`LiveAnalyzer::rebuild_template`]): a fresh analyzer and the sound
-/// it has still to read.
-#[derive(Debug, Clone)]
-struct Shadow {
-    live: LiveAnalyzer,
-    pending: Vec<f32>,
-    at: usize,
-}
-
-/// How much faster than it comes in the gathered sound is read again: 47 s
-/// is caught up in about 12 s, at most this many times a push's work in
-/// any one push, so the screen never waits on all of it at once.
-const CATCH_UP: usize = 4;
-
 const JUMP_LOOK: usize = 4 * beats::MIN_SIDE_BEATS + beats::JUMP_CONTEXT;
 
 /// How many candidate peaks [`LiveAnalyzer::candidates`] keeps: about four
@@ -266,10 +237,7 @@ impl LiveAnalyzer {
             next_pass: 0,
             settled_to: 0.0,
             template: None,
-            gather: None,
-            rebuilt: false,
-            template_switch_s: None,
-            shadow: None,
+            rebuild: Default::default(),
             beats: Vec::new(),
             clipped: Vec::new(),
             amp: Vec::new(),
@@ -367,9 +335,7 @@ impl LiveAnalyzer {
     /// arrive and a shorter one applies on the next pass.
     pub fn set_profile_span(&mut self, seconds: f64) {
         self.cfg.profile_s = seconds;
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_profile_span(seconds);
-        }
+        self.in_shadow(|l| l.set_profile_span(seconds));
     }
 
     fn profile_span(&self) -> f64 {
@@ -417,7 +383,6 @@ impl LiveAnalyzer {
     pub fn restart(&mut self) {
         self.template = None;
         self.forget_rebuild();
-        self.template_switch_s = None;
         self.bph = self.cfg.analysis.bph;
         self.found_bph = false;
         self.logged_bph = self.bph;
@@ -561,9 +526,7 @@ impl LiveAnalyzer {
     pub fn set_masked(&mut self, spans: &[(f64, f64)]) {
         let pairs: Vec<[f64; 2]> = spans.iter().map(|&(a, b)| [a, b]).collect();
         self.masked = crate::session::masked_spans(&pairs);
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_masked(spans);
-        }
+        self.in_shadow(|l| l.set_masked(spans));
     }
 
     /// Move the audio clock on by `seconds` with no audio, for a pause in
@@ -600,9 +563,9 @@ impl LiveAnalyzer {
                 self.restart();
                 return false;
             }
-            if let Some(sh) = &mut self.shadow {
-                sh.live.set_bph(bph);
-            }
+            self.in_shadow(|l| {
+                l.set_bph(bph);
+            });
         }
         heard
     }
@@ -612,9 +575,7 @@ impl LiveAnalyzer {
     pub fn set_known(&mut self, lift_known: bool, clock_known: bool) {
         self.cfg.analysis.lift_known = lift_known;
         self.clock_known = clock_known;
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_known(lift_known, clock_known);
-        }
+        self.in_shadow(|l| l.set_known(lift_known, clock_known));
     }
 
     /// Correct the rates read on the recording's own clock, `clock` (its
@@ -636,9 +597,7 @@ impl LiveAnalyzer {
             (None, None) => {}
             _ => self.rate_clock = clock.cloned(),
         }
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_rate_clock(clock);
-        }
+        self.in_shadow(|l| l.set_rate_clock(clock));
     }
 
     /// A clock's error over audio `from..to`, ppm fast: its mapping's
@@ -665,17 +624,13 @@ impl LiveAnalyzer {
             }
             self.cfg.analysis.amplitude.lift_deg = lift_deg;
         }
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_lift(lift_deg);
-        }
+        self.in_shadow(|l| l.set_lift(lift_deg));
     }
 
     /// Keep up to `n` beats from now on, the oldest dropped beyond them.
     pub fn set_max_beats(&mut self, n: usize) {
         self.cfg.max_beats = n;
-        if let Some(sh) = &mut self.shadow {
-            sh.live.set_max_beats(n);
-        }
+        self.in_shadow(|l| l.set_max_beats(n));
     }
 
     /// The sound as it came in, from `from_s` for `len_s` seconds, while it
@@ -696,165 +651,20 @@ impl LiveAnalyzer {
     pub fn push(&mut self, samples: &[f32]) -> bool {
         self.buf.extend_from_slice(samples);
         self.total += samples.len() as u64;
-        if let Some((_, g)) = &mut self.gather {
-            g.extend_from_slice(samples);
-        }
-        if let Some(sh) = &mut self.shadow {
-            sh.pending.extend_from_slice(samples);
-        }
         let keep = (self.cfg.window_s * self.fs).ceil() as usize;
         let mut ran = false;
         if self.total >= self.next_pass {
             self.pass();
             self.next_pass = self.total + (self.cfg.update_s * self.fs).round().max(1.0) as u64;
             ran = true;
-            self.rebuild_template();
         }
-        if self.shadow.is_some() {
-            self.catch_up(samples.len());
-            ran = true;
-        }
+        ran |= self.rebuild_after_push(samples, ran);
         if self.buf.len() > 2 * keep {
             let cut = self.buf.len() - keep;
             self.buf.drain(..cut);
             self.buf0 += cut as u64;
         }
         ran
-    }
-
-    /// When the template was built again from a file's first chunk of
-    /// sound and the sound read again with it (#1327), seconds; None until
-    /// then.
-    pub fn template_switch_s(&self) -> Option<f64> {
-        self.template_switch_s
-    }
-
-    /// Whether sound is being gathered to build the template again.
-    pub fn gathering(&self) -> bool {
-        self.gather.is_some() || self.shadow.is_some()
-    }
-
-    fn forget_rebuild(&mut self) {
-        self.gather = None;
-        self.shadow = None;
-        self.rebuilt = false;
-    }
-
-    /// Stop building the template again: what the caller changed (a new
-    /// stretch, a pause, its own breaks) has no place in the sound
-    /// gathered. The template stays as first built.
-    fn give_up_rebuild(&mut self) {
-        self.gather = None;
-        self.shadow = None;
-        self.rebuilt = true;
-    }
-
-    /// Gathers the sound from the window the watch was first heard in
-    /// until it holds a file's first chunk, then builds the template again
-    /// from it as a file's reading does ([`crate::stream::first_beats_in`])
-    /// and reads that sound again with it ([`Self::reread`]), so live and
-    /// a file read the beats with the same template from the start, with
-    /// no cut between two (#1327). The sound gathered is let go. Only a
-    /// watch first heard with no beats yet: one heard again after a long
-    /// silence keeps its template, as a file's reading keeps its first.
-    fn rebuild_template(&mut self) {
-        let Some(bph) = self
-            .bph
-            .filter(|_| self.template.is_some() && !self.rebuilt)
-        else {
-            return;
-        };
-        if self.gather.is_none() {
-            let win = ((self.cfg.window_s * self.fs).ceil() as usize).min(self.buf.len());
-            let from = self.buf.len() - win;
-            let g0 = self.buf0 + from as u64;
-            if self
-                .beats
-                .first()
-                .is_some_and(|b| b.time < g0 as f64 / self.fs)
-            {
-                self.rebuilt = true;
-                return;
-            }
-            self.gather = Some((g0, self.buf[from..].to_vec()));
-        }
-        let chunk = (crate::stream::StreamConfig::default().chunk_s * self.fs).round() as usize;
-        if self.gather.as_ref().is_some_and(|(_, g)| g.len() < chunk) {
-            return;
-        }
-        let Some((g0, g)) = self.gather.take() else {
-            return;
-        };
-        self.rebuilt = true;
-        let a = &self.cfg.analysis;
-        let env = envelope(&g[..chunk], self.fs, &a.envelope);
-        let Some(t) = crate::stream::first_beats_in(&env, self.fs, Some(bph), a.amplitude_window_s)
-            .and_then(|f| f.template)
-        else {
-            return;
-        };
-        drop(env);
-        self.reread(g0, g, t);
-    }
-
-    /// Starts reading the sound `g`, from sample `g0` to now, again with
-    /// `template` from a fresh start, as a file reads its first chunk: a
-    /// copy of this analyzer as it was at `g0`, with the masks kept, finds
-    /// the beats, amplitude windows, profiles and cuts since `g0` again
-    /// through the same passes ([`Self::catch_up`]).
-    fn reread(&mut self, g0: u64, g: Vec<f32>, template: Vec<f32>) {
-        let mut l = self.clone();
-        let since = g0 as f64 / self.fs;
-        let before = |v: &[f64]| -> Vec<f64> { v.iter().copied().filter(|&t| t < since).collect() };
-        let (breaks, jumps, by_count) = (
-            before(&self.breaks),
-            before(&self.intrinsic_breaks),
-            before(&self.by_count),
-        );
-        l.restart();
-        (l.breaks, l.intrinsic_breaks, l.by_count) = (breaks, jumps, by_count);
-        (l.bph, l.found_bph, l.logged_bph) = (self.bph, self.found_bph, self.logged_bph);
-        l.template = Some(template);
-        l.rebuilt = true;
-        l.buf.clear();
-        (l.buf0, l.total, l.next_pass) = (g0, g0, g0);
-        l.settled_to = since;
-        self.shadow = Some(Box::new(Shadow {
-            live: l,
-            pending: g,
-            at: 0,
-        }));
-        self.catch_up(0);
-    }
-
-    /// Reads up to [`CATCH_UP`] times `n` samples more of the sound being
-    /// read again, and once it has caught up, takes its reading over: the
-    /// first chunk's readings change once, then.
-    fn catch_up(&mut self, n: usize) {
-        let Some(sh) = self.shadow.as_mut() else {
-            return;
-        };
-        let step = (self.cfg.update_s * self.fs).round().max(1.0) as usize;
-        let to = (sh.at + CATCH_UP * n).min(sh.pending.len());
-        while sh.at < to {
-            let end = (sh.at + step).min(to);
-            sh.live.push(&sh.pending[sh.at..end]);
-            sh.at = end;
-        }
-        if sh.at < sh.pending.len() {
-            // Let go of what has been read, now and then.
-            if sh.at > sh.pending.len() / 2 {
-                sh.pending.drain(..sh.at);
-                sh.at = 0;
-            }
-            return;
-        }
-        let Some(sh) = self.shadow.take() else {
-            return;
-        };
-        let mut l = sh.live;
-        l.template_switch_s = Some(self.duration_s());
-        *self = l;
     }
 
     fn pass(&mut self) {
@@ -1671,6 +1481,8 @@ fn judged_s(fitted: bool, end_s: f64, window_from: f64, heard_since: f64, holes:
         (end_s - window_from.max(heard_since)).max(0.0)
     }
 }
+
+mod rebuild;
 
 #[cfg(test)]
 mod jump_tests;
