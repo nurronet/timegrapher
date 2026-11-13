@@ -97,7 +97,7 @@ impl TimegrapherApp {
             .and_then(|f| match f.wind_h {
                 Some(_) => Err(
                     "this file holds a test run 24 hours after winding. Load the full-wind \
-                     test's results instead"
+                     test's results instead."
                         .into(),
                 ),
                 None => Ok(f),
