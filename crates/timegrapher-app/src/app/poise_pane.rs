@@ -327,7 +327,9 @@ fn poise_body(
                                 table(ui);
                             });
                             ui.add_space(GAP);
-                            ui.vertical(|ui| picture(ui));
+                            ui.vertical(|ui| {
+                                picture(ui);
+                            });
                         });
                     } else {
                         table(ui);
