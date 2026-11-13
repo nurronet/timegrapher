@@ -1619,6 +1619,9 @@ mod tests {
         ]);
         w.rate_only_to_s = Some(226_650.0 + 899.0);
         assert_eq!(walk_view(&w).unwrap().rate_only_text, None);
+        // From exactly WALK_RATE_ONLY_S past the last point.
+        w.rate_only_to_s = Some(226_650.0 + WALK_RATE_ONLY_S);
+        assert!(walk_view(&w).unwrap().rate_only_text.is_some());
         w.rate_only_to_s = Some(234_000.0);
         let v = walk_view(&w).unwrap();
         assert_eq!(
@@ -1628,9 +1631,22 @@ mod tests {
         assert_eq!(v.last_text, "63 h");
         assert_eq!(v.thin_key, None);
         w.points[0].thin = true;
-        assert_eq!(
-            walk_view(&w).unwrap().thin_key.as_deref(),
-            Some("Thin: under 60% read")
+        (w.points[0].rate_slots, w.points[0].amp_slots) = (30, 150);
+        (w.points[0].readings, w.points[0].amp_windows) = (9, 45);
+        let v = walk_view(&w).unwrap();
+        assert_eq!(v.thin_key.as_deref(), Some("Thin: under 60% read"));
+        // A thin dot's hover gives its counts; a plain one's does not.
+        assert!(
+            v.dots[0]
+                .hover
+                .ends_with(" · read from 9 of 30 rate readings and 45 of 150 amplitude windows"),
+            "{}",
+            v.dots[0].hover
+        );
+        assert!(
+            !v.dots[1].hover.contains("read from"),
+            "{}",
+            v.dots[1].hover
         );
     }
 

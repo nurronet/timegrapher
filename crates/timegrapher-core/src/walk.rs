@@ -350,6 +350,11 @@ mod tests {
         assert_eq!(w.points.last().unwrap().t_s, 2250.0);
         assert_eq!(w.rate_only_to_s, Some(3300.0));
         assert_eq!(merged(&w, 4).rate_only_to_s, Some(3300.0));
+        // A bin whose amplitude is withheld before the last point only is
+        // not past it.
+        let (rate, mut amp) = run_down(1.0);
+        thin_bin(&mut amp.y, 150, 3, 0);
+        assert_eq!(walk(&rate, &amp, 0.0).unwrap().rate_only_to_s, None);
         // Read to the end, there is nothing past it.
         let (rate, amp) = run_down(1.0);
         assert_eq!(walk(&rate, &amp, 0.0).unwrap().rate_only_to_s, None);
@@ -405,6 +410,34 @@ mod tests {
             (13, 3700.0, 20, 100)
         );
         assert_eq!(w.points[11].t_s, 3450.0);
+        assert_eq!(
+            (last.rate_slots, last.amp_slots, last.thin),
+            (20, 100, false)
+        );
+    }
+
+    /// A short last bin is judged on its own slots, not a full bin's: 14
+    /// of its 20 readings and 70 of its 100 windows (70%) are plain,
+    /// where against a full bin's 30 and 150 (47%) they would be thin.
+    #[test]
+    fn a_last_bin_cut_short_is_judged_on_its_own_slots() {
+        let (mut rate, mut amp) = run_down(1.0);
+        rate.y
+            .extend((0..20).map(|i| if i < 14 { 0.0 } else { f64::NAN }));
+        amp.y
+            .extend((0..100).map(|i| if i < 70 { 200.0 } else { f64::NAN }));
+        let last = walk(&rate, &amp, 0.0).unwrap().points.pop().unwrap();
+        assert_eq!(
+            (
+                last.t_s,
+                last.readings,
+                last.rate_slots,
+                last.amp_windows,
+                last.amp_slots
+            ),
+            (3700.0, 14, 20, 70, 100)
+        );
+        assert!(!last.thin);
     }
 
     #[test]
