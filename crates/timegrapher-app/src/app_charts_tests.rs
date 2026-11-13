@@ -388,10 +388,9 @@ fn time_labels(text: &str) -> Vec<f64> {
         .collect()
 }
 
-/// The values box writes a point to the decimals its card does (Walter's
-/// walk of #1057, #1063): an amplitude of 269.5° with a ± of 0.3° reads
-/// 269.5, not 270; with no ± it takes the base decimals; a rate keeps
-/// its sign and a true minus.
+/// The values box writes a point as its card does (Walter's walk of
+/// #1057, #1063): at the figure's place, with a ± or without (#1470); a
+/// rate keeps its sign and a true minus.
 #[test]
 fn the_values_box_writes_figures_as_the_cards_do() {
     use super::charts::line_value;
@@ -413,12 +412,13 @@ fn the_values_box_writes_figures_as_the_cards_do() {
     let amp: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, 269.46]).collect();
     let se: fn(&TrendPoint) -> Option<f64> = |p| p.amplitude_error_deg;
     let at = |x| line_value(&amp, se, (x, &trend), base_digits::AMPLITUDE, false);
-    assert_eq!(at(1.0).as_deref(), Some("269.5"));
+    // At the amplitude's place, 1°, with a ± or without (#1470).
+    assert_eq!(at(1.0).as_deref(), Some("269"));
     assert_eq!(at(9.0).as_deref(), Some("269"));
     let rate: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, -1.234]).collect();
     let se: fn(&TrendPoint) -> Option<f64> = |p| p.rate_error_s_per_day;
     let r = line_value(&rate, se, (0.0, &trend), base_digits::RATE, true);
-    assert_eq!(r.as_deref(), Some("\u{2212}1.23"));
+    assert_eq!(r.as_deref(), Some("\u{2212}1.2"));
 }
 
 /// The pointer over a chart reads every chart's lines in their lanes

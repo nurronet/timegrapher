@@ -15,8 +15,8 @@ pub fn values(m: &Value, rate: Option<f64>, drop_ms: Option<f64>) -> [Option<f64
 
 /// One reading's figures, each with its own standard error. Units follow
 /// the math and design guides: s/d, degrees as °, and ms. Each figure is
-/// written to its ±'s decimals, never fewer than its base
-/// ([`crate::figure_text::figure_digits`], #510 K3). Missing figures are
+/// written at its place, its ± rounded up there
+/// ([`crate::figure_text::figure_digits`], #1470). Missing figures are
 /// omitted; an entirely empty reading gives no line.
 pub fn figures(m: &Value, [rate, amplitude, beat_error]: [Option<f64>; 3]) -> Option<String> {
     use crate::figure_text::{base_digits as base, figure_digits, pm_text, signed_text};

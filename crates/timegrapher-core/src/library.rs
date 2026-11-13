@@ -888,11 +888,9 @@ pub fn length_text(t: f64) -> String {
 }
 
 // A figure's text (`signed_text`, `fixed_text`, `pm_text`) and its
-// decimals (`figure_digits`, #510 K3) live in `figure_text`; these paths
+// place (`figure_digits`, #1470) live in `figure_text`; these paths
 // stay for every caller.
-pub use crate::figure_text::{
-    base_digits, figure_digits, fixed_text, pm_text, signed_text, MAX_DIGITS,
-};
+pub use crate::figure_text::{base_digits, figure_digits, fixed_text, pm_text, signed_text};
 
 /// A size on disk as the app shows it: `7.7 GB`, `58.3 MB`, `912 kB`,
 /// `40 bytes`.
