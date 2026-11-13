@@ -1081,3 +1081,52 @@ fn negative_axis_numbers_carry_a_true_minus() {
         assert!(hyphen.is_none(), "{name}: {hyphen:?} in {all:?}");
     }
 }
+
+/// The Charts pane's last chart keeps its time labels inside the pane,
+/// with all three charts on, at the guide figure's size and shorter
+/// (#1436): `stacked` counts each gap's layout spacing (#1528).
+#[test]
+fn the_last_charts_time_labels_stay_inside_the_pane() {
+    let mut app = synthetic(300.0, 5.0);
+    app.chart_series = [true; 3];
+    let ctx = themed();
+    fn bottoms(shape: &egui::Shape, into: &mut Vec<(f32, String)>) {
+        match shape {
+            egui::Shape::Text(t) => into.push((
+                shape.visual_bounding_rect().bottom(),
+                t.galley.text().to_string(),
+            )),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| bottoms(s, into)),
+            _ => {}
+        }
+    }
+    for (w, h) in [
+        (1800.0, 1000.0),
+        (900.0, 450.0),
+        (1280.0, 700.0),
+        (900.0, 300.0),
+    ] {
+        let (mut texts, mut inner) = (Vec::new(), 0.0);
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, h))),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    inner = ui.max_rect().bottom();
+                    app.charts_pane(ui);
+                });
+            });
+            texts.clear();
+            out.shapes
+                .iter()
+                .for_each(|c| bottoms(&c.shape, &mut texts));
+        }
+        assert_eq!(app.charts_drawn, [true; 3], "{w}x{h}");
+        let lowest = texts.iter().max_by(|a, b| a.0.total_cmp(&b.0)).unwrap();
+        // The lowest text is a time label, and it ends inside the pane.
+        assert!(lowest.1.contains(':'), "{w}x{h}: lowest text {lowest:?}");
+        assert!(lowest.0 <= inner + 0.5, "{w}x{h}: {lowest:?} below {inner}");
+    }
+}
