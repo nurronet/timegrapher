@@ -29,6 +29,24 @@ pub const MIN_WINDOW_COVERAGE: f64 = 0.6;
 /// 60% rule, math-standards.md section 7.
 pub const MIN_WINDOW_SHARE: f64 = 0.1;
 
+/// Whether the share `k2` of `n2` differs from the share `k1` of `n1` by
+/// more than 2 standard errors of the difference: `Some(true)` when it is
+/// higher, `Some(false)` when lower, `None` within. The standard error is
+/// from the pooled share as Agresti and Coull adjust it,
+/// (k1 + k2 + 2) / (n1 + n2 + 4), so a share near 0 or 1 never has a
+/// standard error of 0. One test for every "does one read keep more than
+/// the other" choice: a second read's kept beats (#1423), live's rebuilt
+/// template's both-sided windows (#1500).
+pub fn share_differs(k1: f64, n1: f64, k2: f64, n2: f64) -> Option<bool> {
+    if n1 <= 0.0 || n2 <= 0.0 {
+        return None;
+    }
+    let p = (k1 + k2 + 2.0) / (n1 + n2 + 4.0);
+    let se = (p * (1.0 - p) * (1.0 / n1 + 1.0 / n2)).sqrt();
+    let diff = k2 / n2 - k1 / n1;
+    (diff.abs() > 2.0 * se).then_some(diff > 0.0)
+}
+
 /// Whether `used` windows of the `in_span` nominal kept windows are too
 /// few to give a window figure: fewer than [`MIN_WINDOW_SHARE`] of them.
 /// The share alone: [`MIN_VALUES`] is the floor for a ±, not for a
@@ -1081,6 +1099,20 @@ mod window_floor_tests {
         assert!(!too_few_windows(1, 10));
         assert!(too_few_windows(2, 30));
         assert!(!too_few_windows(3, 30));
+    }
+
+    /// Run 11 of #1500's walks: the rebuilt template read both sides in 1
+    /// window in 11 where the lock's read 7 in 10, lower by 0.61 against
+    /// 2 SE of 0.43. Shares a few windows apart are within.
+    #[test]
+    fn share_differs_by_two_standard_errors() {
+        assert_eq!(share_differs(7.0, 10.0, 1.0, 11.0), Some(false));
+        assert_eq!(share_differs(1.0, 11.0, 7.0, 10.0), Some(true));
+        assert_eq!(share_differs(7.0, 10.0, 5.0, 11.0), None);
+        assert_eq!(share_differs(30.0, 30.0, 27.0, 30.0), None);
+        // Every one against none, with few: still clear.
+        assert_eq!(share_differs(10.0, 10.0, 0.0, 10.0), Some(false));
+        assert_eq!(share_differs(5.0, 10.0, 0.0, 0.0), None);
     }
 }
 
