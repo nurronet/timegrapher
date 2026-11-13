@@ -777,7 +777,8 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
 }
 
 /// The mean ring's name, on the slowest point's bearing (Hugh, #1499);
-/// half a stop round from it when a point would sit under it.
+/// half a stop round, one way or the other, when a point would sit under
+/// any part of it.
 fn mean_name(
     painter: &egui::Painter,
     dial: &Dial,
@@ -785,78 +786,40 @@ fn mean_name(
     pic: &Picture<'_>,
     pal: &theme::Palette,
 ) {
-    let at = |deg: f64| dial.at(deg, dial.radius(m));
-    let covers = |deg: f64| {
-        pic.points
-            .iter()
-            .any(|&(d, r, _)| dial.at(d, dial.radius(r)).distance(at(deg)) < LABEL_H)
-    };
-    let deg = if covers(bearing) {
-        between(bearing)
-    } else {
-        bearing
-    };
-    backed(painter, at(deg), egui::Align2::CENTER_CENTER, name, pal);
+    let size = painter
+        .layout_no_wrap(name.to_string(), egui::FontId::proportional(11.0), pal.text)
+        .size();
+    let deg = mean_name_bearing(dial, (bearing, m, size), &pic.points);
+    backed(
+        painter,
+        dial.at(deg, dial.radius(m)),
+        egui::Align2::CENTER_CENTER,
+        name,
+        pal,
+    );
 }
 
-/// The dial's rings at the scale's round rates, with their numbers, and
-/// a spoke and name for each upright hour.
-/// `numbers`: the bearing the rings' rates go on, and the mean ring's
-/// radius, whose name goes there too, so a rate that would sit on it is
-/// left out.
-fn dial_grid(
-    painter: &egui::Painter,
+/// Where the mean ring's name of `size` goes: the first of the slowest
+/// `bearing` and half a stop either side of it whose whole box, backing
+/// and a dot's radius round it, holds no point (Walter, #1499).
+fn mean_name_bearing(
     dial: &Dial,
-    pal: &theme::Palette,
-    numbers: Option<(f64, Option<f32>)>,
-) {
-    let small = egui::FontId::proportional(11.0);
-    let grid = egui::Stroke::new(1.0_f32, pal.separator);
-    let (lo, hi, step) = dial.scale;
-    let n = ((hi - lo) / step).round() as i64;
-    for k in 0..=n {
-        let v = lo + k as f64 * step;
-        let r = dial.radius(v);
-        painter.circle_stroke(dial.centre, r, grid);
-        let Some((bearing, mean_r)) = numbers else {
-            continue;
-        };
-        if mean_r.is_some_and(|m| (m - r).abs() < LABEL_H) {
-            continue;
-        }
-        // Each ring's rate on the slowest point's bearing, inside the
-        // wave, on the pane's background (Hugh, #1499).
-        backed(
-            painter,
-            dial.at(bearing, r),
-            egui::Align2::CENTER_CENTER,
-            &chart_scale::axis_number(v, step),
-            pal,
-        );
-    }
-    let (n_hours, hour_step) = hours();
-    for i in 0..n_hours {
-        let deg = i as f64 * hour_step;
-        let half = i % 2 == 1;
-        let ink = if half {
-            pal.text_tertiary
-        } else {
-            pal.text_secondary
-        };
-        let spoke = [dial.centre, dial.at(deg, dial.outer)];
-        if half {
-            painter.extend(egui::Shape::dashed_line(&spoke, grid, 2.0, 3.0));
-        } else {
-            painter.line_segment(spoke, grid);
-        }
-        painter.text(
-            dial.at(deg, dial.outer + 14.0),
-            egui::Align2::CENTER_CENTER,
-            poise::hour_code(deg),
-            small.clone(),
-            ink,
-        );
-    }
+    (bearing, m, size): (f64, f64, Vec2),
+    points: &[(f64, f64, Option<f64>)],
+) -> f64 {
+    let half = hours().1 / 2.0;
+    let clear = |deg: f64| {
+        let label = egui::Align2::CENTER_CENTER
+            .anchor_size(dial.at(deg, dial.radius(m)), size)
+            .expand(BACKING + DOT_R);
+        !points
+            .iter()
+            .any(|&(d, r, _)| label.contains(dial.at(d, dial.radius(r))))
+    };
+    [bearing, bearing + half, bearing - half]
+        .into_iter()
+        .find(|&d| clear(d))
+        .unwrap_or(bearing + half)
 }
 
 /// Core's fit round the dial: the mean as a dotted ring, the wave in
@@ -937,4 +900,102 @@ fn point(painter: &egui::Painter, p: egui::Pos2, half: Option<f32>, pal: &theme:
         pal.trace_rate,
         egui::Stroke::new(1.5_f32, pal.card),
     );
+}
+
+/// The dial's rings at the scale's round rates, with their numbers, and
+/// a spoke and name for each upright hour.
+/// `numbers`: the bearing the rings' rates go on, and the mean ring's
+/// radius, whose name goes there too, so a rate that would sit on it is
+/// left out.
+fn dial_grid(
+    painter: &egui::Painter,
+    dial: &Dial,
+    pal: &theme::Palette,
+    numbers: Option<(f64, Option<f32>)>,
+) {
+    let small = egui::FontId::proportional(11.0);
+    let grid = egui::Stroke::new(1.0_f32, pal.separator);
+    let (lo, hi, step) = dial.scale;
+    let n = ((hi - lo) / step).round() as i64;
+    for k in 0..=n {
+        let v = lo + k as f64 * step;
+        let r = dial.radius(v);
+        painter.circle_stroke(dial.centre, r, grid);
+        let Some((bearing, mean_r)) = numbers else {
+            continue;
+        };
+        if mean_r.is_some_and(|m| (m - r).abs() < LABEL_H) {
+            continue;
+        }
+        // Each ring's rate on the slowest point's bearing, inside the
+        // wave, on the pane's background (Hugh, #1499).
+        backed(
+            painter,
+            dial.at(bearing, r),
+            egui::Align2::CENTER_CENTER,
+            &chart_scale::axis_number(v, step),
+            pal,
+        );
+    }
+    let (n_hours, hour_step) = hours();
+    for i in 0..n_hours {
+        let deg = i as f64 * hour_step;
+        let half = i % 2 == 1;
+        let ink = if half {
+            pal.text_tertiary
+        } else {
+            pal.text_secondary
+        };
+        let spoke = [dial.centre, dial.at(deg, dial.outer)];
+        if half {
+            painter.extend(egui::Shape::dashed_line(&spoke, grid, 2.0, 3.0));
+        } else {
+            painter.line_segment(spoke, grid);
+        }
+        painter.text(
+            dial.at(deg, dial.outer + 14.0),
+            egui::Align2::CENTER_CENTER,
+            poise::hour_code(deg),
+            small.clone(),
+            ink,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A point under the name's end, not its centre, moves the name off
+    /// its bearing: Walter's ETA 2824 run, where "Mean +11.2" on the 6H
+    /// spoke covered the 6H point at +10.8.
+    #[test]
+    fn the_mean_name_keeps_off_a_point_under_any_part_of_it() {
+        let dial = Dial {
+            centre: egui::pos2(300.0, 300.0),
+            inner: 30.0,
+            outer: 200.0,
+            scale: (0.0, 20.0, 5.0),
+        };
+        let size = Vec2::new(60.0, 13.0);
+        let (bearing, mean) = (180.0, 11.2);
+        // Clear of the name: it stays on the bearing.
+        let far = [(0.0, 11.2, None)];
+        assert_eq!(
+            mean_name_bearing(&dial, (bearing, mean, size), &far),
+            bearing
+        );
+        // At 6H, 0.4 s/d in: 3.4 pt from the name's centre along the
+        // spoke, under it. And beside the spoke, under the name's end
+        // but 20 pt from its centre, past the old test's reach.
+        let at = dial.at(bearing, dial.radius(mean)) + Vec2::new(20.0, 0.0);
+        let r_end = dial.centre.distance(at);
+        let deg_end = f64::from((at - dial.centre).angle().to_degrees() + 90.0);
+        let rate_end = (f64::from(r_end - dial.inner) / f64::from(dial.outer - dial.inner)) * 20.0;
+        for under in [(180.0, 10.8, None), (deg_end, rate_end, None)] {
+            let moved = mean_name_bearing(&dial, (bearing, mean, size), &[under]);
+            assert_ne!(moved, bearing, "{under:?}");
+            assert_eq!((moved - bearing).abs(), hours().1 / 2.0);
+        }
+    }
 }
