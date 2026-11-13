@@ -195,12 +195,14 @@ type SideAt = (Option<f64>, Option<[f64; 2]>, Option<[f64; 2]>);
 /// were found is read again with [`side_deg`] and gated at the new lift,
 /// both ways, so a side the old lift culled can come back and one the
 /// new lift puts out of range goes (#1333). A side left out as an
-/// outlier ([`reject_side_outliers`]: edges kept, no amplitude) stays
-/// out. The unlock beat error follows the sides that pass the gate. A
+/// outlier ([`reject_side_outliers`]: edges kept, no amplitude) is read
+/// again too: the caller screens the log for outliers afresh, as a read
+/// at that lift would ([`crate::take::kept_at_lift`]). The unlock beat
+/// error follows the sides that pass the gate. A
 /// side with an amplitude but no edges kept (a made-up window) is scaled
 /// by the lifts' ratio and gated the same way.
 pub fn at_lift(w: &mut AmplitudeWindow, osc_period_s: f64, from_lift: f64, to_lift: f64) {
-    // Each side: (edges, kept before, outlier), then its new state.
+    // Each side: (kept edges, culled edges, amplitude), then its new state.
     let sides = [
         (
             w.even_unlock_ms.zip(w.even_drop_ms),
@@ -212,14 +214,13 @@ pub fn at_lift(w: &mut AmplitudeWindow, osc_period_s: f64, from_lift: f64, to_li
     let mut new: [SideAt; 2] = [(None, None, None); 2];
     let mut changed = false;
     for (k, (kept, culled, deg)) in sides.into_iter().enumerate() {
-        let outlier = kept.is_some() && deg.is_none();
         let Some([u, d]) = kept.map(|(u, d)| [u, d]).or(culled) else {
             let a = deg.map(|a| a * to_lift / from_lift);
             new[k].0 = a.filter(|a| (MIN_AMPLITUDE_DEG..=MAX_AMPLITUDE_DEG).contains(a));
             continue;
         };
         new[k] = match side_deg((d - u) / 1000.0, osc_period_s, to_lift) {
-            Some(a) => ((!outlier).then_some(a), Some([u, d]), None),
+            Some(a) => (Some(a), Some([u, d]), None),
             None => (None, None, Some([u, d])),
         };
         changed |= new[k].1.is_some() != kept.is_some();
@@ -237,6 +238,18 @@ pub fn at_lift(w: &mut AmplitudeWindow, osc_period_s: f64, from_lift: f64, to_li
             _ => None,
         };
     }
+}
+
+/// `wins`, read at `from_lift`, as read at `to_lift`: each window read
+/// again at the new lift ([`at_lift`]), then screened for lone
+/// wrong-sound sides once over them ([`reject_side_outliers`]), as a read
+/// at that lift is. The one lift change, for a kept take
+/// ([`crate::take::kept_at_lift`]) and for live (#1333).
+pub fn relift(wins: &mut [AmplitudeWindow], osc_period_s: f64, from_lift: f64, to_lift: f64) {
+    for w in wins.iter_mut() {
+        at_lift(w, osc_period_s, from_lift, to_lift);
+    }
+    reject_side_outliers(wins, OUTLIER_SPAN_S);
 }
 
 /// Seconds before the drop a template must start for sound 1 to be found
@@ -765,11 +778,34 @@ mod tests {
         assert_eq!(back.culled(), w.culled());
     }
 
-    /// A side left out as an outlier keeps its edges and no amplitude: a
-    /// new lift doesn't bring it back. A made-up window with no edges is
-    /// scaled by the lifts' ratio and gated.
+    /// Swapping Tick and Tock swaps their culled edges too.
     #[test]
-    fn an_outlier_side_stays_out_at_a_new_lift() {
+    fn swapping_sides_swaps_the_culled_edges() {
+        let mut w = AmplitudeWindow {
+            start_s: 0.0,
+            end_s: 2.0,
+            even_deg: None,
+            odd_deg: Some(300.0),
+            beat_error_ms: None,
+            beat_error_unlock_ms: None,
+            even_unlock_ms: None,
+            odd_unlock_ms: Some(-7.0),
+            even_drop_ms: None,
+            odd_drop_ms: Some(0.0),
+            culled_ms: None,
+        };
+        w.set_culled([Some([-5.0, 0.0]), None]);
+        w.swap_sides();
+        assert_eq!(w.culled(), [None, Some([-5.0, 0.0])]);
+        assert_eq!(w.even_unlock_ms, Some(-7.0));
+    }
+
+    /// A side left out as an outlier keeps its edges and no amplitude: a
+    /// new lift reads it again, for the log to be screened afresh. A
+    /// made-up window with no edges is scaled by the lifts' ratio and
+    /// gated.
+    #[test]
+    fn an_outlier_side_is_read_again_at_a_new_lift() {
         let mut w = AmplitudeWindow {
             start_s: 0.0,
             end_s: 2.0,
@@ -784,7 +820,9 @@ mod tests {
             culled_ms: None,
         };
         at_lift(&mut w, 0.25, 52.0, 56.0);
-        assert_eq!(w.even_deg, None);
+        let again = side_deg(0.007, 0.25, 56.0);
+        assert!(again.is_some());
+        assert_eq!(w.even_deg, again);
         assert_eq!(w.even_unlock_ms, Some(-7.0));
         assert!((w.odd_deg.unwrap() - 300.0 * 56.0 / 52.0).abs() < 1e-9);
         assert_eq!(w.beat_error_unlock_ms, Some(0.3), "no side changed state");

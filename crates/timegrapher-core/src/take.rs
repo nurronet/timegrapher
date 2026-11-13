@@ -610,14 +610,14 @@ pub fn sound_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
 /// reading uses, where the analysis was kept at another: each window's
 /// sides are read again from their edges at the new lift and gated there
 /// ([`crate::amplitude::at_lift`]), so a side the kept lift culled can
-/// come back (#1333).
+/// come back (#1333), then screened for lone wrong-sound sides once over
+/// the log ([`crate::amplitude::reject_side_outliers`]), as a read at
+/// that lift is.
 pub fn kept_at_lift(log: &BeatLog, lift_deg: f64) -> BeatLog {
     let mut log = log.clone();
     if lift_deg > 0.0 && log.lift_deg > 0.0 && lift_deg != log.lift_deg && log.bph > 0 {
         let osc = 7200.0 / log.bph as f64;
-        for w in &mut log.amplitude_windows {
-            crate::amplitude::at_lift(w, osc, log.lift_deg, lift_deg);
-        }
+        crate::amplitude::relift(&mut log.amplitude_windows, osc, log.lift_deg, lift_deg);
         log.lift_deg = lift_deg;
     }
     log
@@ -2036,6 +2036,54 @@ mod tests {
             same.amplitude_windows[0].even_deg,
             kept.amplitude_windows[0].even_deg
         );
+    }
+
+    /// A side culled at the kept lift that passes at the new one is
+    /// screened with the rest, as a read at that lift screens it: a lone
+    /// wrong-sound side stays out (#1333, Norm).
+    #[test]
+    fn a_side_read_again_at_a_new_lift_is_screened_for_outliers() {
+        let w = |i: usize| {
+            let mut w = crate::amplitude::AmplitudeWindow {
+                start_s: 2.0 * i as f64,
+                end_s: 2.0 * i as f64 + 2.0,
+                even_deg: Some(318.7),
+                odd_deg: Some(345.2),
+                beat_error_ms: Some(0.1),
+                beat_error_unlock_ms: None,
+                even_unlock_ms: Some(-6.5),
+                odd_unlock_ms: Some(-6.0),
+                even_drop_ms: Some(0.0),
+                odd_drop_ms: Some(0.0),
+                culled_ms: None,
+            };
+            if i == 10 {
+                // 398° at 52°, culled; 345° at 45° against its
+                // neighbours' 276°.
+                (w.even_deg, w.even_unlock_ms, w.even_drop_ms) = (None, None, None);
+                w.set_culled([Some([-5.2, 0.0]), None]);
+            }
+            w
+        };
+        let kept = BeatLog {
+            sample_rate: 48000,
+            duration_s: 40.0,
+            bph: 28800,
+            lift_deg: 52.0,
+            beats: Vec::new(),
+            amplitude_windows: (0..20).map(w).collect(),
+            clipped_beats: Vec::new(),
+            clipped_samples: 0,
+            jumps: Vec::new(),
+            sided: Vec::new(),
+            by_count: Vec::new(),
+            snippets: Vec::new(),
+        };
+        let read = kept_at_lift(&kept, 45.0);
+        let at10 = &read.amplitude_windows[10];
+        assert_eq!(at10.even_deg, None, "screened as a lone wrong sound");
+        assert_eq!(at10.even_unlock_ms, Some(-5.2), "its edges kept");
+        assert!(read.amplitude_windows[9].even_deg.is_some());
     }
 
     /// A take's own `card_ppm_fast` is its correction, said as given, before

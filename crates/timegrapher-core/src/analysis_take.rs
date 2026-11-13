@@ -847,9 +847,12 @@ fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
         .map_err(|e| invalid(format!("{DIR}/{BEATS}: {e}")))?;
     let mut windows =
         parse_windows(&text(WINDOWS)?).map_err(|e| invalid(format!("{DIR}/{WINDOWS}: {e}")))?;
-    if dir.join(CULLED).exists() {
-        parse_culled(&text(CULLED)?, &mut windows)
-            .map_err(|e| invalid(format!("{DIR}/{CULLED}: {e}")))?;
+    // Optional: only a missing file is read as none.
+    match std::fs::metadata(dir.join(CULLED)) {
+        Ok(_) => parse_culled(&text(CULLED)?, &mut windows)
+            .map_err(|e| invalid(format!("{DIR}/{CULLED}: {e}")))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(invalid(format!("{DIR}/{CULLED}: {e}"))),
     }
     let profiles = parse_profiles(&gunzip(PROFILES)?)
         .map_err(|e| invalid(format!("{DIR}/{PROFILES}: {e}")))?;
@@ -1102,6 +1105,9 @@ fn parse_culled(text: &str, windows: &mut [AmplitudeWindow]) -> Result<(), Strin
         };
         let i: usize = f[0].parse().map_err(|_| bad())?;
         let w = windows.get_mut(i).ok_or_else(bad)?;
+        if w.culled_ms.is_some() {
+            return Err(format!("window {i} is listed twice"));
+        }
         w.set_culled([side(f[1], f[2])?, side(f[3], f[4])?]);
     }
     Ok(())
@@ -2058,8 +2064,14 @@ mod tests {
             .amplitude_windows
             .iter()
             .all(|w| w.culled_ms.is_none()));
-        // A row with one edge of a side, or past the last window, is refused.
-        for row in ["1,-21.5,,,", "999,-21.5,0.25,,", "1,x,0.25,,"] {
+        // A row with one edge of a side, past the last window, or a window
+        // listed twice, is refused.
+        for row in [
+            "1,-21.5,,,",
+            "999,-21.5,0.25,,",
+            "1,x,0.25,,",
+            "1,-21.5,0.25,,\n1,,,-21.5,0.25",
+        ] {
             let text = format!("{CULLED_COLUMNS}\n{row}\n");
             fs::write(dir.join(DIR).join(CULLED), gzip(text.as_bytes()).unwrap()).unwrap();
             let e = read(&dir).map(|_| ()).unwrap_err().to_string();
