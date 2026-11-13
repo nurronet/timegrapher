@@ -148,6 +148,23 @@ impl SeriesKind {
         }
     }
 
+    /// The decimals this series' readings are written to (math guide
+    /// section 11).
+    pub fn digits(self) -> usize {
+        use crate::figure_text::base_digits;
+        match self {
+            SeriesKind::Rate => base_digits::RATE,
+            SeriesKind::Amplitude => base_digits::AMPLITUDE,
+            SeriesKind::BeatError => base_digits::BEAT_ERROR,
+        }
+    }
+    /// A value with this series' unit after it: "1.2 s/d", "270°".
+    fn with_unit(self, text: String) -> String {
+        match self {
+            SeriesKind::Amplitude => format!("{text}°"),
+            _ => format!("{text} {}", self.unit()),
+        }
+    }
     fn fmt(self, v: f64) -> String {
         match self {
             SeriesKind::Rate => format!("{v:+.1} s/d"),
@@ -155,12 +172,25 @@ impl SeriesKind {
             SeriesKind::BeatError => format!("{v:.2} ms"),
         }
     }
+    /// A within-take difference (a cycle's peak to peak), one place finer
+    /// than a reading ([`crate::figure_text::difference_digits`]).
     fn fmt_size(self, v: f64) -> String {
-        match self {
-            SeriesKind::Rate => format!("{v:.1} s/d"),
-            SeriesKind::Amplitude => format!("{v:.1}°"),
-            SeriesKind::BeatError => format!("{v:.2} ms"),
-        }
+        let d = crate::figure_text::difference_digits(self.digits());
+        self.with_unit(format!("{v:.d$}"))
+    }
+    /// A within-take change per hour, signed, one place finer than a
+    /// reading, as [`Self::fmt_size`].
+    pub fn fmt_per_hour(self, v: f64) -> String {
+        let d = crate::figure_text::difference_digits(self.digits());
+        self.with_unit(crate::figure_text::signed_text(v, d))
+    }
+    /// A spread written after "±", at the series' place and rounded up,
+    /// as every ± is ([`crate::figure_text::pm_text`]).
+    pub fn fmt_pm(self, v: f64) -> String {
+        let d = self.digits();
+        let text = crate::figure_text::pm_text(v, d)
+            .unwrap_or_else(|| crate::figure_text::fixed_text(0.0, d));
+        self.with_unit(text)
     }
 }
 
@@ -1864,19 +1894,19 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
                 "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
             ),
             None => format!(
                 "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no cycle, level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
             ),
             Some(line) => format!(
                 "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected; {line}.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_size(s.short_term_sd.unwrap_or(0.0))
+                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
             ),
         },
                 Lead::Periodic => match (&s.cycle, &s.two_state) {
@@ -1936,11 +1966,7 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
                 "{cap} slides from {} to {} ({} per hour).",
                 k.fmt(t.start),
                 k.fmt(t.end),
-                match k {
-                    SeriesKind::Rate => format!("{:+.1} s/d", t.per_hour),
-                    SeriesKind::Amplitude => format!("{:+.1}°", t.per_hour),
-                    SeriesKind::BeatError => format!("{:+.2} ms", t.per_hour),
-                }
+                k.fmt_per_hour(t.per_hour)
             )
         }
         Lead::Wandering => {
