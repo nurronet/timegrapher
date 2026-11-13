@@ -177,7 +177,9 @@ impl TimegrapherApp {
             );
             return;
         };
-        let facts = facts_box(ui, steady::title(reading), d.fact_rows(kind), d.fact_shed());
+        let rows = d.fact_rows(kind);
+        let shed = dist::Distribution::fact_shed(&rows);
+        let facts = facts_box(ui, steady::title(reading), rows, shed);
         let (x_lo, x_hi) = (d.edges[0], d.edges[d.edges.len() - 1]);
         let unit_owned = kind.suffix.to_string();
         let cumulative = self.hist_cumulative;
@@ -470,7 +472,9 @@ fn probability_paper(
 /// A series' facts box in the top left of its plot, which a rising
 /// curve leaves clear: core's rows ([`Distribution::fact_rows`],
 /// #1528), moving to the right or shedding rows in core's order
-/// (`fact_shed`) where the values run under it.
+/// ([`Distribution::fact_shed`]) where the values run under it.
+///
+/// [`Distribution::fact_shed`]: timegrapher_core::distribution::Distribution::fact_shed
 ///
 /// [`Distribution::fact_rows`]: timegrapher_core::distribution::Distribution::fact_rows
 fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>, shed: Vec<usize>) -> FactBox {
@@ -581,7 +585,8 @@ mod source_tests {
         let ctx = egui::Context::default();
         let _ = ctx.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let b = facts_box(ui, "Rate", rows.clone(), d.fact_shed());
+                let shed = timegrapher_core::distribution::Distribution::fact_shed(&rows);
+                let b = facts_box(ui, "Rate", rows.clone(), shed);
                 let frame =
                     egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 72.0));
                 let t = egui_plot::PlotTransform::new(

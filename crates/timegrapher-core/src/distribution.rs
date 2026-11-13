@@ -263,42 +263,58 @@ impl Distribution {
         let g = self.figures(kind, |x| crate::figure_text::true_minus(&x));
         let u = g.suffix;
         let count = if self.values == "2 s" {
-            "2 s stretches"
+            FACT_STRETCHES
         } else {
-            "Readings"
+            FACT_READINGS
         };
         let mut rows = vec![
             (count.to_string(), self.n.to_string()),
-            ("Median".to_string(), format!("{}{u}", g.median)),
+            (FACT_MEDIAN.to_string(), format!("{}{u}", g.median)),
             (
-                "Middle 80%".to_string(),
+                FACT_MIDDLE.to_string(),
                 format!("{} to {}{u}", g.p10, g.p90),
             ),
         ];
         if let Some(off) = g.off {
-            rows.push(("Off the scale".to_string(), off.to_string()));
+            rows.push((FACT_OFF.to_string(), off.to_string()));
         }
         if let Some(at) = g.peaks {
-            rows.push(("Peaks".to_string(), at.join(" and ")));
+            rows.push((FACT_PEAKS.to_string(), at.join(" and ")));
         }
         rows
     }
 
-    /// Which of [`Distribution::fact_rows`] a box with too little room
-    /// sheds first, in turn (Hugh, #1528): the middle 80%, then the
-    /// peaks, the median and the count. The values off the scale are
-    /// never shed before them: they say the plot leaves values out.
-    pub fn fact_shed(&self) -> Vec<usize> {
-        let peaks = (self.peaks.len() > 1).then(|| {
-            let off = usize::from(self.below + self.above > 0);
-            3 + off
-        });
-        [Some(2), peaks, Some(1), Some(0)]
-            .into_iter()
-            .flatten()
+    /// Which of `rows`, [`Distribution::fact_rows`], a box with too
+    /// little room sheds first, in turn (Hugh, #1528), by name in
+    /// [`FACT_SHED`]: the middle 80%, then the peaks, the median and the
+    /// count. The values off the scale are never shed before them: they
+    /// say the plot leaves values out.
+    pub fn fact_shed(rows: &[(String, String)]) -> Vec<usize> {
+        FACT_SHED
+            .iter()
+            .filter_map(|name| rows.iter().position(|r| r.0 == *name))
             .collect()
     }
 }
+
+/// The facts box's row names ([`Distribution::fact_rows`]).
+const FACT_READINGS: &str = "Readings";
+const FACT_STRETCHES: &str = "2 s stretches";
+const FACT_MEDIAN: &str = "Median";
+const FACT_MIDDLE: &str = "Middle 80%";
+const FACT_OFF: &str = "Off the scale";
+const FACT_PEAKS: &str = "Peaks";
+
+/// The rows a facts box sheds first when short of room, in turn
+/// ([`Distribution::fact_shed`]); the values off the scale are not among
+/// them, so they go last.
+pub const FACT_SHED: [&str; 5] = [
+    FACT_MIDDLE,
+    FACT_PEAKS,
+    FACT_MEDIAN,
+    FACT_READINGS,
+    FACT_STRETCHES,
+];
 
 /// A distribution's figures as text, for [`Distribution::line`] and
 /// [`Distribution::fact_rows`].
@@ -653,7 +669,7 @@ mod tests {
         assert_eq!(names.contains(&"Peaks"), d.peaks.len() > 1);
         // Too little room sheds the middle 80% first and keeps the
         // values off the scale longest.
-        let shed = d.fact_shed();
+        let shed = Distribution::fact_shed(&rows);
         assert_eq!(shed[0], 2);
         assert_eq!(rows[shed[0]].0, "Middle 80%");
         if let Some(off) = names.iter().position(|n| *n == "Off the scale") {
@@ -681,7 +697,7 @@ mod tests {
         let rows = d.fact_rows(RATE);
         let peaks = &rows.last().unwrap();
         assert_eq!(peaks.0, "Peaks");
-        let shed = d.fact_shed();
+        let shed = Distribution::fact_shed(&rows);
         assert_eq!(rows[shed[1]].0, "Peaks", "{shed:?}");
         assert_eq!(shed.len(), 4);
         assert!(peaks.1.contains(" s/d and "), "{rows:?}");
