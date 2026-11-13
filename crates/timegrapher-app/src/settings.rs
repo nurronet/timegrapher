@@ -36,6 +36,8 @@ pub struct Settings {
     pub chart_series: [bool; 3],
     pub dist_series: [bool; 3],
     pub hist_cumulative: bool,
+    /// The Power Reserve pane's Info panel open.
+    pub reserve_info: bool,
     pub hist_readings: bool,
     /// The Isochronism pane's view: the curve, or the walk.
     pub iso_view: crate::isochronism::View,
@@ -164,6 +166,7 @@ impl Default for Settings {
             chart_series: RATE_ONLY,
             dist_series: RATE_ONLY,
             hist_cumulative: false,
+            reserve_info: false,
             hist_readings: true,
             iso_view: Default::default(),
             sound: profiles::Options::default(),

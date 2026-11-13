@@ -2110,6 +2110,8 @@ pub struct TimegrapherApp {
     pane_top: f32,
     /// Show the cumulative share instead of the probability plot.
     hist_cumulative: bool,
+    /// The Power Reserve pane's Info panel open (#1528).
+    reserve_info: bool,
     /// The histograms count the readings rather than each 2 seconds of
     /// beats.
     hist_readings: bool,
@@ -2341,6 +2343,7 @@ impl TimegrapherApp {
             chart_series: self.chart_series,
             dist_series: self.dist_series,
             hist_cumulative: self.hist_cumulative,
+            reserve_info: self.reserve_info,
             hist_readings: self.hist_readings,
             iso_view: self.iso_view,
             sound: self.sound_opts,
@@ -2400,6 +2403,7 @@ impl TimegrapherApp {
             chart_series,
             dist_series,
             hist_cumulative,
+            reserve_info,
             hist_readings,
             iso_view,
             sound,
@@ -2472,9 +2476,8 @@ impl TimegrapherApp {
         let some = |s: [bool; 3]| if s.contains(&true) { s } else { RATE_ONLY };
         self.chart_series = some(chart_series);
         self.dist_series = some(dist_series);
-        self.hist_cumulative = hist_cumulative;
-        self.hist_readings = hist_readings;
-        self.iso_view = iso_view;
+        (self.hist_cumulative, self.reserve_info) = (hist_cumulative, reserve_info);
+        (self.hist_readings, self.iso_view) = (hist_readings, iso_view);
         self.sound_opts = sound;
         self.folded = folded.into_iter().collect();
         self.theme = theme;
@@ -2658,6 +2661,7 @@ impl TimegrapherApp {
             panes_short: std::collections::HashSet::new(),
             pane_top: 0.0,
             hist_cumulative: false,
+            reserve_info: false,
             steady_series: Default::default(),
             periods_db: false,
             fft_timing: false,
@@ -3116,13 +3120,7 @@ impl TimegrapherApp {
                 self.export_button(ui, pane);
             }),
             Pane::DynamicPoise => self.poise_tools(ui, title),
-            Pane::PowerReserve => {
-                let help = help::power_reserve(self.position_card_title);
-                let help: Vec<&str> = help.iter().map(String::as_str).collect();
-                theme::pane_toolbar(ui, title, &help, |ui| {
-                    self.reserve_settings(ui);
-                })
-            }
+            Pane::PowerReserve => self.reserve_toolbar(ui, title),
             Pane::Distributions => theme::pane_toolbar(ui, title, &help::HISTOGRAMS, |ui| {
                 steady::series_switches(ui, &mut self.dist_series);
                 theme::bar_gap(ui);
