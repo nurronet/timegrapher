@@ -105,9 +105,19 @@ impl TimegrapherApp {
             // The strip first, so ▶, drawn after, takes its own clicks.
             let strip = ui.interact(rect, ui.id().with("readings strip"), egui::Sense::click());
             self.strip_cells(ui, cells);
+            // Over the watch cell with no watch, the strip's one hover
+            // also gives the calibre, lift angle and beat rate in full,
+            // which the cell may show cut short (Hugh, #1526).
+            let on_watch = self.open_watch().is_none()
+                && strip.hover_pos().is_some_and(|p| cells[5].contains(p));
+            let hover = if on_watch {
+                format!("{}\n\nOpen the readings' cards", self.watch_detail())
+            } else {
+                "Open the readings' cards".to_string()
+            };
             if strip
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Open the readings' cards")
+                .on_hover_text(hover)
                 .clicked()
             {
                 set_open(&ctx, true);
@@ -165,12 +175,6 @@ impl TimegrapherApp {
             ],
         );
         fit(ui, inner(cells[5]), &self.watch_pieces());
-        if self.open_watch().is_none() {
-            // The cell may show the beat rate cut short: its hover gives
-            // the calibre, lift angle and beat rate in full (Hugh, #1526).
-            ui.interact(cells[5], ui.id().with("watch cell"), egui::Sense::hover())
-                .on_hover_text(self.watch_detail());
-        }
         // Listen: ▶, then the take's length and state.
         let listen = inner(cells[1]);
         let mut go = ui.new_child(
@@ -218,23 +222,36 @@ impl TimegrapherApp {
     /// angle and beat rate; where that doesn't fit, a watch's name alone
     /// (its record holds the rest), or in a Quick Listen the lift angle and
     /// beat rate, which the watchmaker sets there.
+    /// The watch cell's facts: the lift angle, "52°", the beat rate as
+    /// the Calibre card writes it, "Auto 28800", and the rate alone,
+    /// "28800" (`bph_parts`).
+    pub(super) fn watch_facts(&self) -> (String, String, String) {
+        let heard = self.live.as_ref().and_then(|l| l.bph());
+        let set = self.bph_set_by_calibre();
+        let angle = format!("{}°", fields::plain(self.lift_deg));
+        let (how, rate) = self.bph_parts(set, heard);
+        let bare = if rate.is_empty() {
+            how.unwrap_or_default().to_string()
+        } else {
+            rate
+        };
+        (angle, self.bph_shown(set, heard), bare)
+    }
+
     /// The watch cell's calibre, lift angle and beat rate in full:
     /// "Not Set · 52° · Auto 28800".
-    fn watch_detail(&self) -> String {
-        let heard = self.live.as_ref().and_then(|l| l.bph());
-        let bph = self.bph_shown(self.bph_set_by_calibre(), heard);
+    pub(super) fn watch_detail(&self) -> String {
+        let (angle, bph, _) = self.watch_facts();
         let calibre = if self.calibre.is_empty() {
             "Not Set"
         } else {
             &self.calibre
         };
-        format!("{calibre} · {}° · {bph}", fields::plain(self.lift_deg))
+        format!("{calibre} · {angle} · {bph}")
     }
 
     pub(super) fn watch_pieces(&self) -> Vec<Vec<Piece>> {
-        let heard = self.live.as_ref().and_then(|l| l.bph());
-        let bph = self.bph_shown(self.bph_set_by_calibre(), heard);
-        let angle = format!("{}°", fields::plain(self.lift_deg));
+        let (angle, bph, bare) = self.watch_facts();
         let lift = format!("{angle} · {bph}");
         let detail = self.watch_detail();
         match self.open_watch().map(|e| e.watch.name.clone()) {
@@ -250,16 +267,10 @@ impl TimegrapherApp {
             None => vec![
                 vec![strong("No Watch", 15.0), quiet(&detail, 13.0)],
                 vec![quiet(&lift, 13.0)],
-                vec![quiet(&angle, 13.0), quiet(bare_bph(&bph), 13.0)],
+                vec![quiet(&angle, 13.0), quiet(&bare, 13.0)],
             ],
         }
     }
-}
-
-/// The beat rate as the strip's narrowest watch cell writes it: without
-/// the "Auto " the Calibre card puts before a rate it found, "28800".
-fn bare_bph(bph: &str) -> &str {
-    bph.strip_prefix("Auto ").unwrap_or(bph)
 }
 
 fn strong(words: &str, size: f32) -> Piece {
