@@ -793,9 +793,6 @@ const AGC_HINT: &str = "The microphone's own automatic gain, which raises its le
 const MASK_HINT: &str = "Drag across a stretch to leave it out of the readings. Nothing is \
      deleted: the beats stay, hatched. Right-click a mask to remove it; Edit > Remove All \
      Masks removes them all.";
-/// The Power Reserve pane's Info button (#1528).
-const RESERVE_INFO_HINT: &str = "Info: the run in full, where its take is kept, the beats' \
-     pauses and what the grey cells mean.";
 /// The Steadiness panes' Info button.
 const INFO_HINT: &str =
     "Info: what this view shows, and each reading's findings and statistics, in full.";
@@ -2479,10 +2476,8 @@ impl TimegrapherApp {
         let some = |s: [bool; 3]| if s.contains(&true) { s } else { RATE_ONLY };
         self.chart_series = some(chart_series);
         self.dist_series = some(dist_series);
-        self.hist_cumulative = hist_cumulative;
-        self.reserve_info = reserve_info;
-        self.hist_readings = hist_readings;
-        self.iso_view = iso_view;
+        (self.hist_cumulative, self.reserve_info) = (hist_cumulative, reserve_info);
+        (self.hist_readings, self.iso_view) = (hist_readings, iso_view);
         self.sound_opts = sound;
         self.folded = folded.into_iter().collect();
         self.theme = theme;
@@ -3125,24 +3120,7 @@ impl TimegrapherApp {
                 self.export_button(ui, pane);
             }),
             Pane::DynamicPoise => self.poise_tools(ui, title),
-            Pane::PowerReserve => {
-                let help = help::power_reserve(self.position_card_title);
-                let help: Vec<&str> = help.iter().map(String::as_str).collect();
-                let mut info = self.reserve_info;
-                let mut pin = |ui: &mut egui::Ui| {
-                    let accent = theme::pal(ui).accent;
-                    if theme::icon_toggle(ui, Icon::Info, info, accent)
-                        .on_hover_text(RESERVE_INFO_HINT)
-                        .clicked()
-                    {
-                        info = !info;
-                    }
-                };
-                theme::pane_toolbar_pinned(ui, title, &help, Some(&mut pin), |ui| {
-                    self.reserve_settings(ui);
-                });
-                self.reserve_info = info;
-            }
+            Pane::PowerReserve => self.reserve_toolbar(ui, title),
             Pane::Distributions => theme::pane_toolbar(ui, title, &help::HISTOGRAMS, |ui| {
                 steady::series_switches(ui, &mut self.dist_series);
                 theme::bar_gap(ui);
