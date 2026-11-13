@@ -7,10 +7,27 @@ impl TimegrapherApp {
     /// watch dial up: just after winding, or as the 24 hour half after the
     /// full-wind test `half`.
     pub(super) fn start_guided(&mut self, half: Option<guided::FullWind>) {
+        self.start_guided_test(guided::Kind::Positions, half);
+    }
+
+    /// Begin the Dynamic Poise test, as the Positions Test begins, from
+    /// the first of its eight upright stops, with the card at 10.
+    pub(super) fn start_poise(&mut self) {
+        self.ten_positions = true;
+        self.start_guided_test(guided::Kind::Poise, None);
+    }
+
+    /// Begin the guided test of `kind`; `half` is the Positions Test's
+    /// full-wind test for its 24 hour half.
+    pub(super) fn start_guided_test(&mut self, kind: guided::Kind, half: Option<guided::FullWind>) {
         // One test to a take: after one, a new take (asking first about
         // sound not saved), never the stopped one carried on.
         if self.guided.is_some() && !self.running() {
-            return self.new_take(NewTake::Positions, false);
+            let again = match kind {
+                guided::Kind::Positions => NewTake::Positions,
+                guided::Kind::Poise => NewTake::Poise,
+            };
+            return self.new_take(again, false);
         }
         // A test is never Quick Listen: its sound is saved or asked about,
         // not let go, even when it follows Quick Listen or runs on from it.
@@ -22,7 +39,7 @@ impl TimegrapherApp {
                 self.start_microphone();
                 if self.confirm == Some(Confirm::Microphone) {
                     // The test begins once the masks are answered for.
-                    self.guided_after_ask = Some(half);
+                    self.guided_after_ask = Some((kind, half));
                     return;
                 }
             }
@@ -30,19 +47,24 @@ impl TimegrapherApp {
         if !self.running() {
             return;
         }
-        if self.position != guided::ORDER[0] {
-            self.change_position(guided::ORDER[0]);
+        let first = kind.order()[0];
+        if self.position != first {
+            self.change_position(first);
         }
-        let test = match half {
-            Some(full) => guided::Test::after(full),
-            None => guided::Test::new(),
+        let test = match (kind, half) {
+            (guided::Kind::Poise, _) => guided::Test::poise(),
+            (_, Some(full)) => guided::Test::after(full),
+            (_, None) => guided::Test::new(),
         };
         self.guided = Some(test.timed(self.guided_settle_s, self.guided_measure_s));
         self.positions_take = true;
         self.guided_unused.clear();
         self.guided_measured.clear();
         self.mask_engine();
-        self.reveal_pane(Pane::PositionsTest);
+        self.reveal_pane(match kind {
+            guided::Kind::Positions => Pane::PositionsTest,
+            guided::Kind::Poise => Pane::DynamicPoise,
+        });
     }
 
     /// Stop Test… answered Stop Test: the test ends now, keeping what it
@@ -77,7 +99,7 @@ impl TimegrapherApp {
         let (title, body) = if self.reserve_running() {
             let run = self.reserve.as_ref().map_or(0.0, |t| t.run_so_far_s());
             (
-                "Stop the Power Reserve Test?",
+                "Stop the Power Reserve Test?".to_string(),
                 format!(
                     "The run so far, {} from the first beat heard, is kept{kept}. Its run time \
                      then says it was stopped by hand.",
@@ -92,7 +114,11 @@ impl TimegrapherApp {
                 1 => "The 1 position measured so far is kept".to_string(),
                 n => format!("The {n} positions measured so far are kept"),
             };
-            ("Stop the Positions Test?", format!("{what}{kept}."))
+            let name = self
+                .guided
+                .as_ref()
+                .map_or("Positions Test", |t| t.kind.name());
+            (format!("Stop the {name}?"), format!("{what}{kept}."))
         };
         let mut choice = None;
         egui::Modal::new(egui::Id::new("stop test")).show(ctx, |ui| {
@@ -191,6 +217,13 @@ impl TimegrapherApp {
             bph: self.bph.or(self.live.as_ref().and_then(|l| l.bph())),
             lift_angle_deg: self.lift_deg,
         }
+    }
+
+    /// The Positions Test, if that is the guided test on the Bench.
+    pub(super) fn positions_test(&self) -> Option<&guided::Test> {
+        self.guided
+            .as_ref()
+            .filter(|t| t.kind == guided::Kind::Positions)
     }
 
     /// Whether a Positions Test is under way, not yet finished.
@@ -309,7 +342,7 @@ impl TimegrapherApp {
     }
 
     /// The Positions Test settings' Settle and Each Position fields.
-    fn positions_lengths(&mut self, ui: &mut egui::Ui, running: bool) {
+    pub(super) fn positions_lengths(&mut self, ui: &mut egui::Ui, running: bool) {
         theme::tool_field(
             ui,
             "Settle",
@@ -366,8 +399,7 @@ impl TimegrapherApp {
     /// Hours….
     fn positions_results(&mut self, ui: &mut egui::Ui) {
         let has = self
-            .guided
-            .as_ref()
+            .positions_test()
             .is_some_and(|t| !t.readings_so_far().is_empty());
         let nothing = (!has).then_some("Nothing measured yet");
         theme::bar_gap(ui);
@@ -380,8 +412,10 @@ impl TimegrapherApp {
              file a spreadsheet opens",
             nothing,
         ) {
-            if let Some(t) = &self.guided {
-                let text = guided::export_text(t, &about, ',');
+            if let Some(text) = self
+                .positions_test()
+                .map(|t| guided::export_text(t, &about, ','))
+            {
                 let d = guided::csv_dialog(&self.guided_dir());
                 self.save_text_as(d, "the Positions Test", text);
             }
@@ -395,7 +429,7 @@ impl TimegrapherApp {
             false,
             nothing,
         ) {
-            if let Some(t) = &self.guided {
+            if let Some(t) = self.positions_test() {
                 ui.ctx().copy_text(guided::export_text(t, &about, '\t'));
                 self.info_msg("Copied the Positions Test table".to_string());
             }
@@ -425,7 +459,10 @@ impl TimegrapherApp {
     pub(super) fn positions_pane(&mut self, ui: &mut egui::Ui) {
         self.results_rects[0] = Some(ui.max_rect());
         let now = self.live.as_ref().map(|l| l.duration_s());
-        let phase = match (self.guided.as_mut(), now) {
+        // A Dynamic Poise test is its own pane's: this one shows only how
+        // the Positions Test runs.
+        let ours = |t: &guided::Test| t.kind == guided::Kind::Positions;
+        let phase = match (self.guided.as_mut().filter(|t| ours(t)), now) {
             (Some(t), Some(now)) => Some(t.tick(now)),
             _ => None,
         };
@@ -457,7 +494,7 @@ impl TimegrapherApp {
         let note = self.start_test_why_not();
         let action = guided::pane(
             ui,
-            self.guided.as_ref(),
+            self.guided.as_ref().filter(|t| ours(t)),
             phase,
             self.guided_earlier.as_ref(),
             free.as_ref(),

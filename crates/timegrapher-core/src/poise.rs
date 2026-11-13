@@ -212,6 +212,60 @@ pub fn in_null_band(amplitude_deg: f64, se: Option<f64>) -> bool {
     (amplitude_deg - NULL_AMPLITUDE_DEG).abs() <= reach
 }
 
+/// The amplitudes [`in_null_band`] holds when they have no ±, degrees:
+/// about 203 to 239.
+pub fn null_band_deg() -> (f64, f64) {
+    (
+        NULL_AMPLITUDE_DEG / (1.0 + NULL_BAND_SHARE),
+        NULL_AMPLITUDE_DEG / (1.0 - NULL_BAND_SHARE),
+    )
+}
+
+/// What the band near [`NULL_AMPLITUDE_DEG`] means for a poise test, for
+/// a pane's Info panel: why the heavy spot is not stated in it, and the
+/// amplitudes outside it.
+pub fn null_band_note() -> String {
+    let (lo, hi) = null_band_deg();
+    let d = base_digits::AMPLITUDE;
+    format!(
+        "Poise moves the rate least at {}° amplitude, and the other way above it, so the \
+         heavy spot is not stated where any position may be between {}° and {}°. A run let \
+         down below {}°, or fully wound above {}°, can show it.",
+        fixed_text(NULL_AMPLITUDE_DEG, 1),
+        fixed_text(lo, d),
+        fixed_text(hi, d),
+        fixed_text(lo, d),
+        fixed_text(hi, d),
+    )
+}
+
+/// The amplitude so far, for a test's banner before its first position
+/// is in, with whether it sits in the band ([`in_null_band`]).
+pub fn amplitude_now_text(amplitude_deg: f64, se: Option<f64>) -> String {
+    let a = figure_with_pm(amplitude_deg, se, base_digits::AMPLITUDE, false);
+    if in_null_band(amplitude_deg, se) {
+        format!(
+            "Amplitude now {a}°: near {}°, where poise barely moves the rate",
+            fixed_text(NULL_AMPLITUDE_DEG, 1)
+        )
+    } else {
+        format!("Amplitude now {a}°")
+    }
+}
+
+/// An upright position's [`Point`] from its reading, with the ±s core
+/// gives it. None lying flat, or with no rate.
+pub fn point(position: crate::session::Position, m: &crate::session::Measurement) -> Option<Point> {
+    let c = m.confidence;
+    Some(Point {
+        angle_deg: position.top_deg()?,
+        rate_s_per_day: m.rate_s_per_day?,
+        rate_se: c.and_then(|c| c.rate.se),
+        amplitude_deg: m.amplitude_deg,
+        amplitude_se: c.and_then(|c| c.amplitude.se),
+    })
+}
+
 /// Witschi's code of the hour nearest `deg` on the half hour: "12H" to
 /// "11H", and "1H30" and so on for the 45° steps between.
 pub fn hour_code(deg: f64) -> &'static str {

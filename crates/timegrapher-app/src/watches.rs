@@ -39,8 +39,8 @@ pub const HELP: &[&str] = &[
      Move to Another Watch and Delete…. Open Recording… and Open Folder… in the File menu \
      ask whether to add a recording from outside your watches to one of them, asking for \
      anything its files don't say, or just to open it.",
-    "Pick a watch, then Listen, Positions Test or Power Reserve Test: each is a new take \
-     on the microphone, saved into the watch when it stops.",
+    "Pick a watch, then Listen, Positions Test, Dynamic Poise Test or Power Reserve Test: \
+     each is a new take on the microphone, saved into the watch when it stops.",
     "Quick Listen (the Listen button on the Listen card, with no watch picked) keeps nothing \
      until you Save it: into a watch, or into a folder. Its sound goes without a question \
      when you quit or start another take. A take saved into Unsorted is listed at the top \
@@ -726,9 +726,10 @@ pub fn take_line(t: &Take, positions_test: bool, reading: Option<&Reading>) -> S
 }
 
 /// The captions under the three New Take buttons: Listen, Positions Test, Power Reserve Test.
-pub const NEW_TAKE_CAPTIONS: [&str; 3] = [
+pub const NEW_TAKE_CAPTIONS: [&str; 4] = [
     "As long as you like",
     "Six positions, guided",
+    "Eight upright, 45° apart",
     "From full wind to a stop",
 ];
 
@@ -861,18 +862,19 @@ pub fn panel<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
         .inner
 }
 
-/// New Take's three buttons, equal, each with its caption under it; Listen,
+/// New Take's four buttons, equal, each with its caption under it; Listen,
 /// the default, is the blue one. Which was pressed, if any. While `why`
 /// says so, they are greyed out with that reason.
 pub fn new_take_buttons(
     ui: &mut egui::Ui,
-    names: [(&str, &str); 3],
+    names: [(&str, &str); 4],
     why: Option<&str>,
 ) -> Option<usize> {
     let pal = theme::pal(ui);
     let mut pressed = None;
     let gap = 10.0;
-    let w = ((ui.available_width() - 2.0 * gap) / 3.0).max(80.0);
+    let n = names.len() as f32;
+    let w = ((ui.available_width() - (n - 1.0) * gap) / n).max(80.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         for (i, (name, hint)) in names.into_iter().enumerate() {
@@ -897,7 +899,7 @@ pub fn new_take_buttons(
                         if r.clicked() {
                             pressed = Some(i);
                         }
-                        // One line, so the three buttons stay level.
+                        // One line, so the buttons stay level.
                         ui.vertical_centered(|ui| {
                             ui.add(
                                 egui::Label::new(
@@ -1255,7 +1257,8 @@ pub fn takes_table(
                 RichText::new(if cx.unsorted {
                     "No takes here: a Quick Listen take saved with File > Save… waits here until it is filed."
                 } else {
-                    "No takes yet: Listen, Positions Test or Power Reserve Test, above, each keeps one here."
+                    "No takes yet: Listen, Positions Test, Dynamic Poise Test or Power Reserve Test, \
+                     above, each keeps one here."
                 })
                 .color(pal.text_secondary),
             );

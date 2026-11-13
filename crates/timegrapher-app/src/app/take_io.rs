@@ -141,7 +141,7 @@ impl TimegrapherApp {
     pub(super) fn listen_after_ask(&mut self) {
         self.masks_let_go = true;
         match self.guided_after_ask.take() {
-            Some(half) => self.start_guided(half),
+            Some((kind, half)) => self.start_guided_test(kind, half),
             None => self.start_microphone(),
         }
         self.masks_let_go = false;

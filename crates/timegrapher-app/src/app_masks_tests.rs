@@ -175,7 +175,7 @@ fn listening_asks_before_unsaved_masks_go() {
     app.confirm = None;
     app.start_guided(None);
     assert!(matches!(app.confirm, Some(Confirm::Microphone)));
-    assert_eq!(app.guided_after_ask, Some(None));
+    assert_eq!(app.guided_after_ask, Some((guided::Kind::Positions, None)));
     // Answered, with an input that can't be opened: the masks stay on
     // show, still to save.
     app.devices_listed = true;

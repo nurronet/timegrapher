@@ -683,3 +683,43 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
         f.short_text
     );
 }
+
+/// The band's edges are where `in_null_band` turns with no ±, and the
+/// words a pane shows round them come from the same constants.
+#[test]
+fn the_null_bands_edges_and_words_follow_its_rule() {
+    let (lo, hi) = null_band_deg();
+    assert!(
+        close(lo, 203.24, 0.01) && close(hi, 238.59, 0.01),
+        "{lo} {hi}"
+    );
+    assert!(in_null_band(lo + 0.01, None) && !in_null_band(lo - 0.01, None));
+    assert!(in_null_band(hi - 0.01, None) && !in_null_band(hi + 0.01, None));
+    let note = null_band_note();
+    assert!(
+        note.contains("219.5°") && note.contains("203°") && note.contains("239°"),
+        "{note}"
+    );
+    assert_eq!(amplitude_now_text(184.4, None), "Amplitude now 184°");
+    assert_eq!(
+        amplitude_now_text(226.0, Some(0.6)),
+        "Amplitude now 226.0 ± 0.6°: near 219.5°, where poise barely moves the rate"
+    );
+}
+
+/// A reading becomes a point at its hour's angle with core's ±s; lying
+/// flat it is none.
+#[test]
+fn a_reading_gives_its_point_upright_only() {
+    let s = crate::scenarios::steady_red(120.0, 0.0, 7);
+    let log = crate::scenarios::beat_log(&s, 7);
+    let m = crate::session::measure(&log, None, 0.0, log.duration_s);
+    use crate::session::Position as P;
+    let p = point(P::H4h30, &m).unwrap();
+    assert_eq!(p.angle_deg, 135.0);
+    assert_eq!(Some(p.rate_s_per_day), m.rate_s_per_day);
+    assert_eq!(p.rate_se, m.confidence.and_then(|c| c.rate.se));
+    assert_eq!(p.amplitude_deg, m.amplitude_deg);
+    assert!(p.rate_se.is_some() && p.amplitude_se.is_some());
+    assert!(point(P::CH, &m).is_none() && point(P::CB, &m).is_none());
+}
