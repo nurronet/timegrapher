@@ -760,6 +760,9 @@ const AGC_HINT: &str = "The microphone's own automatic gain, which raises its le
 const MASK_HINT: &str = "Drag across a stretch to leave it out of the readings. Nothing is \
      deleted: the beats stay, hatched. Right-click a mask to remove it; Edit > Remove All \
      Masks removes them all.";
+/// The Power Reserve pane's Info button (#1528).
+const RESERVE_INFO_HINT: &str = "Info: the run in full, where its take is kept, the beats' \
+     pauses and what the grey cells mean.";
 /// The Steadiness panes' Info button.
 const INFO_HINT: &str =
     "Info: what this view shows, and each reading's findings and statistics, in full.";
@@ -2062,6 +2065,8 @@ pub struct TimegrapherApp {
     pane_top: f32,
     /// Show the cumulative share instead of the probability plot.
     hist_cumulative: bool,
+    /// The Power Reserve pane's Info panel open (#1528).
+    reserve_info: bool,
     /// The histograms count the readings rather than each 2 seconds of
     /// beats.
     hist_readings: bool,
@@ -2289,6 +2294,7 @@ impl TimegrapherApp {
             chart_series: self.chart_series,
             dist_series: self.dist_series,
             hist_cumulative: self.hist_cumulative,
+            reserve_info: self.reserve_info,
             hist_readings: self.hist_readings,
             iso_view: self.iso_view,
             sound: self.sound_opts,
@@ -2346,6 +2352,7 @@ impl TimegrapherApp {
             chart_series,
             dist_series,
             hist_cumulative,
+            reserve_info,
             hist_readings,
             iso_view,
             sound,
@@ -2416,6 +2423,7 @@ impl TimegrapherApp {
         self.chart_series = some(chart_series);
         self.dist_series = some(dist_series);
         self.hist_cumulative = hist_cumulative;
+        self.reserve_info = reserve_info;
         self.hist_readings = hist_readings;
         self.iso_view = iso_view;
         self.sound_opts = sound;
@@ -2599,6 +2607,7 @@ impl TimegrapherApp {
             panes_short: std::collections::HashSet::new(),
             pane_top: 0.0,
             hist_cumulative: false,
+            reserve_info: false,
             steady_series: Default::default(),
             periods_db: false,
             fft_timing: false,
@@ -3037,9 +3046,20 @@ impl TimegrapherApp {
             Pane::PowerReserve => {
                 let help = help::power_reserve(self.position_card_title);
                 let help: Vec<&str> = help.iter().map(String::as_str).collect();
-                theme::pane_toolbar(ui, title, &help, |ui| {
+                let mut info = self.reserve_info;
+                let mut pin = |ui: &mut egui::Ui| {
+                    let accent = theme::pal(ui).accent;
+                    if theme::icon_toggle(ui, Icon::Info, info, accent)
+                        .on_hover_text(RESERVE_INFO_HINT)
+                        .clicked()
+                    {
+                        info = !info;
+                    }
+                };
+                theme::pane_toolbar_pinned(ui, title, &help, Some(&mut pin), |ui| {
                     self.reserve_settings(ui);
-                })
+                });
+                self.reserve_info = info;
             }
             Pane::Distributions => theme::pane_toolbar(ui, title, &help::HISTOGRAMS, |ui| {
                 steady::series_switches(ui, &mut self.dist_series);

@@ -612,9 +612,9 @@ impl TimegrapherApp {
             ui,
             self.reserve.as_ref(),
             free,
-            self.position_card_title,
-            &watch,
+            (self.position_card_title, &watch),
             self.ready_test() == Some(NewTake::PowerReserve),
+            self.reserve_info,
         );
     }
 }
