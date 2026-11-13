@@ -753,7 +753,7 @@ fn the_null_bands_edges_and_words_follow_its_rule() {
     assert_eq!(amplitude_now_text(184.4, None), "Amplitude now 184°");
     assert_eq!(
         amplitude_now_text(226.0, Some(0.6)),
-        "Amplitude now 226.0 ± 0.6°: near 219.5°, where poise barely moves the rate"
+        "Amplitude now 226 ± 1°: near 219.5°, where poise barely moves the rate"
     );
 }
 
