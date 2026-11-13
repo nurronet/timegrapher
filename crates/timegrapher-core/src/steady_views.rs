@@ -14,7 +14,7 @@
 use crate::chart_scale;
 use crate::longrun::LongReport;
 use crate::longterm::{self, Grid, LongConfig, Search};
-use crate::steadiness::Report;
+use crate::steadiness::{Report, SeriesKind};
 use crate::stream::BeatLog;
 use crate::walk;
 use serde::Serialize;
@@ -78,6 +78,26 @@ pub struct Drawn {
     pub lo: f64,
     pub hi: f64,
     pub count: usize,
+}
+
+impl Drawn {
+    /// What a drawn point says under the pointer, as the Readings view's
+    /// readout writes it (#1277): one reading's value, "+3.2 s/d"; a
+    /// band's mean, how many readings it holds and its lowest and
+    /// highest, the unit once, "+3.2 s/d, mean of 8, +1.0 to +5.1" (Hugh).
+    pub fn readout(&self, k: SeriesKind) -> String {
+        if self.count > 1 {
+            format!(
+                "{}, mean of {}, {} to {}",
+                k.fmt(self.mean),
+                self.count,
+                k.number(self.lo),
+                k.number(self.hi)
+            )
+        } else {
+            k.fmt(self.mean)
+        }
+    }
 }
 
 /// Whether [`thin_readings`] drew any chunk of more than one reading, so
@@ -1108,6 +1128,60 @@ mod tests {
              The more periods searched, the higher the line."
         );
         assert!(super::threshold_hover(0.001).contains("search 1 time in 1,000."));
+    }
+
+    /// The Readings view's readout says one reading's value, and a band's
+    /// mean, count and ends, each at the series' place with no sign on a
+    /// zero (#1277).
+    #[test]
+    fn a_drawn_points_readout_says_its_value_or_its_band() {
+        use super::Drawn;
+        use crate::steadiness::SeriesKind;
+        let one = Drawn {
+            t: 10.0,
+            mean: -0.04,
+            lo: -0.04,
+            hi: -0.04,
+            count: 1,
+        };
+        assert_eq!(one.readout(SeriesKind::Rate), "0.0 s/d");
+        let band = Drawn {
+            t: 40.0,
+            mean: 3.21,
+            lo: 1.0,
+            hi: 5.14,
+            count: 8,
+        };
+        assert_eq!(
+            band.readout(SeriesKind::Rate),
+            "+3.2 s/d, mean of 8, +1.0 to +5.1"
+        );
+        let amp = Drawn {
+            t: 0.0,
+            mean: 271.6,
+            lo: 271.6,
+            hi: 271.6,
+            count: 1,
+        };
+        assert_eq!(amp.readout(SeriesKind::Amplitude), "272°");
+        let amp_band = Drawn {
+            count: 3,
+            lo: 269.6,
+            hi: 274.2,
+            ..amp
+        };
+        assert_eq!(
+            amp_band.readout(SeriesKind::Amplitude),
+            "272°, mean of 3, 270 to 274"
+        );
+        let be = Drawn {
+            t: 0.0,
+            mean: 0.204,
+            lo: 0.204,
+            hi: 0.204,
+            count: 1,
+        };
+        assert_eq!(be.readout(SeriesKind::BeatError), "0.20 ms");
     }
 
     #[test]
