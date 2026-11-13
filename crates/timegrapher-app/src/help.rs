@@ -806,6 +806,7 @@ mod tests {
             ("power_reserve", power_reserve("Current Position")),
             ("LIBRARY_HELP", own(crate::settings_window::LIBRARY_HELP)),
             ("MANAGE_HELP", own(crate::calibre_ui::MANAGE_HELP)),
+            ("watches::HELP", own(crate::watches::HELP)),
         ]
     }
 
@@ -881,5 +882,108 @@ mod tests {
             sentences("Save as CSV… and Copy (Listen card). 24 hours"),
             2
         );
+    }
+
+    /// The app's source, outside the tests and the help's own files: each
+    /// file's path and text.
+    fn app_sources() -> Vec<(String, String)> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                let name = p.to_string_lossy().to_string();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if name.ends_with(".rs") && !name.contains("tests") {
+                    out.push((name, std::fs::read_to_string(&p).unwrap()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut out,
+        );
+        out
+    }
+
+    /// The third argument of each call to `f(` in `text`, as written.
+    fn third_args(text: &str, f: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for (at, _) in text.match_indices(f) {
+            let mut depth = 0;
+            let mut args = vec![String::new()];
+            for c in text[at + f.len()..].chars() {
+                match c {
+                    '(' | '[' | '{' => depth += 1,
+                    ')' | ']' | '}' if depth == 0 => break,
+                    ')' | ']' | '}' => depth -= 1,
+                    ',' if depth == 0 => {
+                        args.push(String::new());
+                        continue;
+                    }
+                    _ => {}
+                }
+                args.last_mut().unwrap().push(c);
+            }
+            if let Some(a) = args.get(2) {
+                found.push(a.trim().trim_start_matches(['&', '*']).to_string());
+            }
+        }
+        found
+    }
+
+    /// No "?" text escapes the shape test (Trevor's review of #1552):
+    /// every help text the app's source names is in
+    /// [`every_help_text`], and every call that draws a "?" passes one
+    /// by name, or a local fed only from those.
+    #[test]
+    fn every_help_call_passes_a_text_the_shape_test_covers() {
+        let covered: Vec<&str> = every_help_text().iter().map(|t| t.0).collect();
+        let named = |path: &str| {
+            let last = path.rsplit("::").next().unwrap_or(path);
+            covered.contains(&last) || covered.contains(&path)
+        };
+        // Hovers of one string, not "?" texts.
+        let hovers = ["CLIPPING", "SIGNAL", "NO_REGULAR_BEAT", "TOOLBAR"];
+        // Locals that hold one of the texts above: the reading cards'
+        // (RATE, AMPLITUDE, BEAT_ERROR, LISTEN), the sound panes'
+        // (PROFILE, SCOPE) and Power Reserve's (`power_reserve`).
+        let locals = ["help", "text", "paragraphs", "help_text"];
+        let mut seen = 0;
+        for (file, text) in app_sources() {
+            if file.ends_with("help.rs") {
+                continue;
+            }
+            for word in text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':')) {
+                let path = word.trim_matches(':');
+                let is_help = path.starts_with("help::")
+                    && path[6..]
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c == '_')
+                    && path.len() > 6;
+                let is_named_help = path.ends_with("HELP") && path.contains("::");
+                if (is_help || is_named_help) && !hovers.iter().any(|h| path.ends_with(h)) {
+                    assert!(named(path), "{file}: {path} isn't in every_help_text");
+                    seen += 1;
+                }
+            }
+            for f in [
+                "theme::help(",
+                "pane_toolbar(",
+                "pane_toolbar_pinned(",
+                "pane_toolbar_info(",
+                "help_with_key(",
+            ] {
+                // A definition's parameter, not a call.
+                for arg in third_args(&text, f)
+                    .into_iter()
+                    .filter(|a| !a.contains(": "))
+                {
+                    let ok = locals.contains(&arg.as_str()) || named(&arg) || arg == "[]";
+                    assert!(ok, "{file}: {f}… passes {arg}");
+                }
+            }
+        }
+        assert!(seen > 15, "{seen}");
     }
 }
