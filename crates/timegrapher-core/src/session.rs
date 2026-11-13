@@ -789,8 +789,10 @@ pub const LEAD_SCATTER_FLOOR: f64 = 0.0002;
 /// (1.5 to 4% of a beat on a stand), and a watch far less, so a noise
 /// lead can outweigh the watch after it in the whole stretch's verdict.
 /// Where the beats jumped (`jumps`, audio seconds) between that window's
-/// start and the one before's, the watch starts at the last such jump
-/// instead: there the beats stepped from the noise's onto the watch's.
+/// start and the one before's, no more than one grid step back, the watch
+/// starts at the last such jump instead: there the beats stepped from the
+/// noise's onto the watch's. Where windows are missing before it, a jump
+/// further back is in the noise (#1423).
 /// A whole file leaves the lead out; a reading of a set average (live or
 /// saved) does not, so a watch heard briefly after noise there is still
 /// no watch.
@@ -835,7 +837,9 @@ pub fn watch_lead_s(windows: &[WindowFit], bph: u32, jumps: &[f64]) -> Option<f6
             return None;
         }
         if watch(k) {
-            let after = windows[k - 1].start_s;
+            // Only a jump within one step of it: where the grid before it
+            // is broken, a jump further back is in the noise (#1423).
+            let after = windows[k - 1].start_s.max(w.start_s - RATE_WINDOW_STEP_S);
             let jump = jumps
                 .iter()
                 .copied()
