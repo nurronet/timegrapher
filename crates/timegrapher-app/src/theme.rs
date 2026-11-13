@@ -2000,6 +2000,24 @@ pub fn tool_field<R>(
     })
 }
 
+/// A [`tool_field`] whose control says what it is in its own words, such
+/// as "Down | Across": no caption before it in a toolbar, its name only in
+/// its hover and, folded, under "…" or in a settings list (Hugh).
+pub fn tool_words<R>(
+    ui: &mut Ui,
+    label: &str,
+    hint: &str,
+    control: impl FnOnce(&mut Ui) -> R,
+) -> Option<R> {
+    bar_item(ui, label, |ui| {
+        if in_toolbar(ui) {
+            control(ui)
+        } else {
+            row(ui, label, Some(hint), control)
+        }
+    })
+}
+
 /// A search box in a toolbar: the magnifying glass every app puts beside
 /// one, then the box; with its name under "…" or in a settings list.
 pub fn tool_search<R>(ui: &mut Ui, hint: &str, control: impl FnOnce(&mut Ui) -> R) -> Option<R> {
@@ -2214,6 +2232,8 @@ pub enum Icon {
     /// Isochronism's views: the curve, and the walk.
     IsoCurve,
     IsoWalk,
+    /// The Paper Strip's still paper.
+    StillPaper,
 }
 
 /// What an alert says about itself: a warning (a triangle in the text
