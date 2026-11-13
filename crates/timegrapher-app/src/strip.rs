@@ -1941,29 +1941,37 @@ impl Frame<'_> {
         }
     }
 
+    /// The beats on show: from the oldest on the strip to its end.
+    fn shown<'b>(&self, beats: &'b [Beat]) -> &'b [Beat] {
+        let lo = beats.partition_point(|b| b.time < self.oldest);
+        let hi = beats.partition_point(|b| b.time <= self.g.end);
+        &beats[lo..hi]
+    }
+
+    /// Where beat `b` is drawn on the strip.
+    fn beat_at(&self, b: &Beat, period_s: f64, anchor: Anchor) -> Pos2 {
+        let (g, extras) = (&self.g, self.extras);
+        let lead = anchor.lead_on_true(b, period_s, extras.breaks, extras.clock);
+        g.pos(wrap(lead, g.half), b.time)
+    }
+
+    /// How many of the good beats on show lie in `area`.
+    fn dots_in(&self, beats: &[Beat], period_s: f64, anchor: Anchor, area: Rect) -> usize {
+        self.shown(beats)
+            .iter()
+            .filter(|b| b.is_good() && area.contains(self.beat_at(b, period_s, anchor)))
+            .count()
+    }
+
     /// The beats on the strip as dots, Tick and Tock in their colours,
     /// faint while the watch settles. With `masked`, only the beats in a
     /// masked stretch, at 30% of their colour over the strip's ground and
     /// opaque, so crowded dots don't add up to full strength: a masked
     /// beat is still there to judge the mask by, but reads as unused
     /// (Hugh, #1068 item 2). Without, only the others.
-    /// How many of the beats on show lie in `area`.
-    fn dots_in(&self, beats: &[Beat], period_s: f64, anchor: Anchor, area: Rect) -> usize {
-        let (g, extras) = (&self.g, self.extras);
-        let lo = beats.partition_point(|b| b.time < self.oldest);
-        let hi = beats.partition_point(|b| b.time <= g.end);
-        let lead = |b: &Beat| anchor.lead_on_true(b, period_s, extras.breaks, extras.clock);
-        beats[lo..hi]
-            .iter()
-            .filter(|b| b.is_good() && area.contains(g.pos(wrap(lead(b), g.half), b.time)))
-            .count()
-    }
-
     fn paint_beats(&self, beats: &[Beat], period_s: f64, anchor: Anchor, masked: bool) {
         let (g, r, extras) = (&self.g, self.g.r, self.extras);
-        let lo = beats.partition_point(|b| b.time < self.oldest);
-        let hi = beats.partition_point(|b| b.time <= g.end);
-        let shown = &beats[lo..hi];
+        let shown = self.shown(beats);
         // Dots shrink when the strip is crowded.
         let along = if g.horizontal { r.width() } else { r.height() };
         let per_px = shown.len() as f32 / along.max(1.0);
@@ -1983,13 +1991,7 @@ impl Frame<'_> {
             if in_mask != masked {
                 continue;
             }
-            let p = g.pos(
-                wrap(
-                    anchor.lead_on_true(b, period_s, extras.breaks, extras.clock),
-                    g.half,
-                ),
-                b.time,
-            );
+            let p = self.beat_at(b, period_s, anchor);
             let mut c = colors[b.index.rem_euclid(2) as usize];
             if in_mask {
                 c = ground.lerp_to_gamma(c, MASKED_BEAT);
