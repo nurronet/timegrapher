@@ -158,12 +158,11 @@ impl SeriesKind {
             SeriesKind::BeatError => base_digits::BEAT_ERROR,
         }
     }
-    /// A value with this series' unit after it: "1.2 s/d", "270°".
+    /// A value with this series' unit after it, as [`unit_after`] spaces
+    /// it: "1.2 s/d", "270°".
     fn with_unit(self, text: String) -> String {
-        match self {
-            SeriesKind::Amplitude => format!("{text}°"),
-            _ => format!("{text} {}", self.unit()),
-        }
+        let (gap, u) = unit_after(self.unit());
+        format!("{text}{gap}{u}")
     }
     fn fmt(self, v: f64) -> String {
         match self {
@@ -178,6 +177,18 @@ impl SeriesKind {
         let d = crate::figure_text::difference_digits(self.digits());
         self.with_unit(format!("{v:.d$}"))
     }
+    /// A within-take size in `unit` ("s/d", "deg", "ms"), as
+    /// [`Self::fmt_size`] writes the series of that unit: the period
+    /// search's sizes, a rate's in ms of beat timing among them, are the
+    /// same fact as a cycle's peak to peak (Norm, #1470).
+    fn fmt_size_in(unit: &str, v: f64) -> String {
+        let k = match unit {
+            "s/d" => SeriesKind::Rate,
+            "deg" => SeriesKind::Amplitude,
+            _ => SeriesKind::BeatError,
+        };
+        k.fmt_size(v)
+    }
     /// A within-take change per hour, signed, one place finer than a
     /// reading, as [`Self::fmt_size`].
     pub fn fmt_per_hour(self, v: f64) -> String {
@@ -188,8 +199,9 @@ impl SeriesKind {
     /// as every ± is ([`crate::figure_text::pm_text`]).
     pub fn fmt_pm(self, v: f64) -> String {
         let d = self.digits();
-        let text = crate::figure_text::pm_text(v, d)
-            .unwrap_or_else(|| crate::figure_text::fixed_text(0.0, d));
+        // Never below one unit of the place, a zero spread too (section 11).
+        let unit = 10f64.powi(-(d as i32));
+        let text = crate::figure_text::pm_text(v.max(unit), d).unwrap_or_default();
         self.with_unit(text)
     }
 }
@@ -1293,8 +1305,7 @@ fn search_also(s: &SeriesCheck) -> Option<String> {
     };
     let mut lines = Vec::new();
     if !fast && !named.iter().any(|&n| near(p.period_s, n)) {
-        let (gap, u) = unit_after(p.size_unit);
-        let size = format!("{:.2}{gap}{u}", p.size);
+        let size = SeriesKind::fmt_size_in(p.size_unit, p.size);
         let wheel = p
             .wheel
             .as_ref()
@@ -1883,6 +1894,10 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
     };
     let every = every_text;
     let step = every(s.step_s);
+    // Without a short-term SD the clause is left out, not written "±0".
+    let spread = s.short_term_sd.map_or(String::new(), |v| {
+        format!(", ±{} from one reading to the next", k.fmt_pm(v))
+    });
     match s.lead {
         // check_series states the too-short case, with its rule, before
         // the tests run.
@@ -1891,22 +1906,22 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
             // A period-search line the headline adds is a cycle: say
             // nothing of cycles here.
             None if search_also(s).is_some() => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected.",
+                "{cap}: {} {step} readings, median {}{}; no level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
             None => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no cycle, level change, trend or correlation between readings detected.",
+                "{cap}: {} {step} readings, median {}{}; no cycle, level change, trend or correlation between readings detected.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
             Some(line) => format!(
-                "{cap}: {} {step} readings, median {}, ±{} from one reading to the next; no level change, trend or correlation between readings detected; {line}.",
+                "{cap}: {} {step} readings, median {}{}; no level change, trend or correlation between readings detected; {line}.",
                 s.readings,
                 k.fmt(s.median.unwrap_or(mean)),
-                k.fmt_pm(s.short_term_sd.unwrap_or(0.0))
+                spread
             ),
         },
                 Lead::Periodic => match (&s.cycle, &s.two_state) {
@@ -2039,9 +2054,7 @@ fn fast_line(s: &SeriesCheck) -> Option<String> {
         .wheel
         .as_ref()
         .map_or(String::new(), |w| format!(", the {w}'s period"));
-    // Two decimals, as the period search's own line in the report.
-    let (gap, u) = unit_after(p.size_unit);
-    let size = format!("{:.2}{gap}{u}", p.size);
+    let size = SeriesKind::fmt_size_in(p.size_unit, p.size);
     let also = if s.cycle.is_some() { " also" } else { "" };
     Some(format!(
         "{what}{also} repeats every {:.1} s{wheel}, {size} peak to peak; {} readings are too coarse to show it",

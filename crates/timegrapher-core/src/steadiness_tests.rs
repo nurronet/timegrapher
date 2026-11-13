@@ -262,7 +262,7 @@ fn a_fast_rate_line_is_stated_as_the_beat_timing_in_ms() {
     );
     assert_eq!(s.lead, Lead::Steady, "{}", s.headline);
     assert!(
-        s.headline.ends_with("; the beat timing repeats every 5.0 s, the escape wheel's period, 0.04 ms peak to peak; 10 s readings are too coarse to show it."),
+        s.headline.ends_with("; the beat timing repeats every 5.0 s, the escape wheel's period, 0.043 ms peak to peak; 10 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -302,7 +302,7 @@ fn an_amplitude_line_is_judged_against_the_2_s_windows() {
         &Config::default(),
     );
     assert!(
-        s.headline.ends_with("; the amplitude repeats every 4.0 s, 0.80° peak to peak; 2 s readings are too coarse to show it."),
+        s.headline.ends_with("; the amplitude repeats every 4.0 s, 0.8° peak to peak; 2 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -322,7 +322,7 @@ fn an_amplitude_line_is_judged_against_the_2_s_windows() {
     // The search's line is named, and the lead says nothing of cycles.
     assert!(
         s.headline.ends_with(
-            "; no level change, trend or correlation between readings detected. The amplitude's period search also finds 20.0 s (0.80° peak to peak)."
+            "; no level change, trend or correlation between readings detected. The amplitude's period search also finds 20.0 s (0.8° peak to peak)."
         ),
         "{}",
         s.headline
@@ -346,7 +346,7 @@ fn a_fast_line_beside_a_level_change_is_its_own_sentence() {
     );
     assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
     assert!(
-        s.headline.ends_with(". The beat timing repeats every 4.0 s, the escape wheel's period, 0.04 ms peak to peak; 2 s readings are too coarse to show it."),
+        s.headline.ends_with(". The beat timing repeats every 4.0 s, the escape wheel's period, 0.043 ms peak to peak; 2 s readings are too coarse to show it."),
         "{}",
         s.headline
     );
@@ -533,7 +533,7 @@ fn a_search_line_the_headline_does_not_name_is_added() {
     );
     assert!(
         s.headline.ends_with(
-            " The amplitude's period search also finds 45 s (0.80° peak to peak) and 600 s."
+            " The amplitude's period search also finds 45 s (0.8° peak to peak) and 600 s."
         ),
         "{}",
         s.headline
@@ -2418,7 +2418,8 @@ fn spreads_and_differences_take_their_places() {
     assert_eq!(Amplitude.fmt_pm(5.8), "6°");
     assert_eq!(Rate.fmt_pm(0.04), "0.1 s/d");
     assert_eq!(BeatError.fmt_pm(0.011), "0.02 ms");
-    assert_eq!(Amplitude.fmt_pm(0.0), "0°");
+    assert_eq!(Amplitude.fmt_pm(0.0), "1°");
+    assert_eq!(Rate.fmt_pm(0.0), "0.1 s/d");
     assert_eq!(Amplitude.fmt_size(0.44), "0.4°");
     assert_eq!(Rate.fmt_size(5.836), "5.84 s/d");
     assert_eq!(BeatError.fmt_size(0.1234), "0.123 ms");
