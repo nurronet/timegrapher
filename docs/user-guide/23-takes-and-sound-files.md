@@ -136,7 +136,7 @@ used only one (`2026-10-20 14.32 Dial Up`):
 | `clock.csv` | The computer's time against the sound card's samples, every 10 s, for the true clock (M3). |
 | `session.json` | The watch, position, lift angle, beat rate, input, start and end, position changes, and any break, such as the computer sleeping. |
 | `session.toml` | What `timegrapher session` reads: the watch, calibre, lift angle, beat rate, and each stretch in one position with its start and end. |
-| `positions-test.json` | Only after a Positions Test at full wind: its results, for the test 24 hours later (chapter 20). |
+| `positions-test.json` | Only after a Positions Test: its results, for the test 24 hours later, or, for that test, its results with the full-wind ones it was set against (chapter 20). |
 
 At start-up the app keeps as FLAC any hour of a saved take still in WAV,
 in the background ("Keeping saved takes as FLAC: 2 of 5"). An hour an

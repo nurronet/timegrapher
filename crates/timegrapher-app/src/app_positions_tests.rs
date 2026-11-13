@@ -654,6 +654,8 @@ fn a_ready_test_finds_the_picked_watchs_full_wind() {
     // Daytona's full-wind test, begun 31 h ago.
     std::fs::create_dir_all(&take).unwrap();
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: String::new(),
         began_unix: guided::unix_now() - 31.0 * 3600.0,
@@ -742,6 +744,8 @@ fn a_ready_tests_full_wind_search_sees_the_time_and_the_takes() {
     let now = guided::unix_now();
     std::fs::create_dir_all(&take).unwrap();
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: String::new(),
         began_unix: now - 11.5 * 3600.0,

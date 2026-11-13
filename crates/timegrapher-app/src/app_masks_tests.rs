@@ -466,6 +466,8 @@ fn the_position_brush_paints_and_moves_changes() {
 #[test]
 fn results_loaded_from_a_file_stay_while_the_test_waits() {
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: "2026-10-25T09:00:00.000Z".into(),
         began_unix: 1_792_918_800.0,
@@ -501,6 +503,8 @@ fn results_loaded_from_a_file_stay_while_the_test_waits() {
 #[test]
 fn a_cancelled_test_leaves_no_full_wind_results() {
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: "2026-10-25T09:00:00.000Z".into(),
         began_unix: 1_792_918_800.0,
@@ -536,6 +540,8 @@ fn full_wind_results_load_and_the_next_test_is_set_against_them() {
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
     let full = guided::FullWind {
+        wind_h: None,
+        against: None,
         format: guided::RESULTS_FORMAT.to_string(),
         began_utc: "2026-10-25T09:00:00.000Z".into(),
         began_unix: 1_792_918_800.0,
@@ -625,6 +631,56 @@ fn a_positions_test_take_takes_no_brush() {
     assert!(!app.in_test(), "the test itself is over");
     draw(&mut app);
     assert_eq!(app.brush, None);
+    assert!(app.guided_saved.is_none(), "not a 24 hour half's");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A 24 hour half's take opens on its saved results, which go when
+/// another take opens; a full-wind test's results bring none back.
+#[test]
+fn an_opened_24_hour_half_brings_back_its_results() {
+    let mut app = synthetic(60.0, 0.0);
+    let dir = std::env::temp_dir().join(format!("tg-app-24h-reopen-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let full = guided::FullWind {
+        format: guided::RESULTS_FORMAT.into(),
+        began_utc: String::new(),
+        began_unix: 1_794_470_400.0,
+        watch: "Pepsi".into(),
+        calibre: String::new(),
+        bph: None,
+        lift_angle_deg: None,
+        settle_s: None,
+        measure_s: None,
+        positions: vec![guided::KeptRow {
+            position: "DU".into(),
+            rate_s_per_day: Some(4.0),
+            amplitude_deg: None,
+            beat_error_ms: None,
+            beat_error_source: None,
+        }],
+        wind_h: None,
+        against: None,
+    };
+    let half = guided::FullWind {
+        wind_h: Some(24.0),
+        against: Some(Box::new(full.clone())),
+        ..full.clone()
+    };
+    let take = dir.join("take.flac");
+    std::fs::write(dir.join(guided::RESULTS_FILE), half.to_json()).unwrap();
+    app.load_reserve(&take);
+    assert!(app.positions_take);
+    assert_eq!(app.guided_saved.as_ref(), Some(&half));
+    std::fs::write(dir.join(guided::RESULTS_FILE), full.to_json()).unwrap();
+    app.load_reserve(&take);
+    assert!(app.positions_take);
+    assert_eq!(app.guided_saved, None);
+    // Load Full-Wind Results… takes no 24 hour half.
+    let file = dir.join("half.json");
+    std::fs::write(&file, half.to_json()).unwrap();
+    assert!(app.read_full_wind(&file).is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -25,7 +25,9 @@ pub use timegrapher_core::library::POSITIONS_TEST_FILE as RESULTS_FILE;
 /// The file's `format`, versioned: a later version adds keys.
 pub const RESULTS_FORMAT: &str = "timegrapher.positions-test/1";
 
-/// A finished test just after winding, as saved for the 24 hour half.
+/// A finished test's results as saved: a test just after winding, for
+/// the 24 hour half, or a 24 hour half with the full-wind results it was
+/// set against.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FullWind {
     /// [`RESULTS_FORMAT`].
@@ -49,6 +51,13 @@ pub struct FullWind {
     pub measure_s: Option<f64>,
     /// Each position, in the order measured.
     pub positions: Vec<KeptRow>,
+    /// For the 24 hour half: hours since the full-wind test began, to a
+    /// tenth, and that test's results, which this one was set against.
+    /// Absent for a full-wind test.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wind_h: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub against: Option<Box<FullWind>>,
 }
 
 /// One position's figures from the full-wind test.
@@ -99,7 +108,8 @@ impl FullWind {
 /// The full-wind tests kept in the takes folder `takes` (each take's
 /// [`RESULTS_FILE`]) that began [`FULL_WIND_HOURS`] before `now_unix`,
 /// newest first: those a watch's 24 hours after test can be set against,
-/// for the one testing to pick from.
+/// for the one testing to pick from. A 24 hour half's results are never
+/// among them.
 pub fn full_winds_in(takes: &std::path::Path, now_unix: f64) -> Vec<FullWind> {
     let Ok(dir) = std::fs::read_dir(takes) else {
         return Vec::new();
@@ -108,6 +118,7 @@ pub fn full_winds_in(takes: &std::path::Path, now_unix: f64) -> Vec<FullWind> {
         .flatten()
         .filter_map(|e| std::fs::read_to_string(e.path().join(RESULTS_FILE)).ok())
         .filter_map(|t| FullWind::from_json(&t).ok())
+        .filter(|f| f.wind_h.is_none())
         .filter(|f| FULL_WIND_HOURS.contains(&f.hours_ago(now_unix)))
         .collect();
     out.sort_by(|a, b| b.began_unix.total_cmp(&a.began_unix));
@@ -349,10 +360,11 @@ impl Test {
         self.full.as_ref().map(|f| f.1)
     }
 
-    /// The finished full-wind test, to keep for the 24 hour half: None
-    /// for a 24 hour half or an unfinished test.
+    /// The finished Positions Test's results, to keep beside its take: a
+    /// full-wind test's for the 24 hour half, or a 24 hour half's with the
+    /// results it was set against. None for an unfinished test.
     pub fn kept(&self, about: &About) -> Option<FullWind> {
-        if self.full.is_some() || self.kind != Kind::Positions {
+        if self.kind != Kind::Positions {
             return None;
         }
         let readings = self.readings.as_ref()?;
@@ -376,6 +388,8 @@ impl Test {
                     beat_error_source: r.measurement.beat_error_source,
                 })
                 .collect(),
+            wind_h: self.wind_h(),
+            against: self.full.as_ref().map(|f| Box::new(f.0.clone())),
         })
     }
 
@@ -1390,6 +1404,7 @@ pub fn pane(
     test: Option<&Test>,
     phase: Option<Phase>,
     earlier: Option<&FullWind>,
+    saved: Option<&FullWind>,
     free: Option<&FreeTable>,
     live: Option<&FreeCell>,
     settle_s: f64,
@@ -1424,13 +1439,23 @@ pub fn pane(
         if let Some(t) = test {
             this_test(ui, t, phase, live);
         }
-        if let (None, Some(f)) = (test, free) {
-            this_take(ui, f, card, settle_s);
+        // An opened 24 hour half shows the run as saved, not read again.
+        match (test, saved) {
+            (None, Some(s)) => saved_test(ui, s),
+            (None, None) => {
+                if let Some(f) = free {
+                    this_take(ui, f, card, settle_s);
+                }
+            }
+            _ => {}
         }
-        let c = test.and_then(|t| {
-            let (f, h) = t.full.as_ref()?;
-            comparison(f, *h, t.readings_so_far())
-        });
+        let c = match test {
+            Some(t) => t
+                .full
+                .as_ref()
+                .and_then(|(f, h)| comparison(f, *h, t.readings_so_far())),
+            None => saved.and_then(saved_comparison),
+        };
         if let Some(c) = &c {
             ui.add_space(10.0);
             heading(
@@ -1473,6 +1498,25 @@ fn this_test(ui: &mut egui::Ui, t: &Test, phase: Option<Phase>, live: Option<&Fr
              the command line reads them",
     );
     test_table(ui, t, phase, live);
+}
+
+/// An opened 24 hour half's heading and table, from its saved results.
+fn saved_test(ui: &mut egui::Ui, s: &FullWind) {
+    heading(
+        ui,
+        &format!(
+            "This Test, {:.1} h After Full Wind",
+            s.wind_h.unwrap_or(0.0)
+        ),
+        "Each position's figures as the test measured them, saved with the take",
+    );
+    table_grid(
+        ui,
+        ("positions", Kind::Positions),
+        &kept_table(s),
+        None,
+        None,
+    );
 }
 
 /// A test's table, filling in as each position is measured, with a word
@@ -1706,7 +1750,22 @@ fn caveat_condition(label: &str, c: &timegrapher_core::measure::Caveat) -> Optio
 /// The table from the readings, with the figures `timegrapher session`
 /// prints for the same stretches and its position names.
 pub fn table(readings: &[Reading], kind: Kind) -> Table {
-    let figures: Vec<SourcedFigures> = readings
+    let figures = reading_figures(readings);
+    let notes = readings
+        .iter()
+        .flat_map(|r| conditions(&position_label(r.position), r.bph_set, &r.measurement))
+        .collect();
+    table_of(&figures, notes, kind)
+}
+
+/// The table of an earlier test's saved results.
+pub fn kept_table(full: &FullWind) -> Table {
+    table_of(&kept_figures(full), Vec::new(), Kind::Positions)
+}
+
+/// Each reading's figures, as core reads them.
+fn reading_figures(readings: &[Reading]) -> Vec<SourcedFigures> {
+    readings
         .iter()
         .map(|r| {
             let m = &r.measurement;
@@ -1718,18 +1777,12 @@ pub fn table(readings: &[Reading], kind: Kind) -> Table {
                 m.beat_error_source,
             )
         })
-        .collect();
-    let notes = readings
-        .iter()
-        .flat_map(|r| conditions(&position_label(r.position), r.bph_set, &r.measurement))
-        .collect();
-    table_of(&figures, notes, kind)
+        .collect()
 }
 
-/// The table of an earlier test's saved results.
-pub fn kept_table(full: &FullWind) -> Table {
-    let figures: Vec<SourcedFigures> = full
-        .positions
+/// A saved test's figures, as core reads them.
+fn kept_figures(full: &FullWind) -> Vec<SourcedFigures> {
+    full.positions
         .iter()
         .filter_map(|k| {
             Some((
@@ -1740,8 +1793,7 @@ pub fn kept_table(full: &FullWind) -> Table {
                 k.beat_error_source,
             ))
         })
-        .collect();
-    table_of(&figures, Vec::new(), Kind::Positions)
+        .collect()
 }
 
 /// The table's summary lines are core `session::sourced_indices`, the values
@@ -1983,47 +2035,39 @@ pub struct Comparison {
 }
 
 /// Full wind (`full`) against the 24 hour half's `readings`, `hours`
-/// later, read by core `session::evaluate` as `session` reads a file with
-/// both. The kept figures stand in for the full-wind measurements.
+/// later, read by core `session::evaluate_states` as `session` reads a
+/// file with both. The kept figures stand in for the full-wind
+/// measurements.
 pub fn comparison(full: &FullWind, hours: f64, readings: &[Reading]) -> Option<Comparison> {
-    let template = readings.first()?;
-    let mut all: Vec<Reading> = full
-        .positions
-        .iter()
-        .filter_map(|k| {
-            let position = session::Position::parse(&k.position)?;
-            let mut measurement = template.measurement.clone();
-            measurement.rate_s_per_day = k.rate_s_per_day;
-            measurement.amplitude_deg = k.amplitude_deg;
-            measurement.beat_error_source = k.beat_error_source;
-            measurement.beat_error_unlock_ms = k
-                .beat_error_ms
-                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Unlock));
-            measurement.beat_error_ms = k
-                .beat_error_ms
-                .filter(|_| k.beat_error_source == Some(session::BeatErrorSource::Drop));
-            Some(Reading {
-                label: position_label(position),
-                position,
-                wind_h: Some(0.0),
-                measurement,
-                ..template.clone()
-            })
-        })
-        .collect();
-    all.extend(readings.iter().map(|r| Reading {
-        wind_h: Some(hours),
-        ..r.clone()
-    }));
-    let report = session::evaluate(&all);
-    let (first, last) = (report.states.first()?, report.states.last()?);
-    if report.states.len() < 2 {
+    comparison_of(&kept_figures(full), hours, &reading_figures(readings))
+}
+
+/// A saved 24 hour half (`later`) against the full-wind results it was set
+/// against, both from the file: what the run showed, read again from
+/// nothing but its saved rows. None for a full-wind test's results.
+pub fn saved_comparison(later: &FullWind) -> Option<Comparison> {
+    let full = later.against.as_deref()?;
+    comparison_of(&kept_figures(full), later.wind_h?, &kept_figures(later))
+}
+
+fn comparison_of(
+    full: &[SourcedFigures],
+    hours: f64,
+    later: &[SourcedFigures],
+) -> Option<Comparison> {
+    if full.is_empty() || later.is_empty() {
         return None;
     }
-    let rows = readings
+    let states = vec![
+        session::sourced_indices(0.0, full),
+        session::sourced_indices(hours, later),
+    ];
+    let report = session::evaluate_states(states, Vec::new());
+    let (first, last) = (report.states.first()?, report.states.last()?);
+    let rows = later
         .iter()
-        .filter_map(|r| {
-            let p = r.position;
+        .filter_map(|f| {
+            let p = f.0;
             let a = first.positions.iter().find(|v| v.position == p)?;
             let b = last.positions.iter().find(|v| v.position == p)?;
             let change = |x: Option<f64>, y: Option<f64>| y.zip(x).map(|(y, x)| y - x);

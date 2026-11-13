@@ -527,6 +527,7 @@ impl TimegrapherApp {
         self.bg.reserve_live = None;
         self.bg.reserve_live_s = 0.0;
         self.positions_take = false;
+        self.guided_saved = None;
         self.test_keep = None;
         self.guided_unused.clear();
         self.guided_measured.clear();
@@ -1528,6 +1529,7 @@ impl TimegrapherApp {
             path.parent().unwrap_or(path)
         };
         self.positions_take = timegrapher_core::library::is_positions_test(dir);
+        self.load_saved_test(dir);
         // A test's take opens on its results.
         if self.positions_take {
             self.reveal_pane(Pane::PositionsTest);
