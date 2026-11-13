@@ -17,7 +17,7 @@ use egui_plot::{
 };
 use serde::{Deserialize, Serialize};
 use timegrapher_core::figure_text::true_minus;
-use timegrapher_core::library::{base_digits, length_text};
+use timegrapher_core::library::length_text;
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::{Fold, Grid, LongConfig, Search};
@@ -376,14 +376,9 @@ fn stats_line(c: &SeriesCheck) -> String {
     let (sp, u) = steadiness::unit_after(c.unit);
     // At the series' own place, as its readings are written (#1470); a
     // true minus sign, as in the readings.
-    let places = match c.series {
-        SeriesKind::Rate => base_digits::RATE,
-        SeriesKind::Amplitude => base_digits::AMPLITUDE,
-        SeriesKind::BeatError => base_digits::BEAT_ERROR,
-    };
+    let places = c.series.digits();
     let at = |v: f64| true_minus(&format!("{v:.places$}"));
     let n = |v: f64| true_minus(&format!("{v:.2}"));
-    let signed = |v: f64| true_minus(&format!("{v:+.2}"));
     let mut parts = vec![format!("Tested on {}", counted(c.readings, c.step_s))];
     if c.outliers > 0 {
         parts.push(format!(
@@ -398,7 +393,9 @@ fn stats_line(c: &SeriesCheck) -> String {
         parts.push(format!("SD {}{sp}{u}", at(sd)));
     }
     if let Some(st) = c.short_term_sd {
-        parts.push(format!("±{}{sp}{u} reading to reading", at(st)));
+        // A spread after a ± reads as one: rounded up, as core's
+        // headline writes it (Norm, #1470).
+        parts.push(format!("±{} reading to reading", c.series.fmt_pm(st)));
     }
     if let Some(a) = &c.autocorrelation {
         let lag1 = a.lag_s.iter().zip(&a.r).find(|(l, _)| **l > 0.0);
@@ -413,8 +410,8 @@ fn stats_line(c: &SeriesCheck) -> String {
     let why = |n: &Option<String>| n.as_ref().map_or(String::new(), |n| format!(", {n}"));
     if let Some(t) = &c.trend {
         parts.push(format!(
-            "trend {}{sp}{u}/h{}",
-            signed(t.per_hour),
+            "trend {}/h{}",
+            true_minus(&c.series.fmt_per_hour(t.per_hour)),
             why(&t.note)
         ));
     }
@@ -1508,7 +1505,7 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
                     mark_label(
                         p,
                         at,
-                        format!("least scatter at {}: {}", secs(t), unit_sig(k, d)),
+                        format!("least scatter at {}: {}", secs(t), k.fmt_pm(d)),
                         pal.text,
                         false,
                     );

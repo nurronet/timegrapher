@@ -1384,6 +1384,11 @@ fn the_amplitude_stats_line_says_degrees() {
     );
     let line = stats_line(&c);
     assert!(line.contains("median 270°"), "{line}");
+    // Its ± from one reading to the next is at 1°, rounded up, as core's
+    // headline writes it (Walter's ±5.8° beside ±6°, #1470).
+    let st = c.short_term_sd.expect("a short-term SD");
+    let pm = format!("±{}° reading to reading", st.ceil().max(1.0));
+    assert!(line.contains(&pm), "{line}");
     assert!(line.contains("° ·"), "{line}");
     assert!(!line.contains("deg"), "{line}");
     assert!(!line.contains(" °"), "{line}");
