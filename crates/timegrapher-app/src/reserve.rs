@@ -1082,6 +1082,17 @@ fn one_chart(
 ) -> egui::Rect {
     use egui_plot::{Line, Plot, PlotPoints};
     let pal = theme::pal(ui);
+    // Its series' name over it, as the Distributions' plots have (#1528),
+    // in the chart's height.
+    use timegrapher_core::steadiness::SeriesKind;
+    let kind = if name == "rate" {
+        SeriesKind::Rate
+    } else {
+        SeriesKind::Amplitude
+    };
+    let title = crate::steady::title(kind);
+    let named = ui.label(theme::caption(title).color(pal.text_secondary));
+    let height = (height - named.rect.height() - ui.spacing().item_spacing.y).max(CHART_MIN_H);
     let x = |h: &power_reserve::Hour| f64::from(h.hour) + h.span_s / 7200.0;
     let colour = if name == "rate" {
         pal.trace_rate
@@ -1586,6 +1597,44 @@ mod tests {
         let open = drawn_texts(&ctx, &t, true);
         for l in &lines {
             assert!(has(&open, l), "{l}: {open:?}");
+        }
+    }
+
+    /// A saved run's Info says where its take is kept, in the watch or
+    /// in Unsorted, after the run and before the pauses and the keys; and
+    /// each chart is titled with its series, over it (Hugh, #1528).
+    #[test]
+    fn a_saved_runs_info_says_where_it_is_kept() {
+        let mut t = finished_run(2);
+        t.saved = Some(PathBuf::from("/takes/2026-11-13 08.00 Power Reserve"));
+        t.heard.pauses.push(power_reserve::Pause {
+            from_s: 10.0,
+            to_s: 20.0,
+        });
+        let hours = t.results.as_ref().unwrap().hours.clone();
+        let lines = info_lines(&t, "Pepsi", &hours);
+        // The run, where it's kept, the pauses, then the grey key: these
+        // hours' beat errors have no recorded source.
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines[3], DIM_KEY_TEXT);
+        assert_eq!(
+            lines[1],
+            "Kept in Pepsi. Kept as \"2026-11-13 08.00 Power Reserve\". Every pane reads it \
+             like any other take."
+        );
+        assert!(lines[2].starts_with("Beats stopped"), "{lines:?}");
+        assert!(info_lines(&t, "", &hours)[1].starts_with("Kept in Unsorted. "));
+        t.saving = true;
+        assert_eq!(
+            info_lines(&t, "Pepsi", &hours)[1],
+            "Saving the take\u{2026}"
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let drawn = drawn_texts(&ctx, &finished_run(3), false);
+        // Each name twice: over its chart and over its column.
+        for name in ["Rate", "Amplitude"] {
+            assert_eq!(drawn.iter().filter(|c| c.0 == name).count(), 2, "{drawn:?}");
         }
     }
 
