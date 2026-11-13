@@ -164,12 +164,14 @@ fn analyze_and_session_agree_on_a_whole_file() {
     }
     assert_eq!(s.caveats, m.caveats);
     // The same ± on each reading, to within 1% (the streamed read sums
-    // in a different order).
+    // in a different order). The rate's 180 s hold 18 of the 30 values
+    // its ± takes its scatter from, so neither gives one (#1470).
     let se = |c: &Option<timegrapher_core::confidence::Confidence>| {
         c.map(|c| [c.rate.se, c.amplitude.se, c.beat_error.se])
     };
     let (a, b) = (se(&s.confidence).unwrap(), se(&m.confidence).unwrap());
-    for (x, y) in a.iter().zip(&b) {
+    assert!(a[0].is_none() && b[0].is_none(), "{a:?} against {b:?}");
+    for (x, y) in a.iter().zip(&b).skip(1) {
         let (x, y) = (x.unwrap(), y.unwrap());
         assert!(
             (x - y).abs() <= 0.01 * x.abs().max(y.abs()),

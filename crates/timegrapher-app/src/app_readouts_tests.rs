@@ -627,6 +627,28 @@ fn stopping_keeps_the_last_heard_readings() {
     assert!(after.time_s <= 62.0, "{}", after.time_s);
 }
 
+/// The Rate figure's hover says what its ± waits for, until the take
+/// holds the 30 values it takes its scatter from, and then its exact
+/// size (#1470).
+#[test]
+fn the_rate_hover_says_what_its_plus_minus_waits_for() {
+    let app = synthetic(60.0, 12.0);
+    let r = app.reading().unwrap();
+    assert!(r.rate_s_per_day.is_some() && r.rate_error_s_per_day.is_none());
+    let words = readouts::rate_pm_words(&r).unwrap();
+    assert!(words.starts_with("± after 5 min of beats; "), "{words}");
+    let so_far = format!("{} of 30 so far", r.rate_noise_values);
+    assert!(words.contains(&so_far), "{words}");
+    assert!((3..30).contains(&r.rate_noise_values), "{words}");
+    let mut with = r.clone();
+    with.rate_error_s_per_day = Some(0.1234);
+    let words = readouts::rate_pm_words(&with).unwrap();
+    assert!(
+        words.starts_with("± 0.2 s/d: one standard error, 0.123 before it is rounded up."),
+        "{words}"
+    );
+}
+
 /// Lay out and paint frames without a window, in both strip directions,
 /// with a synthetic watch run through the live engine.
 #[test]

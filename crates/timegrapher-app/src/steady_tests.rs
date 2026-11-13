@@ -1377,7 +1377,7 @@ fn the_amplitude_stats_line_says_degrees() {
         &Config::default(),
     );
     let line = stats_line(&c);
-    assert!(line.contains("median 270."), "{line}");
+    assert!(line.contains("median 270°"), "{line}");
     assert!(line.contains("° ·"), "{line}");
     assert!(!line.contains("deg"), "{line}");
     assert!(!line.contains(" °"), "{line}");

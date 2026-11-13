@@ -743,18 +743,20 @@ pub const RATE_WINDOW_S: f64 = 10.0;
 /// overlap.
 pub const RATE_WINDOW_STEP_S: f64 = RATE_WINDOW_S / 2.0;
 
-/// The unbroken beats the rate's ± needs, s: the windows half overlap and
-/// [`confidence::rate_se`] takes every other one, so its
-/// [`confidence::MIN_VALUES`] need that many window lengths.
-pub const RATE_SE_MIN_S: f64 = confidence::MIN_VALUES as f64 * RATE_WINDOW_S;
+/// The beats the rate's ± needs in the take, s: the windows half overlap
+/// and [`confidence::rate_se`] takes every other one, so its
+/// [`confidence::MIN_NOISE_VALUES`] need that many window lengths
+/// (#1470). A shorter reading borrows the scatter of those nearest it.
+pub const RATE_SE_MIN_S: f64 = confidence::MIN_NOISE_VALUES as f64 * RATE_WINDOW_S;
 
 /// The rate's ± for a figure averaged over `average_s` within a run whose
 /// rate windows are given: the windows' scatter scaled to that time. Over
 /// the whole run it is the standard error [`confidence::rate_se`] gives;
-/// over a shorter time it is wider, since fewer windows went into it.
-pub fn rate_se_over(rate_windows: &[WindowFit], average_s: f64) -> Option<f64> {
+/// over a shorter time it is wider, since fewer windows went into it. Its
+/// noise is borrowed from `take` as [`confidence::rate_se`]'s.
+pub fn rate_se_over(rate_windows: &[WindowFit], take: &[WindowFit], average_s: f64) -> Option<f64> {
     let independent = rate_windows.len().div_ceil(2) as f64;
-    let se = confidence::rate_se(rate_windows)?;
+    let se = confidence::rate_se(rate_windows, take)?;
     let averaged = (average_s / RATE_WINDOW_S).clamp(1.0, independent);
     Some(se * (independent / averaged).sqrt())
 }
@@ -768,11 +770,38 @@ pub struct Assessment {
     pub doubts: Doubts,
 }
 
-/// State what a measurement rests on, from its 10 s rate windows (half overlapping) and
-/// its 2 s amplitude windows.
+/// The take's windows a reading's ± borrows its noise from where it holds
+/// fewer than [`confidence::MIN_NOISE_VALUES`] values (#1470): its 10 s
+/// rate windows (half overlapping) and its 2 s amplitude windows, each in
+/// time order, outside the masks.
+#[derive(Debug, Clone, Copy)]
+pub struct TakeWindows<'a> {
+    pub rate: &'a [WindowFit],
+    pub amplitude: &'a [&'a AmplitudeWindow],
+}
+
+/// State what a measurement rests on, from its 10 s rate windows (half
+/// overlapping) and its 2 s amplitude windows, when they are the whole
+/// take: [`assess_in`] borrowing from no more than them.
 pub fn assess(
     rate_windows: &[WindowFit],
     amplitude_windows: &[&AmplitudeWindow],
+    c: &Context,
+) -> Assessment {
+    let take = TakeWindows {
+        rate: rate_windows,
+        amplitude: amplitude_windows,
+    };
+    assess_in(rate_windows, amplitude_windows, take, c)
+}
+
+/// State what a measurement rests on, from its 10 s rate windows (half
+/// overlapping) and its 2 s amplitude windows, its ± borrowing noise from
+/// `take` where they hold too few values (#1470).
+pub fn assess_in(
+    rate_windows: &[WindowFit],
+    amplitude_windows: &[&AmplitudeWindow],
+    take: TakeWindows,
     c: &Context,
 ) -> Assessment {
     let found = if c.expected > 0.0 {
@@ -826,11 +855,19 @@ pub fn assess(
     let confidence = c.watch_heard.then(|| {
         Confidence::new(
             match c.average_s {
-                Some(t) => rate_se_over(rate_windows, t),
-                None => confidence::rate_se(rate_windows),
+                Some(t) => rate_se_over(rate_windows, take.rate, t),
+                None => confidence::rate_se(rate_windows, take.rate),
             },
-            confidence::amplitude_windows_se(amplitude_windows.iter().copied(), |w| w.mean()),
-            confidence::beat_error_se(amplitude_windows.iter().copied(), c.beat_error_as_size),
+            confidence::amplitude_windows_se(
+                amplitude_windows.iter().copied(),
+                take.amplitude,
+                |w| w.mean(),
+            ),
+            confidence::beat_error_se(
+                amplitude_windows.iter().copied(),
+                take.amplitude,
+                c.beat_error_as_size,
+            ),
         )
     });
     Assessment {
@@ -993,13 +1030,13 @@ mod tests {
     fn a_short_average_has_a_wider_rate_error() {
         let rates: Vec<f64> = (0..36).map(|i| [1.0, -1.0, 0.5, -0.5][i % 4]).collect();
         let w = rate_windows(&rates);
-        let whole = confidence::rate_se(&w).unwrap();
+        let whole = confidence::rate_se(&w, &w).unwrap();
         // Averaged over the whole run, it is the standard error analyze uses.
-        assert_eq!(rate_se_over(&w, 360.0), Some(whole));
-        assert_eq!(rate_se_over(&w, 3600.0), Some(whole));
+        assert_eq!(rate_se_over(&w, &w, 360.0), Some(whole));
+        assert_eq!(rate_se_over(&w, &w, 3600.0), Some(whole));
         // A 10 s average carries one window's scatter: six times wider
         // with 36 independent windows.
-        let ten = rate_se_over(&w, 10.0).unwrap();
+        let ten = rate_se_over(&w, &w, 10.0).unwrap();
         assert!((ten / whole - 6.0).abs() < 1e-9, "{ten} against {whole}");
         let with = |average_s| {
             assess(
@@ -1021,7 +1058,14 @@ mod tests {
 
     #[test]
     fn under_three_windows_the_rate_error_is_unknown() {
-        assert_eq!(rate_se_over(&rate_windows(&[1.0, -1.0]), 10.0), None);
+        assert_eq!(
+            rate_se_over(
+                &rate_windows(&[1.0, -1.0]),
+                &rate_windows(&[1.0, -1.0]),
+                10.0
+            ),
+            None
+        );
     }
 
     /// Under 10 s of sound, regularity is not assessed: however scattered

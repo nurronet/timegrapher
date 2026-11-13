@@ -137,6 +137,33 @@ pub(super) fn rate_figure(r: &LiveReading) -> Option<String> {
     Some(figure(v, r.rate_error_s_per_day, base::RATE, true))
 }
 
+/// What the Rate figure's ± rests on, or what it waits for, for the
+/// figure's hover (#1470): its exact size before it is rounded up, or how
+/// many of the 10-second rates it needs the take holds so far.
+pub(super) fn rate_pm_words(r: &LiveReading) -> Option<String> {
+    use timegrapher_core::confidence::{MIN_NOISE_VALUES as NEED, MIN_VALUES};
+    use timegrapher_core::measure::{RATE_SE_MIN_S, RATE_WINDOW_S};
+    r.rate_s_per_day?;
+    Some(match r.rate_error_s_per_day {
+        Some(se) => format!(
+            "± {} s/d: one standard error, {se:.3} before it is rounded up. Its \
+             scatter comes from at least {NEED} 10-second rates: the run's own, or \
+             where it holds fewer, the {NEED} nearest it in this take.",
+            pm_text(se, base::RATE)?
+        ),
+        None if r.rate_noise_values < NEED => format!(
+            "± after {} of beats; {} of {NEED} so far. It takes its scatter from \
+             {NEED} 10-second rates.",
+            fields::duration(RATE_SE_MIN_S),
+            r.rate_noise_values
+        ),
+        None => format!(
+            "± after {} of unbroken beats.",
+            fields::duration(MIN_VALUES as f64 * RATE_WINDOW_S)
+        ),
+    })
+}
+
 /// The Amplitude card's figure, with its degree sign.
 pub(super) fn amplitude_figure(r: &LiveReading) -> Option<String> {
     let v = r.amplitude_deg?;
@@ -443,6 +470,9 @@ impl TimegrapherApp {
         };
         // The beats behind the figure, in its hover.
         let mut behind = r.map_or_else(String::new, |r| self.beats_behind(r));
+        if let Some(t) = r.filter(|_| heard).and_then(rate_pm_words) {
+            behind += &format!("\n\n{t}");
+        }
         if let Some((w, v)) = whole.as_ref().and_then(|w| Some((w, w.m.rate_s_per_day?))) {
             let se = w.m.confidence.and_then(|c| c.rate.se);
             let spread = w.m.rate_p05.zip(w.m.rate_p95).map(|(a, b)| {
@@ -886,6 +916,19 @@ impl TimegrapherApp {
                 // ± adds each measure's in squares (#1271, #1470).
                 let off = (f.ppm - c.ppm).abs();
                 let sd = gap_sd(Some(f.ppm_sd), c.ppm_sd);
+                // A gap under the rate's place reads as one, not as "0.0",
+                // which reads as none.
+                let secs = figure(
+                    rate_error_s_per_day(off).abs(),
+                    sd.map(|s| rate_error_s_per_day(s).abs()),
+                    base::RATE,
+                    false,
+                );
+                let secs = if secs.chars().all(|c| c == '0' || c == '.') {
+                    "less than 0.1".to_string()
+                } else {
+                    secs
+                };
                 hint += &format!(
                     "\n\nThe clock kept for \"{}\" runs {}, kept {}. This timing is {} ppm \
                      from it, {} seconds per day on True Clock. An input reached by a \
@@ -895,12 +938,7 @@ impl TimegrapherApp {
                     ppm_words(c.ppm, c.ppm_sd),
                     day_of(&c.measured_utc),
                     figure(off, sd, base::CLOCK, false),
-                    figure(
-                        rate_error_s_per_day(off).abs(),
-                        sd.map(|s| rate_error_s_per_day(s).abs()),
-                        base::RATE,
-                        false
-                    )
+                    secs
                 );
             }
             return ClockWords {

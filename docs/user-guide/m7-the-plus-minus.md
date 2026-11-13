@@ -52,8 +52,15 @@ term = 1.2533 × τ ÷ √k     (k: the stretches of 3 readings or more)
 ```
 
 The live **rate's ±** is read from the 10 s windows since the last break,
-up to five minutes, then scaled to the Average Over time. It needs about
-30 s of unbroken beats. With fewer than 3 readings there is no ±.
+up to five minutes, then scaled to the Average Over time.
+
+**Thirty readings for the scatter.** A spread read from 5 values is
+wild, so every ± takes its scatter and correlation from at least 30
+readings. A reading with fewer, such as a 10 s average of five 2 s
+windows, borrows them from the 30 readings nearest it in the same take,
+across breaks and positions but never across takes; its own count still
+sets how narrow the ± is. With fewer than 30 in the take there is no ±,
+and with fewer than 3 of its own neither (#1470).
 
 ## Why This Way
 

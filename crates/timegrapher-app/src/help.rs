@@ -75,7 +75,8 @@ pub static RATE: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         format!(
             "The ± is how far the figure could be off from the scatter of {RATE_WINDOW_S:.0}-second rates over \
      the run so far: a property of the measurement, not of the watch. \
-     It needs about {RATE_SE_MIN_S:.0} s of unbroken beats. Anything the ± can't show (a short stretch, \
+     It needs about {RATE_SE_MIN_S:.0} s of beats in the take; a shorter reading takes the scatter \
+     from the beats nearest it. Anything the ± can't show (a short stretch, \
      missing beats) is named beside the title. Stopped after a long run, a line \
      under the figure gives the whole take as the command line reads it, with \
      the 5th to 95th percentile of its {RATE_WINDOW_S:.0}-second rates."
@@ -484,7 +485,7 @@ mod tests {
     fn the_help_states_the_limits_core_reads_by() {
         let rate = RATE.concat();
         let window = format!("{RATE_WINDOW_S:.0}-second rates");
-        let unbroken = format!("about {RATE_SE_MIN_S:.0} s of unbroken beats");
+        let unbroken = format!("about {RATE_SE_MIN_S:.0} s of beats in the take");
         assert!(rate.contains(&window) && rate.contains(&unbroken), "{rate}");
         let iso = ISOCHRONISM.concat();
         let bands = format!(

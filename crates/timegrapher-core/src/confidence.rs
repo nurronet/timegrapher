@@ -448,20 +448,118 @@ pub fn standard_error(values: &[f64]) -> Option<f64> {
 /// [`MIN_VALUES`] values or no difference within a stretch.
 pub fn standard_error_in<'a>(stretches: impl IntoIterator<Item = &'a [f64]>) -> Option<f64> {
     let stretches: Vec<&[f64]> = stretches.into_iter().collect();
-    let n: usize = stretches.iter().map(|s| s.len()).sum();
-    let d: Vec<f64> = stretches
-        .iter()
-        .flat_map(|s| s.windows(2).map(|w| w[1] - w[0]))
-        .collect();
-    if n < MIN_VALUES || d.is_empty() {
+    let noise = Noise::of(&stretches, MIN_VALUES)?;
+    Some(noise.standard_error(count(&stretches)))
+}
+
+/// The fewest values a ± takes its noise from (#1470, math-standards
+/// §9): a reading with fewer borrows the scatter and the lag-one
+/// correlation of the values nearest it in the same take
+/// ([`noise_pool`]), and a take with fewer in all gives no ±.
+pub const MIN_NOISE_VALUES: usize = 30;
+
+/// The noise of one series read in stretches: its scatter `s` from the
+/// successive differences within each stretch, 1.4826 MAD / √2, and its
+/// lag-one correlation `rho` pooled over them, held to 0 ..= 0.99.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Noise {
+    pub s: f64,
+    pub rho: f64,
+}
+
+impl Noise {
+    /// The noise of `stretches`; None with fewer than `min` values or no
+    /// difference within a stretch.
+    fn of(stretches: &[&[f64]], min: usize) -> Option<Noise> {
+        let d: Vec<f64> = stretches
+            .iter()
+            .flat_map(|s| s.windows(2).map(|w| w[1] - w[0]))
+            .collect();
+        if count(stretches) < min || d.is_empty() {
+            return None;
+        }
+        Some(Noise {
+            s: crate::dsp::robust_sd(&d) / std::f64::consts::SQRT_2,
+            rho: pooled_lag_one(stretches.iter().copied())
+                .unwrap_or(0.0)
+                .clamp(0.0, 0.99),
+        })
+    }
+
+    /// The standard error of a median of `n` values with this noise:
+    /// 1.2533 × s / √(1 − ρ) / √n_eff ([`effective_readings`]).
+    pub fn standard_error(self, n: usize) -> f64 {
+        let n_eff = effective_readings(n as f64, self.rho);
+        1.2533 * self.s / (1.0 - self.rho).sqrt() / n_eff.sqrt()
+    }
+}
+
+fn count(stretches: &[&[f64]]) -> usize {
+    stretches.iter().map(|s| s.len()).sum()
+}
+
+/// [`standard_error_in`] of a reading's own `stretches` with its noise
+/// from at least [`MIN_NOISE_VALUES`] values (#1470): its own when it
+/// holds that many, else `pool`'s, the values nearest it in the take
+/// ([`noise_pool`]). `n` and n_eff are always the reading's own. None
+/// with fewer than [`MIN_VALUES`] values of its own, or with neither
+/// holding [`MIN_NOISE_VALUES`].
+pub fn standard_error_borrowing(stretches: &[Vec<f64>], pool: &[Vec<f64>]) -> Option<f64> {
+    let own: Vec<&[f64]> = stretches.iter().map(Vec::as_slice).collect();
+    let n = count(&own);
+    if n < MIN_VALUES {
         return None;
     }
-    let s = crate::dsp::robust_sd(&d) / std::f64::consts::SQRT_2;
-    let rho = pooled_lag_one(stretches.iter().copied())
-        .unwrap_or(0.0)
-        .clamp(0.0, 0.99);
-    let n_eff = effective_readings(n as f64, rho);
-    Some(1.2533 * s / (1.0 - rho).sqrt() / n_eff.sqrt())
+    let noise = if n >= MIN_NOISE_VALUES {
+        Noise::of(&own, MIN_NOISE_VALUES)
+    } else {
+        let pool: Vec<&[f64]> = pool.iter().map(Vec::as_slice).collect();
+        Noise::of(&pool, MIN_NOISE_VALUES)
+    }?;
+    Some(noise.standard_error(n))
+}
+
+/// The [`MIN_NOISE_VALUES`] values of `take` nearest a reading ending at
+/// `end_s`, to borrow its noise from (#1470): the latest that end by
+/// then, and where the take holds too few before it, the next after it,
+/// in their stretches ([`stretches`]), so no difference is taken across
+/// a cut, a mask or a change of position. `take` is the take's windows in
+/// time order; a window with no value is passed over. Empty when the
+/// whole of `take` holds fewer than [`MIN_NOISE_VALUES`] values.
+pub fn noise_pool<T>(
+    take: &[T],
+    end_s: f64,
+    span: impl Fn(&T) -> (f64, f64),
+    value: impl Fn(&T) -> Option<f64>,
+) -> Vec<Vec<f64>> {
+    let valued: Vec<usize> = (0..take.len())
+        .filter(|&i| value(&take[i]).is_some_and(f64::is_finite))
+        .collect();
+    let Some(last) = valued.len().checked_sub(MIN_NOISE_VALUES) else {
+        return Vec::new();
+    };
+    let before = valued.partition_point(|&i| span(&take[i]).1 <= end_s + 1e-3);
+    let lo = before.saturating_sub(MIN_NOISE_VALUES).min(last);
+    let (a, b) = (valued[lo], valued[lo + MIN_NOISE_VALUES - 1]);
+    stretches(&take[a..=b], |w| span(w), |w| value(w))
+}
+
+/// A series' values in their stretches ([`stretches`]).
+type Stretches = Vec<Vec<f64>>;
+
+/// The values of a reading of `own` windows, and the take's `take`
+/// nearest it ([`noise_pool`]), read in their stretches.
+fn own_and_pool<T>(
+    own: &[T],
+    take: &[T],
+    span: impl Fn(&T) -> (f64, f64),
+    value: impl Fn(&T) -> Option<f64>,
+) -> Option<(Stretches, Stretches)> {
+    let end = span(own.last()?).1;
+    Some((
+        stretches(own, |w| span(w), |w| value(w)),
+        noise_pool(take, end, &span, &value),
+    ))
 }
 
 /// The values `value` gives of windows `windows` in time order, in
@@ -491,17 +589,21 @@ pub fn stretches<T>(
 
 /// The ± of a median figure (amplitude, beat error) from `value` of
 /// amplitude windows, in their stretches ([`stretches`]): the noise within
-/// the stretches ([`standard_error_in`]) and, where two or more stretches
-/// of [`MIN_VALUES`] or more sit at different levels, the spread between
-/// them ([`between_stretches`]), added in quadrature (#639).
+/// the stretches ([`standard_error_borrowing`], borrowed from `take`, the
+/// take's amplitude windows in time order, where the reading holds fewer
+/// than [`MIN_NOISE_VALUES`]) and, where two or more stretches of
+/// [`MIN_VALUES`] or more sit at different levels, the spread between
+/// them ([`between_stretches`], the reading's own), added in quadrature
+/// (#639, #1470).
 pub fn amplitude_windows_se<'a>(
     windows: impl IntoIterator<Item = &'a AmplitudeWindow>,
+    take: &[&AmplitudeWindow],
     value: impl Fn(&AmplitudeWindow) -> Option<f64>,
 ) -> Option<f64> {
-    let s = stretches(windows, |w| (w.start_s, w.end_s), |w| value(w));
-    let within = standard_error_in(s.iter().map(Vec::as_slice))?;
-    let between = between_stretches(&s);
-    Some(within.hypot(between))
+    let own: Vec<&AmplitudeWindow> = windows.into_iter().collect();
+    let (s, pool) = own_and_pool(&own, take, |w| (w.start_s, w.end_s), |w| value(w))?;
+    let within = standard_error_borrowing(&s, &pool)?;
+    Some(within.hypot(between_stretches(&s)))
 }
 
 /// How far a median over stretches at different levels is from known, past
@@ -532,26 +634,34 @@ fn between_stretches(stretches: &[Vec<f64>]) -> f64 {
 /// Estimated standard error of the rate from the 10 s windows. Taking every
 /// other available window removes ordinary half-window overlap; the
 /// correlation left between the windows taken is allowed for by
-/// [`standard_error_in`], within the stretches between gaps (#639).
-pub fn rate_se(windows: &[WindowFit]) -> Option<f64> {
-    let s = stretches(
-        windows.iter().step_by(2),
+/// [`standard_error_borrowing`], within the stretches between gaps (#639),
+/// its noise borrowed from every other of `take`'s, the take's rate
+/// windows in time order, where the reading holds fewer than
+/// [`MIN_NOISE_VALUES`] (#1470).
+pub fn rate_se(windows: &[WindowFit], take: &[WindowFit]) -> Option<f64> {
+    let own: Vec<&WindowFit> = windows.iter().step_by(2).collect();
+    let take: Vec<&WindowFit> = take.iter().step_by(2).collect();
+    let (s, pool) = own_and_pool(
+        &own,
+        &take,
         |w| (w.start_s, w.end_s),
         |w| Some(w.fit.rate_s_per_day),
-    );
-    standard_error_in(s.iter().map(Vec::as_slice))
+    )?;
+    standard_error_borrowing(&s, &pool)
 }
 
 /// Standard error of the beat error from the unlock, ms: the one rule for
 /// it, which the assessment reads (#641). Of the same quantity as the
 /// figure beside it ([`crate::timing::median_signed`]): of the windows'
 /// sizes where the figure is the median of sizes (`as_size`, its sign
-/// turning over the stretch), else of their signed values (#637).
+/// turning over the stretch), else of their signed values (#637). Its
+/// noise is borrowed from `take` as [`amplitude_windows_se`]'s.
 pub fn beat_error_se<'a>(
     windows: impl IntoIterator<Item = &'a AmplitudeWindow>,
+    take: &[&AmplitudeWindow],
     as_size: bool,
 ) -> Option<f64> {
-    amplitude_windows_se(windows, |w| {
+    amplitude_windows_se(windows, take, |w| {
         w.beat_error_unlock_ms
             .map(|x| if as_size { x.abs() } else { x })
     })
@@ -561,6 +671,11 @@ pub fn beat_error_se<'a>(
 mod tests {
     use super::*;
     use crate::synth::Rng;
+
+    /// Every window, as a take's ± borrows from.
+    fn every(w: &[AmplitudeWindow]) -> Vec<&AmplitudeWindow> {
+        w.iter().collect()
+    }
 
     #[test]
     fn a_two_term_fit_lag_bias_is_long_run_rho_s_term() {
@@ -584,8 +699,9 @@ mod tests {
 
     #[test]
     fn beat_error_se_reads_the_unlock_beat_errors() {
-        // Every third window has no unlock beat error and is skipped.
-        let windows: Vec<AmplitudeWindow> = (0..30)
+        // Every third window has no unlock beat error and is skipped; 30
+        // are kept, enough for a ± of their own (#1470).
+        let windows: Vec<AmplitudeWindow> = (0..45)
             .map(|i| AmplitudeWindow {
                 start_s: i as f64 * 10.0,
                 end_s: i as f64 * 10.0 + 10.0,
@@ -603,10 +719,13 @@ mod tests {
             .iter()
             .filter_map(|w| w.beat_error_unlock_ms)
             .collect();
-        let se = beat_error_se(&windows, false).unwrap();
+        let se = beat_error_se(&windows, &every(&windows), false).unwrap();
         assert!(se > 0.0, "{se}");
         assert_eq!(Some(se), standard_error(&kept));
-        assert_eq!(beat_error_se(&windows[..2], false), None);
+        assert_eq!(
+            beat_error_se(&windows[..2], &every(&windows[..2]), false),
+            None
+        );
     }
 
     /// 2 s windows whose unlock beat errors are `values`.
@@ -646,11 +765,14 @@ mod tests {
             .collect();
         let sizes: Vec<f64> = signed.iter().map(|x| x.abs()).collect();
         let w = unlock_windows(&signed);
-        assert_eq!(beat_error_se(&w, true), standard_error(&sizes));
-        assert_eq!(beat_error_se(&w, false), standard_error(&signed));
+        assert_eq!(beat_error_se(&w, &every(&w), true), standard_error(&sizes));
+        assert_eq!(
+            beat_error_se(&w, &every(&w), false),
+            standard_error(&signed)
+        );
         let (size_se, signed_se) = (
-            beat_error_se(&w, true).unwrap(),
-            beat_error_se(&w, false).unwrap(),
+            beat_error_se(&w, &every(&w), true).unwrap(),
+            beat_error_se(&w, &every(&w), false).unwrap(),
         );
         assert!(size_se < 0.02 && signed_se > 0.1, "{size_se} {signed_se}");
     }
@@ -681,7 +803,7 @@ mod tests {
                 }
                 let w = unlock_windows(&v);
                 let median = crate::timing::median_signed(v.iter().copied(), true).unwrap();
-                let se = beat_error_se(&w, true).unwrap();
+                let se = beat_error_se(&w, &every(&w), true).unwrap();
                 if (median - 0.4).abs() <= 1.96 * se {
                     covered += 1;
                 }
@@ -721,7 +843,11 @@ mod tests {
     fn a_gapped_takes_se_takes_no_difference_across_the_gap() {
         let mut rng = Rng::new(639);
         let noise: Vec<f64> = (0..240).map(|_| 0.5 * rng.normal()).collect();
-        let whole = rate_se(&rate_windows(&noise, 120, 0.0)).unwrap();
+        let whole = rate_se(
+            &rate_windows(&noise, 120, 0.0),
+            &rate_windows(&noise, 120, 0.0),
+        )
+        .unwrap();
         // The same windows with a pause of an hour, after which the watch
         // reads 5 s/d faster.
         let stepped: Vec<f64> = noise
@@ -729,13 +855,21 @@ mod tests {
             .enumerate()
             .map(|(i, &x)| if i >= 120 { x + 5.0 } else { x })
             .collect();
-        let gapped = rate_se(&rate_windows(&stepped, 120, 3600.0)).unwrap();
+        let gapped = rate_se(
+            &rate_windows(&stepped, 120, 3600.0),
+            &rate_windows(&stepped, 120, 3600.0),
+        )
+        .unwrap();
         assert!(
             (gapped / whole - 1.0).abs() < 0.15,
             "gapped {gapped} against {whole}"
         );
         // Without the pause the step is within one stretch and counts.
-        let joined = rate_se(&rate_windows(&stepped, 120, 0.0)).unwrap();
+        let joined = rate_se(
+            &rate_windows(&stepped, 120, 0.0),
+            &rate_windows(&stepped, 120, 0.0),
+        )
+        .unwrap();
         assert!(joined > 1.5 * whole, "{joined} against {whole}");
     }
 
@@ -777,7 +911,7 @@ mod tests {
             let w = rate_windows(&rates, 160, 600.0);
             let kept: Vec<f64> = rates.iter().copied().filter(|r| r.is_finite()).collect();
             let median = crate::timing::median_signed(kept.iter().copied(), false).unwrap();
-            let se = rate_se(&w).unwrap();
+            let se = rate_se(&w, &w).unwrap();
             if median.abs() <= 1.96 * se {
                 covered += 1;
             }
@@ -809,7 +943,12 @@ mod tests {
         let mut rng = Rng::new(6391);
         let mut level = |l: f64| (0..40).map(|_| l + 0.01 * rng.normal()).collect::<Vec<_>>();
         let two = [level(-0.6), level(0.3)];
-        let se = beat_error_se(&unlock_stretches(&two), true).unwrap();
+        let se = beat_error_se(
+            &unlock_stretches(&two),
+            &every(&unlock_stretches(&two)),
+            true,
+        )
+        .unwrap();
         assert!((0.17..0.21).contains(&se), "{se}");
         // At one level the stretches add little past their noise, on
         // average over many takes: τ² is kept from going below 0, so with
@@ -818,9 +957,13 @@ mod tests {
         let (mut with, mut alone) = (0.0, 0.0);
         for _ in 0..300 {
             let one = [level(0.6), level(0.6)];
-            with += beat_error_se(&unlock_stretches(&one), true)
-                .unwrap()
-                .powi(2);
+            with += beat_error_se(
+                &unlock_stretches(&one),
+                &every(&unlock_stretches(&one)),
+                true,
+            )
+            .unwrap()
+            .powi(2);
             alone += standard_error_in(one.iter().map(Vec::as_slice))
                 .unwrap()
                 .powi(2);
@@ -829,7 +972,7 @@ mod tests {
         // One stretch is exactly standard_error.
         let one = level(0.6);
         assert_eq!(
-            beat_error_se(&unlock_windows(&one), true),
+            beat_error_se(&unlock_windows(&one), &every(&unlock_windows(&one)), true),
             standard_error(&one)
         );
     }
@@ -859,7 +1002,7 @@ mod tests {
                 let w = unlock_stretches(&s);
                 let all: Vec<f64> = s.concat();
                 let median = crate::timing::median_signed(all.iter().copied(), false).unwrap();
-                let se = beat_error_se(&w, false).unwrap();
+                let se = beat_error_se(&w, &every(&w), false).unwrap();
                 if (median - 280.0).abs() <= 1.96 * se {
                     covered += 1;
                 }
@@ -917,6 +1060,112 @@ mod tests {
             }
         }
         within as f64 / repeats as f64
+    }
+
+    /// [`coverage`] of a reading of `n` values whose noise is borrowed
+    /// from the [`MIN_NOISE_VALUES`] nearest it in its take, the reading's
+    /// own last among them (#1470).
+    fn borrowed_coverage(rho: f64, n: usize, repeats: usize) -> f64 {
+        let mut rng = Rng::new(20261113);
+        let mut within = 0;
+        for _ in 0..repeats {
+            let mut x = rng.normal();
+            let values: Vec<f64> = (0..MIN_NOISE_VALUES + 10)
+                .map(|_| {
+                    x = rho * x + (1.0 - rho * rho).sqrt() * rng.normal();
+                    x
+                })
+                .collect();
+            let take = unlock_windows(&values);
+            let own = &take[take.len() - n..];
+            let se = beat_error_se(own, &every(&take), false).unwrap();
+            let mut mine: Vec<f64> = values[values.len() - n..].to_vec();
+            if crate::dsp::median(&mut mine).abs() <= se {
+                within += 1;
+            }
+        }
+        within as f64 / repeats as f64
+    }
+
+    #[test]
+    fn a_short_readings_borrowed_plus_minus_holds_its_centre() {
+        // Five values of their own, their noise from the 30 nearest: one
+        // SE either side should still hold the true centre about 68% of
+        // the time (#1470).
+        for rho in [0.0, 0.5] {
+            let c = borrowed_coverage(rho, 5, 2000);
+            assert!((0.55..=0.85).contains(&c), "ρ {rho}: {c}");
+        }
+    }
+
+    #[test]
+    fn a_reading_borrows_across_a_cut_and_a_position_but_not_their_step() {
+        // A take of two positions, 20 values each, a cut between them, the
+        // second 20° lower. A reading of the last five borrows the 30
+        // nearest: all 20 of its position and the last 10 of the one
+        // before, each stretch on its own, so the step between them adds
+        // nothing to the noise.
+        let mut rng = Rng::new(1470);
+        let noise: Vec<f64> = (0..40).map(|_| rng.normal()).collect();
+        let take = |step: f64| -> Vec<AmplitudeWindow> {
+            let mut w = unlock_windows(&noise);
+            for (i, w) in w.iter_mut().enumerate().skip(20) {
+                w.start_s += 60.0;
+                w.end_s += 60.0;
+                w.beat_error_unlock_ms = Some(noise[i] - step);
+            }
+            w
+        };
+        let (stepped, level) = (take(20.0), take(0.0));
+        let se = |t: &[AmplitudeWindow]| beat_error_se(&t[35..], &every(t), false);
+        let a = se(&stepped).expect("a ± from borrowed noise");
+        let b = se(&level).unwrap();
+        assert!((a - b).abs() < 1e-9 * b, "{a} against {b}");
+        // The pool is the 30 nearest, in two stretches.
+        let pool = noise_pool(
+            &stepped,
+            stepped[39].end_s,
+            |w| (w.start_s, w.end_s),
+            |w| w.beat_error_unlock_ms,
+        );
+        assert_eq!(pool.iter().map(Vec::len).collect::<Vec<_>>(), [10, 20]);
+        // Its own five alone give none.
+        let mine = &stepped[35..];
+        assert_eq!(beat_error_se(mine, &every(mine), false), None);
+    }
+
+    #[test]
+    fn a_reading_early_in_its_take_borrows_after_it() {
+        // Before first, then after: a reading of the first five of 40
+        // takes the first 30.
+        let values: Vec<f64> = (0..40).map(|i| i as f64).collect();
+        let take = unlock_windows(&values);
+        let pool = noise_pool(
+            &take,
+            take[4].end_s,
+            |w| (w.start_s, w.end_s),
+            |w| w.beat_error_unlock_ms,
+        );
+        assert_eq!(pool, [values[..30].to_vec()]);
+        // A reading ending at 30 takes the 30 ending there.
+        let pool = noise_pool(
+            &take,
+            take[34].end_s,
+            |w| (w.start_s, w.end_s),
+            |w| w.beat_error_unlock_ms,
+        );
+        assert_eq!(pool, [values[5..35].to_vec()]);
+        // A take of 29 gives none, and a reading of 30 its own.
+        assert!(noise_pool(
+            &take[..29],
+            1e9,
+            |w| (w.start_s, w.end_s),
+            |w| { w.beat_error_unlock_ms }
+        )
+        .is_empty());
+        assert_eq!(beat_error_se(&take[..29], &every(&take[..29]), false), None);
+        let own = beat_error_se(&take[..30], &[], false);
+        assert_eq!(own, standard_error(&values[..30]));
     }
 
     #[test]
