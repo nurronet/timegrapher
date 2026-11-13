@@ -545,13 +545,7 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     for (from, to, (t0, t1), thin) in steps {
         // A step into or out of a dot off the scale is a stub from the
         // dot on it (Hugh, 13 Nov: a full step read as data).
-        let (Some(b), Some(a)) = (
-            stub_toward(frame, pos(from), pos(to)),
-            stub_toward(frame, pos(to), pos(from)),
-        ) else {
-            continue;
-        };
-        let Some((t0, t1)) = span_of(pos(from), pos(to), a, b, (t0, t1)) else {
+        let Some((a, b, (t0, t1))) = drawn_step(frame, pos(from), pos(to), (t0, t1)) else {
             continue;
         };
         // In short runs, so its colour moves from one dot's to the next's.
@@ -686,6 +680,20 @@ fn stub_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Option<Pos2> {
         .then(|| from + (to - from).normalized() * STUB_PT.min(from.distance(to)))
 }
 
+/// The part of a step from `from` to `to`, with times `(t0, t1)`, that
+/// is drawn in `frame`: its ends ([`stub_toward`] each way) and the times
+/// they sit at ([`span_of`]), or `None` when none is drawn.
+fn drawn_step(
+    frame: egui::Rect,
+    from: Pos2,
+    to: Pos2,
+    times: (f64, f64),
+) -> Option<(Pos2, Pos2, (f64, f64))> {
+    let b = stub_toward(frame, from, to)?;
+    let a = stub_toward(frame, to, from)?;
+    Some((a, b, span_of(from, to, a, b, times)?))
+}
+
 /// The times along a step from `from` to `to` that its drawn part, `a`
 /// to `b`, covers, given the step's own `(t0, t1)`.
 fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
@@ -732,21 +740,32 @@ fn nearest_dot(w: &WalkView, t: &egui_plot::PlotTransform, at: egui::Pos2) -> Op
     let pos =
         |d: &WalkDot| t.position_from_point(&PlotPoint::new(d.amplitude_deg, d.rate_s_per_day));
     let dots: Vec<Pos2> = w.dots.iter().map(pos).collect();
-    let frame = *t.frame();
-    (0..dots.len())
-        .filter_map(|i| {
-            if frame.contains(dots[i]) {
-                return Some((i, dots[i].distance(at)));
-            }
-            // A dot off the scale answers anywhere along its stubs
-            // (Hugh, 13 Nov).
-            stub_ends(w, &dots, frame, i)
+    nearest_of(w, &dots, *t.frame(), at)
+}
+
+/// [`nearest_dot`] on the dots' places on screen, `dots`, in `frame`.
+fn nearest_of(w: &WalkView, dots: &[Pos2], frame: egui::Rect, at: Pos2) -> Option<usize> {
+    let nearest = |found: &mut dyn Iterator<Item = (usize, f32)>| {
+        found
+            .filter(|&(_, dist)| dist <= HOVER_PX)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    };
+    let on = |i: &usize| frame.contains(dots[*i]);
+    // A dot on the plot first; then a dot off the scale, anywhere along
+    // its stubs (Hugh, 13 Nov), since a stub starts on a dot of its own.
+    nearest(
+        &mut (0..dots.len())
+            .filter(on)
+            .map(|i| (i, dots[i].distance(at))),
+    )
+    .or_else(|| {
+        nearest(&mut (0..dots.len()).filter(|i| !on(i)).filter_map(|i| {
+            stub_ends(w, dots, frame, i)
                 .map(|(a, b)| (i, segment_distance(a, b, at)))
                 .min_by(|a, b| a.1.total_cmp(&b.1))
-        })
-        .filter(|&(_, dist)| dist <= HOVER_PX)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(i, _)| i)
+        }))
+    })
 }
 
 fn note(ui: &mut egui::Ui, text: &str) {
@@ -966,8 +985,6 @@ mod tests {
         }
     }
 
-    /// A dot core calls thin is drawn faint, and so are the steps to and
-    /// from it; the rest at full colour (Norm's floors, 11-12).
     /// A step to a dot off the scale is a 16 pt stub from the dot on
     /// it; with neither on it, no step (Hugh, 13 Nov).
     #[test]
@@ -1016,6 +1033,61 @@ mod tests {
         );
     }
 
+    /// A name near the plot's edge is moved the least way to lie inside
+    /// it (Walter's walk of #1496: "8.4 h" on "120").
+    #[test]
+    fn a_name_is_kept_inside_the_plot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let r =
+            |x: f32, y: f32| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(20.0, 10.0));
+        assert_eq!(keep_inside(r(-5.0, 95.0), frame), r(0.0, 90.0));
+        assert_eq!(keep_inside(r(90.0, -3.0), frame), r(80.0, 0.0));
+        assert_eq!(keep_inside(r(40.0, 40.0), frame), r(40.0, 40.0));
+    }
+
+    /// A step to a dot off the scale is drawn as its stub, coloured over
+    /// the stub's own share of the step's times (Hugh, 13 Nov).
+    #[test]
+    fn a_drawn_stub_takes_its_share_of_the_times() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let (on, off) = (egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0));
+        let (a, b, (t0, t1)) = drawn_step(frame, on, off, (0.0, 1.0)).unwrap();
+        assert_eq!((a, b, t0), (on, egui::pos2(66.0, 50.0), 0.0));
+        assert!((t1 - 0.08).abs() < 1e-6, "{t1}");
+        // Into the plot from off it: the last share.
+        let (a, b, (t0, t1)) = drawn_step(frame, off, on, (0.0, 1.0)).unwrap();
+        assert_eq!((a, b, t1), (egui::pos2(66.0, 50.0), on, 1.0));
+        assert!((t0 - 0.92).abs() < 1e-6, "{t0}");
+        assert_eq!(
+            drawn_step(frame, off, egui::pos2(300.0, 0.0), (0.0, 1.0)),
+            None
+        );
+    }
+
+    /// The hover on a stub answers for its dot off the scale; at the dot's
+    /// own place, off the plot, nothing (Hugh, 13 Nov).
+    #[test]
+    fn the_hover_on_a_stub_answers_for_its_dot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let mut w = long_walk();
+        w.dots.truncate(2);
+        w.dots[1].joined = true;
+        let dots = [egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0)];
+        assert_eq!(
+            nearest_of(&w, &dots, frame, egui::pos2(64.0, 52.0)),
+            Some(1)
+        );
+        assert_eq!(
+            nearest_of(&w, &dots, frame, egui::pos2(51.0, 50.0)),
+            Some(0)
+        );
+        assert_eq!(nearest_of(&w, &dots, frame, egui::pos2(250.0, 50.0)), None);
+        w.dots[1].joined = false;
+        assert_eq!(nearest_of(&w, &dots, frame, egui::pos2(64.0, 52.0)), None);
+    }
+
+    /// A dot core calls thin is drawn faint, and so are the steps to and
+    /// from it; the rest at full colour (Norm's floors, 11-12).
     #[test]
     fn a_thin_dot_and_its_steps_are_drawn_faint() {
         let mut w = walk();
@@ -1091,6 +1163,15 @@ mod tests {
         );
         let t = texts(&walk());
         assert!(!t.iter().any(|t| t.starts_with("Thin:")), "{t:?}");
+        assert!(!t.iter().any(|t| t.starts_with("Faint points")), "{t:?}");
+        // A faint dot far off the scale is counted in the key (Hugh,
+        // 13 Nov).
+        w.dots[2].amplitude_deg += 1000.0;
+        let t = texts(&w);
+        assert!(
+            t.iter().any(|t| t == "Faint points off the scale: 1"),
+            "{t:?}"
+        );
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
