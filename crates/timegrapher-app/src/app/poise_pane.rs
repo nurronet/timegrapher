@@ -184,19 +184,9 @@ impl TimegrapherApp {
     /// The pane's toolbar, with the Info toggle pinned at its right.
     pub(super) fn poise_tools(&mut self, ui: &mut egui::Ui, title: &str) {
         let mut info = self.poise_info;
-        let mut pin = |ui: &mut egui::Ui| {
-            let accent = theme::pal(ui).accent;
-            if theme::icon_toggle(ui, Icon::Info, info, accent)
-                .on_hover_text(
-                    "Info: the fit in full, the twice-round check, and why near 220° the \
-                     heavy spot is not stated",
-                )
-                .clicked()
-            {
-                info = !info;
-            }
-        };
-        theme::pane_toolbar_pinned(ui, title, &help::DYNAMIC_POISE, Some(&mut pin), |ui| {
+        let hint = "Info: the fit in full, the twice-round check, and why near 220° the heavy \
+                    spot is not stated";
+        theme::pane_toolbar_info(ui, title, &help::DYNAMIC_POISE, (&mut info, hint), |ui| {
             self.poise_settings(ui);
             self.export_button(ui, Pane::DynamicPoise);
         });
