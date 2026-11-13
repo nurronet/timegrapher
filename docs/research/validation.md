@@ -32,7 +32,7 @@ values" or "agrees with itself".
 | The ± | self | A seeded test on correlated readings (`standard_error_allows_for_correlated_readings`) keeps coverage 55–85% at three correlations | A typical spread, not a 95% interval; no coverage check on real takes |
 | Window floor, greying, unlock fallback | self, corpus | #1429: 10% and 60%; #1439: 3 of 3,084 healthy readings fall back | Rates on the corpus, not accuracy |
 | Periodic lines (period search) | self | A synthetic 60 s fourth wheel is found and named. The period search's null is simulated down to p 0.0003; the gappy Lomb–Scargle's false alarm uses Baluev's (2008) bound, with a test that matches it to the formula by hand (#1460) | A p comes from a simulated null, not from false alarms seen on watches. Below 0.0003 the text says "under 0.0003, beyond the simulated range" (#1243); it is how often noise alone would make a line this strong in a take like this one, not the chance the line is real |
-| `analyze` agrees with `session` | self | Four public takes, within 0.3 s/d, 1.5° and 0.03 ms (CI requires it) | Not bit-identical (in memory against 47 s chunks); live against file isn't gated (four ignored diagnostics, below) |
+| `analyze` agrees with `session` | self | Four public takes, within 0.3 s/d, 1.5° and 0.03 ms (CI requires it) | Not bit-identical (in memory against 47 s chunks); live against file is gated over the same interval since #1327; three diagnostics stay ignored (below) |
 | `regress` | self | Against stored tg references and engine baselines; margins in [regress.md](../developer/regress.md) | Not a fresh tg run, not physical accuracy |
 | Power reserve, isochronism, positions | self | Seeded tests only | No outside check |
 
@@ -148,7 +148,46 @@ This distinction does not establish that every product label or exported interva
 communicates the scope correctly;
 those presentation contracts need separate assessment.
 
-## Four retained ignored diagnostics
+## Live against a file's reading, like with like (#1327)
+
+`live_matches_analyze_on_real_takes` is active. A file's reading builds its
+beat template from its first 47 s chunk and reads that chunk with it. Live now
+does the same. It builds a first template from the window it first hears the
+watch in, so it reads at once. It also gathers the sound until it holds 47 s,
+builds the template again with the file's own recipe
+(`stream::first_beats_in`), and reads that sound again with it, four times
+faster than sound comes in. Once the re-read catches up, it takes over: the
+first 47 s of readings change once, then, and there is no cut. The gathered
+sound is then let go; `memory_budget` checks that.
+
+The test compares live with `session::measure` over the same interval, from
+the latest cut either reading has to live's last settled beat. It uses the
+equivalence margins (0.3 s/d, 1.5°, 0.03 ms, beat errors by size) on the first
+10-minute file of four public takes: the Daytona 4130, the YM42 dial down, the
+Aquanaut 324 and the ETA 2824 bare (not in its holder, which reads unreliably
+either way).
+
+Measured on 13 November 2026, live against the file over the same interval:
+
+| Take | Interval, s | Rate, s/d | Amplitude, ° | Beat error unlock, ms | Beat error drop, ms |
+| --- | --- | --- | --- | --- | --- |
+| Daytona 4130 | 0 to 599.45 | 6.206 / 6.206 | 302.23 / 302.15 | 0.356 / 0.345 | 0.073 / 0.074 |
+| YM42, dial down | 198.57 to 599.45 | 47.169 / 47.170 | 228.83 / 228.35 | 0.037 / 0.045 | 0.159 / 0.156 |
+| Aquanaut 324 | 0 to 599.45 | −6.337 / −6.337 | 239.54 / 239.52 | 0.496 / 0.494 | 0.373 / 0.372 |
+| ETA 2824, bare | 0 to 599.45 | 10.752 / 10.752 | 300.44 / 300.27 | 0.183 / 0.187 | 0.265 / 0.268 |
+
+Beat errors are by size. The YM42's interval starts later because live finds
+jumps by their timing near 195 s that the file's read does not. That is a
+separate parity item, not this change.
+
+Before #1327, the whole-take comparison (live's latest stretch against the
+whole file) put the ETA in its holder 5.9° and 0.41 ms (drop beat error)
+apart. After it, the same comparison is 0.2° and 0.007 ms.
+
+In the test, a 0.1 s push takes under 0.15 s at most, including the one that
+builds the template again; the re-read is spread over the pushes after it.
+
+## Three retained ignored diagnostics
 
 `crates/timegrapher-core/tests/equivalence.rs` retains the following ignored
 tests with their original assertions and tolerances. They are not executed by
@@ -160,11 +199,10 @@ and four-file checks does not resolve these stronger claims.
 | --- | --- |
 | `chunk_size_does_not_change_the_beat_times` | Its <1 µs per-beat assertion is stronger than active `chunk_size_does_not_change_the_readings`, which checks beat counts and aggregate rate, amplitude and unlock beat error. Up to 34 µs was observed historically for 47, 10 and 3.7 s chunks. The current stream retains its initial template; the old explanation that every chunk builds its own template is not a demonstrated current cause. Timestamp invariance, current magnitude and cause remain unresolved. |
 | `push_size_does_not_change_the_live_beats` | Exact beat-count equality across 480, 4,096 and 48,000 sample pushes remains unresolved. Historical counts were 1,432, 1,435 and 1,436 of 1,440. Rolling analysis, startup and end settlement need investigation before deciding whether a difference is intended or a scheduling/tracking defect. Active synthetic live-reading checks do not prove block-invariant beat logs. |
-| `live_matches_analyze_on_real_takes` | It compares a pushed live trailing/latest-piece reading with a whole-file analysis, including separately detected beats. Interval, settlement and cut context must be aligned before treating every difference as an estimator defect. Historical Daytona/ETA values remain in the annotation; some predate shared file beats. Its comparator already compares beat-error magnitudes, so a historical sign flip alone does not establish failure of this assertion. Current real-live agreement remains unverified by this test. |
 | `a_replayed_real_take_matches_session` | Universal equality is not the supported contract across changing pieces or different cut contexts. The retained diagnostic compares replay's latest piece with the full session selection. Historical ETA rates 11.49/11.14 s/d are not current results. The active supplied-beat test above protects the intended distinction; an interval/cut-aligned real replay comparison remains future work. |
 
 The first two are unresolved stronger invariants, not evidence that all timing
-or scheduling differences are harmless. The latter two require a comparison
+or scheduling differences are harmless. The third requires a comparison
 contract before any attempt to make them pass. No detector change, tolerance
 relaxation or new regularity policy follows from this disposition.
 
@@ -176,11 +214,10 @@ count an absent-corpus skip as a diagnostic run:
 ```sh
 TIMEGRAPHER_CORPUS=/absolute/path/to/corpus TIMEGRAPHER_REQUIRE_CORPUS=1 \
   cargo test --locked --release -p timegrapher-core --test equivalence \
-  live_matches_analyze_on_real_takes -- --exact --ignored --nocapture
+  a_replayed_real_take_matches_session -- --exact --ignored --nocapture
 ```
 
-Replace the test name with `a_replayed_real_take_matches_session` for the replay
-diagnostic. Record the engine/corpus revisions, authenticated input identities,
+Use this for the replay diagnostic. Record the engine/corpus revisions, authenticated input identities,
 command, interval/settings and complete output, including failures. These
 commands are opt-in investigations, not additional passing CI gates; no such
 real diagnostic was run for this documentation change.
