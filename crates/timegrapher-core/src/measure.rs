@@ -256,10 +256,16 @@ impl DropWhy {
     }
 }
 
-/// [`Caveat::LockTemplateKept`] as a sentence.
-const LOCK_TEMPLATE_KEPT: &str = "Live kept the beat template it locked on with: the one \
-     built from the first 47 s, as a saved take's reading builds it, found both sides in \
-     fewer amplitude windows. The saved take may read differently.";
+/// [`Caveat::LockTemplateKept`] as a sentence, with the first chunk's
+/// length from [`crate::stream::StreamConfig`].
+fn lock_template_kept_text() -> String {
+    let chunk_s = crate::stream::StreamConfig::default().chunk_s;
+    format!(
+        "Live kept the beat shape it learned when it locked on. Learning it again from the \
+         first {chunk_s:.0} s, as the saved take does, found amplitude in fewer windows on \
+         both sides, so the saved take may read differently."
+    )
+}
 
 /// Something that limits how far a measurement can be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -451,7 +457,7 @@ impl Caveat {
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
-            Caveat::LockTemplateKept => "read with the lock-on template".to_string(),
+            Caveat::LockTemplateKept => "beat shape kept from lock-on".to_string(),
             Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
             Caveat::PeriodSearchUncalibrated { .. } => {
                 "cycle search not calibrated here".to_string()
@@ -558,7 +564,7 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
-            Caveat::LockTemplateKept => LOCK_TEMPLATE_KEPT.to_string(),
+            Caveat::LockTemplateKept => lock_template_kept_text(),
             Caveat::PeriodMayBeNoise { .. }
             | Caveat::PeriodSearchUncalibrated { .. }
             | Caveat::TimingModelMisfit { .. } => period_search_text(self),
@@ -857,6 +863,20 @@ pub fn assess(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The kept-template caveat names the first chunk's length from
+    /// `stream`, not a number of its own (#1500).
+    #[test]
+    fn the_kept_template_caveat_names_the_first_chunk() {
+        let c = Caveat::LockTemplateKept;
+        assert_eq!(
+            c.short(52.0, 0).as_deref(),
+            Some("beat shape kept from lock-on")
+        );
+        let chunk_s = crate::stream::StreamConfig::default().chunk_s;
+        let long = c.long(None).unwrap();
+        assert!(long.contains(&format!("first {chunk_s:.0} s,")), "{long}");
+    }
 
     /// A beat error from the drop because the unlock was not found writes
     /// no reason, so saved readings stay as they were and read back as not
