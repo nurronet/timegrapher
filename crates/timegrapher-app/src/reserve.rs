@@ -184,44 +184,170 @@ impl Test {
     }
 }
 
-/// The pane's body, in no more height than it shows: before a run one
-/// line of what to do (the steps are in its "?"); while it runs the run
-/// time and one line of how the beats stand; once ended one line of the
-/// result over the hour charts and table, which take the rest of the pane
-/// and scroll in it. `card` is the position card's title as drawn,
-/// `watch` the watch the take is kept in (none: Unsorted), and `ready`
-/// whether a run is set up, waiting for Start Test on the Listen card.
+/// The Power Reserve pane: before a run, one line of what to do; then
+/// the run in a title line (#1528), a grey chip when it is read from a
+/// long take, and the hour charts and table, which take the rest of the
+/// pane and scroll in it, with the Info panel ("i") beside them when
+/// `info`. `card` is the position card's title as drawn, `watch` the
+/// watch the take is kept in (none: Unsorted), and `ready` whether a run
+/// is set up, waiting for Start Test on the Listen card.
 pub fn pane(
     ui: &mut egui::Ui,
     test: Option<&Test>,
     free: Option<(u64, u64)>,
-    card: &str,
-    watch: &str,
+    (card, watch): (&str, &str),
     ready: bool,
+    info: bool,
 ) {
     ui.spacing_mut().item_spacing.y = 6.0;
     let Some(t) = test else {
         before_line(ui, free, card, ready);
         return;
     };
-    let pauses = (!t.heard.pauses.is_empty()).then(|| {
-        format!(
-            " Beats stopped and came back {} time{} on the way.",
-            t.heard.pauses.len(),
-            timegrapher_core::measure::plural(t.heard.pauses.len())
-        )
-    });
-    let pause_hint = format!(
+    let pal = theme::pal(ui);
+    // One line, its height fixed, so nothing under it moves as it changes.
+    let line = run_title(t);
+    ui.add(egui::Label::new(theme::caption(&line).color(pal.text)).truncate());
+    if let Some(chip) = t.results.as_ref().and_then(|r| r.source.chip()) {
+        let full = t.results.as_ref().and_then(|r| r.source.text());
+        let why: Vec<String> = full.map(|w| format!("{w}.")).into_iter().collect();
+        theme::chip(ui, chip, chip, &why, ui.available_width());
+    }
+    let hours: &[power_reserve::Hour] = if t.running() {
+        &t.so_far
+    } else {
+        t.results.as_ref().map_or(&[], |r| &r.hours)
+    };
+    theme::with_info(
+        ui,
+        info,
+        egui::Id::new("reserve info"),
+        |ui, h| info_panel(ui, &info_lines(t, watch, hours), h),
+        |ui| {
+            if !hours.is_empty() {
+                hour_area(ui, hours, t.running());
+            }
+        },
+    );
+}
+
+/// The run's title line (#1528): while it runs, the run so far and how
+/// the beats stand ("4 h 12 min · Running"); once it ends, core's
+/// [`power_reserve::title`] ("Ran 9 h 46 min · stopped").
+fn run_title(t: &Test) -> String {
+    let restarts = t.heard.pauses.len();
+    if t.running() {
+        let state = match t.heard.silent_s(t.now_s) {
+            None => "Waiting for the first beats".to_string(),
+            Some(s) if s >= power_reserve::PAUSE_S => format!("No beat for {}", length_text(s)),
+            Some(_) => "Running".to_string(),
+        };
+        let mut line = format!(
+            "{} \u{b7} {state}",
+            power_reserve::run_text(t.run_so_far_s())
+        );
+        if restarts > 0 {
+            line += &format!(" \u{b7} {}", power_reserve::restarted_text(restarts));
+        }
+        return line;
+    }
+    match t.results.as_ref() {
+        Some(r) => power_reserve::title(r.run_s, r.ending, r.source, restarts),
+        None => {
+            let ending = t.ending.unwrap_or(power_reserve::Ending::ByHand);
+            power_reserve::title(
+                t.run_so_far_s(),
+                ending,
+                power_reserve::Source::Test,
+                restarts,
+            )
+        }
+    }
+}
+
+/// The Info panel's paragraphs, in Hugh's order (#1528): the run in
+/// full, where its take is kept, the beats' pauses, then what the grey
+/// cells mean. `hours` are those the pane shows.
+fn info_lines(t: &Test, watch: &str, hours: &[power_reserve::Hour]) -> Vec<String> {
+    let mut lines = Vec::new();
+    let position = t.position.label();
+    if t.running() {
+        let mut run = "The run so far, from the first beat heard to now.".to_string();
+        if t.heard
+            .silent_s(t.now_s)
+            .is_some_and(|s| s >= power_reserve::PAUSE_S)
+        {
+            run += &format!(
+                " The run ends after {} min with no beat.",
+                power_reserve::STOP_AFTER_S / 60.0
+            );
+        }
+        lines.push(format!("Running in {position}. {run}"));
+    } else {
+        let sentence = t.results.as_ref().map_or_else(
+            || {
+                let ending = t.ending.unwrap_or(power_reserve::Ending::ByHand);
+                power_reserve::sentence(
+                    t.run_so_far_s(),
+                    ending,
+                    power_reserve::Source::Test,
+                    position,
+                )
+            },
+            |r| r.sentence(position),
+        );
+        lines.push(format!(
+            "{sentence} The run is from the first beat heard to the last, in true time."
+        ));
+    }
+    if t.saving {
+        lines.push("Saving the take\u{2026}".to_string());
+    } else if let Some(p) = &t.saved {
+        let place = if watch.is_empty() { "Unsorted" } else { watch };
+        let name = p
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into());
+        // Read only while the panel shows: whether the sound is gone yet.
+        let alone = (!t.keep_sound).then(|| timegrapher_core::analysis_take::is_analysis_only(p));
+        lines.push(format!("Kept in {place}. {}.", kept_words(&name, alone)));
+    }
+    let n = t.heard.pauses.len();
+    if n > 0 {
+        lines.push(format!(
+            "Beats stopped and came back {n} time{} on the way. {}.",
+            timegrapher_core::measure::plural(n),
+            pause_hint()
+        ));
+    }
+    lines.extend(hour_key_text(hours));
+    lines
+}
+
+/// What the beats' pauses are.
+fn pause_hint() -> String {
+    format!(
         "Silences of {:.0} s or more inside the run, after which the beats came back: a watch \
          near the end can stop and start again with a knock",
         power_reserve::PAUSE_S
-    );
-    let pauses = pauses.map(|words| (words, pause_hint));
-    if t.running() {
-        running_line(ui, t, pauses.as_ref());
-    } else {
-        ended_line(ui, t, watch, pauses.as_ref());
-    }
+    )
+}
+
+/// The Info panel: its paragraphs, scrolling, no taller than `max_h`,
+/// their words selectable, opening at the top each time it is shown.
+fn info_panel(ui: &mut egui::Ui, lines: &[String], max_h: f32) {
+    let pal = theme::pal(ui);
+    theme::info_scroll(ui, egui::Id::new("reserve info panel"), max_h, |ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.label(theme::caption("Run").color(pal.text_secondary));
+        for (i, l) in lines.iter().enumerate() {
+            let colour = if i == 0 { pal.text } else { pal.text_secondary };
+            ui.add(
+                egui::Label::new(RichText::new(l).small().color(colour))
+                    .wrap()
+                    .selectable(true),
+            );
+        }
+    });
 }
 
 /// Before a run: one line of what to do, with a warning when the disk
@@ -258,99 +384,6 @@ fn before_line(ui: &mut egui::Ui, free: Option<(u64, u64)>, card: &str, ready: b
         }
     }
     let _ = line;
-}
-
-/// While a run goes on: the run time and how the beats stand, then the
-/// hours so far as when it ends. `pauses`: the words for the beats'
-/// pauses on the way and their hover.
-fn running_line(ui: &mut egui::Ui, t: &Test, pauses: Option<&(String, String)>) {
-    let pal = theme::pal(ui);
-    let state = match t.heard.silent_s(t.now_s) {
-        None => "Waiting for the first beats…".to_string(),
-        Some(s) if s >= power_reserve::PAUSE_S => format!(
-            "No beat heard for {}; the run ends after {} min with none.",
-            length_text(s),
-            power_reserve::STOP_AFTER_S / 60.0
-        ),
-        Some(_) => format!("Running, in {}.", t.position.label()),
-    };
-    let line = format!(
-        "{} · {state}{}",
-        power_reserve::run_text(t.run_so_far_s()),
-        pauses.map_or("", |p| p.0.as_str())
-    );
-    let mut hover = "The run so far, from the first beat heard to now".to_string();
-    if let Some((_, pause_hint)) = pauses {
-        hover.push_str(&format!(". {pause_hint}"));
-    }
-    ui.add(egui::Label::new(RichText::new(line).color(pal.text)).truncate())
-        .on_hover_text(hover);
-    if !t.so_far.is_empty() {
-        hour_area(ui, &t.so_far, true);
-    }
-}
-
-/// Once a run has ended: one line of the result, over the hour charts
-/// and table. `pauses`: as for [`running_line`].
-fn ended_line(ui: &mut egui::Ui, t: &Test, watch: &str, pauses: Option<&(String, String)>) {
-    let pal = theme::pal(ui);
-    // As core words the run: never a power reserve for a long take.
-    let ran = t.results.as_ref().map_or_else(
-        || format!("Ran {}", power_reserve::run_text(t.run_so_far_s())),
-        Results::ran,
-    );
-    let ending = t
-        .ending
-        .map(|e| format!(" · {}, in {}", e.text(), t.position.label()))
-        .unwrap_or_default();
-    // Read from a long take, not a test: said where it came from.
-    let source = t
-        .results
-        .as_ref()
-        .and_then(|r| r.source.text())
-        .map_or_else(String::new, |w| format!(" · {w}"));
-    let kept = if t.saving {
-        " · Saving the take…".to_string()
-    } else if t.saved.is_some() {
-        if watch.is_empty() {
-            " · Kept in Unsorted".to_string()
-        } else {
-            format!(" · Kept in {watch}")
-        }
-    } else {
-        String::new()
-    };
-    // Built only while shown: whether the sound is gone yet is read from
-    // the take.
-    let hover = |ui: &mut egui::Ui| {
-        let mut words = "The run, from the first beat heard to the last, in true time".to_string();
-        if let Some(p) = &t.saved {
-            let name = p
-                .file_name()
-                .map_or_else(String::new, |n| n.to_string_lossy().into());
-            let alone =
-                (!t.keep_sound).then(|| timegrapher_core::analysis_take::is_analysis_only(p));
-            words.push_str(&format!(". {}", kept_words(&name, alone)));
-        }
-        if let Some((_, pause_hint)) = pauses {
-            words.push_str(&format!(". {pause_hint}"));
-        }
-        ui.label(words);
-    };
-    ui.add(
-        egui::Label::new(
-            RichText::new(format!(
-                "{ran}{ending}{source}{kept}.{}",
-                pauses.map_or("", |p| p.0.as_str())
-            ))
-            .color(pal.text),
-        )
-        .truncate(),
-    )
-    .on_hover_ui(hover);
-    if let Some(r) = t.results.as_ref().filter(|r| !r.hours.is_empty()) {
-        hour_area(ui, &r.hours, false);
-    }
 }
 
 /// Where the run's take is kept, named `name`, for the run line's hover:
@@ -542,14 +575,12 @@ fn part_hour_hover(h: &power_reserve::Hour) -> Option<(String, bool)> {
 /// span, none with no chart.
 fn hour_table(ui: &mut egui::Ui, hours: &[power_reserve::Hour], plot_x: Option<egui::Rangef>) {
     let Some(x) = plot_x else {
-        hour_key(ui, hours);
         hour_grid(ui, hours);
         return;
     };
     // The plots' span across, from here down.
     let below = egui::Rect::from_x_y_ranges(x, ui.available_rect_before_wrap().y_range());
     ui.scope_builder(egui::UiBuilder::new().max_rect(below), |ui| {
-        hour_key(ui, hours);
         egui::ScrollArea::horizontal()
             .id_salt("reserve hours across")
             // egui shows a scroll area's content a clip margin past its
@@ -656,13 +687,6 @@ fn hour_key_text(hours: &[power_reserve::Hour]) -> Option<String> {
     .filter_map(|(on, t)| on.then_some(t))
     .collect();
     (!parts.is_empty()).then(|| parts.join(" "))
-}
-
-/// The Power Reserve table's key over it, when a cell is grey.
-fn hour_key(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
-    if let Some(t) = hour_key_text(hours) {
-        ui.label(RichText::new(t).color(theme::pal(ui).text_secondary));
-    }
 }
 
 /// The key's words, for tests that look for it as drawn.
@@ -821,8 +845,7 @@ fn hour_grid(ui: &mut egui::Ui, hours: &[power_reserve::Hour]) {
                 ui.end_row();
             }
         });
-    let key = hour_key_text(hours);
-    pin_titles(ui, &titles, key.as_deref(), grid.response.rect, rows.len());
+    pin_titles(ui, &titles, grid.response.rect, rows.len());
 }
 
 /// One title's cell, `w` wide: its name, and its unit on its own line
@@ -870,36 +893,26 @@ fn title(
 /// figure keeps its unit in sight (Walter's walk of #1055). The band under
 /// them reaches down to the first row that shows whole, so no row shows
 /// cut, and they sit at its foot, tight over that row as in their own
-/// place. The pinned titles keep their hovers, and the dimming's `key`,
-/// when a cell is grey, is pinned above them, as it sits above the table
-/// (Walter's walks of #1084 and #1097). `table` is the whole table,
-/// titles and `rows` rows of hours.
-fn pin_titles(
-    ui: &mut egui::Ui,
-    titles: &[Title],
-    key: Option<&str>,
-    table: egui::Rect,
-    rows: usize,
-) {
+/// place. The pinned titles keep their hovers. What the grey cells mean
+/// is in the Info panel (#1528). `table` is the whole table, titles
+/// and `rows` rows of hours.
+fn pin_titles(ui: &mut egui::Ui, titles: &[Title], table: egui::Rect, rows: usize) {
     let top = ui.clip_rect().top();
     let Some(head) = titles.iter().map(|t| t.cell).reduce(|a, b| a.union(b)) else {
         return;
     };
-    let row_h = ui.spacing().interact_size.y;
-    // The key's line above the titles, when there is one.
-    let above = if key.is_some() { row_h + GRID_GAP } else { 0.0 };
     // The first hour's row, and from one hour's top to the next's, the
     // gap between included.
     let first_row = head.bottom() + GRID_GAP;
     let pitch = (table.bottom() - first_row + GRID_GAP) / rows.max(1) as f32;
-    let next = ((top + above + head.height() + GRID_GAP - first_row) / pitch)
+    let next = ((top + head.height() + GRID_GAP - first_row) / pitch)
         .ceil()
         .max(0.0);
     let band_bottom = first_row + next * pitch;
-    if head.top() >= top + above || table.bottom() <= band_bottom {
+    if head.top() >= top || table.bottom() <= band_bottom {
         return;
     }
-    // The titles at the band's foot, the key over them.
+    // The titles at the band's foot.
     let titles_top = band_bottom - GRID_GAP - head.height();
     let dy = titles_top - head.top();
     let pal = theme::pal(ui);
@@ -916,15 +929,6 @@ fn pin_titles(
         pal.card,
     );
     let font = egui::TextStyle::Body.resolve(ui.style());
-    if let Some(key) = key {
-        painter.text(
-            egui::pos2(table.left(), titles_top - above),
-            egui::Align2::LEFT_TOP,
-            key,
-            font.clone(),
-            pal.text_secondary,
-        );
-    }
     let down = egui::vec2(0.0, dy);
     for t in titles {
         for (words, at) in [(t.name, t.name_at), (t.unit, t.unit_at)] {
@@ -1063,6 +1067,17 @@ fn one_chart(
 ) -> egui::Rect {
     use egui_plot::{Line, Plot, PlotPoints};
     let pal = theme::pal(ui);
+    // Its series' name over it, as the Distributions' plots have (#1528),
+    // in the chart's height.
+    use timegrapher_core::steadiness::SeriesKind;
+    let kind = if name == "rate" {
+        SeriesKind::Rate
+    } else {
+        SeriesKind::Amplitude
+    };
+    let title = crate::steady::title(kind);
+    let named = ui.label(theme::caption(title).color(pal.text_secondary));
+    let height = (height - named.rect.height() - ui.spacing().item_spacing.y).max(CHART_MIN_H);
     let x = |h: &power_reserve::Hour| f64::from(h.hour) + h.span_s / 7200.0;
     let colour = if name == "rate" {
         pal.trace_rate
@@ -1362,7 +1377,7 @@ mod tests {
             let out = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ink = (theme::pal(ui).text, theme::pal(ui).text_secondary);
-                    pane(ui, Some(&t), None, "Position", "Pepsi", true);
+                    pane(ui, Some(&t), None, ("Position", "Pepsi"), true, false);
                 });
             });
             cells = out
@@ -1384,11 +1399,19 @@ mod tests {
         assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
         // The rate written as the app writes a rate: zero takes no sign.
         assert_eq!(colour("0.0").len(), 3, "{cells:?}");
-        // The dimming's key over the table, in view with its rows.
+        // The dimming's key is in the Info panel, not over the table
+        // (#1528): drawn only with the panel open.
         let key = "Grey beat errors: from the drop, or source not recorded.";
-        assert_eq!(colour(key), vec![Some(ink.1)], "{cells:?}");
-        let y = |text: &str| cells.iter().find(|c| c.0 == text).map(|c| c.2);
-        assert!(y(key) < y("Hours"), "{cells:?}");
+        assert!(colour(key).is_empty(), "{cells:?}");
+        let open = drawn_texts(&ctx, &t, true);
+        assert_eq!(
+            open.iter()
+                .filter(|c| c.0 == key)
+                .map(|c| c.1)
+                .collect::<Vec<_>>(),
+            vec![Some(ink.1)],
+            "{open:?}"
+        );
     }
 
     /// An hour whose amplitude and beat error stand on under 60% of
@@ -1445,7 +1468,7 @@ mod tests {
             let out = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ink = (theme::pal(ui).text, theme::pal(ui).text_secondary);
-                    pane(ui, Some(&t), None, "Position", "Pepsi", true);
+                    pane(ui, Some(&t), None, ("Position", "Pepsi"), true, false);
                 });
             });
             cells = out
@@ -1466,7 +1489,198 @@ mod tests {
         assert_eq!(colour("281"), vec![Some(ink.0); 2], "{cells:?}");
         assert_eq!(colour("5.93"), vec![Some(ink.1)], "{cells:?}");
         assert_eq!(colour("0.40"), vec![Some(ink.0); 2], "{cells:?}");
-        assert_eq!(colour(THIN_KEY), vec![Some(ink.1)], "{cells:?}");
+        // Its key is in the Info panel (#1528).
+        assert!(colour(THIN_KEY).is_empty(), "{cells:?}");
+        let open = drawn_texts(&ctx, &t, true);
+        assert_eq!(
+            open.iter()
+                .filter(|c| c.0 == THIN_KEY)
+                .map(|c| c.1)
+                .collect::<Vec<_>>(),
+            vec![Some(ink.1)],
+            "{open:?}"
+        );
+    }
+
+    /// The texts the pane draws for `t` at 900 x 900, with the Info panel
+    /// open (`info`) or not, and each one's colour.
+    fn drawn_texts(
+        ctx: &egui::Context,
+        t: &Test,
+        info: bool,
+    ) -> Vec<(String, Option<egui::Color32>)> {
+        let mut cells = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    pane(ui, Some(t), None, ("Position", "Pepsi"), true, info);
+                });
+            });
+            cells = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(s) => Some((
+                        s.galley.text().to_string(),
+                        s.galley.job.sections.first().map(|f| f.format.color),
+                    )),
+                    _ => None,
+                })
+                .collect();
+        }
+        cells
+    }
+
+    /// The run line's parts in their homes (#1528): the run and its
+    /// ending in short in the title, a long take's source in a grey chip,
+    /// and the run in full, where it's kept, the pauses and the grey keys
+    /// in the Info panel, in that order, drawn only with it open.
+    #[test]
+    fn the_run_line_moves_into_its_homes() {
+        let mut t = finished_run(2);
+        assert_eq!(run_title(&t), "Ran 31 s \u{b7} stopped by hand");
+        if let Some(r) = t.results.as_mut() {
+            r.source = power_reserve::Source::LongTake;
+            r.hours[1].beat_error_source = Some(BeatErrorSource::Drop);
+        }
+        t.heard.pauses.push(power_reserve::Pause {
+            from_s: 10.0,
+            to_s: 20.0,
+        });
+        assert_eq!(
+            run_title(&t),
+            "Ran 31 s \u{b7} stopped by hand \u{b7} restarted once"
+        );
+        let hours = t.results.as_ref().unwrap().hours.clone();
+        let lines = info_lines(&t, "Pepsi", &hours);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].starts_with("Ran 31 s in "), "{lines:?}");
+        assert!(lines[0].contains("Read from a long take"), "{lines:?}");
+        assert!(
+            lines[1].starts_with("Beats stopped and came back 1 time "),
+            "{lines:?}"
+        );
+        assert_eq!(lines[2], DIM_KEY_TEXT);
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let shut = drawn_texts(&ctx, &t, false);
+        let has =
+            |cells: &[(String, Option<egui::Color32>)], w: &str| cells.iter().any(|c| c.0 == w);
+        let chip = power_reserve::Source::LongTake.chip().unwrap();
+        assert!(has(&shut, &run_title(&t)) && has(&shut, chip), "{shut:?}");
+        assert!(
+            !shut.iter().any(|c| c.0.starts_with("Beats stopped")),
+            "{shut:?}"
+        );
+        let open = drawn_texts(&ctx, &t, true);
+        for l in &lines {
+            assert!(has(&open, l), "{l}: {open:?}");
+        }
+    }
+
+    /// A running run's title says how the beats stand: waiting for the
+    /// first, running, or no beat for core's pause or longer, with the
+    /// restarts so far; and its Info says when the run will end only
+    /// once the beats have gone quiet (Trevor's review of #1538).
+    #[test]
+    fn a_running_runs_title_and_info_follow_the_beats() {
+        let mut t = Test::new(Position::DialUp, true, String::new(), 0.0);
+        assert!(t.running());
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Waiting for the first beats"),
+            "{}",
+            run_title(&t)
+        );
+        let beats: Vec<Beat> = (0..160)
+            .map(|i| Beat {
+                index: i,
+                time: i as f64 * 0.2,
+                quality: 1.0,
+            })
+            .collect();
+        t.update(&beats, 0.2, 32.0);
+        assert!(t.running());
+        let steady = run_title(&t);
+        assert!(steady.ends_with(" \u{b7} Running"), "{steady}");
+        let ends = format!(
+            "The run ends after {} min with no beat.",
+            power_reserve::STOP_AFTER_S / 60.0
+        );
+        let info = info_lines(&t, "", &[]);
+        assert!(!info[0].contains(&ends), "{info:?}");
+        // Quiet for the pause and more, short of the stop.
+        t.now_s = 31.8 + power_reserve::PAUSE_S + 60.0;
+        assert!(t.running());
+        let quiet = run_title(&t);
+        assert!(quiet.contains(" \u{b7} No beat for "), "{quiet}");
+        let info = info_lines(&t, "", &[]);
+        assert!(
+            info[0].starts_with("Running in ") && info[0].ends_with(&ends),
+            "{info:?}"
+        );
+        // Just short of the pause: still running.
+        t.now_s = 31.8 + power_reserve::PAUSE_S - 1.0;
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Running"),
+            "{}",
+            run_title(&t)
+        );
+        assert!(!info_lines(&t, "", &[])[0].contains(&ends));
+        // A restart shows while it runs.
+        t.heard.pauses.push(power_reserve::Pause {
+            from_s: 10.0,
+            to_s: 20.0,
+        });
+        assert!(
+            run_title(&t).ends_with(" \u{b7} Running \u{b7} restarted once"),
+            "{}",
+            run_title(&t)
+        );
+    }
+
+    /// A saved run's Info says where its take is kept, in the watch or
+    /// in Unsorted, after the run and before the pauses and the keys; and
+    /// each chart is titled with its series, over it (Hugh, #1528).
+    #[test]
+    fn a_saved_runs_info_says_where_it_is_kept() {
+        let mut t = finished_run(2);
+        t.saved = Some(PathBuf::from("/takes/2026-11-13 08.00 Power Reserve"));
+        t.heard.pauses.push(power_reserve::Pause {
+            from_s: 10.0,
+            to_s: 20.0,
+        });
+        let hours = t.results.as_ref().unwrap().hours.clone();
+        let lines = info_lines(&t, "Pepsi", &hours);
+        // The run, where it's kept, the pauses, then the grey key: these
+        // hours' beat errors have no recorded source.
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert_eq!(lines[3], DIM_KEY_TEXT);
+        assert_eq!(
+            lines[1],
+            "Kept in Pepsi. Kept as \"2026-11-13 08.00 Power Reserve\". Every pane reads it \
+             like any other take."
+        );
+        assert!(lines[2].starts_with("Beats stopped"), "{lines:?}");
+        assert!(info_lines(&t, "", &hours)[1].starts_with("Kept in Unsorted. "));
+        t.saving = true;
+        assert_eq!(
+            info_lines(&t, "Pepsi", &hours)[1],
+            "Saving the take\u{2026}"
+        );
+        let ctx = egui::Context::default();
+        theme::install(&ctx);
+        let drawn = drawn_texts(&ctx, &finished_run(3), false);
+        // Each name twice: over its chart and over its column.
+        for name in ["Rate", "Amplitude"] {
+            assert_eq!(drawn.iter().filter(|c| c.0 == name).count(), 2, "{drawn:?}");
+        }
     }
 
     /// An hour whose times can't belong to a real hour shows a dash in
@@ -1555,7 +1769,7 @@ mod tests {
                 };
                 let out = ctx.run(input, |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        pane(ui, Some(&t), None, "Position", "Pepsi", true);
+                        pane(ui, Some(&t), None, ("Position", "Pepsi"), true, false);
                     });
                 });
                 texts = out
@@ -1649,7 +1863,7 @@ mod tests {
             let out = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     if let Some(t) = t {
-                        pane(ui, Some(t), None, "Position", "Pepsi", true);
+                        pane(ui, Some(t), None, ("Position", "Pepsi"), true, false);
                     }
                 });
             });
@@ -1745,7 +1959,7 @@ mod tests {
                 let out = ctx.run(egui::RawInput::default(), |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         let top = ui.cursor().top();
-                        pane(ui, t, free, "Position", "", true);
+                        pane(ui, t, free, ("Position", ""), true, false);
                         h = ui.cursor().top() - top - ui.spacing().item_spacing.y;
                     });
                 });
@@ -1816,7 +2030,7 @@ mod tests {
                 };
                 let out = ctx.run(input, |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        pane(ui, Some(t), None, "Position", "Pepsi", true);
+                        pane(ui, Some(t), None, ("Position", "Pepsi"), true, false);
                     });
                 });
                 texts = out
