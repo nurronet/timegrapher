@@ -1065,7 +1065,7 @@ pub fn iso_info(c: &crate::steadiness::IsochronismCurve, walk: bool) -> Vec<Stri
     };
     let reliability = c.reliability.map_or(String::new(), |r| {
         format!(
-            " Reliability {r:.2}: the share of the amplitude readings' spread that is the \
+            " Reliability {r:.2}: the share of the amplitude readings' variance that is the \
              amplitude and not their noise. Under {MIN_RELIABILITY} no slope is read."
         )
     });
