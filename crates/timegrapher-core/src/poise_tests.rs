@@ -758,10 +758,11 @@ fn the_null_bands_edges_and_words_follow_its_rule() {
 }
 
 /// A reading becomes a point at its hour's angle with core's ±s; lying
-/// flat it is none.
+/// flat it is none. The take is long enough for a rate ±: 30 of its 10 s
+/// rates (#1470).
 #[test]
 fn a_reading_gives_its_point_upright_only() {
-    let s = crate::scenarios::steady_red(120.0, 0.0, 7);
+    let s = crate::scenarios::steady_red(330.0, 0.0, 7);
     let log = crate::scenarios::beat_log(&s, 7);
     let m = crate::session::measure(&log, None, 0.0, log.duration_s);
     use crate::session::Position as P;
