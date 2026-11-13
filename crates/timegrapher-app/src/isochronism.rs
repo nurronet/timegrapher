@@ -629,6 +629,19 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
+/// The dot a drawn step of the trail joins to dot `i` from inside
+/// `frame`, the one before it first; else dot `i` itself.
+fn trail_neighbour(w: &WalkView, dots: &[Pos2], frame: egui::Rect, i: usize) -> Pos2 {
+    let before = (i > 0 && w.dots[i].joined).then(|| i - 1);
+    let after = (i + 1 < dots.len() && w.dots[i + 1].joined).then_some(i + 1);
+    [before, after]
+        .into_iter()
+        .flatten()
+        .map(|j| dots[j])
+        .find(|d| frame.contains(*d))
+        .unwrap_or(dots[i])
+}
+
 /// `to` if it lies in `frame`; else where the line from `from` toward it
 /// leaves `frame`, or `to` held to the edge when `from` lies out too.
 fn edge_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Pos2 {
@@ -701,11 +714,7 @@ fn nearest_dot(w: &WalkView, t: &egui_plot::PlotTransform, at: egui::Pos2) -> Op
         .map(|i| {
             // A dot off the scale answers where its trail meets the edge
             // (Hugh, 13 Nov).
-            let near = if i > 0 {
-                dots[i - 1]
-            } else {
-                dots[(i + 1).min(dots.len() - 1)]
-            };
+            let near = trail_neighbour(w, &dots, frame, i);
             (i, edge_toward(frame, near, dots[i]).distance(at))
         })
         .filter(|&(_, dist)| dist <= HOVER_PX)
@@ -932,6 +941,31 @@ mod tests {
 
     /// A dot core calls thin is drawn faint, and so are the steps to and
     /// from it; the rest at full colour (Norm's floors, 11-12).
+    /// An off-scale dot is reached from the dot its drawn step joins it
+    /// to, not across a break (Walter's walk of #1496).
+    #[test]
+    fn an_off_scale_dot_is_reached_along_its_drawn_step() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let mut w = long_walk();
+        w.dots.truncate(3);
+        let dots = [
+            egui::pos2(10.0, 10.0),
+            egui::pos2(150.0, 50.0),
+            egui::pos2(50.0, 50.0),
+        ];
+        // A break before the off-scale dot: its step is from the one after.
+        w.dots[1].joined = false;
+        w.dots[2].joined = true;
+        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[2]);
+        // Joined both ways: the one before.
+        w.dots[1].joined = true;
+        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[0]);
+        // No drawn step: the dot itself.
+        w.dots[1].joined = false;
+        w.dots[2].joined = false;
+        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[1]);
+    }
+
     /// A dot off the scale is hovered where its trail meets the edge.
     #[test]
     fn an_off_scale_dot_is_found_where_its_trail_meets_the_edge() {
