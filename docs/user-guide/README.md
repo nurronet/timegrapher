@@ -40,6 +40,7 @@ guide explains what each fact means and where it can mislead.
 
 19. [Isochronism](19-isochronism.md): the rate at each amplitude, as the curve or the walk
 20. [Positions Test](20-positions-test.md): the six positions, guided, and full wind against 24 hours
+    - 20b. [Dynamic Poise Test](20b-dynamic-poise-test.md): the eight upright positions, 45° apart, the once-round wave and the heavy spot
 21. [Power Reserve Test](21-power-reserve-test.md): how long a full wind lasts, hour by hour
 22. [The Watches View](22-watches-view.md): your watches, their details and every take
 23. [Takes and Sound Files](23-takes-and-sound-files.md): keeping, opening and what is in a take
@@ -63,6 +64,7 @@ you.
 - [M10. Finding Cycles](m10-finding-cycles.md)
 - [M11. Time and Frequency Maps](m11-time-and-frequency-maps.md)
 - [M12. Isochronism and Rate against Amplitude](m12-isochronism-and-rate-against-amplitude.md)
+- [M13. Dynamic Poise](m13-dynamic-poise.md)
 
 **Beyond the App**
 

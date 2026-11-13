@@ -1515,8 +1515,8 @@ impl TimegrapherApp {
             "Listen, on the Listen card, listens to the watch on the microphone without \
              picking a watch; Save keeps what it heard. For a watch's history, pick it on \
              the Calibre card's title, or in the Watches view, then Listen, \
-             Positions Test or Power Reserve Test, and each take is saved into it. New \
-             Watch… adds one.",
+             Positions Test, Dynamic Poise Test or Power Reserve Test, and each take is \
+             saved into it. New Watch… adds one.",
         );
         line(
             ui,
