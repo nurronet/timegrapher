@@ -145,4 +145,4 @@ mean rate (**Ie**). M8 gives how each is worked out.
 ---
 
 Previous: [Isochronism](19-isochronism.md) ·
-Next: [Power Reserve Test](21-power-reserve-test.md)
+Next: [Dynamic Poise Test](20b-dynamic-poise-test.md)
