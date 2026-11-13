@@ -1160,7 +1160,7 @@ fn a_kept_clocks_decimals_follow_its_plus_minus() {
         words.hint.contains("runs 0.8 ppm fast, kept 2026-10-12")
             && words
                 .hint
-                .contains("This timing is 0.4 ppm from it, 0.0 seconds"),
+                .contains("This timing is 0.4 ppm from it, less than 0.1 seconds per day"),
         "{}",
         words.hint
     );

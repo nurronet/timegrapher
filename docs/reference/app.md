@@ -538,8 +538,11 @@ the estimates too small. The
 is calculated and what has been checked. The amplitude's and beat error's ± are the
 standard errors of their 2 s windows in the averaging time. The rate's ±
 comes from the scatter of 10 s windows over the run so far (back to a
-break or a move, up to five minutes), scaled to the averaging time; it
-needs about 30 s of unbroken beats. What the ± can't show is named, as a
+break or a move, up to five minutes), scaled to the averaging time. Each
+± takes its scatter from at least 30 values: a reading with fewer borrows
+it from the 30 nearest in the take, so the rate's ± waits for about
+5 min of beats and the others for about a minute (#1470). The Rate
+figure's hover says how many of the 30 there are so far. What the ± can't show is named, as a
 plain fact, in a chip beside the reading's caption, with its sentence on
 hover (a click keeps it open, as the ? does; with several, the chip
 shows the first and how many more, "12 s of Beats +1", and the hover
