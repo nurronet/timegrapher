@@ -81,8 +81,8 @@ which.
   the other way above it (M13). Where any position's amplitude may be
   near it, from about 203° to 239° allowing for its ± and for a lift
   angle a few percent out, the line says "Heavy spot not stated". The
-  wave is still shown, but at that amplitude it comes mostly from causes
-  other than poise.
+  wave is still shown, but poise moves the rate least there, and the
+  wave may come mostly from other causes.
 - **The wave is within its noise.** The fit can't tell its direction
   from the ±.
 - **A position has no amplitude,** or **the readings have no ±.**
@@ -100,11 +100,12 @@ the rate there too, in the same once-round pattern.
   makes only the once-round wave; a large twice-round term points to
   something else, such as the pivots or the hairspring.
 - **The fastest hour is a fact; the heavy spot is not.** Below 219.5°
-  a watch is fastest with its heavy spot low; above it, slowest. A
-  modern movement fully wound typically runs at 270° to 310° (Witschi,
-  _Testing Methods for Mechanical Watches_, 2025, p. 12), above 219.5°,
-  so there the fastest hour points away from the heavy spot. The heavy spot is stated only where
-  the amplitude makes the direction clear.
+  a watch is fastest with its heavy spot low; above it, slowest. Fully
+  wound, a vertical position typically reads 240° to 280° (Witschi,
+  _Testing Methods for Mechanical Watches_, 2025, p. 34), above 219.5°.
+  There the watch runs fastest with its heavy spot at the top, so the
+  fastest hour is opposite the hour at which it hangs lowest. The heavy
+  spot is stated only where the amplitude makes the direction clear.
 - **Weighted by each position's ±,** so a noisy position counts for
   less, and the wave's ± comes from the fit.
 
