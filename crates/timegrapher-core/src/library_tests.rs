@@ -633,6 +633,45 @@ fn a_take_kept_as_analysis_only_reads_as_such() {
     fs::create_dir(t.join("analysis")).unwrap();
     lib.scan();
     assert!(!lib.watches[0].takes[0].incomplete);
+    // Its length, with no session.json to give it, is the analysis's.
+    // A header that doesn't read as the analysis gives none.
+    let _ = fs::remove_file(t.join("session.json"));
+    let header = t.join("analysis").join("analysis.json");
+    fs::write(&header, r#"{"duration_s": 3600.0}"#).unwrap();
+    lib.scan();
+    assert_eq!(lib.watches[0].takes[0].duration_s, None);
+    let log = crate::stream::BeatLog {
+        sample_rate: 48_000,
+        duration_s: 3600.0,
+        bph: 28_800,
+        lift_deg: 52.0,
+        beats: Vec::new(),
+        amplitude_windows: Vec::new(),
+        clipped_beats: Vec::new(),
+        clipped_samples: 0,
+        jumps: Vec::new(),
+        sided: Vec::new(),
+        by_count: Vec::new(),
+        snippets: Vec::new(),
+    };
+    let stored = crate::analysis_take::from_log(
+        log,
+        &crate::stream::StreamConfig::default(),
+        2,
+        serde_json::Value::Null,
+    );
+    crate::analysis_take::write(&t, &stored).unwrap();
+    lib.scan();
+    assert_eq!(lib.watches[0].takes[0].duration_s, Some(3600.0));
+    // A layout from a newer version gives none either.
+    let text = fs::read_to_string(&header).unwrap();
+    fs::write(
+        &header,
+        text.replace(crate::analysis_take::FORMAT, "timegrapher.analysis/9"),
+    )
+    .unwrap();
+    lib.scan();
+    assert_eq!(lib.watches[0].takes[0].duration_s, None);
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -1377,4 +1416,35 @@ fn only_a_kept_take_beside_it_replaces_a_take() {
     assert!(is_positions_test(&t));
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_dir_all(&elsewhere);
+}
+
+/// Two programs adding a take of one name to one watch at once (the app,
+/// and the command line adding while the app is open) each put theirs
+/// together in a folder of its own, and the second in gets the next free
+/// name, so neither clears or overwrites the other's (Vernon on #1487).
+#[test]
+fn two_adds_of_one_name_never_meet() {
+    let takes = std::env::temp_dir().join(format!("tg-two-adds-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&takes);
+    fs::create_dir_all(&takes).unwrap();
+    let to = unused_dir(&takes, "2026-11-12 10.00 Dial Up");
+    let (a, b) = (staging(&takes, &to), staging(&takes, &to));
+    assert_ne!(a, b);
+    for (s, who) in [(&a, "app"), (&b, "cli")] {
+        fs::create_dir_all(s).unwrap();
+        fs::write(s.join("session.toml"), who).unwrap();
+    }
+    let first = move_in(&a, &takes, "2026-11-12 10.00 Dial Up", to.clone()).unwrap();
+    let second = move_in(&b, &takes, "2026-11-12 10.00 Dial Up", to.clone()).unwrap();
+    assert_eq!(first, to);
+    assert_eq!(second, takes.join("2026-11-12 10.00 Dial Up 2"));
+    assert_eq!(
+        fs::read_to_string(first.join("session.toml")).unwrap(),
+        "app"
+    );
+    assert_eq!(
+        fs::read_to_string(second.join("session.toml")).unwrap(),
+        "cli"
+    );
+    let _ = fs::remove_dir_all(&takes);
 }

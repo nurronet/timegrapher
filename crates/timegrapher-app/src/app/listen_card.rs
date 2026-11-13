@@ -68,11 +68,12 @@ impl TimegrapherApp {
     /// The Current Position card, in `ui`'s rect inside its padding: the
     /// watch as it lies at the left, its caption and name beside it, and
     /// the six buttons, DU to CR, across the foot, the current one teal,
-    /// each with a bar filling as that position is heard. On a compact
-    /// card, the picture smaller, the two-letter code beside it, and one pop-up of
-    /// the six instead of the buttons. The buttons set the position in a
-    /// free live take; on a take on show or during a test they only show
-    /// it.
+    /// each with a bar filling as that position is heard. At 10 (the 6 | 10
+    /// in its title row), a smaller picture with the name on one line, and
+    /// the four 45° stops in a second row of buttons. On a compact card,
+    /// the picture smaller, the code beside it, and one pop-up instead of
+    /// the buttons. The buttons set the position in a free live take; on a
+    /// take on show or during a test they only show it.
     pub(super) fn position_card(&mut self, ui: &mut egui::Ui, compact: bool) {
         self.position_card_title = if compact {
             "Position"
@@ -88,23 +89,31 @@ impl TimegrapherApp {
              and those seconds are left out of the readings.",
             fields::plain(self.guided_settle_s)
         );
-        let codes = format!("{} · {}", here.code(), here.witschi());
+        let codes = position_codes(here);
+        let ten = self.card_ten();
         let side = if compact {
             POSITION_PIC_COMPACT
+        } else if ten {
+            POSITION_PIC_TEN
         } else {
             POSITION_PIC
         };
-        let pic = if compact {
+        let pic = if ten && !compact {
+            // Under the title row, which runs the card's width.
+            egui::Rect::from_min_size(
+                egui::pos2(rows.inner.left(), rows.title.bottom() + 6.0),
+                Vec2::splat(side),
+            )
+        } else if compact {
             egui::Rect::from_min_size(
                 egui::pos2(rows.figure.left(), rows.figure.center().y - side / 2.0),
                 Vec2::splat(side),
             )
         } else {
-            // Across the title and figure rows, centred in their height.
-            let top = rows.title.top();
-            let h = rows.figure.bottom() - top;
+            // Under the title row, which runs the card's width for its
+            // 6 | 10, centred on the figure row.
             egui::Rect::from_min_size(
-                egui::pos2(rows.inner.left(), top + (h - side) / 2.0),
+                egui::pos2(rows.inner.left(), rows.figure.center().y - side / 2.0),
                 Vec2::splat(side),
             )
         };
@@ -126,9 +135,12 @@ impl TimegrapherApp {
         if compact {
             return self.position_card_compact(ui, &rows, pic, &codes, &settle);
         }
+        if ten {
+            return self.position_card_ten(ui, &rows, pic, &codes, &settle);
+        }
         let x = pic.right() + theme::GAP;
         let beside = |r: egui::Rect| egui::Rect::from_min_max(egui::pos2(x, r.top()), r.max);
-        position_caption(ui, beside(rows.title), self.position_card_title);
+        self.position_caption(ui, rows.title);
         // The name, and both its codes under it, inside the figure row.
         let fig = beside(rows.figure);
         let clip = painter.with_clip_rect(fig);
@@ -153,11 +165,102 @@ impl TimegrapherApp {
             egui::CornerRadius::same(theme::CONTROL_RADIUS),
             pal.control,
         );
-        let picked = self.position_buttons(ui, track, &settle);
+        let picked = self.position_buttons(ui, &[(track, &Position::ALL)], &settle);
         if let Some(p) = picked {
             if p != self.position {
                 self.change_position(p);
             }
+        }
+    }
+
+    /// The Current Position card at 10: the title row across the card,
+    /// the picture `pic` under it with the name and code on one line, and
+    /// two rows of buttons, the six then the four 45° stops in hour order.
+    fn position_card_ten(
+        &mut self,
+        ui: &mut egui::Ui,
+        rows: &CardRows,
+        pic: egui::Rect,
+        codes: &str,
+        settle: &str,
+    ) {
+        let pal = theme::pal(ui);
+        let here = self.shown_position();
+        self.position_caption(ui, rows.title);
+        let line = egui::Rect::from_min_max(
+            egui::pos2(pic.right() + 10.0, pic.top()),
+            egui::pos2(rows.inner.right(), pic.bottom()),
+        );
+        let clip = ui.painter().with_clip_rect(line);
+        let name = clip.text(
+            egui::pos2(line.left(), line.center().y),
+            egui::Align2::LEFT_CENTER,
+            here.name(),
+            theme::semibold(15.0),
+            pal.text,
+        );
+        clip.text(
+            egui::pos2(name.right() + 8.0, line.center().y + 1.0),
+            egui::Align2::LEFT_CENTER,
+            codes,
+            egui::FontId::proportional(12.0),
+            pal.text_secondary,
+        );
+        let foot = rows.controls.bottom();
+        let row = |bottom: f32| {
+            egui::Rect::from_min_max(
+                egui::pos2(rows.inner.left(), bottom - POSITION_ROW_TEN),
+                egui::pos2(rows.inner.right(), bottom),
+            )
+        };
+        let second = row(foot);
+        let first = row(second.top() - 3.0);
+        for track in [first, second] {
+            ui.painter().rect_filled(
+                track,
+                egui::CornerRadius::same(theme::CONTROL_RADIUS),
+                pal.control,
+            );
+        }
+        let picked = self.position_buttons(
+            ui,
+            &[(first, &Position::ALL), (second, &Position::HALF_HOURS)],
+            settle,
+        );
+        if let Some(p) = picked {
+            if p != self.position {
+                self.change_position(p);
+            }
+        }
+    }
+
+    /// The card's caption in `rect`, with its 6 | 10 switch and help at
+    /// the right.
+    fn position_caption(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let mut ten = self.card_ten();
+        let mut switched = false;
+        let held = self.shown_position().is_half_hour();
+        let six_hint = if held {
+            "The six standard positions: held at 10 while a 45° stop is current"
+        } else {
+            "The six standard positions"
+        };
+        caption_row(ui, rect, self.position_card_title, |ui| {
+            // Laid right to left from the help, so given 10 first to read
+            // 6 | 10.
+            switched = theme::segmented_in_title(
+                ui,
+                &mut ten,
+                &[
+                    (true, "10", "The six and the four 45° stops, 1H30 to 10H30"),
+                    (false, "6", six_hint),
+                ],
+            );
+        });
+        // A 45° stop on show keeps the card at 10 until it is left.
+        if switched && (ten || !held) {
+            self.ten_positions = ten;
+            self.note_settings();
         }
     }
 
@@ -176,20 +279,31 @@ impl TimegrapherApp {
         let here = self.shown_position();
         let editable = self.position_editable();
         let painter = ui.painter().clone();
-        position_caption(ui, rows.title, self.position_card_title);
-        // The two-letter code beside the picture, the name in its
-        // hover: a name doesn't fit a compact card whole.
+        compact_caption(ui, rows.title, self.position_card_title);
+        // The code beside the picture, the name in its hover: a name
+        // doesn't fit a compact card whole. A 45° stop's longer code
+        // ("10H30") is set smaller to fit whole.
         let x = pic.right() + 8.0;
+        let room = rows.figure.right() - x;
+        let wide = painter
+            .layout_no_wrap(here.code().to_string(), theme::semibold(20.0), pal.text)
+            .size()
+            .x;
+        let size = if wide > room {
+            20.0 * room / wide
+        } else {
+            20.0
+        };
         let code = painter.with_clip_rect(rows.figure).text(
             egui::pos2(x, rows.figure.center().y),
             egui::Align2::LEFT_CENTER,
             here.code(),
-            theme::semibold(20.0),
+            theme::semibold(size),
             pal.text,
         );
         ui.interact(code, ui.id().with("position code"), egui::Sense::hover())
             .on_hover_text(format!("{} ({codes})", here.name()));
-        // The six in one pop-up; keys 1 to 6 still pick them. Where
+        // The six or ten in one pop-up; their keys still pick them. Where
         // the position can't be set (a take on show, a test running),
         // no pop-up: the code beside the picture says it all.
         if !editable {
@@ -207,15 +321,18 @@ impl TimegrapherApp {
             .add_enabled_ui(editable, |ui| {
                 // The code is beside the picture already: the pop-up
                 // says what it does instead.
+                // Tall enough for all ten: egui's default height shows six
+                // and hides the 45° stops below a scroll (Walter, #1491).
                 egui::ComboBox::from_id_salt("position")
                     .width(ui.available_width())
+                    .height(f32::INFINITY)
                     .selected_text("Set")
                     .show_ui(ui, |ui| {
-                        for (n, p) in Position::ALL.into_iter().enumerate() {
+                        for &p in Position::offered(self.card_ten()) {
                             ui.selectable_value(
                                 &mut picked,
                                 p,
-                                format!("{} ({}) · key {}", p.name(), p.code(), n + 1),
+                                format!("{} ({}) · key {}", p.name(), p.code(), p.key_name()),
                             );
                         }
                     })
@@ -232,33 +349,49 @@ impl TimegrapherApp {
         }
     }
 
-    /// The six position buttons across the Current Position card's
-    /// `track`, each with a bar filling as that position is heard; the one
-    /// clicked, where the position can be set.
+    /// The position buttons across each of the Current Position card's
+    /// tracks, the positions given spread evenly along it, each with a bar
+    /// filling as that position is heard; the one clicked, where the
+    /// position can be set.
     fn position_buttons(
         &self,
         ui: &mut egui::Ui,
-        track: egui::Rect,
+        tracks: &[(egui::Rect, &[Position])],
         settle: &str,
     ) -> Option<Position> {
+        let buttons = tracks.iter().flat_map(|&(track, ps)| {
+            let w = (track.width() - 4.0) / ps.len() as f32;
+            ps.iter().enumerate().map(move |(n, &p)| {
+                let r = egui::Rect::from_min_size(
+                    egui::pos2(track.left() + 2.0 + w * n as f32, track.top() + 2.0),
+                    Vec2::new(w, track.height() - 4.0),
+                )
+                .shrink2(Vec2::new(1.0, 0.0));
+                (p, r)
+            })
+        });
+        let mut picked = None;
+        for (p, r) in buttons {
+            if self.position_button(ui, p, r, settle) {
+                picked = Some(p);
+            }
+        }
+        picked
+    }
+
+    /// One position button in `r`, and whether it was clicked.
+    fn position_button(&self, ui: &mut egui::Ui, p: Position, r: egui::Rect, settle: &str) -> bool {
         let pal = theme::pal(ui);
         let here = self.shown_position();
         let editable = self.position_editable();
         let painter = ui.painter().clone();
-        let w = (track.width() - 4.0) / 6.0;
-        let mut picked = None;
-        for (n, p) in Position::ALL.into_iter().enumerate() {
-            let r = egui::Rect::from_min_size(
-                egui::pos2(track.left() + 2.0 + w * n as f32, track.top() + 2.0),
-                Vec2::new(w, track.height() - 4.0),
-            )
-            .shrink2(Vec2::new(1.0, 0.0));
+        {
             let sense = if editable {
                 egui::Sense::click()
             } else {
                 egui::Sense::hover()
             };
-            let resp = ui.interact(r, ui.id().with(("position", n)), sense);
+            let resp = ui.interact(r, ui.id().with(("position", p.code())), sense);
             let on = p == here;
             let fill = if on {
                 pal.positions
@@ -299,12 +432,11 @@ impl TimegrapherApp {
                 painter.rect_filled(done, 1.5, fill_ink);
             }
             let tip = format!(
-                "{} ({}, {}) · key {}. {} heard, settled and not masked; the bar is full at \
+                "{} ({}) · key {}. {} heard, settled and not masked; the bar is full at \
                  Each Position's {} (Positions Test)",
                 p.name(),
-                p.code(),
-                p.witschi(),
-                n + 1,
+                position_codes(p).replace(" · ", ", "),
+                p.key_name(),
                 fields::duration(heard.floor()),
                 fields::duration(self.guided_measure_s)
             );
@@ -313,11 +445,8 @@ impl TimegrapherApp {
             } else {
                 resp.on_hover_text(format!("{tip}. {}", self.position_lock_words()))
             };
-            if resp.clicked() {
-                picked = Some(p);
-            }
+            resp.clicked()
         }
-        picked
     }
 
     /// The Listen card's rows under its caption: Listen or Stop and Save,
@@ -1440,6 +1569,8 @@ impl TimegrapherApp {
             return;
         }
         self.set_position(pos);
+        // A 45° stop turns the card to 10, so it has a button for it.
+        self.ten_positions |= pos.is_half_hour();
         if let Some(r) = self.session.recorder.as_mut() {
             // note appends in memory before writing scratch metadata, so the
             // edit remains unsaved even if that scratch write fails.
@@ -1597,7 +1728,20 @@ impl TimegrapherApp {
 }
 
 /// The Current Position card's caption and its "?" in a title row.
-fn position_caption(ui: &mut egui::Ui, rect: egui::Rect, caption: &str) {
+/// The compact card's caption in `rect`, with its help at the right: no
+/// 6 | 10 there, the pop-up offers what the full card's switch set.
+fn compact_caption(ui: &mut egui::Ui, rect: egui::Rect, caption: &str) {
+    caption_row(ui, rect, caption, |_| {});
+}
+
+/// A position card's caption in `rect`: its help at the right, then
+/// `beside` (right to left), then the caption from the left.
+fn caption_row(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    caption: &str,
+    beside: impl FnOnce(&mut egui::Ui),
+) {
     let pal = theme::pal(ui);
     let mut child = ui.new_child(
         egui::UiBuilder::new()
@@ -1606,6 +1750,7 @@ fn position_caption(ui: &mut egui::Ui, rect: egui::Rect, caption: &str) {
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
     theme::help(&mut child, caption, &help::POSITION);
+    beside(&mut child);
     child.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         ui.add(
             egui::Label::new(
@@ -1735,4 +1880,14 @@ fn card_fact(ui: &mut egui::Ui, label: &str, value: String, why: &str, w: f32) {
                 .on_hover_text(why);
         },
     );
+}
+
+/// A position's codes as the card shows them: "CL · 6H", or "1H30" where
+/// the common code is Witschi's.
+fn position_codes(p: Position) -> String {
+    if p.code() == p.witschi() {
+        p.code().to_string()
+    } else {
+        format!("{} · {}", p.code(), p.witschi())
+    }
 }

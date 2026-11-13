@@ -51,6 +51,7 @@ gives one command's options. `timegrapher --version` gives the version.
 | Command | What it does | When you'd use it |
 | --- | --- | --- |
 | `watches list`, `watches show NAME` | The watches in the app's Watches folder, and each one's takes with the folder to pass to `session`, `long` or `series`. It only reads. | To find a take's folder. |
+| `watches new`, `edit`, `add-take`, `move-take`, `keep-analysis-only`, `delete-take`, `add-photos`, `delete-photo` | What the Watches view does: add or edit a watch, add a take folder to a watch, move one, keep its analysis only, delete one, add or delete photos. Close the app first; adding a take works while it is open. | To file takes from another program, such as a shop's records, or from a script. |
 | `calibres` | The calibre table, with what the app added (chapter 24). `--search "dd 3235"` finds one; a name prints its entry. | To check a calibre's beat rate, lift angle and wheels. |
 | `report` | Makes a zip to attach to an issue (chapter 27). | When something looks wrong. |
 | `excerpt RECORDING --out FILE.flac` | Writes a stretch of a recording or take (`--from`, `--to`, in seconds) as one FLAC file, its samples untouched, and never over a file already there. `--json` gives its size and SHA-256. | To keep the sound of a test beside its readings, in another program. |

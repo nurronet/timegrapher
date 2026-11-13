@@ -5,14 +5,6 @@ use super::*;
 /// What Keep Analysis Only reads a take from: its sound files, their
 /// length in seconds, the companion files, the settings and the shape
 /// stretches.
-type KeepPrep = (
-    Vec<PathBuf>,
-    f64,
-    Vec<(String, Vec<u8>)>,
-    StreamConfig,
-    Vec<Option<(f64, f64)>>,
-);
-
 impl TimegrapherApp {
     /// The Watches view: where the sound comes from and what to do with it,
     /// then the watch itself. Before anything is open it stands beside
@@ -757,49 +749,11 @@ impl TimegrapherApp {
     /// How Keep Analysis Only reads a take with session file `m`: as core
     /// reads any take, its session file's beat rate, lift and escape teeth,
     /// else its calibre's, and whether that lift was supplied (#685, #1324).
-    pub(super) fn keep_config(&self, m: &Manifest) -> StreamConfig {
-        use timegrapher_core::take;
-        let cal = m
-            .calibre
-            .as_deref()
-            .and_then(|n| take::calibre_named(n, &self.cal.user));
-        take::stream_settings(m, cal.as_ref(), take::Given::default())
-    }
-
-    /// What Keep Analysis Only needs from saved take `take` before it
-    /// reads the sound: its sound files and their length, the companions
-    /// written beside the analysis (the session file marked `audio =
-    /// false`), how to read it and its shape stretches; or why it can't.
-    fn keep_prepare(&self, take: &Path) -> Result<KeepPrep, String> {
-        let file = take.join(MANIFEST);
-        let text = timegrapher_core::recorder::read_settled(&file)
-            .map_err(|e| format!("{}: {e}", file.display()))?;
-        let m: Manifest = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        if m.audio == Some(false) {
-            return Err("its sound has already been removed".into());
-        }
-        if let Some(why) = crate::watches::sound_kept_by_name(&m) {
-            return Err(why);
-        }
-        let files = recordings_in(take)?;
-        let mut total_s = 0.0;
-        for f in &files {
-            let i =
-                timegrapher_core::audio::info(f).map_err(|e| format!("{}: {e}", f.display()))?;
-            let frames = i
-                .frames
-                .ok_or_else(|| format!("{} doesn't say how long it is", f.display()))?;
-            total_s += frames as f64 / f64::from(i.sample_rate.max(1));
-        }
-        let mut doc: toml_edit::DocumentMut = text
-            .parse()
-            .map_err(|e| format!("{}: {e}", file.display()))?;
-        doc.insert("audio", toml_edit::value(false));
-        let mut companions = vec![(MANIFEST.to_string(), doc.to_string().into_bytes())];
-        keep_companions(take, take, &mut companions)?;
-        let cfg = self.keep_config(&m);
-        let shapes = timegrapher_core::analysis_take::shape_stretches(&m, total_s);
-        Ok((files, total_s, companions, cfg, shapes))
+    /// Core's [`timegrapher_core::analysis_take::plan_keep`] reads it so;
+    /// the tests ask it here.
+    #[cfg(test)]
+    pub(super) fn keep_config(&self, m: &Manifest) -> timegrapher_core::stream::StreamConfig {
+        timegrapher_core::analysis_take::keep_settings(m, &self.cal.user)
     }
 
     /// Read a saved take's sound again for its analysis, in the
@@ -810,8 +764,7 @@ impl TimegrapherApp {
         if self.take_keep.is_some() {
             return;
         }
-        let prepared = self.keep_prepare(&take);
-        let (files, total_s, companions, cfg, shapes) = match prepared {
+        let plan = match timegrapher_core::analysis_take::plan_keep(&take, &self.cal.user) {
             Ok(p) => p,
             Err(e) => {
                 return self.error(format!(
@@ -819,31 +772,21 @@ impl TimegrapherApp {
                 ))
             }
         };
-        let dest = take.with_file_name(format!(".{}.analysis", file_name(&take)));
-        let _ = std::fs::remove_dir_all(&dest);
+        let total_s = plan.total_s;
         let software = report::software();
         let (tx, rx) = std::sync::mpsc::channel();
         let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (p2, c2) = (progress.clone(), cancel.clone());
+        let at = take.clone();
         std::thread::spawn(move || {
-            let paths: Vec<&Path> = files.iter().map(|f| f.as_path()).collect();
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let stored = timegrapher_core::analysis_take::measure(
-                    &paths,
-                    &cfg,
-                    &shapes,
-                    software,
-                    |s| {
-                        p2.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
-                        if c2.load(std::sync::atomic::Ordering::Relaxed) {
-                            std::panic::resume_unwind(Box::new(Cancelled));
-                        }
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-                timegrapher_core::analysis_take::save(&dest, &companions, &stored)
-                    .map_err(|e| e.to_string())
+                timegrapher_core::analysis_take::write_kept(&at, &plan, software, |s| {
+                    p2.store(s.to_bits(), std::sync::atomic::Ordering::Relaxed);
+                    if c2.load(std::sync::atomic::Ordering::Relaxed) {
+                        std::panic::resume_unwind(Box::new(Cancelled));
+                    }
+                })
             }));
             match r {
                 Ok(r) => {
@@ -882,9 +825,7 @@ impl TimegrapherApp {
         };
         let before = folder_size(&take);
         let placed = match (done, &mut self.library) {
-            (Ok(kept), Ok(Some(l))) => l.replace_take(&take, &kept).inspect_err(|_| {
-                let _ = std::fs::remove_dir_all(&kept);
-            }),
+            (Ok(kept), Ok(Some(l))) => l.put_kept(&take, &kept),
             (Ok(kept), _) => {
                 let _ = std::fs::remove_dir_all(&kept);
                 Err("the Watches folder is no longer open".into())
@@ -1476,42 +1417,4 @@ pub(super) fn settings_of(
         }
     }
     changed
-}
-
-/// Every file of take `take` under `dir` that Keep Analysis Only keeps
-/// beside its analysis, by its path in the take, subfolders too: all but
-/// its sound and its session file, which is written anew (#1323). The
-/// sound at its top goes, a WAV left beside its FLAC too, so no sound is
-/// kept; sound in a subfolder, or anything that is neither a file nor a
-/// folder, such as a link, is refused, so nothing is lost unseen.
-fn keep_companions(
-    take: &Path,
-    dir: &Path,
-    out: &mut Vec<(String, Vec<u8>)>,
-) -> Result<(), String> {
-    for e in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let e = e.map_err(|e| e.to_string())?;
-        let path = e.path();
-        let rel = path.strip_prefix(take).map_err(|e| e.to_string())?;
-        let name = rel.to_string_lossy().into_owned();
-        let kind = e.file_type().map_err(|err| format!("{name}: {err}"))?;
-        let sound = timegrapher_core::take::is_sound(&path);
-        if kind.is_dir() {
-            keep_companions(take, &path, out)?;
-        } else if !kind.is_file() {
-            return Err(format!(
-                "{name} is not a file or a folder, so it can't be kept with the analysis"
-            ));
-        } else if sound && dir != take {
-            return Err(format!(
-                "{name} is sound in a folder of the take, which isn't the take's own sound"
-            ));
-        } else if !(sound || name == MANIFEST) {
-            let bytes = std::fs::read(&path).map_err(|err| format!("{name}: {err}"))?;
-            // Stored with `/` between folders on every system.
-            let parts: Vec<_> = rel.iter().map(|p| p.to_string_lossy()).collect();
-            out.push((parts.join("/"), bytes));
-        }
-    }
-    Ok(())
 }

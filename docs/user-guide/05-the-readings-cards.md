@@ -4,7 +4,7 @@ The six cards across the top of the Bench hold everything the app knows
 about the take on show: where the watch lies, what it is, whether it is
 being heard, and the three readings.
 
-![A Quick Listen take a minute in, marks 1 to 14 on the six cards](images/readings-cards.png)
+![A Quick Listen take a minute in, marks 1 to 15 on the six cards](images/readings-cards.png)
 
 Every card has the same three rows, so the titles, the big figures and
 the controls each read in one line across:
@@ -19,7 +19,8 @@ the controls each read in one line across:
 | Mark | Part | What it does | Why you'd use it |
 | --- | --- | --- | --- |
 | 1 | Picture and name | The watch as it lies, in teal: the dial for Dial Up, the case back for Dial Down, the crown at the top for Crown Up, and so on. Beside it, the name and both codes: the common one, then Witschi's ("CD · 9H"). | To check at a glance that the app has the position you put the watch in. |
-| 2 | **DU DD CU CD CL CR** | Sets the position. The current one is filled. Keys **1** to **6** do the same. | Each time you turn the watch, so the readings are filed under the right position. |
+| 2 | **DU DD CU CD CL CR** | Sets the position. The current one is filled. Its key does the same: **U** and **D** lying, and standing the last digit of the hour at the top, **3**, **6**, **9** and **2** (chapter 4). | Each time you turn the watch, so the readings are filed under the right position. |
+| 15 | **6 \| 10** | **10** adds a second row of buttons, the four 45° stops **1H30 4H30 7H30 10H30** (1:30 Up and so on: the hour at the top), keys **1**, **4**, **7** and **0**. A 45° stop picked by its key, the Position Brush, or a take on show turns the card to 10. Kept between runs. | For a stand that stops every 45°, to file readings taken between the crown positions. **6** keeps the card to the six usual positions. |
 
 - **The bar under each button** fills with the seconds heard in that
   position, settled and not masked. It is full at the Positions Test's
@@ -220,7 +221,8 @@ position, the watch, the take's length and the three figures. See
 On a narrow window the cards also take smaller forms by themselves:
 
 - **Current Position** becomes **Position**, with a **Set** pop-up of the
-  six positions in place of the buttons. Keys 1 to 6 still work.
+  six positions in place of the buttons, all ten when a 45° stop is
+  current. The keys still work.
 - **Listen** gives the length beside its caption, and Average Over as
   **Avg 10 s**.
 - **Calibre** keeps its pop-up and Lift. On the narrowest windows, the

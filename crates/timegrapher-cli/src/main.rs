@@ -19,6 +19,7 @@ mod shape_cmd;
 mod synth_cmd;
 mod update_cmd;
 mod watches_cmd;
+mod watches_edit;
 
 use clap::{Parser, Subcommand};
 use std::fs::File;
@@ -634,7 +635,9 @@ enum Command {
         json: bool,
     },
     /// The watches in the library the app keeps, with their details and
-    /// takes, and the takes Quick Listen left in Unsorted. It only reads.
+    /// takes, and the takes Quick Listen left in Unsorted; and the changes
+    /// the app's Watches view makes (new, edit, add-take, move-take,
+    /// keep-analysis-only, delete-take, add-photos, delete-photo).
     Watches {
         #[command(subcommand)]
         action: WatchesAction,
@@ -703,6 +706,8 @@ enum WatchesAction {
     /// folder to pass to `session`, `long` or `series`. `Unsorted` shows
     /// the takes Quick Listen made.
     Show { name: String },
+    #[command(flatten)]
+    Change(watches_edit::Change),
 }
 
 #[derive(Subcommand)]
@@ -1157,6 +1162,7 @@ fn table_command(c: Command) -> Result<(), String> {
         } => match action {
             WatchesAction::List { all } => watches_cmd::list(library.as_deref(), all, json),
             WatchesAction::Show { name } => watches_cmd::show(&name, library.as_deref(), json),
+            WatchesAction::Change(c) => watches_edit::run(&c, library.as_deref(), json),
         },
         Command::Devices {
             json,
