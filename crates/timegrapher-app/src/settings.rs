@@ -152,6 +152,7 @@ impl Default for Settings {
                 half_width_ms: 10.0,
                 span_s: timegrapher_core::live::DEFAULT_STRIP_S,
                 horizontal: true,
+                still: false,
             },
             rate_line: true,
             rate_guides: true,
@@ -216,6 +217,19 @@ pub fn store(storage: &mut dyn eframe::Storage, s: &Settings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Settings kept before the strip had still paper read as moving
+    /// paper, every other choice kept.
+    #[test]
+    fn older_settings_read_as_moving_paper() {
+        let mut v = serde_json::to_value(Settings::default()).unwrap();
+        let strip = v["strip"].as_object_mut().unwrap();
+        strip.remove("still");
+        strip.insert("span_s".into(), serde_json::json!(120.0));
+        let s: Settings = serde_json::from_value(v).unwrap();
+        assert!(!s.strip.still);
+        assert_eq!(s.strip.span_s, 120.0);
+    }
 
     /// Settings kept by a build before the dB Scale keep their choice:
     /// a log scale then is the dB Scale now.
