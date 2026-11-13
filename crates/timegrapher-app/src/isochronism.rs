@@ -44,7 +44,7 @@ pub fn view_choice(ui: &mut egui::Ui, view: &mut View) {
                 View::Curve,
                 Icon::IsoCurve,
                 "Curve",
-                "The median rate in each 2° of amplitude, and the curve through them",
+                "The median rate in each 2° of amplitude, with bars over its middle half",
             ),
             (
                 View::Walk,
