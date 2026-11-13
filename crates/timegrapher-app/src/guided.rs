@@ -13,6 +13,7 @@ use crate::app::Position;
 use crate::theme;
 use eframe::egui::{self, RichText, Vec2};
 use timegrapher_core::clock::ClockFit;
+use timegrapher_core::figure_text::base_digits::{AMPLITUDE, BEAT_ERROR, RATE};
 use timegrapher_core::figure_text::{fixed_text, signed_text, true_minus};
 use timegrapher_core::poise;
 use timegrapher_core::session::{self, Measurement, Reading, SourcedFigures};
@@ -1168,15 +1169,15 @@ fn table_grid(
                 match t.rows.get(i) {
                     Some((label, rate, from_mean, amp, be)) => {
                         ui.label(RichText::new(label).color(pal.text));
-                        right_in(ui, fw, signed(*rate, 1), false, pal.text);
-                        right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
-                        right_in(ui, fw, plain(*amp, 0), false, pal.text);
+                        right_in(ui, fw, signed(*rate, RATE), false, pal.text);
+                        right_in(ui, from_w, signed(*from_mean, RATE), false, pal.text);
+                        right_in(ui, fw, plain(*amp, AMPLITUDE), false, pal.text);
                         let be_ink = if t.beat_error_dimmed.get(i).copied().unwrap_or(false) {
                             pal.text_secondary
                         } else {
                             pal.text
                         };
-                        right_in(ui, fw, plain(*be, 2), false, be_ink).on_hover_text(
+                        right_in(ui, fw, plain(*be, BEAT_ERROR), false, be_ink).on_hover_text(
                             t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
                         );
                     }
@@ -1190,10 +1191,10 @@ fn table_grid(
                             (Some(_), Some(FreeCell::Read(rate, amp, be))) => {
                                 ui.label(RichText::new(label).strong().color(pal.text))
                                     .on_hover_text("Being measured: its figures so far");
-                                right_in(ui, fw, signed(*rate, 1), false, pal.accent);
+                                right_in(ui, fw, signed(*rate, RATE), false, pal.accent);
                                 ui.label("");
-                                right_in(ui, fw, plain(*amp, 0), false, pal.accent);
-                                right_in(ui, fw, plain(*be, 2), false, pal.accent);
+                                right_in(ui, fw, plain(*amp, AMPLITUDE), false, pal.accent);
+                                right_in(ui, fw, plain(*be, BEAT_ERROR), false, pal.accent);
                             }
                             (Some(s), _) => {
                                 ui.label(RichText::new(label).strong().color(pal.text));
@@ -1215,19 +1216,31 @@ fn table_grid(
             }
             if !t.rows.is_empty() {
                 ui.label(RichText::new(mean_word).strong().color(pal.text));
-                right_in(ui, fw, signed(t.mean_rate, 1), true, pal.text);
+                right_in(ui, fw, signed(t.mean_rate, RATE), true, pal.text);
                 ui.label("");
-                right_in(ui, fw, plain(t.mean_amplitude, 0), true, pal.text);
-                right_in(ui, fw, plain(t.mean_beat_error, 2), true, pal.text)
+                right_in(ui, fw, plain(t.mean_amplitude, AMPLITUDE), true, pal.text);
+                right_in(ui, fw, plain(t.mean_beat_error, BEAT_ERROR), true, pal.text)
                     .on_hover_text(&t.beat_error_summary);
                 ui.end_row();
             }
             if t.rows.len() >= 2 && !poise {
                 largest_label(ui);
-                right_in(ui, fw, plain(t.largest_difference, 1), true, pal.text);
+                right_in(ui, fw, plain(t.largest_difference, RATE), true, pal.text);
                 ui.label("");
-                right_in(ui, fw, plain(t.largest_amplitude, 0), true, pal.text);
-                right_in(ui, fw, plain(t.largest_beat_error, 2), true, pal.text);
+                right_in(
+                    ui,
+                    fw,
+                    plain(t.largest_amplitude, AMPLITUDE),
+                    true,
+                    pal.text,
+                );
+                right_in(
+                    ui,
+                    fw,
+                    plain(t.largest_beat_error, BEAT_ERROR),
+                    true,
+                    pal.text,
+                );
                 ui.end_row();
             }
         });
@@ -1285,8 +1298,8 @@ fn table_notes(ui: &mut egui::Ui, t: &Table) {
         ui.label(
             RichText::new(format!(
                 "Vertical less horizontal: {} s/d in rate, {}° in amplitude.",
-                signed(t.dvh_rate, 1),
-                signed(t.dvh_amplitude, 0)
+                signed(t.dvh_rate, RATE),
+                signed(t.dvh_amplitude, AMPLITUDE)
             ))
             .color(pal.text),
         )
@@ -1349,12 +1362,12 @@ fn comparison_grid(ui: &mut egui::Ui, c: &Comparison) {
             ui.end_row();
             for (label, v) in &c.rows {
                 ui.label(RichText::new(label).color(pal.text));
-                right_in(ui, WIDE_W, signed(v[0], 1), false, pal.text);
-                right_in(ui, WIDE_W, signed(v[1], 1), false, pal.text);
-                right_in(ui, WIDE_W, signed(v[2], 1), true, pal.text);
-                right_in(ui, WIDE_W, plain(v[3], 0), false, pal.text);
-                right_in(ui, WIDE_W, plain(v[4], 0), false, pal.text);
-                right_in(ui, WIDE_W, signed(v[5], 0), true, pal.text);
+                right_in(ui, WIDE_W, signed(v[0], RATE), false, pal.text);
+                right_in(ui, WIDE_W, signed(v[1], RATE), false, pal.text);
+                right_in(ui, WIDE_W, signed(v[2], RATE), true, pal.text);
+                right_in(ui, WIDE_W, plain(v[3], AMPLITUDE), false, pal.text);
+                right_in(ui, WIDE_W, plain(v[4], AMPLITUDE), false, pal.text);
+                right_in(ui, WIDE_W, signed(v[5], AMPLITUDE), true, pal.text);
                 ui.end_row();
             }
         });
@@ -1363,8 +1376,8 @@ fn comparison_grid(ui: &mut egui::Ui, c: &Comparison) {
         RichText::new(format!(
             "Largest change in rate, crown right left out: {} s/d. Change in the mean rate, as \
              a size: {} s/d.",
-            signed(c.im, 1),
-            plain(c.ie, 1)
+            signed(c.im, RATE),
+            plain(c.ie, RATE)
         ))
         .color(pal.text),
     )
@@ -1978,9 +1991,14 @@ fn free_grid(ui: &mut egui::Ui, t: &FreeTable) {
                     }
                     FreeCell::Read(rate, amp, be) => {
                         right(ui, table_duration(*duration), false, pal.text);
-                        right(ui, signed(*rate, 1), false, pal.trace_rate);
-                        right(ui, plain(*amp, 0), false, pal.trace_amplitude);
-                        right(ui, plain(*be, 2), false, pal.ink(pal.trace_beat_error));
+                        right(ui, signed(*rate, RATE), false, pal.trace_rate);
+                        right(ui, plain(*amp, AMPLITUDE), false, pal.trace_amplitude);
+                        right(
+                            ui,
+                            plain(*be, BEAT_ERROR),
+                            false,
+                            pal.ink(pal.trace_beat_error),
+                        );
                     }
                 }
                 ui.end_row();
@@ -1989,17 +2007,27 @@ fn free_grid(ui: &mut egui::Ui, t: &FreeTable) {
                 ui.label(RichText::new("Average").strong().color(pal.text))
                     .on_hover_text("Over the positions read");
                 right(ui, format!("{} of 6", t.read), false, pal.text_secondary);
-                right(ui, signed(t.mean[0], 1), true, pal.trace_rate);
-                right(ui, plain(t.mean[1], 0), true, pal.trace_amplitude);
-                right(ui, plain(t.mean[2], 2), true, pal.ink(pal.trace_beat_error));
+                right(ui, signed(t.mean[0], RATE), true, pal.trace_rate);
+                right(ui, plain(t.mean[1], AMPLITUDE), true, pal.trace_amplitude);
+                right(
+                    ui,
+                    plain(t.mean[2], BEAT_ERROR),
+                    true,
+                    pal.ink(pal.trace_beat_error),
+                );
                 ui.end_row();
                 largest_label(ui);
                 ui.label("");
-                right(ui, plain(t.largest[0], 1), true, pal.trace_rate);
-                right(ui, plain(t.largest[1], 0), true, pal.trace_amplitude);
+                right(ui, plain(t.largest[0], RATE), true, pal.trace_rate);
                 right(
                     ui,
-                    plain(t.largest[2], 2),
+                    plain(t.largest[1], AMPLITUDE),
+                    true,
+                    pal.trace_amplitude,
+                );
+                right(
+                    ui,
+                    plain(t.largest[2], BEAT_ERROR),
                     true,
                     pal.ink(pal.trace_beat_error),
                 );
@@ -2193,13 +2221,13 @@ pub fn comparison_text(c: &Comparison, sep: char) -> String {
     for (label, v) in &c.rows {
         let mut row = vec![label.clone()];
         for (i, x) in v.iter().enumerate() {
-            let d = if i < 3 { 1 } else { 0 };
+            let d = if i < 3 { RATE } else { AMPLITUDE };
             row.push(x.map_or_else(String::new, |x| format!("{x:.d$}")));
         }
         cells.push(row);
     }
     cells.push(Vec::new());
-    let num = |v: Option<f64>| v.map_or_else(String::new, |x| format!("{x:.1}"));
+    let num = |v: Option<f64>| v.map_or_else(String::new, |x| format!("{x:.RATE$}"));
     cells.push(vec![
         "Largest change in rate, crown right left out (Im), s/d".into(),
         num(c.im),
@@ -2280,7 +2308,7 @@ pub fn export_text(test: &Test, about: &About, sep: char) -> String {
 /// mean line and ring, "Mean +4.0", as the table's Mean row shows it.
 pub fn poise_mean(readings: &[Reading]) -> Option<(f64, String)> {
     let m = table(readings, Kind::Poise).mean_rate?;
-    Some((m, format!("Mean {}", signed(Some(m), 1))))
+    Some((m, format!("Mean {}", signed(Some(m), RATE))))
 }
 
 /// The poise fit of a test's upright readings ([`poise::fit`]), once
