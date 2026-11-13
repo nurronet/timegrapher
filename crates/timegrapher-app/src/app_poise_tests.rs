@@ -316,8 +316,9 @@ fn draw_at(app: &mut TimegrapherApp, pane: Pane, size: Vec2) -> Vec<(String, egu
 }
 
 /// The pane's Start button goes through the guided tests' one handler
-/// (#1563): pressed after the first stop, it turns the card to the second
-/// and the strip's measured stretches follow the test.
+/// (#1563): pressed after the first stop, it turns the card to the second,
+/// the strip's measured and not-used stretches follow the test, and the
+/// engine is given the new masks.
 #[test]
 fn the_panes_start_button_turns_to_the_next_stop() {
     let base = std::env::temp_dir().join(format!("tg-app-poise-next-{}", std::process::id()));
@@ -334,6 +335,8 @@ fn the_panes_start_button_turns_to_the_next_stop() {
     app.guided = Some(test);
     app.set_position(order[0]);
     app.guided_measured.clear();
+    app.guided_unused.clear();
+    app.live.as_mut().unwrap().set_masked(&[]);
     let size = Vec2::new(1280.0, 900.0);
     let drawn = draw_at(&mut app, Pane::DynamicPoise, size);
     let start = format!("Start {} Measurement", order[1].witschi());
@@ -348,6 +351,16 @@ fn the_panes_start_button_turns_to_the_next_stop() {
         !app.guided_measured.is_empty(),
         "the strip follows the test"
     );
+    assert!(
+        app.guided_unused
+            .iter()
+            .any(|&(a, b, _)| a == 0.0 && b == t0),
+        "the time before the test reads as not used: {:?}",
+        app.guided_unused
+    );
+    let engine = app.live.as_ref().unwrap().masked().to_vec();
+    assert!(!engine.is_empty(), "the engine leaves the unused time out");
+    assert_eq!(engine, app.engine_masked());
     let _ = std::fs::remove_dir_all(&base);
 }
 
