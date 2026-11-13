@@ -646,12 +646,15 @@ impl LiveAnalyzer {
     pub fn set_lift(&mut self, lift_deg: f64) {
         let old = self.cfg.analysis.amplitude.lift_deg;
         if lift_deg > 0.0 && lift_deg != old {
-            let k = lift_deg / old;
             if let Some(bph) = self.bph {
-                amplitude::relift(&mut self.amp, 7200.0 / f64::from(bph), old, lift_deg);
-            }
-            for p in self.profiles.iter_mut().flatten() {
-                p.amplitude_deg = p.amplitude_deg.map(|a| a * k);
+                // A swing is two beats.
+                let osc_period_s = 2.0 * crate::timing::beat_period_s(None, bph);
+                amplitude::relift(&mut self.amp, osc_period_s, old, lift_deg);
+                // Each profile read again from its own edges at the new
+                // lift, through the same gate, not scaled (#1539).
+                for p in self.profiles.iter_mut().flatten() {
+                    p.amplitude_deg = p.amplitude_at(osc_period_s, lift_deg);
+                }
             }
             self.cfg.analysis.amplitude.lift_deg = lift_deg;
         }
