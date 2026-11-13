@@ -232,27 +232,9 @@ impl TimegrapherApp {
             (view, info),
             settle,
         );
-        let (Some(action), Some(now)) = (action, now) else {
-            return;
-        };
-        let Some(mut test) = self.guided.take() else {
-            return;
-        };
-        match action {
-            guided::Action::Next => {
-                if let Some(p) = test.advance(now) {
-                    self.change_position(p);
-                }
-            }
-            guided::Action::Redo => test.redo(now),
-            guided::Action::Pause => test.pause(now),
-            guided::Action::Resume => test.resume(now),
-            guided::Action::ClearEarlier => {}
+        if let (Some(action), Some(now)) = (action, now) {
+            self.apply_guided_action(action, now);
         }
-        self.guided_unused = test.unused(now);
-        self.guided_measured = test.measured(now);
-        self.guided = Some(test);
-        self.mask_engine();
     }
 }
 
