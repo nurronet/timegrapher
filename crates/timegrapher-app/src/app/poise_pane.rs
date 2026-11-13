@@ -1039,9 +1039,8 @@ mod tests {
         assert!(clear_of(dial.at(0.0, dial.radius(10.0)), number, &names));
     }
 
-    /// The texts `dial_grid` draws with ring numbers on `bearing`, keeping
-    /// off `keep_off` as well as the hours' names.
-    fn grid_texts(dial: &Dial, bearing: f64, keep_off: &[egui::Rect]) -> Vec<String> {
+    /// Every text `draw` puts on a 600 pt square.
+    fn drawn_texts(draw: impl FnOnce(&egui::Ui)) -> Vec<String> {
         let ctx = egui::Context::default();
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -1050,10 +1049,12 @@ mod tests {
             )),
             ..Default::default()
         };
+        let mut draw = Some(draw);
         let out = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let numbers = Some((bearing, None));
-                dial_grid(ui.painter(), dial, theme::pal(ui), numbers, keep_off);
+                if let Some(d) = draw.take() {
+                    d(ui);
+                }
             });
         });
         out.shapes
@@ -1063,6 +1064,37 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The texts `dial_grid` draws with ring numbers on `bearing`, keeping
+    /// off `keep_off` as well as the hours' names.
+    fn grid_texts(dial: &Dial, bearing: f64, keep_off: &[egui::Rect]) -> Vec<String> {
+        drawn_texts(|ui| {
+            let numbers = Some((bearing, None));
+            dial_grid(ui.painter(), dial, theme::pal(ui), numbers, keep_off);
+        })
+    }
+
+    /// The whole dial drawn: a point on the ring numbers' bearing, at a
+    /// ring's own rate, takes that ring's number out (Trevor on #1550).
+    #[test]
+    fn the_drawn_dial_leaves_out_the_number_under_a_point() {
+        let mut pic = Picture {
+            points: vec![(0.0, -10.0, None), (90.0, 10.0, None), (180.0, 0.0, None)],
+            fit: None,
+            mean: None,
+        };
+        let (lo, hi, step) = rate_scale(&pic);
+        let ring = lo + step;
+        let number = chart_scale::axis_number(ring, step);
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(600.0));
+        let before = drawn_texts(|ui| draw_dial(ui, rect, &pic));
+        assert!(before.contains(&number), "{number} in {before:?}");
+        // Before a wave the numbers sit between the first two stops.
+        pic.points.push((between(0.0), ring, None));
+        assert_eq!(rate_scale(&pic), (lo, hi, step));
+        let after = drawn_texts(|ui| draw_dial(ui, rect, &pic));
+        assert!(!after.contains(&number), "{number} in {after:?}");
     }
 
     /// Drawn, the outer ring's number on the 12H bearing is left out while
