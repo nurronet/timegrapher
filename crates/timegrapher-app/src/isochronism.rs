@@ -533,6 +533,10 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     };
     let pos = |p: [f64; 2]| t.position_from_point(&PlotPoint::new(p[0], p[1]));
     let dots: Vec<Pos2> = w.dots.iter().map(|d| pos(dot_at(d))).collect();
+    // The trail stops at the frame; only the dots spill their radius past
+    // it (Hugh, 13 Nov: a step to a dot off the scale ran to the pane's
+    // edge).
+    let lines = ui.painter().with_clip_rect(*t.frame());
     let p = ui.painter().with_clip_rect(t.frame().expand(8.0));
     // Thin steps and dots first, so the full ones draw over them (Hugh).
     let mut steps = steps(w);
@@ -544,7 +548,7 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
         for k in 0..runs {
             let f = |k: usize| k as f32 / runs as f32;
             let mid = (f(k) + f(k + 1)) as f64 / 2.0;
-            p.line_segment(
+            lines.line_segment(
                 [a.lerp(b, f(k)), a.lerp(b, f(k + 1))],
                 Stroke::new(2.0_f32, faint(colour(t0 + (t1 - t0) * mid), thin)),
             );
@@ -575,7 +579,9 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
         // Kept inside the plot, so a name near an edge never sits on an
         // axis label (Walter's walk of #1496: "8.4 h" on "120").
         let r = keep_inside(align.anchor_size(at, g.size()), t.frame().shrink(2.0));
-        p.rect_filled(r.expand(2.0), 3.0, bg.gamma_multiply(0.85));
+        // Opaque, so a trail under a name never shows through it (Hugh,
+        // 13 Nov: "Start" sat on the purple trail).
+        p.rect_filled(r.expand(3.0), 3.0, bg);
         p.galley(r.min, g, pal.text);
     };
     name(
@@ -1305,15 +1311,32 @@ mod tests {
         for b in &w.beads {
             assert!(ring(5.0, w.dots[b.dot].when).is_some(), "{}", b.text);
         }
-        // Each name sits on a halo of the plot's background, painted
-        // just before it.
+        // The trail is clipped to the plot's frame exactly (Hugh, 13 Nov).
+        let plot = shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Rect(r) if r.fill == bg => Some(r.rect),
+                _ => None,
+            })
+            .max_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("the plot's background");
+        let trail: Vec<_> = shapes
+            .iter()
+            .filter(|c| matches!(&c.shape, egui::Shape::LineSegment { stroke, .. } if stroke.width == 2.0))
+            .collect();
+        assert!(!trail.is_empty());
+        for c in trail {
+            assert_eq!(c.clip_rect, plot);
+        }
+        // Each name sits on a box of the plot's background, painted just
+        // before it, opaque so no trail shows through (Hugh, 13 Nov).
         for want in ["Start", w.last_text.as_str(), "12 h", "24 h"] {
             let i = shapes
                 .iter()
                 .position(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.text() == want))
                 .unwrap();
             let halo = matches!(&shapes[i - 1].shape,
-                egui::Shape::Rect(r) if r.fill == bg.gamma_multiply(0.85)
+                egui::Shape::Rect(r) if r.fill == bg
                     && r.rect.contains_rect(name(want)));
             assert!(halo, "{want}");
         }
