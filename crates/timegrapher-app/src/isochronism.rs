@@ -541,8 +541,19 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     // Thin steps and dots first, so the full ones draw over them (Hugh).
     let mut steps = steps(w);
     steps.sort_by_key(|s| !s.3);
+    let frame = *t.frame();
     for (from, to, (t0, t1), thin) in steps {
-        let (a, b) = (pos(from), pos(to));
+        // A step into or out of a dot off the scale is a stub from the
+        // dot on it (Hugh, 13 Nov: a full step read as data).
+        let (Some(b), Some(a)) = (
+            stub_toward(frame, pos(from), pos(to)),
+            stub_toward(frame, pos(to), pos(from)),
+        ) else {
+            continue;
+        };
+        let Some((t0, t1)) = span_of(pos(from), pos(to), a, b, (t0, t1)) else {
+            continue;
+        };
         // In short runs, so its colour moves from one dot's to the next's.
         let runs = 8;
         for k in 0..runs {
@@ -629,46 +640,58 @@ fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
 }
 
-/// The dot a drawn step of the trail joins to dot `i` from inside
-/// `frame`, the one before it first; else dot `i` itself.
-fn trail_neighbour(w: &WalkView, dots: &[Pos2], frame: egui::Rect, i: usize) -> Pos2 {
+/// The stubs drawn to dot `i`, off the scale: from each dot in `frame`
+/// that a step joins it to ([`stub_toward`]).
+fn stub_ends<'a>(
+    w: &'a WalkView,
+    dots: &'a [Pos2],
+    frame: egui::Rect,
+    i: usize,
+) -> impl Iterator<Item = (Pos2, Pos2)> + 'a {
     let before = (i > 0 && w.dots[i].joined).then(|| i - 1);
     let after = (i + 1 < dots.len() && w.dots[i + 1].joined).then_some(i + 1);
-    [before, after]
-        .into_iter()
-        .flatten()
-        .map(|j| dots[j])
-        .find(|d| frame.contains(*d))
-        .unwrap_or(dots[i])
+    [before, after].into_iter().flatten().filter_map(move |j| {
+        frame
+            .contains(dots[j])
+            .then(|| stub_toward(frame, dots[j], dots[i]).map(|end| (dots[j], end)))
+            .flatten()
+    })
 }
 
-/// `to` if it lies in `frame`; else where the line from `from` toward it
-/// leaves `frame`, or `to` held to the edge when `from` lies out too.
-fn edge_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Pos2 {
-    if frame.contains(to) {
-        return to;
-    }
-    if !frame.contains(from) {
-        return frame.clamp(to);
-    }
-    // The furthest share of the way that stays inside, axis by axis.
-    let share = |a: f32, b: f32, lo: f32, hi: f32| {
-        let edge = if b < lo {
-            lo
-        } else if b > hi {
-            hi
-        } else {
-            return 1.0;
-        };
-        ((edge - a) / (b - a)).clamp(0.0, 1.0)
+/// How far `at` is from the segment `a` to `b`.
+fn segment_distance(a: Pos2, b: Pos2, at: Pos2) -> f32 {
+    let ab = b - a;
+    let f = if ab.length_sq() > 0.0 {
+        ((at - a).dot(ab) / ab.length_sq()).clamp(0.0, 1.0)
+    } else {
+        0.0
     };
-    let f = share(from.x, to.x, frame.left(), frame.right()).min(share(
-        from.y,
-        to.y,
-        frame.top(),
-        frame.bottom(),
-    ));
-    from.lerp(to, f)
+    (a + ab * f).distance(at)
+}
+
+/// How long a step into or out of a dot off the scale is drawn, points:
+/// enough to show which way it goes, short of reading as data (Hugh,
+/// 13 Nov).
+const STUB_PT: f32 = 16.0;
+
+/// Where a step from `from` toward `to` ends: at `to` when it lies in
+/// `frame`, a [`STUB_PT`] stub toward it when only `from` does, and no
+/// step when neither does.
+fn stub_toward(frame: egui::Rect, from: Pos2, to: Pos2) -> Option<Pos2> {
+    if frame.contains(to) {
+        return Some(to);
+    }
+    frame
+        .contains(from)
+        .then(|| from + (to - from).normalized() * STUB_PT.min(from.distance(to)))
+}
+
+/// The times along a step from `from` to `to` that its drawn part, `a`
+/// to `b`, covers, given the step's own `(t0, t1)`.
+fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Option<(f64, f64)> {
+    let len = from.distance(to);
+    let at = |q: Pos2| (q.distance(from) / len) as f64;
+    (len > 0.0).then(|| (t0 + (t1 - t0) * at(a), t0 + (t1 - t0) * at(b)))
 }
 
 /// `r` moved the least way to lie inside `frame`, where it fits.
@@ -711,11 +734,15 @@ fn nearest_dot(w: &WalkView, t: &egui_plot::PlotTransform, at: egui::Pos2) -> Op
     let dots: Vec<Pos2> = w.dots.iter().map(pos).collect();
     let frame = *t.frame();
     (0..dots.len())
-        .map(|i| {
-            // A dot off the scale answers where its trail meets the edge
+        .filter_map(|i| {
+            if frame.contains(dots[i]) {
+                return Some((i, dots[i].distance(at)));
+            }
+            // A dot off the scale answers anywhere along its stubs
             // (Hugh, 13 Nov).
-            let near = trail_neighbour(w, &dots, frame, i);
-            (i, edge_toward(frame, near, dots[i]).distance(at))
+            stub_ends(w, &dots, frame, i)
+                .map(|(a, b)| (i, segment_distance(a, b, at)))
+                .min_by(|a, b| a.1.total_cmp(&b.1))
         })
         .filter(|&(_, dist)| dist <= HOVER_PX)
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -941,41 +968,51 @@ mod tests {
 
     /// A dot core calls thin is drawn faint, and so are the steps to and
     /// from it; the rest at full colour (Norm's floors, 11-12).
-    /// An off-scale dot is reached from the dot its drawn step joins it
-    /// to, not across a break (Walter's walk of #1496).
+    /// A step to a dot off the scale is a 16 pt stub from the dot on
+    /// it; with neither on it, no step (Hugh, 13 Nov).
     #[test]
-    fn an_off_scale_dot_is_reached_along_its_drawn_step() {
+    fn a_step_off_the_scale_is_a_stub() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
+        let (a, b) = (egui::pos2(50.0, 50.0), egui::pos2(250.0, 50.0));
+        assert_eq!(stub_toward(frame, a, b), Some(egui::pos2(66.0, 50.0)));
+        assert_eq!(stub_toward(frame, b, a), Some(a));
+        assert_eq!(stub_toward(frame, b, egui::pos2(300.0, 0.0)), None);
+        // The stub's colours are its share of the step's times.
+        let (t0, t1) = span_of(a, b, a, egui::pos2(66.0, 50.0), (0.0, 1.0)).unwrap();
+        assert_eq!(t0, 0.0);
+        assert!((t1 - 0.08).abs() < 1e-6, "{t1}");
+    }
+
+    /// An off-scale dot's stubs come from each dot a drawn step joins it
+    /// to, never across a break (Walter's walk of #1496), and its hover
+    /// answers along them.
+    #[test]
+    fn an_off_scale_dot_has_a_stub_from_each_joined_neighbour() {
         let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
         let mut w = long_walk();
         w.dots.truncate(3);
         let dots = [
-            egui::pos2(10.0, 10.0),
-            egui::pos2(150.0, 50.0),
+            egui::pos2(10.0, 50.0),
+            egui::pos2(250.0, 50.0),
             egui::pos2(50.0, 50.0),
         ];
-        // A break before the off-scale dot: its step is from the one after.
-        w.dots[1].joined = false;
-        w.dots[2].joined = true;
-        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[2]);
-        // Joined both ways: the one before.
+        let ends = |w: &WalkView| stub_ends(w, &dots, frame, 1).collect::<Vec<_>>();
         w.dots[1].joined = true;
-        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[0]);
-        // No drawn step: the dot itself.
-        w.dots[1].joined = false;
-        w.dots[2].joined = false;
-        assert_eq!(trail_neighbour(&w, &dots, frame, 1), dots[1]);
-    }
-
-    /// A dot off the scale is hovered where its trail meets the edge.
-    #[test]
-    fn an_off_scale_dot_is_found_where_its_trail_meets_the_edge() {
-        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 100.0));
-        let (a, b) = (egui::pos2(50.0, 50.0), egui::pos2(150.0, 100.0));
-        assert_eq!(edge_toward(frame, a, b), egui::pos2(100.0, 75.0));
-        assert_eq!(edge_toward(frame, a, a), a);
+        w.dots[2].joined = true;
         assert_eq!(
-            edge_toward(frame, egui::pos2(-5.0, 50.0), egui::pos2(150.0, 120.0)),
-            egui::pos2(100.0, 100.0)
+            ends(&w),
+            [
+                (dots[0], egui::pos2(26.0, 50.0)),
+                (dots[2], egui::pos2(66.0, 50.0))
+            ]
+        );
+        w.dots[1].joined = false;
+        assert_eq!(ends(&w), [(dots[2], egui::pos2(66.0, 50.0))]);
+        w.dots[2].joined = false;
+        assert!(ends(&w).is_empty());
+        assert_eq!(
+            segment_distance(dots[2], egui::pos2(66.0, 50.0), egui::pos2(60.0, 53.0)),
+            3.0
         );
     }
 
