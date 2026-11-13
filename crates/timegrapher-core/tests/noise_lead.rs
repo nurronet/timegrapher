@@ -3,9 +3,10 @@
 //! and named, as long as the watch is heard for long enough after it.
 
 use timegrapher_core::audio::Audio;
-use timegrapher_core::measure::Caveat;
+use timegrapher_core::measure::{Caveat, RATE_WINDOW_STEP_S};
+use timegrapher_core::stream::StreamConfig;
 use timegrapher_core::synth::{generate, noise_rms, Rng, SynthConfig, SCALE};
-use timegrapher_core::{analyze, take, AnalysisConfig};
+use timegrapher_core::{analysis::reads_better, analyze, take, AnalysisConfig};
 
 /// `noise_s` of the synthetic stand noise (as the live tests make it),
 /// then `watch_s` of a watch at +5 s/d and 270°.
@@ -133,7 +134,7 @@ fn a_noise_lead_before_a_slower_watch_ends_where_the_watch_starts() {
             // onto the watch's beats. The rate says the noise is out.
             assert!(
                 (noise_s - 5.0..noise_s + 10.0).contains(&lead),
-                "{what}: lead {lead}"
+                "{what}, set {set:?}: lead {lead}"
             );
             let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
             assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
@@ -273,4 +274,139 @@ fn an_entrys_lead_is_counted_from_its_own_start() {
     assert_eq!(read.start_s, 20.0);
     let lead = lead_left_out(&read.measurement.caveats).expect("the lead named");
     assert!((lead - 40.0).abs() < 1.0, "lead {lead}");
+}
+
+/// A long lead of stand noise before a slow watch, where the noise is as
+/// loud as half the watch's ticks, does not set the rate (#1423): with
+/// no rate set the rate is guessed again as session reads the file, and
+/// the recording reads as it does with the rate set; with the rate set,
+/// the noise is not heard as another rate. Before, `analyze` guessed from
+/// the noise's first 10 s (43,200 or 28,800 bph) and found no watch.
+/// The lead ends before the start of the first stream chunk at or after
+/// the noise's end, plus one lead window step and 0.5 s: at 14,400 after
+/// 120 s it runs to 141 s, where the watch's first 21 s, in a chunk that
+/// opens on noise, track too loosely to be kept. Its rate is still the
+/// watch's. Seeds 5 and 33 are the ones the lead work was built on and
+/// keep the bounds read off them. Each later set was run once: 3011 to
+/// 3019 found a jump in the noise taken as the watch's start (3012),
+/// 3031 to 3039 a watch read at the noise's rate (3034), and 3071 to
+/// 3079 and 3091 to 3099, at 120 s and one per rate at 60 to 90 s,
+/// passed.
+#[test]
+fn a_long_noise_lead_does_not_set_the_rate() {
+    // The seeds the lead work was built on keep the bounds read off them.
+    let mut cases = vec![
+        (14_400, 120.0, 5, 141.5),
+        (18_000, 120.0, 5, 130.0),
+        (19_800, 120.0, 5, 130.0),
+        (14_400, 90.0, 33, 100.0),
+    ];
+    let chunk_s = StreamConfig::default().chunk_s;
+    let bound = |noise_s: f64| (noise_s / chunk_s).ceil() * chunk_s + RATE_WINDOW_STEP_S + 0.5;
+    for (i, bph) in [14_400, 18_000, 19_800].into_iter().enumerate() {
+        let noise_s = [60.0, 75.0, 90.0][i];
+        for first in [3071, 3091] {
+            cases.push((bph, noise_s, first + 3 * i as u64, bound(noise_s)));
+        }
+        for first in [3011, 3031, 3071, 3091] {
+            cases.extend((0..3).map(|k| (bph, 120.0, first + 3 * i as u64 + k, bound(120.0))));
+        }
+    }
+    for (bph, noise_s, seed, lead_to) in cases {
+        let what = format!("{bph} bph after {noise_s} s of noise ({seed})");
+        let (alone, led) = noise_then(noise_s, 60.0, bph, seed);
+        let want = analyze(&alone, &AnalysisConfig::default()).summary;
+        for set in [None, Some(bph)] {
+            let cfg = AnalysisConfig {
+                bph: set,
+                ..Default::default()
+            };
+            let got = analyze(&led, &cfg).summary;
+            assert_eq!(got.bph, bph, "{what}, set {set:?}");
+            assert!(got.watch_heard, "{what}, set {set:?}: {:?}", got.caveats);
+            assert_eq!(got.bph_heard, None, "{what}, set {set:?}");
+            assert_eq!(got.bph_set, set, "{what}");
+            let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+            assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+            let lead = lead_left_out(&got.caveats).expect("the lead named");
+            assert!(
+                (noise_s - 5.0..lead_to).contains(&lead),
+                "{what}, set {set:?}: lead {lead}"
+            );
+        }
+    }
+}
+
+/// Stand noise alone, with no rate set, is still no watch and names no
+/// lead: guessing again (#1423) gives the noise a second chance.
+#[test]
+fn stand_noise_alone_is_no_watch_when_guessed_again() {
+    let none = Audio {
+        samples: Vec::new(),
+        sample_rate: watch_at(28_800, 1.0).sample_rate,
+    };
+    for noise_s in [60.0, 180.0] {
+        for seed in [3021, 3022, 3023] {
+            let what = format!("{noise_s} s of noise ({seed})");
+            let got = analyze(
+                &noise_before(noise_s, &none, seed),
+                &AnalysisConfig::default(),
+            )
+            .summary;
+            assert!(!got.watch_heard, "{what}: {:?}", got.caveats);
+            assert!(lead_left_out(&got.caveats).is_none(), "{what}");
+        }
+    }
+}
+
+/// A read at a harmonic of the watch's rate loses to the read at its own
+/// rate whichever comes first (#1423), on the watch alone and with the
+/// stand's noise over it. Seeds 3101 to 3105 found a read at 3:4 that
+/// keeps the cleanest third of the beats with smaller residuals; 3111 to
+/// 3115 a read at twice the rate that heard a watch at half the share.
+/// 3121 to 3130 were run once after the share was compared first, and
+/// 3131 to 3140 after its expected count and standard error were set
+/// right for shares near 1.
+#[test]
+fn a_read_at_a_harmonic_loses_to_the_watchs_own_rate() {
+    for (bph, wrong) in [
+        (18_000, 12_000),
+        (18_000, 36_000),
+        (28_800, 14_400),
+        (28_800, 21_600),
+    ] {
+        let noises = (3101..=3105).chain(3111..=3115).chain(3121..=3140);
+        let noises = noises.map(Some);
+        for seed in std::iter::once(None).chain(noises) {
+            let watch = watch_at(bph, 60.0);
+            let watch = seed.map_or(watch.clone(), |seed| noise_over(&watch, seed));
+            let read = |r: u32| {
+                let cfg = AnalysisConfig {
+                    bph: Some(r),
+                    ..Default::default()
+                };
+                analyze(&watch, &cfg).summary
+            };
+            let (right, harmonic) = (read(bph), read(wrong));
+            let what = format!("{bph} read at {wrong}, noise {seed:?}");
+            assert!(right.watch_heard, "{what}");
+            assert!(reads_better(&right, &harmonic), "{what}");
+            assert!(!reads_better(&harmonic, &right), "{what}");
+        }
+    }
+}
+
+/// `watch` with the synthetic stand noise drawn from `seed` over it.
+fn noise_over(watch: &Audio, seed: u64) -> Audio {
+    let rms = noise_rms(SynthConfig::default().snr_db) * SCALE;
+    let mut rng = Rng::new(seed);
+    let samples = watch
+        .samples
+        .iter()
+        .map(|&v| v + (rms * rng.normal()) as f32)
+        .collect();
+    Audio {
+        samples,
+        sample_rate: watch.sample_rate,
+    }
 }
