@@ -49,20 +49,13 @@ const RATE_W: f64 = measure::RATE_WINDOW_S;
 const RATE_STEP: f64 = measure::RATE_WINDOW_STEP_S;
 
 /// How far back the take's rate windows are first looked for when a run
-/// holds too few for the rate's ±, s: a short reach, 120 s, since the
-/// run most often holds nearly all of them; the reach doubles from there
-/// (`session::nearest_windows`).
+/// holds too few for the rate's ±, s: 120 s, shorter than a saved
+/// reading's [`crate::session::RATE_FIRST_REACH_S`] because the run's own
+/// windows are counted with the borrowed ones and most often hold nearly
+/// all of them; the reach doubles from there (`session::nearest_windows`).
 const RATE_FIRST_REACH_S: f64 = measure::RATE_SE_MIN_S * RATE_FIRST_REACH_SHARE;
 /// [`RATE_FIRST_REACH_S`] as a share of the beats the rate's ± needs.
 const RATE_FIRST_REACH_SHARE: f64 = 0.4;
-/// How far back the take's amplitude windows are first looked for, s:
-/// 600 s, ten times the minute their 30 values of 2 s need, so a take
-/// whose unlock is often missed is still found in one reach.
-const AMPLITUDE_FIRST_REACH_S: f64 = crate::confidence::MIN_NOISE_VALUES as f64
-    * crate::distribution::STRETCH_S
-    * AMPLITUDE_REACH_MARGIN;
-/// [`AMPLITUDE_FIRST_REACH_S`] over the time its values need.
-const AMPLITUDE_REACH_MARGIN: f64 = 10.0;
 
 use crate::stream::BeatLog;
 use serde::Serialize;
@@ -1331,7 +1324,7 @@ impl LiveAnalyzer {
     fn take_amplitude_windows(&self, st: &Stretch, end_s: f64) -> Vec<&AmplitudeWindow> {
         crate::session::nearest_windows(
             (end_s, end_s, end_s),
-            AMPLITUDE_FIRST_REACH_S,
+            crate::session::AMPLITUDE_FIRST_REACH_S,
             |a, _| crate::session::stretch_windows(&st.holes, self.amp_within(a, end_s), a, end_s),
             |w: &[&AmplitudeWindow]| crate::session::noise_enough(w),
         )

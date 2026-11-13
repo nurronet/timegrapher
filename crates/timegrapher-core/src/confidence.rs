@@ -653,13 +653,17 @@ fn between_stretches(stretches: &[Vec<f64>]) -> f64 {
 /// since the windows half overlap (`measure::RATE_WINDOW_STEP_S`). The
 /// one place that says so; [`rate_value_count`] counts them (#1556).
 pub fn rate_values<T>(windows: &[T]) -> impl Iterator<Item = &T> {
-    windows.iter().step_by(2)
+    windows.iter().step_by(RATE_WINDOW_STRIDE)
 }
+
+/// Rate windows per independent value: a window over its step, 2.
+const RATE_WINDOW_STRIDE: usize =
+    (crate::measure::RATE_WINDOW_S / crate::measure::RATE_WINDOW_STEP_S) as usize;
 
 /// How many independent values `windows` rate windows hold, as
 /// [`rate_values`] takes them.
 pub fn rate_value_count(windows: usize) -> usize {
-    windows.div_ceil(2)
+    windows.div_ceil(RATE_WINDOW_STRIDE)
 }
 
 /// Estimated standard error of the rate from the 10 s windows. Taking every
