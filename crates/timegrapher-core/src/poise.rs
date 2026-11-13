@@ -146,6 +146,9 @@ pub struct PoiseFit {
     /// The measured rate wave, s/d and degrees: a fact. Its peak is named
     /// in words only when its size is [`clear`] of the noise.
     pub wave: Wave,
+    /// Whether the wave's size is [`clear`] of zero by 2 SE, so its
+    /// fastest hour is named: for agents reading `wave.peak_deg`.
+    pub wave_clear: bool,
     /// The twice-round terms beside it, s/d, where the positions leave
     /// room: cos 2α from four, sin 2α too from five.
     pub shape_cos2_s_per_day: Option<Term>,
@@ -211,17 +214,9 @@ pub fn in_null_band(amplitude_deg: f64, se: Option<f64>) -> bool {
 
 /// Witschi's code of the hour nearest `deg` on the half hour: "12H" to
 /// "11H", and "1H30" and so on for the 45° steps between.
-pub fn hour_code(deg: f64) -> String {
-    let half_hours = ((deg.rem_euclid(360.0) / 15.0).round() as i64).rem_euclid(24);
-    let h = match half_hours / 2 {
-        0 => 12,
-        h => h,
-    };
-    if half_hours % 2 == 1 {
-        format!("{h}H30")
-    } else {
-        format!("{h}H")
-    }
+pub fn hour_code(deg: f64) -> &'static str {
+    let half_hours = ((deg.rem_euclid(360.0) / 15.0).round() as usize) % 24;
+    crate::session::HOUR_CODES[half_hours]
 }
 
 /// Both fits over `points`, one per upright position, taking `slope` off
@@ -270,6 +265,7 @@ pub fn fit(points: &[Point], slope: Option<Slope>) -> Option<PoiseFit> {
     let flat = amps.iter().flatten().copied();
     let mut out = PoiseFit {
         positions: pts.len(),
+        wave_clear: clear(&wave.size),
         wave,
         shape_cos2_s_per_day,
         shape_sin2_s_per_day,

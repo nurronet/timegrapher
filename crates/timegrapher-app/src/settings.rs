@@ -72,6 +72,9 @@ pub struct Settings {
     /// seconds.
     pub positions_settle_s: f64,
     pub positions_measure_s: f64,
+    /// The Current Position card's 6 | 10: ten offers the four 45° stops
+    /// too. One setting with the Dynamic Poise pane's.
+    pub ten_positions: bool,
     pub scope: scope::View,
     pub panes: Option<egui_tiles::Tree<Pane>>,
     /// The rows and columns of `panes` whose divider was dragged by hand.
@@ -174,6 +177,7 @@ impl Default for Settings {
             steady_info_set: Vec::new(),
             positions_settle_s: crate::guided::SETTLE_S,
             positions_measure_s: crate::guided::MEASURE_S,
+            ten_positions: false,
             scope: scope::View::default(),
             panes: None,
             panes_dragged: Vec::new(),

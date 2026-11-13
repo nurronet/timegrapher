@@ -437,6 +437,53 @@ fn positions_are_named_as_the_app_names_them() {
     assert_eq!(Position::CB.label(), "Dial Down (CB)");
 }
 
+/// The four 45° stops (#1473): named "1:30 Up (1H30)" everywhere, each at
+/// its hour's angle, read from a name or a file name, and kept out of the
+/// six Witschi positions so no six-position figure changes.
+#[test]
+fn the_45_degree_stops_are_named_placed_and_kept_out_of_the_six() {
+    for (p, label, deg) in [
+        (Position::H1h30, "1:30 Up (1H30)", 45.0),
+        (Position::H4h30, "4:30 Up (4H30)", 135.0),
+        (Position::H7h30, "7:30 Up (7H30)", 225.0),
+        (Position::H10h30, "10:30 Up (10H30)", 315.0),
+    ] {
+        assert_eq!(p.label(), label);
+        assert_eq!(p.display_label(), label);
+        assert_eq!(p.top_deg(), Some(deg));
+        assert!(p.is_vertical() && p.is_half_hour());
+        assert!(!Position::ALL.contains(&p));
+        assert_eq!(Position::parse(p.code()), Some(p));
+        assert_eq!(Position::parse(p.name()), Some(p));
+        assert_eq!(
+            Position::from_file_name(&format!("ym42_{}_48000-01.flac", p.code())),
+            Some(p)
+        );
+        assert_eq!(timegrapher_core::poise::hour_code(deg), p.code());
+    }
+    for (p, deg) in [
+        (Position::H12, 0.0),
+        (Position::H3, 90.0),
+        (Position::H6, 180.0),
+        (Position::H9, 270.0),
+    ] {
+        assert_eq!(p.top_deg(), Some(deg));
+        assert_eq!(timegrapher_core::poise::hour_code(deg), p.code());
+    }
+    assert_eq!(Position::CH.top_deg(), None);
+    assert_eq!(Position::CB.top_deg(), None);
+    // The stand's order, 45° at a time the same way round.
+    let turns: Vec<f64> = Position::UPRIGHT
+        .iter()
+        .map(|p| p.top_deg().unwrap())
+        .collect();
+    assert_eq!(turns, [270.0, 225.0, 180.0, 135.0, 90.0, 45.0, 0.0, 315.0]);
+    assert_eq!(&Position::TEN[..6], &Position::ALL);
+    assert_eq!(&Position::TEN[6..], &Position::HALF_HOURS);
+    // A lower-case duration is still not a position.
+    assert_eq!(Position::from_file_name("run_1h30.flac"), None);
+}
+
 #[test]
 fn a_masked_stretch_is_left_out_of_the_readings() {
     // A bump of the stand: the beats run 400 s/d fast for ten seconds.
