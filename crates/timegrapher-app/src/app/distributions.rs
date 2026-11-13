@@ -533,13 +533,17 @@ fn probability_grid(px: f64, z_top: f64) -> Vec<GridMark> {
     let mut kept: Vec<f64> = Vec::new();
     for &(pc, _) in &PROBABILITY_MARKS[5..] {
         let at = z(pc);
-        if at <= z_top && kept.last().is_none_or(|&k| (at - k) * px >= LABEL_GAP) {
+        if at <= z_top
+            && kept
+                .last()
+                .is_none_or(|&k| (at - k) * px >= f64::from(LABEL_GAP))
+        {
             kept.push(at);
         }
     }
     let z99 = z(99.0);
     if z99 <= z_top && !kept.contains(&z99) {
-        kept = if z99 * px >= LABEL_GAP {
+        kept = if z99 * px >= f64::from(LABEL_GAP) {
             vec![0.0, z99]
         } else {
             vec![0.0]
@@ -556,7 +560,7 @@ fn probability_grid(px: f64, z_top: f64) -> Vec<GridMark> {
 
 /// The least room between two share labels up probability paper,
 /// points: more than egui_plot's least for a y label, 20.
-const LABEL_GAP: f64 = 22.0;
+const LABEL_GAP: f32 = 22.0;
 
 /// A distribution's value axis: every grid line and label alike, at
 /// least 80 points apart.
