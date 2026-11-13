@@ -256,6 +256,11 @@ impl DropWhy {
     }
 }
 
+/// [`Caveat::LockTemplateKept`] as a sentence.
+const LOCK_TEMPLATE_KEPT: &str = "Live kept the beat template it locked on with: the one \
+     built from the first 47 s, as a saved take's reading builds it, found both sides in \
+     fewer amplitude windows. The saved take may read differently.";
+
 /// Something that limits how far a measurement can be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -351,6 +356,12 @@ pub enum Caveat {
     /// heard, and are left out of the readings
     /// ([`crate::session::watch_lead_s`], #844).
     LeadLeftOut { seconds: f64 },
+    /// Live only: the template built again from the first 47 s, as a
+    /// file's reading builds it, read both sides in fewer amplitude windows
+    /// than the one live locked on with, so live kept that one
+    /// ([`crate::live::LiveAnalyzer::kept_lock_template`], #1500). A
+    /// file's reading of the same sound may then differ.
+    LockTemplateKept,
     /// The amplitude's or beat error's period search named a cycle on a
     /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose 2 s
     /// windows are correlated at `rho` (lag one, the ρ the search whitens
@@ -440,6 +451,7 @@ impl Caveat {
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
+            Caveat::LockTemplateKept => "read with the lock-on template".to_string(),
             Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
             Caveat::PeriodSearchUncalibrated { .. } => {
                 "cycle search not calibrated here".to_string()
@@ -546,6 +558,7 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
+            Caveat::LockTemplateKept => LOCK_TEMPLATE_KEPT.to_string(),
             Caveat::PeriodMayBeNoise { .. }
             | Caveat::PeriodSearchUncalibrated { .. }
             | Caveat::TimingModelMisfit { .. } => period_search_text(self),
@@ -600,6 +613,7 @@ impl Caveat {
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
+            Caveat::LockTemplateKept => 15,
             Caveat::BeatErrorFromDrop { .. } => 16,
             Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::BeatErrorUnknownSource { .. } => 19,

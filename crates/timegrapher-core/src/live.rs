@@ -1040,6 +1040,7 @@ impl LiveAnalyzer {
         if masked_s > 0.0 {
             measure::add(&mut caveats, Caveat::Masked { seconds: masked_s });
         }
+        self.add_rebuild_caveat(&mut caveats);
         let whole = holes.whole(&self.beats, window_from, end_s, GAP_S);
         LiveReading {
             bph_set: self.cfg.analysis.bph,

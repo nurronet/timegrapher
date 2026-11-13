@@ -41,6 +41,10 @@ struct Shadow {
 /// of it at once.
 const CATCH_UP: usize = 4;
 
+/// Why the template was not built again when the first chunk's template
+/// read both sides in fewer windows ([`reads_fewer_sides`]).
+const KEPT_LOCK: &str = "the first chunk's template read both sides in fewer windows";
+
 impl LiveAnalyzer {
     /// When the template built again from a file's first chunk of sound,
     /// and that sound read again with it, took over (#1327), seconds; None
@@ -61,6 +65,22 @@ impl LiveAnalyzer {
     /// was not (#1327), for the log: live and a file may then differ.
     pub fn template_rebuild_given_up(&self) -> Option<&'static str> {
         self.rebuild.given_up
+    }
+
+    /// Whether live kept the template it locked on with because the first
+    /// chunk's read both sides in fewer windows (#1500): its readings may
+    /// then differ from a file's reading of the same sound, which uses the
+    /// first chunk's.
+    pub fn kept_lock_template(&self) -> bool {
+        self.rebuild.given_up == Some(KEPT_LOCK)
+    }
+
+    /// [`Caveat::LockTemplateKept`] on a reading when live kept the
+    /// template it locked on with.
+    pub(super) fn add_rebuild_caveat(&self, caveats: &mut Vec<Caveat>) {
+        if self.kept_lock_template() {
+            measure::add(caveats, Caveat::LockTemplateKept);
+        }
     }
 
     /// Whether sound is held to build the template again or being read
@@ -223,7 +243,7 @@ impl LiveAnalyzer {
         let mut l = sh.live;
         if reads_fewer_sides(&self.amp, &l.amp) {
             // The shadow is gone and the template stays as first built.
-            self.rebuild.given_up = Some("the file's template read both sides in fewer windows");
+            self.rebuild.given_up = Some(KEPT_LOCK);
             return;
         }
         l.rebuild.switch_s = Some(self.duration_s());
@@ -232,20 +252,22 @@ impl LiveAnalyzer {
     }
 }
 
-/// Whether `new`'s windows read both sides in under three quarters as
-/// many windows as `old`'s did over the stretch `new` read again (#1500):
+/// Whether `new`'s windows read both sides in a lower share of its 2 s
+/// windows than `old`'s did over the stretch `new` read again, by more
+/// than 2 standard errors ([`crate::confidence::share_differs`], #1500):
 /// on a sound the first chunk's template reads worse than the lock's, the
 /// takeover would lose a live amplitude the listener was being shown.
 fn reads_fewer_sides(old: &[AmplitudeWindow], new: &[AmplitudeWindow]) -> bool {
     let Some(from) = new.first().map(|w| w.start_s) else {
         return false;
     };
-    let both = |ws: &[AmplitudeWindow]| {
-        ws.iter()
-            .filter(|w| w.start_s >= from - 1e-6 && w.mean().is_some())
-            .count()
+    let count = |ws: &[AmplitudeWindow]| {
+        let ws: Vec<_> = ws.iter().filter(|w| w.start_s >= from - 1e-6).collect();
+        let both = ws.iter().filter(|w| w.mean().is_some()).count();
+        (both as f64, ws.len() as f64)
     };
-    4 * both(new) < 3 * both(old)
+    let ((k1, n1), (k2, n2)) = (count(old), count(new));
+    crate::confidence::share_differs(k1, n1, k2, n2) == Some(false)
 }
 
 /// The median move of the beats from `old` to `new`, seconds, over the
@@ -280,7 +302,7 @@ mod tests {
     use super::*;
     use crate::synth::{generate, SynthConfig};
 
-    fn heard(seconds: f64, then: impl Fn(&mut LiveAnalyzer, f64)) -> LiveAnalyzer {
+    fn heard(seconds: f64, mut then: impl FnMut(&mut LiveAnalyzer, f64)) -> LiveAnalyzer {
         let cfg = SynthConfig {
             duration_s: seconds,
             ..Default::default()
@@ -305,6 +327,33 @@ mod tests {
         let (dt, di) = l.template_shift().expect("the beats paired");
         assert!(dt.abs() < 0.001 && di == 0, "{dt} {di}");
         assert!(l.breaks().is_empty() && l.template_rebuild_given_up().is_none());
+    }
+
+    /// What the caller changes while the first chunk is read again reaches
+    /// the copy that takes over: lift, masks, known flags, clock, profile
+    /// span and the beats kept.
+    #[test]
+    fn changes_made_while_reading_again_survive_the_takeover() {
+        let mut set = false;
+        let clock = crate::clock::ClockFit::fixed(12.0, 80.0);
+        let l = heard(80.0, |l, _| {
+            if !set && l.rebuild.shadow.is_some() {
+                set = true;
+                l.set_lift(49.0);
+                l.set_masked(&[(20.0, 22.0)]);
+                l.set_known(true, true);
+                l.set_rate_clock(Some(&clock));
+                l.set_profile_span(7.0);
+                l.set_max_beats(12_345);
+            }
+        });
+        assert!(set && l.template_switch_s().is_some());
+        assert_eq!(l.cfg.analysis.amplitude.lift_deg, 49.0);
+        assert!(!l.masked.is_empty());
+        assert!(l.cfg.analysis.lift_known && l.clock_known);
+        assert_eq!(l.rate_clock.as_ref().map(|c| c.ppm), Some(12.0));
+        assert_eq!(l.cfg.profile_s, 7.0);
+        assert_eq!(l.cfg.max_beats, 12_345);
     }
 
     #[test]
@@ -339,8 +388,9 @@ mod tests {
     }
 
     /// The takeover is refused when the sound read again gives both sides
-    /// in fewer windows (#1500, Walter's run 11): the lock's template read
-    /// 7 of 10 windows there, the first chunk's 1.
+    /// in a share of the windows lower by more than 2 SE (#1500, Walter's
+    /// run 11): the lock's template read 7 of 10 windows there, the first
+    /// chunk's 1 of 11.
     #[test]
     fn a_template_that_reads_fewer_sides_does_not_take_over() {
         let win = |a: f64, both: bool| AmplitudeWindow {
@@ -361,8 +411,8 @@ mod tests {
         // Windows before the stretch read again don't count.
         let mut old = run(0.0, 20, 0);
         old.extend(run(40.0, 10, 7));
-        assert!(reads_fewer_sides(&old, &run(41.0, 10, 1)));
-        assert!(!reads_fewer_sides(&old, &run(41.0, 10, 6)));
+        assert!(reads_fewer_sides(&old, &run(41.0, 11, 1)));
+        assert!(!reads_fewer_sides(&old, &run(41.0, 11, 5)));
         assert!(!reads_fewer_sides(&old, &run(41.0, 10, 10)));
         assert!(!reads_fewer_sides(&old, &[]));
     }
