@@ -356,8 +356,10 @@ fn analyze_read(
     let (timing_periods, amplitude_periods) =
         periods(&beats, &fits.residuals, &fits.clear, bph, cfg);
 
+    // The whole take: its own values are all there are to borrow (#1470).
+    let take: Vec<&AmplitudeWindow> = fits.clear.iter().collect();
     let se = |f: &dyn Fn(&AmplitudeWindow) -> Option<f64>| {
-        crate::confidence::amplitude_windows_se(fits.clear.iter(), f)
+        crate::confidence::amplitude_windows_se(take.iter().copied(), &take, f)
     };
     let heard = hear(audio, &beats, bph, &fits.rate_windows, from_s, beat_sound);
     let watch_heard = heard.no_watch.is_none();

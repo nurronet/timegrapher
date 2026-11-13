@@ -158,8 +158,11 @@ a repeat under the same conditions: its standard error.
   neighbouring readings that resemble each other counted as fewer.
 - **It isn't accuracy.** A wrong lift angle or an uncorrected sound card
   clock gives a small ± on a wrong figure.
-- It needs at least 3 short readings, so it appears after a few seconds.
-  The rate's ± needs about 30 s of unbroken beats.
+- It takes its scatter from at least 30 short readings. A reading with
+  fewer borrows the scatter of the 30 nearest it in the take, so the
+  amplitude's and beat error's ± appear after about a minute and the
+  rate's after about 5 min of beats. The Rate figure's hover counts them
+  until then: "± after 5 min of beats; 12 of 30 so far".
 - [M7, The ± and Correlated Readings](m7-the-plus-minus.md) explains it
   in full.
 
