@@ -1594,4 +1594,5 @@ mod drop_why_tests;
 mod sound_tests;
 
 #[cfg(test)]
+#[path = "live/live_tests.rs"]
 mod tests;
