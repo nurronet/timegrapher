@@ -9,8 +9,7 @@ amplitude. As the mainspring lets down, the amplitude falls, so a watch's
 rate moves through the day with it.
 
 The Isochronism pane (chapter 19) measures that: the rate at each
-amplitude, the slope of rate against amplitude, and where the rate
-changes least. The Positions Test's full wind against 24 hours (chapter
+amplitude, and the slope of rate against amplitude. The Positions Test's full wind against 24 hours (chapter
 20, M8) measures it another way: the change in each position between two
 states of wind.
 
@@ -30,15 +29,12 @@ five windows: 0.104, 0.248, 0.296, 0.248, 0.104
 A short event inside a reading then moves the amplitude it is paired
 with as far as it moves the rate.
 
-**Steps and curve.** The pairs are sorted into 2° steps of amplitude
+**Steps.** The pairs are sorted into 2° steps of amplitude
 between the 2nd and 98th percentile, each step with at least 10 pairs,
 and at least 3 steps. Each step gives its median rate and its quartiles.
-A quadratic is fitted through the medians, each weighted by its pairs:
-
-```text
-rate ≈ c₀ + c₁ (A − Ā) + c₂ (A − Ā)²
-turn at A = Ā − c₁ ÷ (2 c₂)       shown when inside the middle 80%
-```
+No curve is fitted through them: a quadratic has no source as an
+isochronism method, and the amplitude where it turned came from the
+fit's form, not the watch.
 
 **The slope.** A straight line through every pair, by least squares,
 after leaving out any rate or amplitude reading over 6σ from its
@@ -83,7 +79,7 @@ weighted by their counts.
   windows moves less than the rate does in a short event, and biases the
   slope by about 10% on a rub of 8 s in 10 (the project's
   [series notes](../reference/series.md)).
-- **The walk:** the curve throws time away; the walk keeps it, so a step
+- **The walk:** the steps throw time away; the walk keeps it, so a step
   or a return shows.
 
 ## When You'd Use This
@@ -91,7 +87,7 @@ weighted by their counts.
 - **On a run-down:** a watch fully wound and left to run for hours
   covers the amplitudes it meets in a day.
 - **After adjusting the hairspring, the balance or the escapement:**
-  compare the slope and the turn with a take from before.
+  compare the slope with a take from before.
 - **Judging a positions test:** a rate difference between positions comes
   partly from their different amplitudes.
 
@@ -99,7 +95,6 @@ weighted by their counts.
 
 - **How much the rate moves through a day's wind:** the slope times the
   fall in amplitude.
-- **The amplitude where the watch is steadiest:** the turn.
 - **A change in the watch** between two takes, with the same slope read
   the same way.
 
@@ -107,8 +102,8 @@ weighted by their counts.
 
 - **Cause.** The rate and the amplitude went together; temperature,
   position or anything else that changed over the take moves with them.
-- **The shape beyond the range read.** The curve is fitted only over the
-  amplitudes the take covered.
+- **The shape beyond the range read.** The steps and the slope cover only
+  the amplitudes the take covered.
 - **A guarantee.** The noise correction assumes the window noise is
   independent from window to window.
 

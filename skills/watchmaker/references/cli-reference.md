@@ -398,7 +398,7 @@ Is the take steady? Reads rate, amplitude and beat error in time order
 `headline` (what the tests detected, as facts with their statistics),
 `unlock_hopping`, and the tests behind it, plus `rate_amplitude` (the
 rate against the amplitude, always given) and `findings[]` (`code`,
-`series`, `title`, `evidence`) (`series/2`).
+`series`, `title`, `evidence`) (`series/3`).
 `--calibre` names periodic changes after that movement's wheels (with
 no calibre, only `--escape-teeth`'s and `--wheel`'s, as for `long`); a
 name not in the table is an error that points to `timegrapher calibres

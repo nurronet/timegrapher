@@ -462,14 +462,6 @@ pub struct IsochronismCurve {
     /// The share of the amplitude readings' spread that is the amplitude
     /// and not their noise (from each reading's own 2 s windows).
     pub reliability: Option<f64>,
-    /// A quadratic through the bins: rate = c0 + c1·(A − centre) +
-    /// c2·(A − centre)², and the share of the bins' spread it explains.
-    pub curve_centre_deg: f64,
-    pub curve: [f64; 3],
-    pub curve_explained: f64,
-    /// The amplitude where the curve turns (the rate changes least with
-    /// amplitude), when it falls inside the amplitudes covered.
-    pub turn_deg: Option<f64>,
     pub headline: String,
 }
 
@@ -2628,16 +2620,6 @@ pub const ISO_BIN_DEG: f64 = 2.0;
 pub const ISO_MIN_READINGS: usize = 10;
 pub const ISO_MIN_BINS: usize = 3;
 
-/// Weighted least squares of y on 1, x, x²; returns the coefficients.
-fn wquad(x: &[f64], y: &[f64], w: &[f64]) -> Option<[f64; 3]> {
-    let rows = x
-        .iter()
-        .zip(y)
-        .zip(w)
-        .map(|((&xi, &yi), &wi)| ([1.0, xi, xi * xi], yi, wi));
-    crate::dsp::least_squares(rows, 1e-12)
-}
-
 /// The 2° bins of `(amplitude, rate, hours from wind)` from `lo` to `hi`
 /// that hold at least [`ISO_MIN_READINGS`] readings.
 fn amplitude_bins(pairs: &[(f64, f64, f64)], lo: f64, hi: f64) -> Vec<AmplitudeBin> {
@@ -2702,31 +2684,11 @@ fn isochronism_curve(
     if bins.len() < ISO_MIN_BINS {
         return None;
     }
-    let w: Vec<f64> = bins.iter().map(|b| b.readings as f64).collect();
-    let sw: f64 = w.iter().sum();
-    let centre = bins
-        .iter()
-        .zip(&w)
-        .map(|(b, w)| b.amplitude_deg * w)
-        .sum::<f64>()
-        / sw;
-    let bx: Vec<f64> = bins.iter().map(|b| b.amplitude_deg - centre).collect();
+    // No curve is fitted through the bins: a quadratic has no source as
+    // an isochronism method and its turn came from the fit's form, not
+    // the watch (Norm; Peter, 13 Nov).
     let by: Vec<f64> = bins.iter().map(|b| b.rate_s_per_day).collect();
-    let my = by.iter().zip(&w).map(|(y, w)| y * w).sum::<f64>() / sw;
-    let curve = wquad(&bx, &by, &w)?;
-    let at = |x: f64| curve[0] + curve[1] * x + curve[2] * x * x;
-    let sst: f64 = by.iter().zip(&w).map(|(y, w)| w * (y - my).powi(2)).sum();
-    let sse: f64 = bx
-        .iter()
-        .zip(&by)
-        .zip(&w)
-        .map(|((x, y), w)| w * (y - at(*x)).powi(2))
-        .sum();
-    let curve_explained = if sst > 0.0 { 1.0 - sse / sst } else { 0.0 };
     let (b0, b1) = (bins[0].amplitude_deg, bins[bins.len() - 1].amplitude_deg);
-    let turn = (curve[2] != 0.0)
-        .then(|| centre - curve[1] / (2.0 * curve[2]))
-        .filter(|t| *t > b0 + 0.1 * (b1 - b0) && *t < b1 - 0.1 * (b1 - b0));
     // Said as going together, not as cause: the amplitude and the rate
     // can both change with what else changes over the take.
     let goes = match (shown, eiv) {
@@ -2737,16 +2699,13 @@ fn isochronism_curve(
     // The end bins as a sentence of their own: two medians, not the
     // slope's own evidence.
     let headline = format!(
-        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°{}.",
+        "Between {:.0}° and {:.0}° {goes}. The rate reads {} s/d at {:.0}° and {} s/d at {:.0}°.",
         b0,
         b1,
         crate::library::signed_text(by[0], 1),
         b0,
         crate::library::signed_text(by[by.len() - 1], 1),
         b1,
-        turn.map_or(String::new(), |t| format!(
-            "; it changes least near {t:.0}°"
-        ))
     );
     Some(IsochronismCurve {
         step_s: rate.step,
@@ -2758,10 +2717,6 @@ fn isochronism_curve(
         s_per_day_per_deg_se: shown.map(|e| e.se),
         reliability: eiv.map(|e| e.reliability),
         rate_change_s_per_day: shown.map(|e| e.slope * (b1 - b0)),
-        curve_centre_deg: centre,
-        curve,
-        curve_explained,
-        turn_deg: turn,
         headline,
     })
 }
