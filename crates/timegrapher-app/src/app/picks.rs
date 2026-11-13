@@ -95,7 +95,11 @@ impl TimegrapherApp {
             .map_err(|e| e.to_string())
             .and_then(|t| guided::FullWind::from_json(&t))
             .and_then(|f| match f.wind_h {
-                Some(_) => Err("these are a 24 hour half's results, not a full-wind test's".into()),
+                Some(_) => Err(
+                    "this file holds a test run 24 hours after winding. Load the full-wind \
+                     test's results instead"
+                        .into(),
+                ),
                 None => Ok(f),
             });
         match read {
