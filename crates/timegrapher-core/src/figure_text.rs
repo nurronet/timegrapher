@@ -79,6 +79,20 @@ pub mod base_digits {
     pub const SLOPE: usize = 2;
 }
 
+/// The decimals a difference within one take takes beyond its figure's
+/// place: a trend per hour, a cycle's peak to peak. Both ends share the
+/// take's lift angle and sound card clock, so the clock cancels and the
+/// lift angle only scales it by a few percent; repeatability sets its
+/// limit, not the accuracy that sets [`base_digits`] (Norm on #1470, math
+/// guide section 11).
+pub const DIFFERENCE_EXTRA_DIGITS: usize = 1;
+
+/// The decimals a within-take difference of a figure written to `base`
+/// ([`base_digits`]) is written to: [`DIFFERENCE_EXTRA_DIGITS`] more.
+pub fn difference_digits(base: usize) -> usize {
+    base + DIFFERENCE_EXTRA_DIGITS
+}
+
 /// How many decimals a figure is written to: its place in the math
 /// guide's section 11, `base` ([`base_digits`]), whatever its ± (Peter, 12
 /// Nov, #1470). The ± measures repeatability only; the lift angle and the
