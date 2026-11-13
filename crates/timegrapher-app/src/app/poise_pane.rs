@@ -552,8 +552,9 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
             painter.extend(egui::Shape::dashed_line(&line, dotted, 1.0, 3.0));
             backed(
                 &painter,
-                egui::pos2(area.left() + 6.0, y(*m) - 3.0),
-                egui::Align2::LEFT_BOTTOM,
+                // Between two stops, so no point sits on it.
+                egui::pos2(x(between(0.0)), y(*m) - 3.0),
+                egui::Align2::CENTER_BOTTOM,
                 name,
                 pal,
             );

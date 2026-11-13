@@ -1183,7 +1183,7 @@ fn table_grid(
                             }
                             (Some(s), _) => {
                                 ui.label(RichText::new(label).strong().color(pal.text));
-                                right_in(ui, fw, s, false, pal.accent);
+                                status_cell(ui, fw, s, pal.accent);
                                 for _ in 0..3 {
                                     ui.label("");
                                 }
@@ -1218,6 +1218,17 @@ fn table_grid(
             }
         });
     table_notes(ui, t);
+}
+
+/// What the next row is doing, in its Rate cell: from the cell's left
+/// when the table is tight, running on into the From cell the row leaves
+/// empty, so it never reaches the position's name.
+fn status_cell(ui: &mut egui::Ui, fw: f32, s: String, ink: egui::Color32) {
+    if fw < FIGURE_W {
+        ui.label(RichText::new(s).color(ink));
+    } else {
+        right_in(ui, fw, s, false, ink);
+    }
 }
 
 /// The table's headings: Position, then each figure's name and unit.
