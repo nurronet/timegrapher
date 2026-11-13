@@ -1442,6 +1442,14 @@ fn autocorrelation_plot(ui: &mut egui::Ui, r: Row<'_>) {
 }
 
 /// The Allan deviation by averaging time, against independent readings.
+/// Where the Allan plot names its dashed "if the readings were
+/// independent" line: at its last point, and nowhere when it has one
+/// point, since a line with no length has nothing to name and its caption
+/// would sit on the least scatter's label (#1560).
+fn independent_caption_at(white: &[[f64; 2]]) -> Option<[f64; 2]> {
+    white.last().copied().filter(|_| white.len() > 1)
+}
+
 fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let Row {
         c,
@@ -1472,7 +1480,7 @@ fn allan_plot(ui: &mut egui::Ui, r: Row<'_>) {
         .y_axis_formatter(move |m, r| log_label(m, r, |v| unit_sig(k, v)))
         .show(ui, |p| {
             grid.draw(p, pal);
-            let last = white.last().copied();
+            let last = independent_caption_at(&white);
             p.line(
                 Line::new("independent", white)
                     .color(pal.callout)
