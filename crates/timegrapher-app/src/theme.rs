@@ -1670,6 +1670,29 @@ pub fn pane_toolbar(ui: &mut Ui, title: &str, help_text: &[&str], controls: impl
     pane_toolbar_full(ui, title, help_text, None, controls)
 }
 
+/// [`pane_toolbar`] with the pane's Info toggle ("i") pinned just left of
+/// the "?", `hint` its hover: `info` flips when it is clicked.
+pub fn pane_toolbar_info(
+    ui: &mut Ui,
+    title: &str,
+    help_text: &[&str],
+    (info, hint): (&mut bool, &str),
+    controls: impl FnMut(&mut Ui),
+) {
+    let mut on = *info;
+    let mut pin = |ui: &mut Ui| {
+        let accent = pal(ui).accent;
+        if icon_toggle(ui, Icon::Info, on, accent)
+            .on_hover_text(hint)
+            .clicked()
+        {
+            on = !on;
+        }
+    };
+    pane_toolbar_pinned(ui, title, help_text, Some(&mut pin), controls);
+    *info = on;
+}
+
 /// [`pane_toolbar`] with one control `pinned` just left of the "?": it
 /// never folds and never moves, however the row's controls fold.
 pub fn pane_toolbar_pinned(
@@ -2635,6 +2658,24 @@ pub fn popups_above_dialogs(ctx: &egui::Context) {
 pub const INFO_BESIDE_W: f32 = 600.0;
 /// An Info panel's width, or a third of the pane if that is less.
 pub const INFO_W: f32 = 300.0;
+
+/// An Info panel of paragraphs under a `caption`, in [`info_scroll`]: the
+/// first in the text's colour, the rest secondary, their words selectable.
+pub fn info_text(ui: &mut Ui, id: egui::Id, (caption, lines): (&str, &[String]), max_h: f32) {
+    let pal = pal(ui);
+    info_scroll(ui, id, max_h, |ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.label(crate::theme::caption(caption).color(pal.text_secondary));
+        for (i, l) in lines.iter().enumerate() {
+            let colour = if i == 0 { pal.text } else { pal.text_secondary };
+            ui.add(
+                egui::Label::new(RichText::new(l).small().color(colour))
+                    .wrap()
+                    .selectable(true),
+            );
+        }
+    });
+}
 
 /// An Info panel's scrolling body, `id` its own: no taller than `max_h`,
 /// the room on screen, its bar always showing so what is below the edge

@@ -1395,7 +1395,7 @@ pub fn pane(
     settle_s: f64,
     watch: bool,
     note: Option<&str>,
-    card: &str,
+    (card, info): (&str, bool),
 ) -> Option<Action> {
     let pal = theme::pal(ui);
     let mut action = None;
@@ -1409,51 +1409,62 @@ pub fn pane(
     if changed {
         area = area.vertical_scroll_offset(0.0);
     }
-    area.show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        if let Some(n) = note {
-            ui.label(RichText::new(n).color(pal.text_secondary));
-        }
-        if let (Some(t), Some(ph)) = (test, phase) {
-            if ph != Phase::Finished {
-                action = banner(ui, t, ph, None);
-                ui.add_space(6.0);
+    let lines = info_lines(settle_s);
+    let panel = |ui: &mut egui::Ui, h: f32| {
+        theme::info_text(
+            ui,
+            egui::Id::new("positions info panel"),
+            ("Table", &lines),
+            h,
+        );
+    };
+    theme::with_info(ui, info, egui::Id::new("positions info"), panel, |ui| {
+        area.show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            if let Some(n) = note {
+                ui.label(RichText::new(n).color(pal.text_secondary));
             }
-        }
-        if let Some(t) = test {
-            this_test(ui, t, phase, live);
-        }
-        if let (None, Some(f)) = (test, free) {
-            this_take(ui, f, card, settle_s);
-        }
-        let c = test.and_then(|t| {
-            let (f, h) = t.full.as_ref()?;
-            comparison(f, *h, t.readings_so_far())
-        });
-        if let Some(c) = &c {
-            ui.add_space(10.0);
-            heading(
-                ui,
-                &format!("Full Wind Against {:.1} Hours", c.hours),
-                "The full-wind test loaded at the start, against this one, run without \
+            if let (Some(t), Some(ph)) = (test, phase) {
+                if ph != Phase::Finished {
+                    action = banner(ui, t, ph, None);
+                    ui.add_space(6.0);
+                }
+            }
+            if let Some(t) = test {
+                this_test(ui, t, phase, live);
+            }
+            if let (None, Some(f)) = (test, free) {
+                this_take(ui, f, card);
+            }
+            let c = test.and_then(|t| {
+                let (f, h) = t.full.as_ref()?;
+                comparison(f, *h, t.readings_so_far())
+            });
+            if let Some(c) = &c {
+                ui.add_space(10.0);
+                heading(
+                    ui,
+                    &format!("Full Wind Against {:.1} Hours", c.hours),
+                    "The full-wind test loaded at the start, against this one, run without \
                      winding or wearing the watch in between",
-            );
-            comparison_grid(ui, c);
-        }
-        if let Some(full) = earlier {
-            ui.add_space(10.0);
-            if earlier_section(ui, full, phase) {
-                action = Some(Action::ClearEarlier);
+                );
+                comparison_grid(ui, c);
             }
-        }
-        ui.add_space(10.0);
-        let about = about_text(test, earlier, watch);
-        if !about.is_empty() {
-            ui.add(egui::Label::new(RichText::new(about).color(pal.text_secondary)).wrap());
-        }
-        if let Some(t) = test {
-            test_footer(ui, t);
-        }
+            if let Some(full) = earlier {
+                ui.add_space(10.0);
+                if earlier_section(ui, full, phase) {
+                    action = Some(Action::ClearEarlier);
+                }
+            }
+            ui.add_space(10.0);
+            let about = about_text(test, earlier, watch);
+            if !about.is_empty() {
+                ui.add(egui::Label::new(RichText::new(about).color(pal.text_secondary)).wrap());
+            }
+            if let Some(t) = test {
+                test_footer(ui, t);
+            }
+        });
     });
     action
 }
@@ -1505,8 +1516,7 @@ pub(crate) fn test_table(
 
 /// This take's positions, as marked on the card, with what the table
 /// leaves out.
-fn this_take(ui: &mut egui::Ui, f: &FreeTable, card: &str, settle_s: f64) {
-    let pal = theme::pal(ui);
+fn this_take(ui: &mut egui::Ui, f: &FreeTable, card: &str) {
     heading(
         ui,
         "This Take",
@@ -1516,21 +1526,18 @@ fn this_take(ui: &mut egui::Ui, f: &FreeTable, card: &str, settle_s: f64) {
         ),
     );
     free_grid(ui, f);
-    ui.add_space(4.0);
-    for line in [
+}
+
+/// The Info panel's lines (#1528): how the table for a take is read.
+fn info_lines(settle_s: f64) -> Vec<String> {
+    vec![
         format!(
-            "Duration leaves out the first {} after each change of position \
-                 (Settle) and masked time.",
+            "Duration leaves out the first {} after each change of position (Settle) and \
+             masked time.",
             table_duration(settle_s)
         ),
         "A position shows readings once it has 10 s.".to_string(),
-    ] {
-        ui.label(
-            RichText::new(format!("• {line}"))
-                .small()
-                .color(pal.text_tertiary),
-        );
-    }
+    ]
 }
 
 /// The full-wind results loaded from earlier, with Remove while no test

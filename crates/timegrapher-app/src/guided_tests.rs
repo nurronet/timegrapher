@@ -120,7 +120,7 @@ fn drawn(test: &Test, phase: Phase, live: Option<&FreeCell>) -> Vec<(String, egu
                     20.0,
                     false,
                     None,
-                    "Current Position",
+                    ("Current Position", false),
                 );
             });
         });
@@ -952,4 +952,59 @@ fn the_poise_banner_turns_the_watch_45_degrees_by_the_hour() {
     assert_eq!(title, "7:30 Up (2 of 8)");
     assert_eq!(Kind::Poise.code(Position::CrownLeft), "6H");
     assert_eq!(Kind::Positions.code(Position::CrownLeft), "CL");
+}
+
+/// The pane with nothing yet, its Info open or shut: each piece of text.
+fn drawn_empty(info: bool) -> Vec<String> {
+    let ctx = egui::Context::default();
+    theme::install(&ctx);
+    let mut found = Vec::new();
+    for _ in 0..2 {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let card = ("Current Position", info);
+                pane(ui, None, None, None, None, None, 20.0, false, None, card);
+            });
+        });
+        found = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+    }
+    found
+}
+
+/// The table's method notes are the Info panel's, drawn only with it
+/// open; under the empty table, one line where the test starts (Hugh,
+/// #1528).
+#[test]
+fn the_method_notes_are_in_info_and_the_empty_table_keeps_one_line() {
+    let shut = drawn_empty(false);
+    let open = drawn_empty(true);
+    let lines = info_lines(20.0);
+    assert!(
+        lines[0].starts_with("Duration leaves out the first 20 s"),
+        "{lines:?}"
+    );
+    for l in &lines {
+        assert!(!shut.contains(l), "{l}: {shut:?}");
+        assert!(open.contains(l), "{l}: {open:?}");
+    }
+    let start = "New Test leads you through the six positions.";
+    assert!(shut.iter().any(|t| t == start), "{shut:?}");
+    assert!(
+        !shut.iter().any(|t| t.contains("It lets the watch settle")),
+        "{shut:?}"
+    );
 }
