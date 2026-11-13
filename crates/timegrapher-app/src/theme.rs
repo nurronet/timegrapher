@@ -2235,6 +2235,7 @@ pub enum Icon {
     Isochronism,
     Positions,
     Poise,
+    Complication,
     /// The readings themselves: a hare, a swing and a seesaw, wherever
     /// the app shows or toggles one of them.
     Rate,
