@@ -21,10 +21,13 @@ const PIN_W: f32 = 40.0;
 /// Room between the pieces of text in a strip's card, and inside its
 /// edges, pt.
 const SPACE: f32 = 8.0;
+/// The type size of the watch cell's narrowest choice, a step under its
+/// usual 13 pt.
+const NARROW_PT: f32 = 12.0;
 
 /// A piece of a strip card's text: its words, size in pt, and whether it
 /// is the strong text or the quiet.
-type Piece = (String, f32, bool);
+pub(super) type Piece = (String, f32, bool);
 
 impl TimegrapherApp {
     /// The readings across the top: the cards pinned in the layout, or
@@ -212,10 +215,11 @@ impl TimegrapherApp {
     /// angle and beat rate; where that doesn't fit, a watch's name alone
     /// (its record holds the rest), or in a Quick Listen the lift angle and
     /// beat rate, which the watchmaker sets there.
-    fn watch_pieces(&self) -> Vec<Vec<Piece>> {
+    pub(super) fn watch_pieces(&self) -> Vec<Vec<Piece>> {
         let heard = self.live.as_ref().and_then(|l| l.bph());
         let bph = self.bph_shown(self.bph_set_by_calibre(), heard);
-        let lift = format!("{}° · {bph}", fields::plain(self.lift_deg));
+        let angle = format!("{}°", fields::plain(self.lift_deg));
+        let lift = format!("{angle} · {bph}");
         let calibre = if self.calibre.is_empty() {
             "Not Set"
         } else {
@@ -227,10 +231,14 @@ impl TimegrapherApp {
                 vec![strong(&name, 15.0), quiet(&detail, 13.0)],
                 vec![strong(&name, 15.0)],
             ],
+            // With no watch the lift angle and the beat rate are what a
+            // watchmaker checks at a glance, so the narrowest keeps both,
+            // smaller, the angle first: where even that is too wide the
+            // beat rate is the one cut short (Peter, #1526).
             None => vec![
                 vec![strong("No Watch", 15.0), quiet(&detail, 13.0)],
                 vec![quiet(&lift, 13.0)],
-                vec![quiet(&bph, 13.0)],
+                vec![quiet(&angle, NARROW_PT), quiet(&bph, NARROW_PT)],
             ],
         }
     }

@@ -1581,3 +1581,24 @@ fn the_compact_pop_up_offers_ten_while_a_45_degree_stop_is_current() {
         "{items:?}"
     );
 }
+
+/// With no watch, every width of the readings strip's watch cell keeps
+/// the lift angle beside the beat rate, the narrowest too, the angle
+/// first: a watchmaker checks both at a glance (Peter, #1526).
+#[test]
+fn the_strip_keeps_the_lift_beside_the_beat_rate_with_no_watch() {
+    let app = synthetic(40.0, 5.0);
+    assert!(app.open_watch().is_none());
+    let angle = format!("{}°", fields::plain(app.lift_deg));
+    let bph = app.bph_shown(
+        app.bph_set_by_calibre(),
+        app.live.as_ref().and_then(|l| l.bph()),
+    );
+    for choice in app.watch_pieces() {
+        let words: Vec<&str> = choice.iter().map(|(w, _, _)| w.as_str()).collect();
+        let text = words.join(" ");
+        let a = text.find(&angle).expect("the lift angle at every width");
+        let b = text.find(&bph).expect("the beat rate at every width");
+        assert!(a < b, "the angle comes first: {text}");
+    }
+}
