@@ -47,7 +47,7 @@ use timegrapher_core::steadiness::SeriesKind;
 
 mod charts;
 use charts::chart_key;
-pub use charts::paint_key;
+pub use charts::{lane_text, lane_width, paint_key, LANE_AFTER_TITLE, LANE_GAP};
 pub use poise_pane::PoiseView;
 pub use position::Position;
 mod dialogs;
@@ -3493,7 +3493,7 @@ fn value_at(points: &[[f64; 2]], x: f64) -> Option<f64> {
 /// Which point is nearest `x` in points sorted by x: none in a gap in the
 /// line ([`strip::gap_before`]), or further past either end than the step
 /// beside it.
-fn nearest_at(points: &[[f64; 2]], x: f64) -> Option<usize> {
+pub(crate) fn nearest_at(points: &[[f64; 2]], x: f64) -> Option<usize> {
     let n = points.len();
     let i = points.partition_point(|p| p[0] < x);
     let step = |j: usize| points[j][0] - points[j - 1][0];

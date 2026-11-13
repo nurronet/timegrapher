@@ -1468,3 +1468,13 @@ fn a_one_point_independence_line_has_no_caption() {
         Some([2.0, 0.2])
     );
 }
+
+/// Readings Over Time's readout writes the time on its axis, and whose
+/// time it is while a position's stretches are joined end to end, as
+/// the axis title does (#1277).
+#[test]
+fn the_readings_readout_says_whose_time_it_is() {
+    assert_eq!(readout_time(252.0, None), "4:12");
+    assert_eq!(readout_time(252.0, Some("DD")), "4:12 in DD");
+    assert_eq!(readout_time(3725.0, None), "1:02:05");
+}
