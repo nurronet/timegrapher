@@ -98,7 +98,12 @@ impl LiveAnalyzer {
     /// stretch, a pause, its own breaks) has no place in the sound
     /// gathered. The template stays as first built.
     pub(super) fn give_up_rebuild(&mut self, why: &'static str) {
-        if !self.rebuild.done && self.template.is_some() {
+        // Before the watch is heard nothing is gathered: a pause or breaks
+        // then come before the first chunk, which the copy keeps.
+        if self.template.is_none() {
+            return;
+        }
+        if !self.rebuild.done {
             self.rebuild.given_up = Some(why);
         }
         self.rebuild.gather = None;
@@ -195,11 +200,14 @@ impl LiveAnalyzer {
         let mut l = self.clone();
         let since = g0 as f64 / self.fs;
         let before = |v: &[f64]| -> Vec<f64> { v.iter().copied().filter(|&t| t < since).collect() };
-        let (breaks, jumps, by_count) = (
-            before(&self.breaks),
-            before(&self.intrinsic_breaks),
-            before(&self.by_count),
-        );
+        // The caller's breaks all stand (set before the watch was heard,
+        // since any later gives the rebuild up); the jumps live found are
+        // found again from `g0`.
+        let jumps = before(&self.intrinsic_breaks);
+        let breaks: Vec<f64> = (self.breaks.iter().copied())
+            .filter(|t| *t < since || !self.intrinsic_breaks.contains(t))
+            .collect();
+        let (breaks, jumps, by_count) = (breaks, jumps, before(&self.by_count));
         l.restart();
         (l.breaks, l.intrinsic_breaks, l.by_count) = (breaks, jumps, by_count);
         (l.bph, l.found_bph, l.logged_bph) = (self.bph, self.found_bph, self.logged_bph);
@@ -356,19 +364,123 @@ mod tests {
         assert_eq!(l.cfg.max_beats, 12_345);
     }
 
-    #[test]
-    fn a_new_stretch_before_the_takeover_keeps_the_first_template_and_says_why() {
+    fn kept_caveat(l: &LiveAnalyzer) -> bool {
+        l.reading(10.0).caveats.contains(&Caveat::LockTemplateKept)
+    }
+
+    /// What the caller does at 30 s, before the takeover, and why the
+    /// first template then stays. Only the kept lock template carries the
+    /// caveat, not a rebuild given up for another reason.
+    fn given_up_by(act: impl Fn(&mut LiveAnalyzer)) -> LiveAnalyzer {
         let l = heard(80.0, |l, t| {
             if (30.0..30.02).contains(&t) {
-                l.new_stretch();
+                act(l);
             }
         });
         assert_eq!(l.template_switch_s(), None);
         assert!(!l.gathering());
+        assert!(!kept_caveat(&l));
+        l
+    }
+
+    #[test]
+    fn a_new_stretch_before_the_takeover_keeps_the_first_template_and_says_why() {
+        let l = given_up_by(|l| l.new_stretch());
         assert_eq!(
             l.template_rebuild_given_up(),
             Some("a new stretch began first")
         );
+    }
+
+    #[test]
+    fn a_pause_or_breaks_before_the_takeover_keep_the_first_template_too() {
+        let l = given_up_by(|l| l.skip(2.0));
+        assert_eq!(
+            l.template_rebuild_given_up(),
+            Some("listening paused first")
+        );
+        let l = given_up_by(|l| l.set_breaks(vec![29.0]));
+        assert_eq!(l.template_rebuild_given_up(), Some("breaks were set first"));
+    }
+
+    /// Breaks set before the watch is heard give nothing up; the copy that
+    /// reads the first chunk again keeps them.
+    #[test]
+    fn breaks_before_the_watch_is_heard_survive_the_takeover() {
+        // A set rate: guessing one starts the beat log, and its breaks,
+        // afresh when it locks on.
+        let cfg = SynthConfig {
+            duration_s: 80.0,
+            ..Default::default()
+        };
+        let audio = generate(&cfg, |_| 280.0, |_| 0.0);
+        let mut live = LiveConfig::default();
+        live.analysis.bph = Some(cfg.bph);
+        let mut l = LiveAnalyzer::new(cfg.sample_rate, live);
+        for c in audio.samples.chunks(960) {
+            l.push(c);
+            if (1.0..1.02).contains(&l.duration_s()) {
+                l.set_breaks(vec![0.5]);
+            }
+        }
+        assert!(l.template_switch_s().is_some());
+        assert_eq!(l.breaks(), &[0.5]);
+    }
+
+    /// A watch heard again after a long silence keeps its template, as a
+    /// file's reading keeps its first.
+    #[test]
+    fn a_watch_heard_again_after_a_silence_keeps_its_template() {
+        let cfg = |duration_s| SynthConfig {
+            duration_s,
+            ..Default::default()
+        };
+        let mut sound = generate(&cfg(10.0), |_| 280.0, |_| 0.0).samples;
+        let fs = cfg(1.0).sample_rate;
+        sound.extend(std::iter::repeat_n(0.0, 8 * fs as usize));
+        sound.extend(generate(&cfg(60.0), |_| 280.0, |_| 0.0).samples);
+        let mut l = LiveAnalyzer::new(fs, LiveConfig::default());
+        for c in sound.chunks(960) {
+            l.push(c);
+        }
+        assert_eq!(l.template_switch_s(), None);
+        assert_eq!(
+            l.template_rebuild_given_up(),
+            Some("the watch was heard again after a silence")
+        );
+    }
+
+    /// A copy that reads both sides in far fewer windows doesn't take
+    /// over: live keeps its template, says why, and its readings carry the
+    /// caveat.
+    #[test]
+    fn a_copy_that_reads_fewer_sides_is_refused_with_its_caveat() {
+        let l = heard(80.0, |l, _| {
+            if let Some(sh) = l.rebuild.shadow.as_mut() {
+                for w in &mut sh.live.amp {
+                    w.even_deg = None;
+                }
+            }
+        });
+        assert_eq!(l.template_switch_s(), None);
+        assert!(!l.gathering() && l.kept_lock_template());
+        assert_eq!(l.template_rebuild_given_up(), Some(KEPT_LOCK));
+        assert!(kept_caveat(&l));
+    }
+
+    /// Setting the rate Auto found, while the copy reads, reaches the copy.
+    #[test]
+    fn a_rate_set_while_reading_again_survives_the_takeover() {
+        let mut set = false;
+        let l = heard(80.0, |l, _| {
+            if !set && l.rebuild.shadow.is_some() {
+                set = true;
+                let bph = l.bph;
+                assert!(l.set_bph(bph));
+            }
+        });
+        assert!(set && l.template_switch_s().is_some());
+        assert_eq!(l.cfg.analysis.bph, Some(28_800));
     }
 
     #[test]
