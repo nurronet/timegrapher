@@ -295,13 +295,8 @@ pub fn reads_better(again: &Summary, first: &Summary) -> bool {
     let (Some((k2, n2)), Some((k1, n1))) = (kept_of(again), kept_of(first)) else {
         return again.overall.is_some() && first.overall.is_none();
     };
-    // The pooled share as Agresti and Coull adjust it, so a share near 1
-    // never has a standard error of 0.
-    let p = (k1 + k2 + 2.0) / (n1 + n2 + 4.0);
-    let se = (p * (1.0 - p) * (1.0 / n1 + 1.0 / n2)).sqrt();
-    let diff = k2 / n2 - k1 / n1;
-    if diff.abs() > 2.0 * se {
-        return diff > 0.0;
+    if let Some(higher) = crate::confidence::share_differs(k1, n1, k2, n2) {
+        return higher;
     }
     if again.bph == 2 * first.bph || first.bph == 2 * again.bph {
         return again.bph > first.bph;

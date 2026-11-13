@@ -113,12 +113,14 @@ and a low amplitude, or a rate that jumps between two values.
 
 | Mark | Part | What it shows |
 | --- | --- | --- |
-| 5 | The summary line | How many values, the median, the middle 80%, the one position counted, the outliers left off the scale, and the peaks when there is more than one. |
+| 5 | The facts box | How many values, the median, the middle 80%, the values left off the scale (only when there are any), and the peaks (only when there is more than one). The plot's title names the reading, and the one position counted when the take has positions. On a short plot the rows flow into two columns; shorter still, the peaks go first, then the middle 80%, then the count, and hovering the box gives them all. The median and the count off the scale always stay. |
 | 6 | The dashed line | Where the values would fall if they came from one steady state. It goes through the median, with a slope from the middle half of the values. |
 | 7 | The percent scale | Each value's rank, spaced in standard deviations and labelled in percent. 50% is the median. |
 | 8 | A value | One reading. In the picture, the fastest readings bend away to the right of the line. |
 
-Hover the summary line to read it whole when the pane is narrow.
+A pane too short for every plot names those it leaves out in a grey chip under the first plot's title, such as "Beat Error not shown: no room"; hover the chip for what to do.
+
+The beat error's plot has a grey chip under its title naming where its beat error is read from, the unlock or the drop. Hover the chip for its caveats, when there are any, such as readings left out.
 
 **In the picture** are the first 12 hours of the run in the Charts
 picture: 4317 rate readings, median −67.3 s/d, the middle 80% from

@@ -256,6 +256,17 @@ impl DropWhy {
     }
 }
 
+/// [`Caveat::LockTemplateKept`] as a sentence, with the first chunk's
+/// length from [`crate::stream::StreamConfig`].
+fn lock_template_kept_text() -> String {
+    let chunk_s = crate::stream::StreamConfig::default().chunk_s;
+    format!(
+        "Live kept the beat shape it learned when it locked on. Learning it again from the \
+         first {chunk_s:.0} s, as the saved take does, found amplitude in fewer windows on \
+         both sides, so the saved take may read differently."
+    )
+}
+
 /// Something that limits how far a measurement can be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -351,6 +362,12 @@ pub enum Caveat {
     /// heard, and are left out of the readings
     /// ([`crate::session::watch_lead_s`], #844).
     LeadLeftOut { seconds: f64 },
+    /// Live only: the template built again from the first 47 s, as a
+    /// file's reading builds it, read both sides in fewer amplitude windows
+    /// than the one live locked on with, so live kept that one
+    /// ([`crate::live::LiveAnalyzer::kept_lock_template`], #1500). A
+    /// file's reading of the same sound may then differ.
+    LockTemplateKept,
     /// The amplitude's or beat error's period search named a cycle on a
     /// stretch under [`crate::longterm::NOISE_CAVEAT_SPAN_S`] whose 2 s
     /// windows are correlated at `rho` (lag one, the ρ the search whitens
@@ -440,6 +457,7 @@ impl Caveat {
                 "{count} positions: a rate change with position can read as one with amplitude"
             ),
             Caveat::LeadLeftOut { seconds } => format!("first {seconds:.0} s left out"),
+            Caveat::LockTemplateKept => "beat shape kept from lock-on".to_string(),
             Caveat::PeriodMayBeNoise { .. } => "cycle may be noise".to_string(),
             Caveat::PeriodSearchUncalibrated { .. } => {
                 "cycle search not calibrated here".to_string()
@@ -546,6 +564,7 @@ impl Caveat {
                 "The first {seconds:.0} s held no regular beat before the watch was heard, \
                  and are left out of the readings."
             ),
+            Caveat::LockTemplateKept => lock_template_kept_text(),
             Caveat::PeriodMayBeNoise { .. }
             | Caveat::PeriodSearchUncalibrated { .. }
             | Caveat::TimingModelMisfit { .. } => period_search_text(self),
@@ -600,6 +619,7 @@ impl Caveat {
             Caveat::BeatErrorAsSize => 13,
             Caveat::Positions { .. } => 14,
             Caveat::LeadLeftOut { .. } => 15,
+            Caveat::LockTemplateKept => 15,
             Caveat::BeatErrorFromDrop { .. } => 16,
             Caveat::BeatErrorSourceReadings { .. } => 18,
             Caveat::BeatErrorUnknownSource { .. } => 19,
@@ -880,6 +900,20 @@ pub fn assess_in(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The kept-template caveat names the first chunk's length from
+    /// `stream`, not a number of its own (#1500).
+    #[test]
+    fn the_kept_template_caveat_names_the_first_chunk() {
+        let c = Caveat::LockTemplateKept;
+        assert_eq!(
+            c.short(52.0, 0).as_deref(),
+            Some("beat shape kept from lock-on")
+        );
+        let chunk_s = crate::stream::StreamConfig::default().chunk_s;
+        let long = c.long(None).unwrap();
+        assert!(long.contains(&format!("first {chunk_s:.0} s,")), "{long}");
+    }
 
     /// A beat error from the drop because the unlock was not found writes
     /// no reason, so saved readings stay as they were and read back as not
