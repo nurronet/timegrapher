@@ -725,11 +725,10 @@ fn phase_words(test: &Test, phase: Phase) -> (String, String, f32) {
                 format!("Done: {}", step_title(test)),
                 format!(
                     "Turn the watch 45°, to {} ({}) at the top, then press Start {} \
-                     Measurement. Nothing until then is measured; the strip marks it {}.",
+                     Measurement. Until then the strip marks it Not Used.",
                     p.name(),
                     p.witschi(),
                     p.witschi(),
-                    NOT_USED_POISE
                 ),
                 1.0,
             ),
@@ -1103,6 +1102,15 @@ fn head_w(ui: &egui::Ui, text: &str) -> f32 {
 
 /// The width of a figure's column, and of the position names'.
 const FIGURE_W: f32 = 88.0;
+/// The gap between a table's columns.
+const GAP: f32 = 16.0;
+/// A figure column's width, and the gap, in the tight Dynamic Poise
+/// table: each heading still fits, as [`column_head`] keeps it.
+const TIGHT_FIGURE_W: f32 = 54.0;
+const TIGHT_GAP: f32 = 10.0;
+/// The Dynamic Poise table's width at its widths, and tight.
+pub(crate) const TABLE_W: f32 = 590.0;
+pub(crate) const TIGHT_TABLE_W: f32 = 470.0;
 /// The comparison's figure columns, whose headings are longer.
 const WIDE_W: f32 = 100.0;
 const LABEL_W: f32 = 150.0;
@@ -1128,7 +1136,7 @@ fn table_grid(
     } else {
         ("Average", "From Average")
     };
-    let from_w = FIGURE_W.max(head_w(ui, from_word));
+    let (fw, from_w, gap) = widths(ui, poise, from_word);
     // The dimming's key over the table, as the Power Reserve table's.
     crate::reserve::dim_key(ui, t.beat_error_dimmed.iter().any(|d| *d));
     let be_hint = crate::reserve::beat_error_hint(
@@ -1136,25 +1144,25 @@ fn table_grid(
     );
     egui::Grid::new(id)
         .num_columns(5)
-        .spacing(Vec2::new(16.0, 5.0))
-        .min_col_width(LABEL_W.min(FIGURE_W))
+        .spacing(Vec2::new(gap, 5.0))
+        .min_col_width(LABEL_W.min(fw))
         .striped(true)
         .show(ui, |ui| {
-            head_row(ui, from_word, &be_hint);
+            head_row(ui, fw, from_word, &be_hint);
             let mut status = status;
             for (i, p) in kind.order().iter().enumerate() {
                 match t.rows.get(i) {
                     Some((label, rate, from_mean, amp, be)) => {
                         ui.label(RichText::new(label).color(pal.text));
-                        right(ui, signed(*rate, 1), false, pal.text);
+                        right_in(ui, fw, signed(*rate, 1), false, pal.text);
                         right_in(ui, from_w, signed(*from_mean, 1), false, pal.text);
-                        right(ui, plain(*amp, 0), false, pal.text);
+                        right_in(ui, fw, plain(*amp, 0), false, pal.text);
                         let be_ink = if t.beat_error_dimmed.get(i).copied().unwrap_or(false) {
                             pal.text_secondary
                         } else {
                             pal.text
                         };
-                        right(ui, plain(*be, 2), false, be_ink).on_hover_text(
+                        right_in(ui, fw, plain(*be, 2), false, be_ink).on_hover_text(
                             t.beat_error_hovers.get(i).map(String::as_str).unwrap_or(""),
                         );
                     }
@@ -1168,14 +1176,14 @@ fn table_grid(
                             (Some(_), Some(FreeCell::Read(rate, amp, be))) => {
                                 ui.label(RichText::new(label).strong().color(pal.text))
                                     .on_hover_text("Being measured: its figures so far");
-                                right(ui, signed(*rate, 1), false, pal.accent);
+                                right_in(ui, fw, signed(*rate, 1), false, pal.accent);
                                 ui.label("");
-                                right(ui, plain(*amp, 0), false, pal.accent);
-                                right(ui, plain(*be, 2), false, pal.accent);
+                                right_in(ui, fw, plain(*amp, 0), false, pal.accent);
+                                right_in(ui, fw, plain(*be, 2), false, pal.accent);
                             }
                             (Some(s), _) => {
                                 ui.label(RichText::new(label).strong().color(pal.text));
-                                right(ui, s, false, pal.accent);
+                                right_in(ui, fw, s, false, pal.accent);
                                 for _ in 0..3 {
                                     ui.label("");
                                 }
@@ -1193,19 +1201,19 @@ fn table_grid(
             }
             if !t.rows.is_empty() {
                 ui.label(RichText::new(mean_word).strong().color(pal.text));
-                right(ui, signed(t.mean_rate, 1), true, pal.text);
+                right_in(ui, fw, signed(t.mean_rate, 1), true, pal.text);
                 ui.label("");
-                right(ui, plain(t.mean_amplitude, 0), true, pal.text);
-                right(ui, plain(t.mean_beat_error, 2), true, pal.text)
+                right_in(ui, fw, plain(t.mean_amplitude, 0), true, pal.text);
+                right_in(ui, fw, plain(t.mean_beat_error, 2), true, pal.text)
                     .on_hover_text(&t.beat_error_summary);
                 ui.end_row();
             }
             if t.rows.len() >= 2 && !poise {
                 largest_label(ui);
-                right(ui, plain(t.largest_difference, 1), true, pal.text);
+                right_in(ui, fw, plain(t.largest_difference, 1), true, pal.text);
                 ui.label("");
-                right(ui, plain(t.largest_amplitude, 0), true, pal.text);
-                right(ui, plain(t.largest_beat_error, 2), true, pal.text);
+                right_in(ui, fw, plain(t.largest_amplitude, 0), true, pal.text);
+                right_in(ui, fw, plain(t.largest_beat_error, 2), true, pal.text);
                 ui.end_row();
             }
         });
@@ -1213,7 +1221,7 @@ fn table_grid(
 }
 
 /// The table's headings: Position, then each figure's name and unit.
-fn head_row(ui: &mut egui::Ui, from_word: &str, be_hint: &str) {
+fn head_row(ui: &mut egui::Ui, fw: f32, from_word: &str, be_hint: &str) {
     position_head(ui);
     for (h, unit, hint) in [
         ("Rate", "s/d", "Seconds a day gained (+) or lost (−)"),
@@ -1229,9 +1237,21 @@ fn head_row(ui: &mut egui::Ui, from_word: &str, be_hint: &str) {
         ),
         ("Beat Error", "ms", be_hint),
     ] {
-        column_head(ui, FIGURE_W, h, unit, hint);
+        column_head(ui, fw, h, unit, hint);
     }
     ui.end_row();
+}
+
+/// The figure columns' width, the From column's, and the gap between
+/// columns: tight for the Dynamic Poise table when the pane gives it less
+/// than [`TABLE_W`], so it can stay beside its picture (Hugh, #1499).
+fn widths(ui: &egui::Ui, poise: bool, from_word: &str) -> (f32, f32, f32) {
+    let (fw, gap) = if poise && ui.available_width() < TABLE_W {
+        (TIGHT_FIGURE_W, TIGHT_GAP)
+    } else {
+        (FIGURE_W, GAP)
+    };
+    (fw, fw.max(head_w(ui, from_word)), gap)
 }
 
 fn table_notes(ui: &mut egui::Ui, t: &Table) {
@@ -2199,6 +2219,13 @@ pub fn export_text(test: &Test, about: &About, sep: char) -> String {
         out += &comparison_text(&c, sep);
     }
     out
+}
+
+/// The Dynamic Poise table's Mean rate, and its name on the picture's
+/// mean line and ring, "Mean +4.0", as the table's Mean row shows it.
+pub fn poise_mean(readings: &[Reading]) -> Option<(f64, String)> {
+    let m = table(readings, Kind::Poise).mean_rate?;
+    Some((m, format!("Mean {}", signed(Some(m), 1))))
 }
 
 /// The poise fit of a test's upright readings ([`poise::fit`]), once

@@ -17,14 +17,13 @@ pub enum PoiseView {
     Dial,
 }
 
-/// The picture's height, points, and the width below which it goes under
-/// the table rather than beside it.
+/// The picture's height, points, and the width below which it goes over
+/// the table rather than beside it (Hugh, #1499).
 const PICTURE_H: f32 = 300.0;
-const PICTURE_MIN_W: f32 = 360.0;
+const PICTURE_MIN_W: f32 = 320.0;
 /// The plot's height to its width at most, as in Hugh's spec.
 const PLOT_ASPECT: f32 = 0.5;
-/// The table's width beside the picture, and the gap between them.
-const TABLE_W: f32 = 590.0;
+/// The gap between the table and the picture.
 const GAP: f32 = 28.0;
 /// The Info panel's width beside the rest, and the pane width it needs.
 const INFO_W: f32 = 300.0;
@@ -42,6 +41,12 @@ const BOTTOM: f32 = 36.0;
 const CURVE_PX: f32 = 4.0;
 /// The steps the drawn wave is cut into round the dial.
 const DIAL_STEPS: f32 = 120.0;
+/// How far a line leans, as a share of its length across, before a
+/// label at its end is set off that way rather than centred.
+const LEAN: f32 = 0.3;
+/// The key's line length, points, and the room round a backed label.
+const KEY_LINE: f32 = 14.0;
+const BACKING: f32 = 2.0;
 
 /// The upright stops round the face, 45° apart, and the step between.
 fn hours() -> (usize, f64) {
@@ -49,11 +54,20 @@ fn hours() -> (usize, f64) {
     (n, 360.0 / n as f64)
 }
 
+/// The bearing halfway from the stop at `deg` to the next, degrees from
+/// 12H: where the dial's ring numbers (by 12H) and the mean ring's name
+/// (by 6H) sit, so no point sits on them (Hugh, #1499).
+fn between(deg: f64) -> f64 {
+    deg + hours().1 / 2.0
+}
+
 /// What the picture draws: each position measured (angle, rate, ±) and
 /// core's fit once there is one.
 struct Picture<'a> {
     points: Vec<(f64, f64, Option<f64>)>,
     fit: Option<&'a PoiseFit>,
+    /// The table's Mean and its name, drawn with the wave.
+    mean: Option<(f64, String)>,
 }
 
 impl Picture<'_> {
@@ -261,6 +275,7 @@ fn poise_body(
     let mut action = None;
     let readings = test.map_or(&[][..], |t| t.readings_so_far());
     let fit = guided::poise_fit(readings);
+    let mean = guided::poise_mean(readings);
     let full = ui.available_rect_before_wrap();
     let beside = info && full.width() >= INFO_BESIDE_W;
     let main_w = if beside {
@@ -282,7 +297,11 @@ fn poise_body(
                             ui.add_space(6.0);
                         }
                     }
-                    let side = main_w >= TABLE_W + GAP + PICTURE_MIN_W;
+                    // Beside the picture at the table's widths, or tight, while
+                    // the picture keeps its least width; else under it.
+                    let side = [guided::TABLE_W, guided::TIGHT_TABLE_W]
+                        .into_iter()
+                        .find(|w| main_w >= w + GAP + PICTURE_MIN_W);
                     let table = |ui: &mut egui::Ui| match test {
                         Some(t) => guided::test_table(ui, t, phase, live),
                         None => {
@@ -293,37 +312,12 @@ fn poise_body(
                         }
                     };
                     let picture = |ui: &mut egui::Ui| {
-                        words(ui, fit.as_ref());
-                        let points = readings
-                            .iter()
-                            .filter_map(|r| poise::point(r.position, &r.measurement))
-                            .map(|p| (p.angle_deg, p.rate_s_per_day, p.rate_se))
-                            .collect();
-                        let pic = Picture {
-                            points,
-                            fit: fit.as_ref(),
-                        };
-                        let w = ui.available_width().max(PICTURE_MIN_W);
-                        // The room left in the pane, never under PICTURE_H; the
-                        // dial never taller than wide, the plot half as tall.
-                        let tallest = match view {
-                            PoiseView::Plot => w * PLOT_ASPECT,
-                            PoiseView::Dial => w,
-                        };
-                        let h = (full.bottom() - ui.cursor().top())
-                            .min(tallest)
-                            .max(PICTURE_H);
-                        let (rect, _) =
-                            ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
-                        match view {
-                            PoiseView::Plot => draw_plot(ui, rect, &pic),
-                            PoiseView::Dial => draw_dial(ui, rect, &pic),
-                        }
+                        picture_block(ui, (readings, fit.as_ref(), &mean), view, full.bottom());
                     };
-                    if side {
+                    if let Some(table_w) = side {
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
-                                ui.set_width(TABLE_W);
+                                ui.set_width(table_w);
                                 table(ui);
                             });
                             ui.add_space(GAP);
@@ -332,9 +326,10 @@ fn poise_body(
                             });
                         });
                     } else {
-                        table(ui);
-                        ui.add_space(8.0);
+                        // The result first (Hugh, #1499).
                         picture(ui);
+                        ui.add_space(8.0);
+                        table(ui);
                     }
                     if info && !beside {
                         ui.add_space(8.0);
@@ -358,6 +353,43 @@ fn poise_body(
             });
         });
     action
+}
+
+/// The picture with core's words over it, in the room left above `bottom`.
+fn picture_block(
+    ui: &mut egui::Ui,
+    (readings, fit, mean): (
+        &[timegrapher_core::session::Reading],
+        Option<&PoiseFit>,
+        &Option<(f64, String)>,
+    ),
+    view: PoiseView,
+    bottom: f32,
+) {
+    words(ui, fit);
+    let points = readings
+        .iter()
+        .filter_map(|r| poise::point(r.position, &r.measurement))
+        .map(|p| (p.angle_deg, p.rate_s_per_day, p.rate_se))
+        .collect();
+    let pic = Picture {
+        points,
+        fit,
+        mean: mean.clone(),
+    };
+    let w = ui.available_width().max(PICTURE_MIN_W);
+    // The room left in the pane, never under PICTURE_H; the dial never
+    // taller than wide, the plot half as tall.
+    let tallest = match view {
+        PoiseView::Plot => w * PLOT_ASPECT,
+        PoiseView::Dial => w,
+    };
+    let h = (bottom - ui.cursor().top()).min(tallest).max(PICTURE_H);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
+    match view {
+        PoiseView::Plot => draw_plot(ui, rect, &pic),
+        PoiseView::Dial => draw_dial(ui, rect, &pic),
+    }
 }
 
 /// What the pane says before a test: how the test runs.
@@ -390,17 +422,24 @@ fn words(ui: &mut egui::Ui, fit: Option<&PoiseFit>) {
         ui.add(egui::Label::new(RichText::new(&f.short_text).color(pal.text)).wrap());
         let band = matches!(f.withheld, Some(poise::Withheld::NullBand { .. }));
         if band {
+            // The chip holds the band's fact; its caveat follows, plain.
             egui::Frame::new()
                 .fill(pal.control)
                 .corner_radius(egui::CornerRadius::same(10))
                 .inner_margin(egui::Margin::symmetric(10, 2))
                 .show(ui, |ui| {
                     ui.add(
-                        egui::Label::new(RichText::new(&f.heavy_text).small().color(pal.text))
-                            .wrap(),
+                        egui::Label::new(
+                            RichText::new(f.heavy_spot_line()).small().color(pal.text),
+                        )
+                        .wrap(),
                     )
                     .on_hover_text(poise::null_band_note());
                 });
+            let caveat = f.caveat_line();
+            if !caveat.is_empty() {
+                ui.add(egui::Label::new(RichText::new(caveat).color(pal.text_secondary)).wrap());
+            }
         } else {
             ui.add(egui::Label::new(RichText::new(&f.heavy_text).color(pal.text_secondary)).wrap());
         }
@@ -408,7 +447,8 @@ fn words(ui: &mut egui::Ui, fit: Option<&PoiseFit>) {
 }
 
 /// The Info panel: core's full sentence (the wave, its twice-round check,
-/// the amplitude and the heavy spot), and the note on the band near 220°.
+/// the amplitude and the heavy spot), and the note on the band near 220°,
+/// which alone says why 219.5° matters.
 fn info_panel(ui: &mut egui::Ui, fit: Option<&PoiseFit>) {
     let pal = theme::pal(ui);
     ui.spacing_mut().item_spacing.y = 4.0;
@@ -419,7 +459,7 @@ fn info_panel(ui: &mut egui::Ui, fit: Option<&PoiseFit>) {
     };
     ui.label(theme::caption("Dynamic Poise").color(pal.text_secondary));
     match fit {
-        Some(f) => ui.add(text(&f.text, pal.text)),
+        Some(f) => ui.add(text(&f.sentence_beside_note(), pal.text)),
         None => ui.add(text(&poise::pending_text(), pal.text_secondary)),
     };
     ui.add_space(6.0);
@@ -503,7 +543,23 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
     );
     if let Some(f) = pic.fit {
         plot_wave(&painter, area, (&x, &y), f, pal);
+        if let Some((m, name)) = &pic.mean {
+            let dotted = egui::Stroke::new(1.0_f32, pal.text_secondary);
+            let line = [
+                egui::pos2(area.left(), y(*m)),
+                egui::pos2(area.right(), y(*m)),
+            ];
+            painter.extend(egui::Shape::dashed_line(&line, dotted, 1.0, 3.0));
+            backed(
+                &painter,
+                egui::pos2(area.left() + 6.0, y(*m) - 3.0),
+                egui::Align2::LEFT_BOTTOM,
+                name,
+                pal,
+            );
+        }
     }
+    plot_key(&painter, area, pic, pal);
     // 12H is at both ends: its point is drawn at each.
     for &(deg, r, se) in &pic.points {
         let ends: &[f64] = if deg.rem_euclid(360.0) == 0.0 {
@@ -520,6 +576,71 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
             );
         }
     }
+}
+
+/// The plot's key, inside its top right: the points, and the wave once
+/// it is fitted.
+fn plot_key(painter: &egui::Painter, area: egui::Rect, pic: &Picture<'_>, pal: &theme::Palette) {
+    if pic.points.is_empty() {
+        return;
+    }
+    let small = egui::FontId::proportional(11.0);
+    let row = 16.0;
+    let mut rows = vec![format!("Upright positions ({})", pic.points.len())];
+    if pic.fit.is_some() {
+        rows.push("Fitted wave".to_string());
+    }
+    let widest = rows
+        .iter()
+        .map(|t| {
+            painter
+                .layout_no_wrap(t.clone(), small.clone(), pal.text)
+                .size()
+                .x
+        })
+        .fold(0.0_f32, f32::max);
+    let w = KEY_LINE + 6.0 + widest;
+    let top_left = egui::pos2(area.right() - w - 8.0, area.top() + 6.0);
+    let back =
+        egui::Rect::from_min_size(top_left, Vec2::new(w, row * rows.len() as f32)).expand(4.0);
+    painter.rect_filled(back, 4.0, pal.card);
+    for (i, t) in rows.iter().enumerate() {
+        let mid = top_left.y + row * (i as f32 + 0.5);
+        let at = |dx: f32| egui::pos2(top_left.x + dx, mid);
+        if i == 0 {
+            painter.circle_filled(at(KEY_LINE / 2.0), DOT_R, pal.trace_rate);
+        } else {
+            painter.line_segment(
+                [at(0.0), at(KEY_LINE)],
+                egui::Stroke::new(1.5_f32, pal.text_secondary),
+            );
+        }
+        painter.text(
+            at(KEY_LINE + 6.0),
+            egui::Align2::LEFT_CENTER,
+            t,
+            small.clone(),
+            pal.text,
+        );
+    }
+}
+
+/// Small text on the pane's background, so no line crosses it.
+fn backed(
+    painter: &egui::Painter,
+    pos: egui::Pos2,
+    align: egui::Align2,
+    text: &str,
+    pal: &theme::Palette,
+) {
+    let galley = painter.layout_no_wrap(
+        text.to_string(),
+        egui::FontId::proportional(11.0),
+        pal.text_secondary,
+    );
+    let rect = align.anchor_size(pos, galley.size());
+    painter.rect_filled(rect.expand(BACKING), BACKING, pal.card);
+    painter.galley(rect.min, galley, pal.text_secondary);
 }
 
 /// Core's fit on the plot: the wave in grey, and its fastest hour as an
@@ -540,8 +661,7 @@ fn plot_wave(
     let grey = egui::Stroke::new(1.5_f32, pal.text_secondary);
     painter.add(egui::Shape::line(wave, grey));
     if f.wave_clear {
-        let peak = f.wave.peak_deg.value.rem_euclid(360.0);
-        let top = f.wave.mean.value + f.wave.size.value;
+        let (peak, top) = f.fastest();
         painter.line_segment(
             [egui::pos2(x(peak), area.top()), egui::pos2(x(peak), y(top))],
             egui::Stroke::new(1.2_f32, pal.text_secondary),
@@ -602,7 +722,7 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         pal.text_secondary,
     );
     if let Some(f) = pic.fit {
-        dial_wave(&painter, &dial, f, pal);
+        dial_wave(&painter, &dial, (f, &pic.mean), pal);
     }
     for &(deg, r, se) in &pic.points {
         let p = dial.at(deg, dial.radius(r));
@@ -637,14 +757,14 @@ fn dial_grid(painter: &egui::Painter, dial: &Dial, pal: &theme::Palette, numbers
         if !numbers {
             continue;
         }
-        // Each ring's rate on the line halfway from 12H to 1H30, clear
-        // of the hours' names.
-        painter.text(
-            dial.at(hours().1 / 2.0, r) + Vec2::new(2.0, -2.0),
-            egui::Align2::LEFT_BOTTOM,
-            chart_scale::axis_number(v, step),
-            small.clone(),
-            pal.text_tertiary,
+        // Each ring's rate on a bearing between two stops, on the
+        // pane's background so the wave never crosses it (Hugh, #1499).
+        backed(
+            painter,
+            dial.at(between(0.0), r),
+            egui::Align2::CENTER_CENTER,
+            &chart_scale::axis_number(v, step),
+            pal,
         );
     }
     let (n_hours, hour_step) = hours();
@@ -675,11 +795,16 @@ fn dial_grid(painter: &egui::Painter, dial: &Dial, pal: &theme::Palette, numbers
 /// Core's fit round the dial: the mean as a dotted ring, the wave in
 /// grey, and its fastest hour as a line from the centre, named, once the
 /// wave is clear of the noise.
-fn dial_wave(painter: &egui::Painter, dial: &Dial, f: &PoiseFit, pal: &theme::Palette) {
+fn dial_wave(
+    painter: &egui::Painter,
+    dial: &Dial,
+    (f, mean): (&PoiseFit, &Option<(f64, String)>),
+    pal: &theme::Palette,
+) {
     let steps = DIAL_STEPS as usize;
-    let mean = dial.radius(f.wave.mean.value);
+    let ring_r = dial.radius(mean.as_ref().map_or(f.wave.mean.value, |m| m.0));
     let ring: Vec<egui::Pos2> = (0..=steps)
-        .map(|i| dial.at(360.0 * i as f64 / f64::from(DIAL_STEPS), mean))
+        .map(|i| dial.at(360.0 * i as f64 / f64::from(DIAL_STEPS), ring_r))
         .collect();
     let dotted = egui::Stroke::new(1.0_f32, pal.text_secondary);
     painter.extend(egui::Shape::dashed_line(&ring, dotted, 1.0, 3.0));
@@ -692,30 +817,51 @@ fn dial_wave(painter: &egui::Painter, dial: &Dial, f: &PoiseFit, pal: &theme::Pa
         wave,
         egui::Stroke::new(1.5_f32, pal.text_secondary),
     ));
+    if let Some((m, name)) = mean {
+        backed(
+            painter,
+            dial.at(between(180.0), dial.radius(*m)),
+            egui::Align2::CENTER_CENTER,
+            name,
+            pal,
+        );
+    }
     if !f.wave_clear {
         return;
     }
-    let peak = f.wave.peak_deg.value;
-    let tip = dial.at(peak, dial.radius(f.wave.mean.value + f.wave.size.value));
+    let (peak, top) = f.fastest();
+    let tip = dial.at(peak, dial.radius(top));
     painter.line_segment(
         [dial.centre, tip],
         egui::Stroke::new(1.2_f32, pal.text_secondary),
     );
-    // Named beside the line's middle, clear of the hours round the face.
-    let a = peak.to_radians() as f32;
-    let across = Vec2::new(a.cos(), a.sin());
-    let side = if across.x >= 0.0 {
-        egui::Align2::LEFT_CENTER
-    } else {
-        egui::Align2::RIGHT_CENTER
-    };
-    painter.text(
-        dial.centre + (tip - dial.centre) * 0.5 + across * 6.0,
-        side,
+    // Named at the line's outer end, just beyond the wave (Hugh, #1499),
+    // set off the way the line points.
+    let out = (tip - dial.centre).normalized();
+    let align = egui::Align2([
+        lean(out.x, egui::Align::Min, egui::Align::Max),
+        lean(out.y, egui::Align::Min, egui::Align::Max),
+    ]);
+    let galley = painter.layout_no_wrap(
         format!("Fastest {}", poise::hour_code(peak)),
         egui::FontId::proportional(11.0),
         pal.text,
     );
+    let rect = align.anchor_size(tip + out * 8.0, galley.size());
+    painter.rect_filled(rect.expand(BACKING), BACKING, pal.card);
+    painter.galley(rect.min, galley, pal.text);
+}
+
+/// Which way a label leans off a line pointing `d` along one axis: past
+/// its end when the line leans that way, centred when it barely does.
+fn lean(d: f32, plus: egui::Align, minus: egui::Align) -> egui::Align {
+    if d > LEAN {
+        plus
+    } else if d < -LEAN {
+        minus
+    } else {
+        egui::Align::Center
+    }
 }
 
 /// A measured point in the rate's colour, with its ± (`half`, points

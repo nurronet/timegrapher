@@ -567,6 +567,19 @@ impl PoiseFit {
     /// amplitude, then the heavy spot or why it is not given, and any
     /// caveat on it.
     pub fn sentence(&self) -> String {
+        self.sentence_with(true)
+    }
+
+    /// [`PoiseFit::sentence`] for beside [`null_band_note`], as a pane's
+    /// Info panel shows them: without its sentence on 219.5°, which the
+    /// note gives, so each fact is said once.
+    pub fn sentence_beside_note(&self) -> String {
+        self.sentence_with(false)
+    }
+
+    /// The sentence, with its closing word on 219.5° where the heavy spot
+    /// is not stated when `explain`.
+    fn sentence_with(&self, explain: bool) -> String {
         let rate = |t: &Term, signed| figure_with_pm(t.value, t.se, base_digits::RATE, signed);
         let w = &self.wave;
         let mut s = format!(
@@ -593,7 +606,9 @@ impl PoiseFit {
         if !shape.is_empty() {
             s.push_str(&format!(" Twice-round terms: {}.", shape.join(", ")));
         }
-        if let Some(range) = self.amplitude_range() {
+        // In the band the heavy spot's line opens with the range.
+        let band = matches!(self.withheld, Some(Withheld::NullBand { .. }));
+        if let Some(range) = self.amplitude_range().filter(|_| !band) {
             s.push_str(&format!(" Amplitude {range}°."));
         }
         s.push(' ');
@@ -603,7 +618,7 @@ impl PoiseFit {
                 " The heavy spot is from the fit at each position's own amplitude, so it rests \
                  on the lift angle.",
             );
-        } else {
+        } else if explain {
             s.push_str(&format!(
                 " Poise moves the rate least at {}° amplitude, and the other way above it.",
                 fixed_text(NULL_AMPLITUDE_DEG, 1)
@@ -615,7 +630,19 @@ impl PoiseFit {
     /// The second line: the heavy spot, or why it is not stated, then
     /// any caveat on it. Inferred, where the title line is measured.
     pub fn heavy_line(&self) -> String {
-        let mut s = match (&self.heavy_spot, self.withheld) {
+        let mut s = self.heavy_spot_line();
+        let caveats = self.caveat_line();
+        if !caveats.is_empty() {
+            s.push(' ');
+            s.push_str(&caveats);
+        }
+        s
+    }
+
+    /// The heavy spot, or why it is not stated, alone: the
+    /// [`PoiseFit::heavy_line`] without its caveats.
+    pub fn heavy_spot_line(&self) -> String {
+        match (&self.heavy_spot, self.withheld) {
             (Some(h), _) => format!(
                 "Heavy spot hangs lowest with {} at the top ({}°).",
                 hour_code(h.peak_deg.value),
@@ -633,12 +660,14 @@ impl PoiseFit {
             }
             (None, Some(Withheld::NoSe)) => "Heavy spot not stated: no ± to test it by.".into(),
             (None, _) => "Heavy spot not stated.".into(),
-        };
-        for c in &self.caveats {
-            s.push(' ');
-            s.push_str(&caveat_text(c));
         }
-        s
+    }
+
+    /// The caveats on the heavy spot in words, one after another, or
+    /// nothing.
+    pub fn caveat_line(&self) -> String {
+        let words: Vec<String> = self.caveats.iter().map(caveat_text).collect();
+        words.join(" ")
     }
 
     /// The fit in one line: the wave's size, the hour nearest its peak,
@@ -670,6 +699,16 @@ impl PoiseFit {
         let lo = fixed_text(self.amplitude_min_deg?, d);
         let hi = fixed_text(self.amplitude_max_deg?, d);
         Some(if lo == hi { lo } else { format!("{lo}–{hi}") })
+    }
+
+    /// The measured wave's fastest point, (angle 0–360°, rate s/d): where
+    /// a picture draws its fastest line to.
+    pub fn fastest(&self) -> (f64, f64) {
+        let w = &self.wave;
+        (
+            w.peak_deg.value.rem_euclid(360.0),
+            w.mean.value + w.size.value,
+        )
     }
 
     /// The measured wave at `steps` + 1 evenly spaced angles from 0° to

@@ -53,38 +53,7 @@ fn the_poise_order_is_the_eight_upright_stops_45_degrees_apart() {
 /// 24 hour results take no part in it.
 #[test]
 fn a_poise_test_measures_eight_stops_and_core_fits_the_wave() {
-    let base = std::env::temp_dir().join(format!("tg-app-poise-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&base);
-    std::fs::create_dir_all(&base).unwrap();
-    let (t0, each, settle) = (5.0, 62.0, 2.0);
-    let order = guided::Kind::Poise.order();
-    // 30 s/d each way, fastest at 180° (6H at the top).
-    let extra = move |t: f64| {
-        let k = ((t - t0) / each).floor();
-        if !(0.0..8.0).contains(&k) {
-            return 0.0;
-        }
-        let deg = order[k as usize].core().top_deg().unwrap();
-        30.0 * (deg - 180.0).to_radians().cos()
-    };
-    let mut app = synthetic_varying(t0 + 8.0 * each + 5.0, 4.0, extra);
-    app.session.listen();
-    let tx = queued_capture(&mut app, &base);
-    let mut test = guided::Test::poise().timed(settle, each - settle);
-    let mut t = t0;
-    test.tick(t);
-    for i in 0..order.len() {
-        t += each;
-        assert_eq!(test.tick(t), guided::Phase::Turn, "stop {i}");
-        if i + 1 < order.len() {
-            assert_eq!(test.advance(t), Some(order[i + 1]));
-        }
-    }
-    app.guided = Some(test);
-    assert!(app.test_listening());
-    assert!(app.positions_test().is_none(), "not the Positions Test's");
-    let ctx = egui::Context::default();
-    app.guided_tick(&ctx);
+    let (app, base, tx) = measured("fit");
     assert!(!app.guided_running(), "ended after the eighth");
     let kept = app.poise_test().expect("the table stays");
     let readings = kept.readings.as_ref().unwrap();
@@ -123,6 +92,45 @@ fn a_poise_test_measures_eight_stops_and_core_fits_the_wave() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// A Dynamic Poise test run through its eight stops on a synthetic take,
+/// 62 s each, whose rate goes 30 s/d each way once round, fastest at 6H
+/// at the top; with its capture folder and channel.
+fn measured(name: &str) -> (TimegrapherApp, std::path::PathBuf, impl Sized) {
+    let base = std::env::temp_dir().join(format!("tg-app-poise-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let (t0, each, settle) = (5.0, 62.0, 2.0);
+    let order = guided::Kind::Poise.order();
+    // 30 s/d each way, fastest at 180° (6H at the top).
+    let extra = move |t: f64| {
+        let k = ((t - t0) / each).floor();
+        if !(0.0..8.0).contains(&k) {
+            return 0.0;
+        }
+        let deg = order[k as usize].core().top_deg().unwrap();
+        30.0 * (deg - 180.0).to_radians().cos()
+    };
+    let mut app = synthetic_varying(t0 + 8.0 * each + 5.0, 4.0, extra);
+    app.session.listen();
+    let tx = queued_capture(&mut app, &base);
+    let mut test = guided::Test::poise().timed(settle, each - settle);
+    let mut t = t0;
+    test.tick(t);
+    for i in 0..order.len() {
+        t += each;
+        assert_eq!(test.tick(t), guided::Phase::Turn, "stop {i}");
+        if i + 1 < order.len() {
+            assert_eq!(test.advance(t), Some(order[i + 1]));
+        }
+    }
+    app.guided = Some(test);
+    assert!(app.test_listening());
+    assert!(app.positions_test().is_none(), "not the Positions Test's");
+    let ctx = egui::Context::default();
+    app.guided_tick(&ctx);
+    (app, base, tx)
+}
+
 /// The pane draws a test part way, before five stops are in: the table's
 /// rows in the stand's order, core's words for the fit to come, and in
 /// either view no wave yet. The Positions Test's pane keeps to its own.
@@ -154,20 +162,104 @@ fn info_shows_cores_note_on_the_band() {
     assert!(draw(&mut app, Pane::DynamicPoise).contains(&note));
 }
 
+/// Hugh's review of #1499 on a measured run: the plot's key and its
+/// dotted Mean, named as the table's Mean row; the dial's Mean ring named
+/// too; and Info says 219.5° once, in the band's note.
+#[test]
+fn the_picture_has_its_key_and_mean_and_info_says_each_fact_once() {
+    let (mut app, base, tx) = measured("key");
+    let readings = app.poise_test().unwrap().readings.clone().unwrap();
+    let (_, mean) = guided::poise_mean(&readings).unwrap();
+    let row = guided::table(&readings, guided::Kind::Poise)
+        .mean_rate
+        .unwrap();
+    assert!(mean.starts_with("Mean ") && mean.contains(&format!("{:.1}", row.abs())));
+    app.poise_view = PoiseView::Plot;
+    let plot = draw(&mut app, Pane::DynamicPoise);
+    for word in ["Upright positions (8)", "Fitted wave", mean.as_str()] {
+        assert!(plot.contains(word), "{word}: {plot}");
+    }
+    app.poise_view = PoiseView::Dial;
+    let dial = draw(&mut app, Pane::DynamicPoise);
+    assert!(
+        dial.contains(&mean) && dial.contains("Fastest 6H"),
+        "{dial}"
+    );
+    app.poise_info = true;
+    let info = draw(&mut app, Pane::DynamicPoise);
+    assert_eq!(info.matches("least at 219.5°").count(), 1, "{info}");
+    drop(tx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The table stays beside the picture, tight, while the picture keeps its
+/// least width, and the tight table fits the room it is given; narrower
+/// still the picture, the result, goes over the table (Hugh, #1499).
+#[test]
+fn the_table_tightens_beside_the_picture_then_goes_under_it() {
+    let (mut app, base, tx) = measured("layout");
+    let at = |app: &mut TimegrapherApp, w: f32| {
+        let texts = draw_at(app, Pane::DynamicPoise, Vec2::new(w, 820.0));
+        let find = |want: &str| {
+            texts
+                .iter()
+                .find(|(t, _)| t.starts_with(want))
+                .map(|(_, r)| *r)
+                .unwrap_or_else(|| panic!("{want} at {w}"))
+        };
+        (
+            find("Crown Down (CD, 9H)"),
+            find("Once-round wave"),
+            find("Beat Error"),
+        )
+    };
+    // Wide: the full table, beside.
+    let (row, title, _) = at(&mut app, 1280.0);
+    assert!(
+        title.left() > row.left() + guided::TABLE_W,
+        "{row:?} {title:?}"
+    );
+    // Narrower: tight, still beside, and within its width.
+    let (row, title, last) = at(&mut app, 900.0);
+    assert!(
+        title.left() > row.left() + guided::TIGHT_TABLE_W,
+        "{row:?} {title:?}"
+    );
+    assert!(
+        title.left() < row.left() + guided::TABLE_W,
+        "tight: {title:?}"
+    );
+    assert!(
+        last.right() <= row.left() + guided::TIGHT_TABLE_W,
+        "{last:?}"
+    );
+    // Narrow: the picture over the table.
+    let (row, title, _) = at(&mut app, 780.0);
+    assert!(title.bottom() < row.top(), "{row:?} {title:?}");
+    drop(tx);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 fn poise_pending() -> String {
     timegrapher_core::poise::pending_text()
 }
 
 /// The pane's toolbar and body drawn twice at 1280 by 820, its text.
 fn draw(app: &mut TimegrapherApp, pane: Pane) -> String {
+    draw_at(app, pane, Vec2::new(1280.0, 820.0))
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The pane drawn twice at `size`: each text and where it is.
+fn draw_at(app: &mut TimegrapherApp, pane: Pane, size: Vec2) -> Vec<(String, egui::Rect)> {
     let ctx = themed();
-    let mut drawn = String::new();
+    let mut drawn = Vec::new();
     for _ in 0..2 {
         let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                Vec2::new(1280.0, 820.0),
-            )),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
             ..Default::default()
         };
         let out = ctx.run(input, |ctx| {
@@ -183,11 +275,13 @@ fn draw(app: &mut TimegrapherApp, pane: Pane) -> String {
             .shapes
             .iter()
             .filter_map(|c| match &c.shape {
-                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    t.galley.rect.translate(t.pos.to_vec2()),
+                )),
                 _ => None,
             })
-            .collect::<Vec<_>>()
-            .join("\n");
+            .collect();
     }
     drawn
 }

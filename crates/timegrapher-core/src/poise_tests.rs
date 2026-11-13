@@ -605,6 +605,20 @@ fn the_curve_is_the_measured_wave() {
     assert!(close(c[2].1, 19.0, 1e-9), "fastest at 90°");
 }
 
+/// The fastest point is the curve's top: its hour and its rate.
+#[test]
+fn the_fastest_point_is_the_waves_top() {
+    let rate = |deg: f64| -3.0 + 5.0 * (deg - 270.0).to_radians().cos();
+    let pts: Vec<Point> = (0..8)
+        .map(|i| pt(45.0 * f64::from(i), rate(45.0 * f64::from(i)), 0.5))
+        .collect();
+    let (deg, top) = fit(&pts, None).unwrap().fastest();
+    assert!(
+        close(deg, 270.0, 1e-6) && close(top, 2.0, 1e-9),
+        "{deg} {top}"
+    );
+}
+
 /// Writes the fits the UX mock-ups are drawn from, when asked:
 /// `POISE_SAMPLES=dir cargo test -p timegrapher-core poise_samples`.
 #[test]
@@ -648,8 +662,8 @@ fn poise_samples() {
 /// --bph 28800`). They ran at 224–237°, inside the null band, so only the
 /// measured wave is stated; the amplitude is 13° lower crown up, which is
 /// named because it aliases into that wave.
-#[test]
-fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
+/// The corpus YM42 take's four verticals, at 224–237°.
+fn ym42_verticals() -> Vec<Point> {
     let rows = [
         (90.0, -15.99, 0.83, 223.8, 0.68),
         (180.0, 68.16, 2.29, 236.7, 0.43),
@@ -666,7 +680,12 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
             amplitude_se: Some(ams),
         })
         .collect();
-    let f = fit(&pts, None).unwrap();
+    pts
+}
+
+#[test]
+fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
+    let f = fit(&ym42_verticals(), None).unwrap();
     assert!(matches!(f.withheld, Some(Withheld::NullBand { .. })));
     assert!(f.heavy_spot.is_none());
     assert!(matches!(
@@ -682,6 +701,31 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
         "{}",
         f.short_text
     );
+}
+
+/// In the band the words say each fact once (Hugh, #1499): the range in
+/// the heavy spot's line only, its caveat apart from it for a pane's
+/// chip, and beside the band's note no second word on 219.5°.
+#[test]
+fn in_the_band_each_fact_is_said_once() {
+    let f = fit(&ym42_verticals(), None).unwrap();
+    let (spot, caveat) = (f.heavy_spot_line(), f.caveat_line());
+    assert_eq!(
+        spot,
+        "At 224–237°, poise barely moves the rate. Heavy spot not stated."
+    );
+    assert!(
+        caveat.starts_with("Amplitude also changes once round"),
+        "{caveat}"
+    );
+    assert_eq!(f.heavy_text, format!("{spot} {caveat}"));
+    assert_eq!(f.text.matches("224–237").count(), 1, "{}", f.text);
+    let least = "least at 219.5° amplitude";
+    assert!(f.text.contains(least), "{}", f.text);
+    let beside = f.sentence_beside_note();
+    assert!(!beside.contains(least), "{beside}");
+    assert!(null_band_note().contains(least));
+    assert!(f.text.starts_with(&beside), "{beside}");
 }
 
 /// The band's edges are where `in_null_band` turns with no ±, and the
