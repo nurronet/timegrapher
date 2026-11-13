@@ -63,3 +63,74 @@ mod tests {
         assert_eq!(label_every(0.5, 21.0, 26.0), Some(2));
     }
 }
+
+/// The labels the strip itself draws on its ms axis (#1512).
+#[cfg(test)]
+mod drawn {
+    use super::super::*;
+
+    /// The ms labels drawn on a strip lying across, `height` points tall
+    /// overall, at Width ±20 ms.
+    fn ms_labels(height: f32) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let view = StripView {
+            half_width_ms: 20.0,
+            span_s: 100.0,
+            horizontal: true,
+            still: false,
+        };
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0))),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_strip(
+                        ui,
+                        &[],
+                        0.125,
+                        None,
+                        100.0,
+                        &view,
+                        &Extras::default(),
+                        Vec2::new(460.0, height),
+                    );
+                });
+            },
+        );
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .filter(|t| t == "0 ms" || t.starts_with('+') || t.starts_with('−'))
+            .collect()
+    }
+
+    /// A short strip at ±20 ms, its 5 ms lines too close for a label
+    /// each, labels every second one: −10, 0 ms and +10, not ±5 or ±15.
+    #[test]
+    fn a_short_strip_labels_every_second_ms_line() {
+        let labels = ms_labels(180.0);
+        for shown in ["−10", "0 ms", "+10"] {
+            assert!(labels.iter().any(|t| t == shown), "{shown}: {labels:?}");
+        }
+        for skipped in ["−15", "−5.0", "+5.0", "+15"] {
+            assert!(
+                !labels.iter().any(|t| t == skipped),
+                "{skipped}: {labels:?}"
+            );
+        }
+    }
+
+    /// A strip too short for labels 10 or 20 ms apart labels only 0 ms:
+    /// the next step, 50 ms, is past both ends. (Shorter still, with no
+    /// step at all, there is no room for even 0 ms by the ends, so what
+    /// `label_every` gives as `None` draws the same.)
+    #[test]
+    fn a_strip_too_short_for_any_step_labels_only_zero() {
+        assert_eq!(ms_labels(90.0), vec!["0 ms".to_string()]);
+    }
+}
