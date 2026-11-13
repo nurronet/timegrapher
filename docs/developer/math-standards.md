@@ -268,6 +268,7 @@ Peter asked for these rules after the isochronism walk was found dropping 5 min 
 | Isochronism slope (errors in variables) | reliability λ ≥ 0.5, 30 pairs | No slope, a caveat | `amplitude_slope::MIN_RELIABILITY` | Below λ = 0.5 the correction multiplies the slope by more than 2, so the noise in x sets the answer (#651) |
 | Isochronism walk point | as any window figure: 10% withhold, 60% grey, per series (ruled 12 Nov) | Point left out or faint | `confidence::MIN_WINDOW_SHARE`, `MIN_WINDOW_COVERAGE` | Rule 2; it was 50% as a literal (finding T1) |
 | Isochronism walk | 3 points | No card | `steady_views::WALK_MIN_POINTS` | Fewer can't show a direction |
+| Isochronism walk, rate read with no amplitude past its end | 15 min (3 base bins) past the last point | No line in the facts box | `steady_views::WALK_RATE_ONLY_S` | The last point sits at its bin's middle and a take's last bin can be cut short, so a walk read to the end stops up to 1.5 bins early; 3 bins clear that edge by a whole bin, so the line names only a stretch the rate was read through with no amplitude (its doc) |
 | Autocorrelation lag, Ljung–Box | 30 pairs | Lag not read | `steadiness` `MIN_PAIRS` | Below 30 pairs a lag's correlation strays by over a third under independent readings |
 | Steadiness tests | 300 s of beats (30 rate readings) | Not run | `joined::MIN_S` | `MIN_PAIRS` worth of readings |
 | Steadiness reading | every fine window in it, from the series' one source (#1364) | Reading left out | `steadiness.rs` | Readings are compared with each other, so each must cover what it says |
@@ -287,7 +288,7 @@ Peter asked for these rules after the isochronism walk was found dropping 5 min 
 
 Each item below breaks rule 1, 2 or 4. Each gets an issue. None changes a figure except T1.
 
-- **T1. Walk 50% (`walk::walk`, `2 * r.len() < per_bin`).** A literal that differs from rule 2. To be fixed to 10%/60% in Ike's PR.
+- **T1. Walk 50% (`walk::walk`, `2 * r.len() < per_bin`).** A literal that differs from rule 2. Fixed to 10%/60% in #1496.
 - **T2. `session::UNLOCK_COVERAGE_LISTED` 0.6** restates `confidence::MIN_WINDOW_COVERAGE`. Use the one constant.
 - **T3. "30 readings" written seven times as a literal** (`steadiness_beat_error.rs`, `amplitude_slope.rs` twice, `analysis.rs` period search, `steady_views.rs` beat error search twice: in `searches` and in the views builder, and `steadiness.rs`'s structure search with its 120 s, also a literal) beside `MIN_PAIRS` and `joined::MIN_S`. Make it one named constant with `MIN_PAIRS`'s reason, or name each with its own reason.
 - **T4. The app's strip rate line needs 6 beats** (`strip.rs` `RateLine`), restating the timing fit's 6 in `timing.rs` `solve`. Name the fit's minimum in core and use it in both.
