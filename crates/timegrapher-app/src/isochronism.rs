@@ -643,34 +643,14 @@ fn place_name(
     let covered = |r: &egui::Rect| {
         let r = r.expand(3.0);
         dots.iter().filter(|d| r.contains(**d)).count()
-            + steps.iter().filter(|(a, b)| crosses(r, *a, *b)).count()
+            + steps
+                .iter()
+                .filter(|(a, b)| crate::marks::crosses(r, &[*a, *b]))
+                .count()
     };
     // `min_by_key` keeps the first of equals, so a clear place in the
     // order above wins.
     places.into_iter().min_by_key(covered).unwrap_or(places[0])
-}
-
-/// Whether the segment `a` to `b` touches `r` (Liang and Barsky's clip).
-fn crosses(r: egui::Rect, a: Pos2, b: Pos2) -> bool {
-    let d = b - a;
-    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
-    for (p, q) in [
-        (-d.x, a.x - r.left()),
-        (d.x, r.right() - a.x),
-        (-d.y, a.y - r.top()),
-        (d.y, r.bottom() - a.y),
-    ] {
-        if p == 0.0 {
-            if q < 0.0 {
-                return false;
-            }
-        } else if p < 0.0 {
-            lo = lo.max(q / p);
-        } else {
-            hi = hi.min(q / p);
-        }
-    }
-    lo <= hi
 }
 
 /// `r` moved the least way to lie inside `frame`, where it fits.
@@ -990,19 +970,6 @@ mod tests {
         // Near an edge each place is kept inside the plot.
         let edge = place_name(egui::pos2(195.0, 100.0), 11.0, size, frame, &[], &[]);
         assert!(frame.contains_rect(edge), "{edge:?}");
-    }
-
-    /// A segment touches a rect when any part of it lies inside.
-    #[test]
-    fn a_segment_crosses_a_rect_where_any_part_lies_in_it() {
-        let r = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(20.0, 20.0));
-        let p = egui::pos2;
-        assert!(crosses(r, p(0.0, 15.0), p(30.0, 15.0)));
-        assert!(crosses(r, p(15.0, 15.0), p(16.0, 16.0)));
-        assert!(crosses(r, p(0.0, 0.0), p(30.0, 30.0)));
-        assert!(!crosses(r, p(0.0, 0.0), p(30.0, 0.0)));
-        assert!(!crosses(r, p(0.0, 25.0), p(25.0, 50.0)));
-        assert!(!crosses(r, p(0.0, 15.0), p(9.0, 15.0)));
     }
 
     /// A step to a dot off the scale is drawn as its stub, coloured over
