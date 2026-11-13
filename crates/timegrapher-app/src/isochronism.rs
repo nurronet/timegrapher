@@ -16,7 +16,6 @@ use timegrapher_core::steadiness::IsochronismCurve;
 use timegrapher_core::steady_views::{
     curve_amp, headline_lines, rate_padded, walk_amp, walk_axis, walk_spans, WalkDot, WalkView,
     WALK_AMP_NAME, WALK_HINT, WALK_KEY_START, WALK_RATE_NAME, WALK_SINCE, WALK_START,
-    WALK_THIN_KEY,
 };
 
 /// Room for the vertical axis labels, as on the Steadiness pane.
@@ -475,13 +474,13 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
         crate::tfmap::ramp(ui, 120.0, |t| crate::tfmap::time_colour(dark, t));
         ui.label(small(&w.last_text));
         ui.label(small(WALK_SINCE));
-        if w.any_thin {
+        if let Some(key) = &w.thin_key {
             // A faded dot and its name, as the plot draws a thin point.
             ui.add_space(12.0);
             let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
             let c = crate::tfmap::time_colour(dark, 0.5).gamma_multiply(THIN_ALPHA);
             ui.painter().circle_filled(r.center(), 2.5, c);
-            ui.label(small(WALK_THIN_KEY));
+            ui.label(small(key));
         }
     });
 }
@@ -913,13 +912,16 @@ mod tests {
             })
             .collect()
         };
-        w.any_thin = true;
+        w.thin_key = Some("Thin: under 60% read".into());
         w.rate_only_text = Some("No amplitude read after 1 h.".into());
         let t = texts(&w);
-        assert!(t.iter().any(|t| t == WALK_THIN_KEY), "{t:?}");
-        assert!(t.iter().any(|t| t == "No amplitude read after 1 h."), "{t:?}");
+        assert!(t.iter().any(|t| t == "Thin: under 60% read"), "{t:?}");
+        assert!(
+            t.iter().any(|t| t == "No amplitude read after 1 h."),
+            "{t:?}"
+        );
         let t = texts(&walk());
-        assert!(!t.iter().any(|t| t == WALK_THIN_KEY), "{t:?}");
+        assert!(!t.iter().any(|t| t.starts_with("Thin:")), "{t:?}");
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis

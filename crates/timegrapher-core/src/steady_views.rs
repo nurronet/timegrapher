@@ -552,8 +552,9 @@ pub struct WalkView {
     pub last_text: String,
     /// The hour beads along the trail ([`walk_beads`]).
     pub beads: Vec<WalkBead>,
-    /// Whether any dot is thin: the key then names the faint mark.
-    pub any_thin: bool,
+    /// The key's entry for a faint dot ([`walk_thin_key`]), only when a
+    /// dot is thin (Hugh, 11-12).
+    pub thin_key: Option<String>,
     /// When the rate goes on [`WALK_RATE_ONLY_S`] or more past the last
     /// point with no amplitude read ([`walk::IsochronismWalk::rate_only_to_s`]),
     /// the line the facts box says so in (Hugh, 11-12).
@@ -561,12 +562,22 @@ pub struct WalkView {
 }
 
 /// How far past the walk's last point the rate must go on, with no
-/// amplitude, before the pane says so, seconds.
-pub const WALK_RATE_ONLY_S: f64 = 900.0;
+/// amplitude, before the pane says so, seconds: three of the walk's base
+/// bins. The last point sits at its bin's middle and a take's last bin
+/// can be cut short, so a walk read to the take's end stops up to one and
+/// a half bins before it; three bins clear that edge by a whole bin, so
+/// the line names only a stretch the rate was read through with no
+/// amplitude, never the take's own end (Norm, Hugh, 11-12).
+pub const WALK_RATE_ONLY_S: f64 = 3.0 * walk::WALK_BIN_S;
 
-/// The key's entry for a faint dot, beside the colour bar, shown only when
-/// the walk has a thin point (Hugh, 11-12).
-pub const WALK_THIN_KEY: &str = "Thin: under 60% read";
+/// The key's entry for a faint dot, beside the colour bar, from core's
+/// coverage floor ([`crate::confidence::MIN_WINDOW_COVERAGE`]).
+pub fn walk_thin_key() -> String {
+    format!(
+        "Thin: under {:.0}% read",
+        crate::confidence::MIN_WINDOW_COVERAGE * 100.0
+    )
+}
 
 /// A bead on the walk's trail marking a round hour: the dot nearest that
 /// hour and the hour as the card writes it ("12 h").
@@ -749,7 +760,7 @@ pub fn walk_view(w: &walk::IsochronismWalk) -> Option<WalkView> {
             )
         });
     Some(WalkView {
-        any_thin: dots.iter().any(|d| d.thin),
+        thin_key: dots.iter().any(|d| d.thin).then(walk_thin_key),
         rate_only_text,
         beads: walk_beads(&dots, last_hours),
         last_text: hours_text(last_hours),
@@ -1615,11 +1626,12 @@ mod tests {
             Some("No amplitude read after 63 h. The rate to 65 h is on the Paper Strip.")
         );
         assert_eq!(v.last_text, "63 h");
-        assert!(!v.any_thin);
+        assert_eq!(v.thin_key, None);
         w.points[0].thin = true;
-        assert!(walk_view(&w).unwrap().any_thin);
-        let pct = format!("{:.0}%", crate::confidence::MIN_WINDOW_COVERAGE * 100.0);
-        assert!(WALK_THIN_KEY.contains(&pct));
+        assert_eq!(
+            walk_view(&w).unwrap().thin_key.as_deref(),
+            Some("Thin: under 60% read")
+        );
     }
 
     fn walk_of(points: &[(f64, f64, f64, usize)]) -> walk::IsochronismWalk {
