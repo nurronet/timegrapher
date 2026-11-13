@@ -645,6 +645,46 @@ mod source_tests {
         });
     }
 
+    /// Rate, Amplitude and Beat Error alike, at one plot height with the
+    /// values running across the plot under where one column of four rows
+    /// would reach: each flows its four rows into two columns, clear of
+    /// the values, before it sheds any (Walter and Hugh, #1535).
+    #[test]
+    fn every_series_flows_before_it_sheds() {
+        use timegrapher_core::distribution::{self as dist, Distribution};
+        let v: Vec<f64> = (0..400)
+            .map(|i| f64::from(i % 50) * 0.1 + if i % 97 == 0 { 40.0 } else { 0.0 })
+            .collect();
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                // Room for every row in one column, as at 1280 by 1300.
+                let t = egui_plot::PlotTransform::new(
+                    egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1200.0, 100.0)),
+                    egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
+                    egui::Vec2b::new(false, false),
+                );
+                // Values across the whole width, 66 points down: under one
+                // column's foot (4 + 2 x 8 + 4 x 16 = 84), below two's (52).
+                let y = 1.0 - 66.0 / 100.0;
+                let tops: Vec<[f64; 2]> = (0..=100).map(|i| [f64::from(i) / 100.0, y]).collect();
+                for kind in [dist::RATE, dist::AMPLITUDE, dist::BEAT_ERROR] {
+                    let d = dist::distribution(&v, kind, "readings", 10.0).unwrap();
+                    let rows = d.fact_rows(kind);
+                    assert_eq!(rows.len(), 4, "{}: {rows:?}", kind.series);
+                    let shed = Distribution::fact_shed(&rows);
+                    let mut b = facts_box(ui, kind.series, rows, shed);
+                    b.tops = tops.clone();
+                    let (shown, r) = b.layout(&t);
+                    assert_eq!(shown.len(), 4, "{}: {shown:?}", kind.series);
+                    assert!(r.height() < 60.0, "{}: one column {r:?}", kind.series);
+                    assert!(!b.covers(&t, r, 0.0), "{}: {r:?}", kind.series);
+                }
+            });
+        });
+    }
+
     /// Three plots stacked keep the last one's axis inside the pane: each
     /// gap's layout spacing is counted (Walter's walk of #1535).
     #[test]

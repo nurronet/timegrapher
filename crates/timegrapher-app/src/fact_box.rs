@@ -71,7 +71,13 @@ impl FactBox {
     /// Where the box goes in a plot whose frame is `frame`, `rows` tall.
     /// Fewer than four rows of facts make a short box, as narrow as its
     /// rows and tight around them.
+    #[cfg(test)]
     pub(crate) fn rect(&self, frame: egui::Rect, rows: usize) -> egui::Rect {
+        self.rect_in(frame, rows, self.columns(frame, rows))
+    }
+
+    /// As [`Self::rect`], in `cols` columns.
+    fn rect_in(&self, frame: egui::Rect, rows: usize, cols: usize) -> egui::Rect {
         let short = self.is_short(rows);
         let (name_w, value_w) = if short {
             (self.short_name_w, self.short_value_w)
@@ -79,7 +85,6 @@ impl FactBox {
             (self.name_w, self.value_w)
         };
         let pad = self.pad(rows);
-        let cols = self.columns(frame, rows);
         let tall = rows.div_ceil(cols);
         let cols = cols as f32;
         egui::Rect::from_min_size(
@@ -164,14 +169,29 @@ impl FactBox {
         (0..len).filter(|i| !gone.contains(i)).collect()
     }
 
-    /// The box of `rows` in the top left corner and in the top right.
+    /// The column counts to try for `rows` of the box in `frame`, in
+    /// turn: the one [`Self::columns`] takes, then two for a box that
+    /// [`Self::flow`]s, so that a box whose one column would run over the
+    /// trace flows before it sheds a row (Hugh, #1528).
+    fn column_tries(&self, frame: egui::Rect, rows: usize) -> Vec<usize> {
+        let first = self.columns(frame, rows);
+        if first == 1 && rows > 1 && self.flow && self.keep.is_none() {
+            vec![1, 2]
+        } else {
+            vec![first]
+        }
+    }
+
+    /// The box of `rows` in `cols` columns in the top left corner and in
+    /// the top right.
     pub(crate) fn corners(
         &self,
         t: &egui_plot::PlotTransform,
         rows: usize,
+        cols: usize,
     ) -> (egui::Rect, egui::Rect) {
         let frame = *t.frame();
-        let r = self.rect(frame, rows);
+        let r = self.rect_in(frame, rows, cols);
         (
             r,
             r.translate(egui::vec2(frame.right() - FACT_INSET - r.right(), 0.0)),
@@ -197,30 +217,43 @@ impl FactBox {
     /// all four. A layout other than the one last drawn must clear the
     /// trace by [`FACT_HOLD`] more.
     pub(crate) fn layout(&self, t: &egui_plot::PlotTransform) -> (Vec<usize>, egui::Rect) {
+        let (shown, r, _) = self.placed(t);
+        (shown, r)
+    }
+
+    /// As [`Self::layout`], with the columns the rows take: before
+    /// shedding a row, a box that flows tries its rows in two columns,
+    /// half as tall, in either corner.
+    fn placed(&self, t: &egui_plot::PlotTransform) -> (Vec<usize>, egui::Rect, usize) {
+        let frame = *t.frame();
         let shown = self.shown(t);
         if self.tops.is_empty() || shown.is_empty() {
-            let r = self.corners(t, shown.len().max(1)).0;
-            return (shown, r);
+            let n = shown.len().max(1);
+            let cols = self.columns(frame, n);
+            let r = self.corners(t, n, cols).0;
+            return (shown, r, cols);
         }
         for n in (1..=shown.len()).rev() {
-            let (left, right) = self.corners(t, n);
-            for (r, right) in [(left, false), (right, true)] {
-                let more = if self.was.is_none_or(|w| w == (n, right)) {
-                    0.0
-                } else {
-                    FACT_HOLD
-                };
-                if !self.covers(t, r, more) {
-                    let kept = if self.keep.is_some() {
-                        shown[shown.len() - n..].to_vec()
+            for cols in self.column_tries(frame, n) {
+                let (left, right) = self.corners(t, n, cols);
+                for (r, right) in [(left, false), (right, true)] {
+                    let more = if self.was.is_none_or(|w| w == (n, right)) {
+                        0.0
                     } else {
-                        self.kept(n)
+                        FACT_HOLD
                     };
-                    return (kept, r);
+                    if !self.covers(t, r, more) {
+                        let kept = if self.keep.is_some() {
+                            shown[shown.len() - n..].to_vec()
+                        } else {
+                            self.kept(n)
+                        };
+                        return (kept, r, cols);
+                    }
                 }
             }
         }
-        (Vec::new(), self.corners(t, 1).0)
+        (Vec::new(), self.corners(t, 1, 1).0, 1)
     }
 
     /// The span of x the box takes, as `t` draws it, its sides 0 wide at
@@ -243,7 +276,7 @@ impl egui_plot::PlotItem for FactBox {
         transform: &egui_plot::PlotTransform,
         shapes: &mut Vec<egui::Shape>,
     ) {
-        let (shown, r) = self.layout(transform);
+        let (shown, r, cols) = self.placed(transform);
         // Kept for the next frame's layout, as `held` reads it.
         let right = r.right() >= transform.frame().right() - FACT_INSET - 0.5;
         ui.ctx()
@@ -256,9 +289,7 @@ impl egui_plot::PlotItem for FactBox {
         shapes.push(egui::Shape::rect_filled(r, 6.0, self.fill));
         let font = egui::FontId::proportional(FACT_SIZE);
         // Down the first column, then the second, when they flow.
-        let tall = shown
-            .len()
-            .div_ceil(self.columns(*transform.frame(), shown.len()));
+        let tall = shown.len().div_ceil(cols);
         let col_w =
             (r.width() - 2.0 * pad + FACT_COLUMN_GAP) / shown.len().div_ceil(tall.max(1)) as f32;
         for (i, (name, value)) in shown.iter().map(|&k| &self.rows[k]).enumerate() {

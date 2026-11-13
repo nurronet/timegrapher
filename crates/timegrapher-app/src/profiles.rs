@@ -499,7 +499,7 @@ fn facts_hover(
     if shown.len() < FACT_NAMES.len() || note.is_some() {
         // Where no row is drawn, the corner a one-row box would take.
         let r = if shown.is_empty() {
-            facts_here.corners(&resp.transform, 1).0
+            facts_here.corners(&resp.transform, 1, 1).0
         } else {
             r
         };
