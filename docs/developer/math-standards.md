@@ -113,7 +113,7 @@ One idea, one word (decided 29 Oct, R7): every entry below is a **cut** of some 
 |---|---|---|
 | **Rate fit** | One straight line through every good beat's time against its number, with Tick and Tock offset by the beat error. Its slope gives the rate. It is fitted twice more without beats over 5 robust SD from the line. | `timing.rs:163` |
 | **2 s window** | 2 s of beats, laid end to end. For each side, the sound of its good beats (3 or more) is averaged into one shape, and the unlock and drop are found on it. It gives amplitude for Tick and Tock, and beat error from the unlock and from the drop. | `amplitude.rs:296` |
-| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a beat in every 2 s part and no cut. It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
+| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a good beat (one the fit times from) in every 2 s part and no cut (#1432). It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
 | **Reading** | The figures over one span: rate from the rate fit; amplitude and unlock beat error as the median of its 2 s windows; each with its ± and caveats. | `session::measure_masked` |
 | **Bin** | A 10 s piece of true time, laid end to end. A bin is whole when it reaches into no cut and every 2 s part holds a beat. Power Reserve counts whole bins as the time read. | `Cuts::bins` |
 | **Series** | Readings in time order, for charts and Steadiness tests. | `steadiness.rs` |
@@ -251,7 +251,7 @@ Peter asked for these rules after the isochronism walk was found dropping 5 min 
 |---|---|---|---|---|
 | Any timing fit | 6 good beats | No figure | `timing.rs` `solve` (literal; finding T4) | Not recorded beyond the fit's 3 unknowns (finding T8) |
 | Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing::MIN_PIECE_S` | One 10 s bin; a few seconds of beats give a rate several s/d out (its doc) |
-| 10 s rate window | a beat in every 2 s part, no hole | Window left out | `clean.rs` | The window tiling: a hole would make the window shorter than it says |
+| 10 s rate window | a good beat in every 2 s part, no hole | Window left out | `clean.rs` | The window tiling: a hole would make the window shorter than it says, and the fit times from good beats only, so good beats in only part of it would read the scatter of that part alone (#1432) |
 | Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs` | Not recorded (finding T8) |
 | Amplitude reading | 1 window, then the 10% floor below | No figure | `session.rs` | A median needs one value; the share floor does the real gating |
 | Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` | Under a tenth, a median is set by the few windows that found the sound, which near a run-down's end may be noise (#1429) |
