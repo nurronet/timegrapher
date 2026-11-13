@@ -21,9 +21,6 @@ const PIN_W: f32 = 40.0;
 /// Room between the pieces of text in a strip's card, and inside its
 /// edges, pt.
 const SPACE: f32 = 8.0;
-/// The type size of the watch cell's narrowest choice, a step under its
-/// usual 13 pt.
-const NARROW_PT: f32 = 12.0;
 
 /// A piece of a strip card's text: its words, size in pt, and whether it
 /// is the strong text or the quiet.
@@ -168,6 +165,12 @@ impl TimegrapherApp {
             ],
         );
         fit(ui, inner(cells[5]), &self.watch_pieces());
+        if self.open_watch().is_none() {
+            // The cell may show the beat rate cut short: its hover gives
+            // the calibre, lift angle and beat rate in full (Hugh, #1526).
+            ui.interact(cells[5], ui.id().with("watch cell"), egui::Sense::hover())
+                .on_hover_text(self.watch_detail());
+        }
         // Listen: ▶, then the take's length and state.
         let listen = inner(cells[1]);
         let mut go = ui.new_child(
@@ -215,17 +218,25 @@ impl TimegrapherApp {
     /// angle and beat rate; where that doesn't fit, a watch's name alone
     /// (its record holds the rest), or in a Quick Listen the lift angle and
     /// beat rate, which the watchmaker sets there.
-    pub(super) fn watch_pieces(&self) -> Vec<Vec<Piece>> {
+    /// The watch cell's calibre, lift angle and beat rate in full:
+    /// "Not Set · 52° · Auto 28800".
+    fn watch_detail(&self) -> String {
         let heard = self.live.as_ref().and_then(|l| l.bph());
         let bph = self.bph_shown(self.bph_set_by_calibre(), heard);
-        let angle = format!("{}°", fields::plain(self.lift_deg));
-        let lift = format!("{angle} · {bph}");
         let calibre = if self.calibre.is_empty() {
             "Not Set"
         } else {
             &self.calibre
         };
-        let detail = format!("{calibre} · {lift}");
+        format!("{calibre} · {}° · {bph}", fields::plain(self.lift_deg))
+    }
+
+    pub(super) fn watch_pieces(&self) -> Vec<Vec<Piece>> {
+        let heard = self.live.as_ref().and_then(|l| l.bph());
+        let bph = self.bph_shown(self.bph_set_by_calibre(), heard);
+        let angle = format!("{}°", fields::plain(self.lift_deg));
+        let lift = format!("{angle} · {bph}");
+        let detail = self.watch_detail();
         match self.open_watch().map(|e| e.watch.name.clone()) {
             Some(name) => vec![
                 vec![strong(&name, 15.0), quiet(&detail, 13.0)],
@@ -233,15 +244,22 @@ impl TimegrapherApp {
             ],
             // With no watch the lift angle and the beat rate are what a
             // watchmaker checks at a glance, so the narrowest keeps both,
-            // smaller, the angle first: where even that is too wide the
-            // beat rate is the one cut short (Peter, #1526).
+            // the angle first and the beat rate without "Auto": where even
+            // that is too wide the beat rate is the one cut short (Peter,
+            // #1526; Hugh). The cell's hover gives it in full.
             None => vec![
                 vec![strong("No Watch", 15.0), quiet(&detail, 13.0)],
                 vec![quiet(&lift, 13.0)],
-                vec![quiet(&angle, NARROW_PT), quiet(&bph, NARROW_PT)],
+                vec![quiet(&angle, 13.0), quiet(bare_bph(&bph), 13.0)],
             ],
         }
     }
+}
+
+/// The beat rate as the strip's narrowest watch cell writes it: without
+/// the "Auto " the Calibre card puts before a rate it found, "28800".
+fn bare_bph(bph: &str) -> &str {
+    bph.strip_prefix("Auto ").unwrap_or(bph)
 }
 
 fn strong(words: &str, size: f32) -> Piece {
