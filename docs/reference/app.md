@@ -755,7 +755,12 @@ takes it) and the size of the change in the mean rate (Ie), all from
 core `session::evaluate` as `timegrapher session` reads the two
 together. Its CSV and Copy add the full-wind test's start, the hours
 since and that table, and the session file marks its stretches with
-`wind_h`, the hours since full wind.
+`wind_h`, the hours since full wind. Saving the session keeps this
+test's results as `positions-test.json` too, with `wind_h` and `against`
+(below), so the take opens on This Test, N h After Full Wind and the
+Full Wind Against N Hours table again, built from the saved figures
+alone, and Watches lists it as a Positions Test (#1347). Compare With
+never offers such a file, and Load Full-Wind Results… refuses one.
 
 `positions-test.json` (format `timegrapher.positions-test/1`; later
 versions add keys) holds `format`, `began_utc` and `began_unix` (when the
@@ -767,6 +772,10 @@ position in the order measured, with `position` (DU, DD, CD, CL, CU or
 CR, as in `session.toml`), `rate_s_per_day`, `amplitude_deg` and
 `beat_error_ms` (a size), each null when not measured. Files saved before
 `bph`, `lift_angle_deg`, `settle_s` and `measure_s` were kept still load.
+A 24 hours after test's file adds `wind_h` (the hours since the
+full-wind test began, to a tenth) and `against` (the full-wind test's
+results it was set against, in this same form); a full-wind test's file
+has neither.
 
 **Dynamic Poise.** The Dynamic Poise pane (#1474), a hidden tab beside
 the Positions Test to begin with, runs the same guided test through the
@@ -2038,7 +2047,7 @@ when. It holds:
 | `clock.csv` | System time against frames captured, every 10 s, and on both sides of each break; frames run on across a break, with no line made up for the gap |
 | `session.json` | Watch, position, lift angle, beat rate, device, start and end, position changes, the readings at the end, and (only once the take has a break, such as the computer sleeping while it listened) `breaks`: one entry per break with `frame` (frames in the take before it), `audio_s`, `segment` (its first file), `utc` (host time of its first frame), `gap_s` (host time missing, from the clock log either side) and `device` (the input after it) |
 | `session.toml` | The session file `timegrapher session` reads: watch, calibre (with the wheels of a custom one), lift angle, beat rate, and one `[[recording]]` per stretch in one position with its `start_s` and `end_s` (for a take saved during a Positions Test, the test's own measured stretches, after each settling and for its measuring time, so `timegrapher session` reads the seconds its table did, with `wind_h` in the 24 hour half) |
-| `positions-test.json` | Only for a finished Positions Test run just after winding: its results, to load for the test 24 hours later (the format is under Full wind against 24 hours) |
+| `positions-test.json` | Only for a finished Positions Test: run just after winding, its results, to load for the test 24 hours later; run 24 hours after, its results with the full-wind ones it was set against (the format is under Full wind against 24 hours) |
 
 At start-up the app keeps as FLAC, in the background, any hour of a take
 in the Watches folder that is still a WAV (saved before hours were kept

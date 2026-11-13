@@ -219,6 +219,15 @@ impl TimegrapherApp {
         }
     }
 
+    /// A Positions Test's take opened from `dir`: a 24 hour half's saved
+    /// results, so its pane shows the run's table and comparison again.
+    pub(super) fn load_saved_test(&mut self, dir: &Path) {
+        self.guided_saved = std::fs::read_to_string(dir.join(guided::RESULTS_FILE))
+            .ok()
+            .and_then(|t| guided::FullWind::from_json(&t).ok())
+            .filter(|f| f.against.is_some());
+    }
+
     /// The Positions Test, if that is the guided test on the Bench.
     pub(super) fn positions_test(&self) -> Option<&guided::Test> {
         self.guided
@@ -434,7 +443,9 @@ impl TimegrapherApp {
                 self.info_msg("Copied the Positions Test table".to_string());
             }
         }
-        if let Some(k) = self.guided.as_ref().and_then(|t| t.kept(&about)) {
+        // Only a full-wind test's results are for the 24 hour half.
+        let kept = self.guided.as_ref().and_then(|t| t.kept(&about));
+        if let Some(k) = kept.filter(|k| k.wind_h.is_none()) {
             let hint = format!(
                 "Save these results to load when you run the test again 24 hours after winding. \
                  Saving the session keeps them too, as {} in its folder.",
@@ -508,6 +519,7 @@ impl TimegrapherApp {
             self.guided.as_ref().filter(|t| ours(t)),
             phase,
             self.guided_earlier.as_ref(),
+            self.guided_saved.as_ref(),
             free.as_ref(),
             live.as_ref(),
             self.guided_settle_s,

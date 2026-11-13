@@ -1808,7 +1808,13 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
             state(k as f64 / 10.0, &rs)
         })
         .collect();
+    evaluate_states(states, findings(readings))
+}
 
+/// [`evaluate`] from the states of wind already read, fullest first,
+/// with the conditions `findings`: for figures kept without their
+/// readings, such as a saved Positions Test's.
+pub fn evaluate_states(states: Vec<StateIndices>, findings: Vec<Finding>) -> SessionReport {
     // Isochronism: each position from the fullest to the least wound
     // state it was measured in.
     let mut isochronism = Vec::new();
@@ -1870,7 +1876,6 @@ pub fn evaluate(readings: &[Reading]) -> SessionReport {
         }
         _ => None,
     };
-    let findings = findings(readings);
     SessionReport {
         states,
         isochronism,

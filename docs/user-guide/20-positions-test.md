@@ -126,6 +126,11 @@ and amplitude at full wind and now, and the change; the largest change in
 rate with crown right left out (**Im**); and the size of the change in the
 mean rate (**Ie**). M8 gives how each is worked out.
 
+Saving the session keeps the 24-hour test's results with the full-wind
+results it was set against. Opened again later, the take shows its own
+table and the Full Wind Against N Hours table as the run did, from those
+saved figures, and Watches lists it as a Positions Test.
+
 ## What to Look For
 
 | What you see | What it can mean |
