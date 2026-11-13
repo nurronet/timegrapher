@@ -3114,7 +3114,7 @@ impl TimegrapherApp {
                 });
                 self.steady_info.set(view, info);
             }
-            Pane::Isochronism => theme::pane_toolbar(ui, title, &help::ISOCHRONISM, |ui| {
+            Pane::Isochronism => isochronism::toolbar(ui, title, |ui| {
                 isochronism::view_choice(ui, &mut self.iso_view);
                 self.export_button(ui, pane)
             }),

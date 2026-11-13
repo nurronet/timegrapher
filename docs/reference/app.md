@@ -905,7 +905,17 @@ start, a large dot the end with its hour, and a ring each 12 h (24 h on a
 take over 96 h) with its hour beside it; each dot's hover
 is core's. Each axis is named with its unit over the numbers, and the plot
 is never taller than 1.1 times its width. Both views span the same amplitudes, so a degree stays put
-when the view changes, and the curve's headline stays above either. The
+when the view changes. No words sit on the plot (#1507): a title line
+above either view gives the slope with its ± and the amplitudes it spans
+("Rate · −0.17 ± 0.02 s/d per degree, 119° to 173°"); a facts box in the
+emptiest top corner gives the median rate at the lowest and the highest
+step, and in the Walk, last, where the amplitude stops being read while
+the rate goes on ("No amplitude after 63 h"); a key row under the plot
+names the dots ("Median rate in each 2° of amplitude (28)") or keeps the
+Walk's colour key; a dot's hover gives its step's median, middle half and
+readings. The **i** in the toolbar opens the finding in full, how the
+slope and its ± are read (errors in variables, Fuller 1987) and, in the
+Walk, where the rate goes on with no amplitude. The view
 setting is kept between runs. The curve
 needs the amplitude to fall
 through at least three 2° steps, which a run-down over some hours gives
