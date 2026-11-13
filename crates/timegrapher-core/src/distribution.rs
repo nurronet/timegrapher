@@ -204,46 +204,64 @@ impl Distribution {
         only: Option<&str>,
         sign: fn(String) -> String,
     ) -> String {
-        let d = kind.decimals;
-        let f = |x: f64| sign(format!("{x:.d$}{}", kind.suffix));
+        let g = self.figures(kind, sign);
         let per = if self.values == "2 s" {
             "2-second stretches"
         } else {
             "readings"
         };
         let mut line = format!(
-            "{} {per}{over} · median {} · middle 80% {} to {}",
+            "{} {per}{over} · median {}{u} · middle 80% {}{u} to {}{u}",
             self.n,
-            f(self.median),
-            f(self.p10),
-            f(self.p90)
+            g.median,
+            g.p10,
+            g.p90,
+            u = g.suffix
         );
         if let Some(p) = only {
             line += &format!(" · {p} only");
         }
-        let off = self.below + self.above;
-        if off > 0 {
+        if let Some(off) = g.off {
             let s = crate::measure::plural(off);
             line += &format!(" · {off} outlier{s} off the scale");
         }
-        if self.peaks.len() > 1 {
-            let at: Vec<String> = self.peaks.iter().map(|&x| f(x)).collect();
-            line += &format!(" · {} peaks, at {}", self.peaks.len(), at.join(" and "));
+        if let Some(at) = g.peaks {
+            line += &format!(" · {} peaks, at {}", at.len(), at.join(" and "));
         }
         line
     }
-}
 
-impl Distribution {
+    /// The figures the summary line and the facts box both give, each
+    /// number through `sign`: the median and the middle 80%'s ends
+    /// without their unit, the values off the scale when there are any,
+    /// and the peaks, with their unit, when there is more than one.
+    fn figures(&self, kind: Kind, sign: fn(String) -> String) -> Figures {
+        let d = kind.decimals;
+        let num = |x: f64| sign(format!("{x:.d$}"));
+        let off = self.below + self.above;
+        Figures {
+            median: num(self.median),
+            p10: num(self.p10),
+            p90: num(self.p90),
+            suffix: kind.suffix,
+            off: (off > 0).then_some(off),
+            peaks: (self.peaks.len() > 1).then(|| {
+                self.peaks
+                    .iter()
+                    .map(|&x| format!("{}{}", num(x), kind.suffix))
+                    .collect()
+            }),
+        }
+    }
+
     /// The figures the app's facts box shows on the plot, as `(name,
     /// value)` rows with a true minus (#1528): the count, the median, the
     /// middle 80%, then the values off the scale and the peaks, each only
     /// when there are any (two peaks or more). The same figures as
-    /// [`Distribution::screen_line`].
+    /// [`Distribution::screen_line`], from the same [`Figures`].
     pub fn fact_rows(&self, kind: Kind) -> Vec<(String, String)> {
-        let d = kind.decimals;
-        let num = |x: f64| crate::figure_text::true_minus(&format!("{x:.d$}"));
-        let f = |x: f64| format!("{}{}", num(x), kind.suffix);
+        let g = self.figures(kind, |x| crate::figure_text::true_minus(&x));
+        let u = g.suffix;
         let count = if self.values == "2 s" {
             "2 s stretches"
         } else {
@@ -251,22 +269,31 @@ impl Distribution {
         };
         let mut rows = vec![
             (count.to_string(), self.n.to_string()),
-            ("Median".to_string(), f(self.median)),
+            ("Median".to_string(), format!("{}{u}", g.median)),
             (
                 "Middle 80%".to_string(),
-                format!("{} to {}", num(self.p10), f(self.p90)),
+                format!("{} to {}{u}", g.p10, g.p90),
             ),
         ];
-        let off = self.below + self.above;
-        if off > 0 {
+        if let Some(off) = g.off {
             rows.push(("Off the scale".to_string(), off.to_string()));
         }
-        if self.peaks.len() > 1 {
-            let at: Vec<String> = self.peaks.iter().map(|&x| f(x)).collect();
+        if let Some(at) = g.peaks {
             rows.push(("Peaks".to_string(), at.join(" and ")));
         }
         rows
     }
+}
+
+/// A distribution's figures as text, for [`Distribution::line`] and
+/// [`Distribution::fact_rows`].
+struct Figures {
+    median: String,
+    p10: String,
+    p90: String,
+    suffix: &'static str,
+    off: Option<usize>,
+    peaks: Option<Vec<String>>,
 }
 
 /// Seconds of beats in each "2 s" value: the amplitude's window, which
@@ -612,15 +639,26 @@ mod tests {
         let readings = distribution(&v, RATE, "readings", 10.0).unwrap();
         assert_eq!(readings.fact_rows(RATE)[0].0, "Readings");
         // Two states: the peaks row names both.
-        let two: Vec<f64> = (0..200)
-            .map(|i| if i % 2 == 0 { 5.0 } else { 15.0 } + f64::from(i % 3) * 0.1)
+        let mut seed = 1u64;
+        let mut u = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let two: Vec<f64> = (0..2000)
+            .map(|i| {
+                let mid = if i % 2 == 0 { -5.0 } else { 5.0 };
+                let (a, b) = (u(), u());
+                mid + (-2.0 * a.ln()).sqrt() * (std::f64::consts::TAU * b).cos()
+            })
             .collect();
         let d = distribution(&two, RATE, "readings", 10.0).unwrap();
-        if d.peaks.len() > 1 {
-            let rows = d.fact_rows(RATE);
-            let peaks = &rows.last().unwrap();
-            assert_eq!(peaks.0, "Peaks");
-            assert!(peaks.1.contains(" s/d and "), "{rows:?}");
-        }
+        assert_eq!(d.peaks.len(), 2, "{:?}", d.peaks);
+        let rows = d.fact_rows(RATE);
+        let peaks = &rows.last().unwrap();
+        assert_eq!(peaks.0, "Peaks");
+        assert!(peaks.1.contains(" s/d and "), "{rows:?}");
+        assert!(peaks.1.starts_with('\u{2212}'), "{rows:?}");
     }
 }
