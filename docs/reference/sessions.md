@@ -339,7 +339,7 @@ anything lower, read back as 0). Stretches with no beats are left out.
 ## What each reading is
 
 After `settle_s` (default 20 s: the "20 s stabilisation time" of Witschi's
-*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, about p. 34), to the end
+*Testing Methods for Mechanical Watches*, D40e, 2025, measurement tips, p. 33), to the end
 of the recording or for `measure_s`. A `settle_s` given (on the entry, the
 session file or `--settle`) is kept as it is: an entry it leaves nothing
 of is left out with a note naming it, and the rest are read. The 20 s
@@ -370,7 +370,8 @@ Each reading is:
   and Tock `amplitude_odd_deg`);
 - jitter, and the median and the 5th to 95th percentile of rate in 10 s
   windows: how steady the rate is. A 10 s window is used only when each
-  2 s of it holds a beat and it reaches into no cut; it needs no beat at
+  2 s of it holds a good beat (one the fit times from) and it reaches
+  into no cut (#1432); it needs no beat at
   or after its end, so a stretch of exactly 10 s has one. The headline rate is the fit over
   every beat (over the stretches between cuts, as above), the average the
   hands keep; where the rate wanders with dips (the Yacht-Master crown

@@ -4,6 +4,7 @@ mod calibres_cmd;
 mod clock_cmd;
 mod corpus;
 mod doctor;
+mod excerpt_cmd;
 mod long;
 mod output;
 mod profile_cmd;
@@ -18,6 +19,7 @@ mod shape_cmd;
 mod synth_cmd;
 mod update_cmd;
 mod watches_cmd;
+mod watches_edit;
 
 use clap::{Parser, Subcommand};
 use std::fs::File;
@@ -577,6 +579,10 @@ enum Command {
         /// Leave the audio out.
         #[arg(long)]
         no_audio: bool,
+        /// Leave the take's analysis (its beats and amplitude windows) out,
+        /// which saves reading the whole recording once more.
+        #[arg(long)]
+        no_analysis: bool,
         /// What the report is about (default: reading with a recording, bug
         /// without).
         #[arg(long, value_enum)]
@@ -602,14 +608,36 @@ enum Command {
         cc0: bool,
         /// Run the commands of this bundle (zip or unpacked folder) with
         /// this build and show what moved.
-        #[arg(long, conflicts_with_all = ["recording", "no_audio", "note", "out", "cc0", "listened_back"])]
+        #[arg(long, conflicts_with_all = ["recording", "no_audio", "no_analysis", "note", "out", "cc0", "listened_back"])]
         replay: Option<PathBuf>,
         /// Print the manifest (or the replay) as JSON.
         #[arg(long)]
         json: bool,
     },
+    /// Write a stretch of a recording or take as one FLAC file, its
+    /// samples untouched: for a program that keeps the sound beside a
+    /// reading. Never opens the microphone; never writes over a file.
+    Excerpt {
+        /// The recording (a file, or a take folder of segments).
+        #[arg(required = true)]
+        recording: Vec<PathBuf>,
+        /// The FLAC file to write. It must not exist yet.
+        #[arg(long)]
+        out: PathBuf,
+        /// Start of the excerpt, seconds into the recording.
+        #[arg(long, default_value_t = 0.0)]
+        from: f64,
+        /// End of the excerpt, seconds into the recording (default: its end).
+        #[arg(long)]
+        to: Option<f64>,
+        /// Print what was written as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// The watches in the library the app keeps, with their details and
-    /// takes, and the takes Quick Listen left in Unsorted. It only reads.
+    /// takes, and the takes Quick Listen left in Unsorted; and the changes
+    /// the app's Watches view makes (new, edit, add-take, move-take,
+    /// keep-analysis-only, delete-take, add-photos, delete-photo).
     Watches {
         #[command(subcommand)]
         action: WatchesAction,
@@ -678,6 +706,8 @@ enum WatchesAction {
     /// folder to pass to `session`, `long` or `series`. `Unsorted` shows
     /// the takes Quick Listen made.
     Show { name: String },
+    #[command(flatten)]
+    Change(watches_edit::Change),
 }
 
 #[derive(Subcommand)]
@@ -786,6 +816,19 @@ fn run(c: Command) -> Result<(), String> {
         }
         c @ (Command::Long { .. } | Command::Series { .. }) => long_command(c),
         c @ (Command::Session { .. } | Command::Report { .. }) => session_command(c),
+        Command::Excerpt {
+            recording,
+            out,
+            from,
+            to,
+            json,
+        } => excerpt_cmd::run(&excerpt_cmd::Options {
+            recording,
+            out,
+            from,
+            to,
+            json,
+        }),
         c @ (Command::Synth { .. }
         | Command::Calibres { .. }
         | Command::Watches { .. }
@@ -1028,6 +1071,7 @@ fn session_command(c: Command) -> Result<(), String> {
             at,
             span,
             no_audio,
+            no_analysis,
             kind,
             note,
             bph,
@@ -1050,6 +1094,7 @@ fn session_command(c: Command) -> Result<(), String> {
                     at,
                     span,
                     no_audio,
+                    no_analysis,
                     kind,
                     note,
                     bph,
@@ -1117,6 +1162,7 @@ fn table_command(c: Command) -> Result<(), String> {
         } => match action {
             WatchesAction::List { all } => watches_cmd::list(library.as_deref(), all, json),
             WatchesAction::Show { name } => watches_cmd::show(&name, library.as_deref(), json),
+            WatchesAction::Change(c) => watches_edit::run(&c, library.as_deref(), json),
         },
         Command::Devices {
             json,

@@ -23,7 +23,8 @@ Suisse, the Swiss watch industry's standards; the project's
 | CR, crown right | 12H | vertical |
 
 Witschi's codes count round the dial with the crown at 3 o'clock, so crown
-up is 3H and crown right 12H.
+up is 3H and crown right 12H (Witschi, _Testing Methods for Mechanical Watches_, 2025,
+p. 21).
 
 ## How It Is Worked Out
 

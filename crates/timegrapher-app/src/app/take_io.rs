@@ -1073,6 +1073,12 @@ impl TimegrapherApp {
                     ));
                 }
                 self.save_dir = s.parent.display().to_string();
+                // A take saved with listening stopped is whole: the command
+                // the user set runs on it. A take saving into its folder as
+                // it goes isn't yet.
+                if s.streamed == Streamed::No && !self.running() {
+                    self.run_after_save_command(&copy.dir);
+                }
                 self.session.mark_saved(s.secs, copy.dir, s.metadata);
                 if s.rescan {
                     if let Ok(Some(l)) = &mut self.library {
@@ -1082,6 +1088,18 @@ impl TimegrapherApp {
             }
             Ok(Err(e)) => self.save_failed(s.streamed, &s.dest, e.to_string()),
             Err(_) => self.save_failed(s.streamed, &s.dest, "it stopped part way".into()),
+        }
+    }
+
+    /// Settings > General > Run After Saving a Take, on the take saved in
+    /// `dir`. Only a command that can't be started at all (no shell) says
+    /// so here; one that fails, a mistyped one included, shows only in the
+    /// app's log.
+    fn run_after_save_command(&mut self, dir: &Path) {
+        if let Err(e) = crate::after_save::run(&self.after_save_command, dir) {
+            self.error(format!(
+                "The command set to run after saving couldn't be started: {e}"
+            ));
         }
     }
 
@@ -1343,12 +1361,31 @@ impl TimegrapherApp {
                 live: true,
                 end_s: total,
                 about,
+                cfg: None,
+                kept: None,
             });
         }
         let path = PathBuf::from(self.file_path.trim());
         if self.file_path.trim().is_empty() || !path.exists() {
             return None;
         }
+        let manifest = read_manifest(&path).ok().flatten();
+        if analysis_take::is_analysis_only(&path) {
+            return Some(report::Source {
+                files: Vec::new(),
+                total_s: 0.0,
+                name: capture_label(&path),
+                live: false,
+                end_s: 0.0,
+                about: serde_json::Value::Null,
+                cfg: None,
+                kept: Some(path),
+            });
+        }
+        // How the take was read, so its beats come from what was found.
+        let cfg = take_entry(&path, manifest.as_ref())
+            .ok()
+            .map(|o| self.entry_settings(&o.1).stream);
         let files = recordings_in(&path).ok()?;
         let mut total = 0.0;
         for f in &files {
@@ -1379,6 +1416,8 @@ impl TimegrapherApp {
             live: false,
             end_s: end,
             about,
+            cfg,
+            kept: None,
         })
     }
 

@@ -94,8 +94,12 @@ ring, crown on the left. The picture sits at the card's left, across the
 title and figure rows; beside it are the caption, the name ("Crown
 Down") and both codes, the common one then Witschi's ("CD · 9H"; DU · CH
 and DD · CB lying flat). Across the controls row are six buttons, **DU DD
-CU CD CL CR**, the current one filled teal. Each one's hover gives its
-name, codes and key ("Crown Down (CD, 9H) · key 4") and how long each
+CU CD CL CR**, the current one filled teal. The title row's **6 | 10**
+(kept between runs) adds the four 45° stops, **1H30 4H30 7H30 10H30**
+(1:30 Up and so on), in a second row under the six, with a 30 pt picture
+and the name and code on one line; a 45° stop picked by its key, the
+Position Brush or a take on show turns the card to 10. Each button's hover
+gives its name, codes and key ("Crown Down (CD, 9H) · key 9") and how long each
 change of position settles (the Positions Test pane's Settle). Along each
 button's foot a teal bar, over a faint track, fills with the seconds
 heard in that position, in Quick Listen as in a test or a take on show:
@@ -103,7 +107,9 @@ settled and not masked, each position's own time only. It is full at the
 Positions Test pane's Each Position (60 s unless set otherwise; at 120 s, 60 s
 heard fills half), so a free-form test shows which positions still need
 time; the hover gives the seconds. While you listen, or before anything
-is on show, a button sets the position; keys 1 to 6 do the same, on the Bench,
+is on show, a button sets the position; its key does the same (U and D lying,
+and standing the last digit of the hour at the top: 3, 6, 9 and 2, and 1, 4, 7
+and 0 for the 45° stops), on the Bench,
 alone (never with Ctrl, Cmd, Alt or Shift held) and not while typing in
 a field or while a dialog is open. With a take on show, and during a Positions Test
 or a Power Reserve Test, the buttons only show the position, the take's
@@ -172,7 +178,7 @@ reading cards always keeping room for their captions whole. Compact,
 Current Position is captioned **Position**, with a smaller picture, the
 position's two-letter code beside it ("CR"; the name is in its hover),
 and under it one pop-up, **Set**, of the six positions (with their keys)
-instead of the buttons (none while a take is on show or a test runs); keys 1 to 6 still work, and the bars aren't shown. Listen keeps
+instead of the buttons (none while a take is on show or a test runs); the keys still work, and the bars aren't shown. Listen keeps
 its two icons, gives the take's length beside its caption ("Listen
 12:48"; on the narrowest windows in the Listen icon's hover instead),
 and shows Average Over's pop-up as **Avg 10 s**. Compact, Calibre keeps
@@ -349,6 +355,11 @@ changes that take, not the watch. With a watch picked, **Stop** saves
 the take into it, as **Save…** does, with no question, in a folder named by when the take
 started (in this computer's time) and its position when it used only one;
 Save Again then saves into the same take, and Save As… still asks.
+The Watches view reads the folder again each time the window comes back
+to the front, so a take another program added meanwhile
+(`timegrapher watches add-take`, which works while the app is open, or a
+sync) is listed without a restart; only takes whose files changed are
+read again.
 Watches another copy of the app has open are read only: New Watch…, Edit…, Add Photos… and a photo's Delete… are
 off, the Listen icon says Quick Listen can't keep its take, and Save…
 asks where. **New Session**, in the File menu, clears what is shown,
@@ -1032,7 +1043,7 @@ When the tick's and tock's marks disagree, or a mark sits mid-ramp, the readings
 built on them are suspect.
 
 **Scope.** The sound itself, beat by beat, like the scope view on a
-Witschi (whose training course, doc. 71.1010D35e p. 12, gives the
+Witschi (whose _Testing Methods for Mechanical Watches_, 2025, p. 23, gives the
 same 20, 200 and 400 ms spans): what the engine heard, high-passed at 1 kHz, not an average. A
 tab beside the Tick Tock Profile, set in its toolbar.
 **Span 20 ms** shows the Tick and the Tock
@@ -1063,8 +1074,9 @@ Parallel Guides; the Mask tool (scissors) and the Position Brush;
 Direction; and Export. One dot per beat, tick and tock in two colours. Across
 the strip is how early or late each beat came against a perfect clock
 beating exactly at the nominal beat rate (every 125 ms at 28,800 bph): a
-beat before that clock's beat is early, after it late, the words Witschi's
-training course uses (doc. 71.1010D35e p. 6). Along it is time; both axes
+beat before that clock's beat is early, after it late, drawn as Witschi's
+Diagram view draws them, where a rising line is a watch that gains
+(_Testing Methods for Mechanical Watches_, 2025, p. 18). Along it is time; both axes
 are labelled, in ms across and in minutes and seconds along, and every
 grid line is drawn alike. **Rate Line** (on by default) draws the Rate
 reading as a thin solid magenta line over the beats it was fitted to, on top
@@ -1449,7 +1461,7 @@ direction, width and length and what is drawn over it, the profile's
 layout, scale and Time From, the panes shown and their arrangement,
 whether the Readings show, the distribution settings, the averaging time,
 folded groups in the Watches view, the appearance, Keep Awake, Listen
-When the App Opens and whether the microphone has been set up, the last
+When the App Opens, the command Run After Saving a Take runs, and whether the microphone has been set up, the last
 microphone (used again when it is plugged in) and the window's size and
 place. Nothing about the watch is kept: the lift angle, beat rate and
 position start fresh, since the next watch on the pickup may differ.
@@ -1568,7 +1580,16 @@ that can't be set, the microphone reporting its automatic gain otherwise)
 takes that row's caption, in the same space, so no row grows.
 **General**: Appearance (Auto, Light or Dark); **Listening**, with
 **Listen When the App Opens**, on unless switched off, and **Keep
-Awake**; **Updates**, with Check for Updates at Start. **Microphone**:
+Awake**; **After Saving**, with **Run After Saving a Take** (a command
+of the user's own, empty unless set, run through the system's shell, `sh` or
+`cmd`, each time a save of a take is written with listening stopped: a
+Stop, Save…, Save As… or Save Again, not the saves of a take written into
+its folder as it goes; the take's folder is its last argument, quoted, and
+is in `TIMEGRAPHER_TAKE`; the app doesn't wait for it and logs what it
+exits with, a failure included, only there, and it may outlive the app; on
+Windows, read the folder from `%TIMEGRAPHER_TAKE%` where its name may hold
+`%`, which `cmd` expands even in quotes); **Updates**, with
+Check for Updates at Start. **Microphone**:
 the **Microphone** group (the microphone menu and **Rescan** on their own
 line under the row's name, the group's width for every device, a name
 too long for it cut in the middle with "…" so its end shows, whole in its
@@ -1802,7 +1823,7 @@ folder can't be moved while another copy has it open. The Watches view adds watc
 - **Lift angle.** **Lift**, on the Calibre card: 52° by default. Type the calibre's angle and press Enter,
   or pick a common one. Amplitude is worked out again at once, history
   included.
-- **Position.** On the Current Position card, or keys 1 to 6: DU, DD, CU, CD, CL, CR, with the Swiss laboratory names
+- **Position.** On the Current Position card, or keys U, D, 3, 9, 6 and 2: DU, DD, CU, CD, CL, CR, with the Swiss laboratory names
   beside the crown positions, the hour that points up: Crown Up (CU, 3H),
   Crown Down (CD, 9H), Crown Left (CL, 6H) and Crown Right (CR, 12H).
   The Positions Test's table names them the same way. A new position is a new

@@ -369,6 +369,12 @@ pub struct SeriesCheck {
     /// level change or trend". No series name and no full stop; the
     /// caller puts the series' title before it.
     pub summary: String,
+    /// `headline` and `summary` as a screen shows them: each figure with
+    /// a true minus, the words as they are
+    /// ([`crate::figure_text::figure_minus`], #1437). The app and the MCP
+    /// view show these; files, pipes and the model keep the ASCII minus.
+    pub screen_headline: String,
+    pub screen_summary: String,
     /// Length of each reading, seconds; readings used; readings left out
     /// as outliers.
     pub step_s: f64,
@@ -1012,6 +1018,8 @@ pub fn check_series(
         lead: Lead::TooShort,
         headline: String::new(),
         summary: String::new(),
+        screen_headline: String::new(),
+        screen_summary: String::new(),
         step_s: g.step,
         cycle_step_s: fine.as_ref().map_or(g.step, |f| f.step),
         readings: n,
@@ -1043,6 +1051,7 @@ pub fn check_series(
             g.span()
         );
         out.summary = format!("{n} readings, too few to search");
+        out.set_screen_text();
         return out;
     }
     let (mean, sd) = mean_sd(y).unwrap();
@@ -1224,6 +1233,7 @@ pub fn check_series(
     if let Some(more) = search_also(&out) {
         out.headline = format!("{} {more}", out.headline);
     }
+    out.set_screen_text();
     out
 }
 
@@ -1969,6 +1979,13 @@ fn lead_text(s: &SeriesCheck, mean: f64) -> String {
 }
 
 impl SeriesCheck {
+    /// Writes the screen copies of the headline and summary; called
+    /// whenever either has its last words.
+    fn set_screen_text(&mut self) {
+        self.screen_headline = crate::figure_text::figure_minus(&self.headline);
+        self.screen_summary = crate::figure_text::figure_minus(&self.summary);
+    }
+
     /// The period search's line when it turns in under three of the
     /// readings cycles are folded in (the 2 s windows for the amplitude and
     /// beat error), so they cannot show it, whether or not they show a
@@ -2344,6 +2361,7 @@ pub fn check(
             }
         }
     }
+    series.iter_mut().for_each(SeriesCheck::set_screen_text);
     let findings: Vec<Finding> = series.iter().filter_map(findings).collect();
     // A take over several positions: said with each figure that reads the
     // rate against the amplitude, wherever its headline is shown (#651).

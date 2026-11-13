@@ -842,7 +842,7 @@ fn info_panel(
             // With too few readings the row already says so in place of
             // its plot: the panel doesn't say it twice.
             if c.autocorrelation.is_some() {
-                ui.add(text(&c.headline, pal.text));
+                ui.add(text(&c.screen_headline, pal.text));
             }
             ui.add(text(&stats_line(c), pal.text_secondary));
         }
@@ -954,7 +954,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
     // Too few readings: no tests ran, so there is nothing to draw; the
     // headline says how many it needs.
     if c.autocorrelation.is_none() {
-        return note(ui, &c.headline);
+        return note(ui, &c.screen_headline);
     }
     let k = c.series;
     let colour = series_colour(k, pal);

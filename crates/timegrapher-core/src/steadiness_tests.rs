@@ -2349,3 +2349,62 @@ fn a_unit_follows_its_number_as_the_sentences_write_it() {
     assert_eq!(unit_after(SeriesKind::Rate.unit()), (" ", "s/d"));
     assert_eq!(unit_after(SeriesKind::BeatError.unit()), (" ", "ms"));
 }
+
+/// A level shift below zero, as on the YM42's last hours: the screen
+/// copies set each figure with a true minus, the words keep their
+/// hyphens, and the plain headline and summary keep the ASCII minus for
+/// files, pipes and the model (#1437).
+#[test]
+fn the_screen_copies_carry_a_true_minus_on_figures_only() {
+    let mut z = Noise(1437);
+    let s = check_series(
+        SeriesKind::Rate,
+        grid(
+            (0..3000)
+                .map(|i| if i < 1500 { -5.0 } else { -12.0 } + 2.0 * z.next())
+                .collect(),
+            2.0,
+        ),
+        None,
+        None,
+        None,
+        &[],
+        &Config::default(),
+    );
+    assert_eq!(s.lead, Lead::ShiftingMean, "{}", s.headline);
+    assert!(s.summary.contains(": -"), "{}", s.summary);
+    assert!(!s.headline.contains('\u{2212}'), "{}", s.headline);
+    assert_eq!(
+        s.screen_headline,
+        crate::figure_text::figure_minus(&s.headline)
+    );
+    assert_eq!(
+        s.screen_summary,
+        crate::figure_text::figure_minus(&s.summary)
+    );
+    assert!(
+        s.screen_summary.contains(": \u{2212}"),
+        "{}",
+        s.screen_summary
+    );
+    assert!(!s.screen_summary.contains('-'), "{}", s.screen_summary);
+    // Through `check` too, after its last words are added.
+    let sc = crate::scenarios::find("rub").unwrap();
+    let log = crate::scenarios::beat_log(&sc, 1);
+    let lc = crate::longterm::LongConfig {
+        wheels: crate::periodicity::standard_wheels(crate::scenarios::BPH, 20),
+        ..Default::default()
+    };
+    let long = crate::longrun::analyse(&log, None, &lc);
+    let r = check(&log, None, &long, &lc, &Config::default());
+    for c in &r.series {
+        assert_eq!(
+            c.screen_headline,
+            crate::figure_text::figure_minus(&c.headline)
+        );
+        assert_eq!(
+            c.screen_summary,
+            crate::figure_text::figure_minus(&c.summary)
+        );
+    }
+}

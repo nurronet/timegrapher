@@ -381,6 +381,8 @@ fn watches_keep_their_fields() {
             "result":{"rate_s_per_day":6.0,"amplitude_deg":275.0,"beat_error_unlock_ms":0.4}}"#,
     )
     .unwrap();
+    // Let go, as the app does when it closes, so a change can be made.
+    drop(lib);
     let config = dir.join("config");
     let r = root.to_str().unwrap();
     check(
@@ -394,5 +396,68 @@ fn watches_keep_their_fields() {
             &["watches", "show", "Pepsi", "--library", r, "--json"],
         ),
     );
+    check(
+        "watches_change",
+        &json(
+            &config,
+            &["watches", "new", "Daytona", "--library", r, "--json"],
+        ),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn excerpt_keeps_its_fields_and_cuts_across_segments() {
+    let dir = scratch("excerpt");
+    let take = dir.join("take");
+    std::fs::create_dir_all(&take).unwrap();
+    watch_wav(&take.join("audio-001.wav"), 20.0);
+    watch_wav(&take.join("audio-002.wav"), 20.0);
+    let out = dir.join("cut.flac");
+    let doc = json(
+        &dir,
+        &[
+            "excerpt",
+            take.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--from",
+            "15",
+            "--to",
+            "30",
+            "--json",
+        ],
+    );
+    check("excerpt", &doc);
+    assert_eq!(doc["schema"], "timegrapher.excerpt/1");
+    assert_eq!(doc["input"]["files"].as_array().unwrap().len(), 2);
+    assert!((doc["duration_s"].as_f64().unwrap() - 15.0).abs() < 1e-3);
+    let bytes = std::fs::read(&out).unwrap();
+    assert_eq!(doc["bytes"].as_u64().unwrap(), bytes.len() as u64);
+    assert_eq!(
+        doc["sha256"],
+        timegrapher_core::archive::sha256_hex(&bytes).as_str()
+    );
+    // The samples are the recording's own, across the join of the segments.
+    let a = timegrapher_core::excerpt::read(&take.join("audio-001.wav")).unwrap();
+    let b = timegrapher_core::excerpt::read(&take.join("audio-002.wav")).unwrap();
+    let cut = timegrapher_core::excerpt::read(&out).unwrap();
+    let rate = a.sample_rate as usize;
+    let mut joined = a.samples.clone();
+    joined.extend_from_slice(&b.samples);
+    assert_eq!(cut.samples, joined[15 * rate..30 * rate]);
+    // A second run never writes over the file.
+    let again = Command::new(env!("CARGO_BIN_EXE_timegrapher"))
+        .args([
+            "excerpt",
+            take.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .env("TIMEGRAPHER_CONFIG_DIR", &dir)
+        .output()
+        .unwrap();
+    assert!(!again.status.success());
+    assert_eq!(std::fs::read(&out).unwrap(), bytes);
     let _ = std::fs::remove_dir_all(&dir);
 }

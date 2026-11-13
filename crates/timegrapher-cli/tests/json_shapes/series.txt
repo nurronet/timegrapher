@@ -97,6 +97,8 @@ series[].null.model
 series[].outliers
 series[].period
 series[].readings
+series[].screen_headline
+series[].screen_summary
 series[].sd
 series[].series
 series[].short_term_sd

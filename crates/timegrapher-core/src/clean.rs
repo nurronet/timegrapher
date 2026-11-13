@@ -364,8 +364,11 @@ impl<'a> Cuts<'a> {
     /// beat and are skipped. A
     /// bin is fitted on the beats from its start up to its end when it is
     /// [`whole`](Self::whole) with parts of `part` seconds, so none spans
-    /// a hole or a dropout, and none needs a beat at or past its end.
-    /// `beats` on true time, sorted.
+    /// a hole or a dropout, and none needs a beat at or past its end, and
+    /// when each part holds a good beat ([`Beat::is_good`]) too: the fit
+    /// times from good beats only, so a window whose good beats sit in a
+    /// few seconds of it would read the scatter of those seconds alone
+    /// (#1432). `beats` on true time, sorted.
     #[allow(clippy::too_many_arguments)]
     pub fn windows(
         &self,
@@ -381,8 +384,9 @@ impl<'a> Cuts<'a> {
         let Some(first) = beats.get(beats.partition_point(|x| x.time < from)) else {
             return out;
         };
+        let good: Vec<Beat> = beats.iter().filter(|b| b.is_good()).copied().collect();
         for (s, _) in nominal_windows(lay_from(first.time, from, step), to, len, step) {
-            if self.whole(beats, s, s + len, part) {
+            if self.whole(beats, s, s + len, part) && covered(&good, s, s + len, part) {
                 let lo = beats.partition_point(|x| x.time < s);
                 let hi = beats.partition_point(|x| x.time < s + len);
                 if let Some(fit) = crate::timing::fit(&beats[lo..hi], bph) {
@@ -961,6 +965,35 @@ mod tests {
         assert_eq!(w.first().map(|w| w.start_s), Some(15.0));
         assert_eq!(lay_from(12.375, 12.3, 5.0), 12.3);
         assert_eq!(lay_from(12.375, 0.0, 5.0), 10.0);
+    }
+
+    /// A window is fitted only when every 2 s part holds a good beat
+    /// (#1432): with beats all through it but good ones only in its first
+    /// 5 s, as on seed 101's noise lead at 45 s, it is left out rather
+    /// than read on those 5 s; a good beat each second is enough.
+    #[test]
+    fn a_window_needs_a_good_beat_in_every_part() {
+        let poor = crate::beats::JUMP_QUALITY;
+        let beats = |good: &dyn Fn(f64) -> bool| -> Vec<Beat> {
+            (0..50)
+                .map(|i| {
+                    let time = i as f64 * 0.2;
+                    let quality = if good(time) { 1.0 } else { poor };
+                    Beat {
+                        index: i,
+                        time,
+                        quality,
+                    }
+                })
+                .collect()
+        };
+        let fit = |b: &[Beat]| Cuts::none().windows(b, 18000, 0.0, 10.0, 10.0, 5.0, 2.0);
+        assert!(fit(&beats(&|t| t < 5.0)).is_empty());
+        assert!(fit(&beats(&|t| t < 8.0)).is_empty());
+        let w = fit(&beats(&|t| (t * 5.0).round() as i64 % 5 == 0));
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].fit.beats_used, 10);
+        assert_eq!(fit(&beats(&|_| true)).len(), 1);
     }
 
     #[test]

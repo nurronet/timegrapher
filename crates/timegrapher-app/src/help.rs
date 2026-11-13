@@ -123,7 +123,15 @@ pub static POSITION: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
      edge with the crown up, down, left or right. The picture shows the watch as it lies, \
      the hour that points up at the top; beside it are its name and codes, the common one \
      then Witschi's (CD · 9H). While you listen, the six buttons DU, DD, CU, CD, CL and CR \
-     set it (on a narrow window, one pop-up of them), as keys 1 to 6 do, one key each."
+     set it (on a narrow window, one pop-up of them)."
+            .into(),
+        "The 6 | 10 in the title adds a second row: the four stops halfway between the \
+     standing ones, 1:30 Up (1H30), 4:30 Up, 7:30 Up and 10:30 Up, for a stand that \
+     stops every 45°, as a Dynamic Poise test turns the watch. Each position has a key, \
+     on the Bench and not while typing: U and D lying, and standing the last digit of \
+     the hour at the top, so 3, 6, 9 and 2 for 3H, 6H, 9H and 12H, and 1, 4, 7 and 0 \
+     for the 45° stops. A 45° stop's key, or one painted or on show, turns the card \
+     to 10; each button's hover gives its key."
             .into(),
         "Looking at a take, or during a Positions Test or a Power Reserve Test, the buttons \
      only show the position: the one at the strip's latest beat on show, or the one the \

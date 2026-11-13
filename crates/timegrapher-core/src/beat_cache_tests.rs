@@ -222,6 +222,28 @@ fn a_short_file_is_keyed_on_every_byte() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// The length is in the key on its own (#1350): two long files of the
+/// same bytes everywhere the spans read (all zeros), at one place and time,
+/// differ only in length, and each has its own key.
+#[test]
+fn a_file_of_another_length_has_another_key() {
+    let dir = folder("length");
+    let f = dir.join("zeros.wav");
+    let hour_ago = SystemTime::now() - Duration::from_secs(3600);
+    let cfg = StreamConfig::default();
+    let mut keys = Vec::new();
+    for len in [
+        (SPANS as usize + 4) * HEAD_BYTES,
+        (SPANS as usize + 9) * HEAD_BYTES,
+    ] {
+        fs::write(&f, vec![0u8; len]).unwrap();
+        set_changed(&f, hour_ago);
+        keys.push(key(&[f.as_path()], &cfg).unwrap());
+    }
+    assert_ne!(keys[0], keys[1]);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// No copy is kept of a take whose files changed in the last two minutes:
 /// it may still be recording.
 #[test]

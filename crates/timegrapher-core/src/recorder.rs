@@ -31,7 +31,9 @@ use std::io::{self, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod closed_hour;
 mod settle;
+use closed_hour::open_closed_hour;
 use settle::{held_open, settled};
 pub use settle::{read_settled, rename_settled, sync_file, sync_folder};
 
@@ -900,12 +902,7 @@ impl Recorder {
                 grow_from: None,
             });
         }
-        let mut source = self.dir.join(name);
-        if !source.exists() && crate::flac::is_wav(&source) {
-            source = crate::flac::flac_path(&source);
-        }
-        let len = regular_file(&source)?.len();
-        let held = File::open(&source)?;
+        let (source, held, len) = open_closed_hour(&self.dir.join(name))?;
         Ok(PendingFile {
             as_flac: crate::flac::is_wav(&source),
             source,
