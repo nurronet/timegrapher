@@ -67,7 +67,7 @@ results for 24 hours later: it is one state of wind.
 | The picture | Each rate at the hour that was at the top, with its ± (one standard error), in magenta. In Plot, along a line from 12H to 12H with a mark every 45° ("Hour at the top"), the mean as a dotted line. In Dial, round a watch face, the mean as a dotted ring. |
 | The fitted wave | Once five positions are in, the wave the rate makes once round, in grey, with a line to its fastest hour. Until then the space reads "Fitted once 5 positions are measured". |
 | The line over the picture | The wave in one line: its size each way from the mean with its ±, and its fastest hour, then the amplitudes it was measured at. Where the wave isn't clear of its ± (by 2 standard errors), no fastest hour is named. |
-| The line under it | The heavy spot: the hour at the top when it hangs lowest, with its ± in degrees. Or, in a grey chip, why it isn't stated (below). |
+| The line under it | The heavy spot: the hour at the top when it hangs lowest, with its ± in degrees. Or why it isn't stated (below): in a grey chip near 219.5°, as a plain grey line for the other reasons. A caveat on the amplitude round the dial is a plain grey line too. |
 
 **Measured and inferred.** The wave and its fastest hour are what the
 watch did: a fact, with its ±. The heavy spot is worked out from that
