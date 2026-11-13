@@ -655,11 +655,17 @@ pub fn curve_amp(bin_amps: &[f64], bin_deg: f64) -> Option<(f64, f64)> {
     Some(amp_padded(*bin_amps.first()?, *bin_amps.last()?, bin_deg))
 }
 
-/// The walk's amplitude and rate spans: its dots' padded
-/// ([`amp_padded`], [`rate_padded`]).
+/// The walk's amplitude and rate spans: its full dots' padded
+/// ([`amp_padded`], [`rate_padded`]). A thin dot never sets the axes
+/// while two full ones can (Walter's walk of #1496: one faint point at
+/// 263°, read from 23 of 150 windows, squeezed a 119° to 173° walk into
+/// a third of the width); it is drawn where it falls, cut at the plot's
+/// edge.
 pub fn walk_spans(dots: &[WalkDot]) -> [(f64, f64); 2] {
+    let full = dots.iter().filter(|d| !d.thin).count() >= 2;
     let ends = |f: fn(&WalkDot) -> f64| {
         dots.iter()
+            .filter(|d| !full || !d.thin)
             .map(f)
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
                 (l.min(v), h.max(v))
@@ -1604,6 +1610,28 @@ mod tests {
         assert_eq!(k[0], 0);
         assert_eq!(*k.last().unwrap(), 9_999);
         assert!(k.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    /// A thin dot never sets the walk's axes while two full ones can;
+    /// with fewer, every dot does (Walter's walk of #1496).
+    #[test]
+    fn a_thin_dot_does_not_stretch_the_walk_axes() {
+        let dot = |a: f64, r: f64, thin: bool| WalkDot {
+            hours: 0.0,
+            when: 0.0,
+            amplitude_deg: a,
+            rate_s_per_day: r,
+            hover: String::new(),
+            joined: true,
+            thin,
+        };
+        let full = [dot(119.0, -40.0, false), dot(173.0, -59.0, false)];
+        let mut with_thin = full.to_vec();
+        with_thin.push(dot(263.0, 10.0, true));
+        assert_eq!(walk_spans(&with_thin), walk_spans(&full));
+        // One full dot: the thin ones count.
+        let few = [dot(119.0, -40.0, false), dot(263.0, 10.0, true)];
+        assert!(walk_spans(&few)[0].1 > 263.0);
     }
 
     /// The facts box names a run-down's end whose rate goes on with no

@@ -566,7 +566,9 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     // #1148).
     let name = |at: Pos2, align: Align2, text: &str| {
         let g = p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
-        let r = align.anchor_size(at, g.size());
+        // Kept inside the plot, so a name near an edge never sits on an
+        // axis label (Walter's walk of #1496: "8.4 h" on "120").
+        let r = keep_inside(align.anchor_size(at, g.size()), t.frame().shrink(2.0));
         p.rect_filled(r.expand(2.0), 3.0, bg.gamma_multiply(0.85));
         p.galley(r.min, g, pal.text);
     };
@@ -613,6 +615,13 @@ fn bead_side(dots: &[Pos2], i: usize) -> (egui::Vec2, Align2) {
 /// A dot's place on the plot: its amplitude and rate.
 fn dot_at(d: &WalkDot) -> [f64; 2] {
     [d.amplitude_deg, d.rate_s_per_day]
+}
+
+/// `r` moved the least way to lie inside `frame`, where it fits.
+fn keep_inside(r: egui::Rect, frame: egui::Rect) -> egui::Rect {
+    let dx = (frame.left() - r.left()).max(0.0) + (frame.right() - r.right()).min(0.0);
+    let dy = (frame.top() - r.top()).max(0.0) + (frame.bottom() - r.bottom()).min(0.0);
+    r.translate(egui::vec2(dx, dy))
 }
 
 /// How strongly a thin dot and its steps are drawn, of their full colour.
