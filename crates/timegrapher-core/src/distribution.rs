@@ -234,6 +234,41 @@ impl Distribution {
     }
 }
 
+impl Distribution {
+    /// The figures the app's facts box shows on the plot, as `(name,
+    /// value)` rows with a true minus (#1528): the count, the median, the
+    /// middle 80%, then the values off the scale and the peaks, each only
+    /// when there are any (two peaks or more). The same figures as
+    /// [`Distribution::screen_line`].
+    pub fn fact_rows(&self, kind: Kind) -> Vec<(String, String)> {
+        let d = kind.decimals;
+        let num = |x: f64| crate::figure_text::true_minus(&format!("{x:.d$}"));
+        let f = |x: f64| format!("{}{}", num(x), kind.suffix);
+        let count = if self.values == "2 s" {
+            "2 s stretches"
+        } else {
+            "Readings"
+        };
+        let mut rows = vec![
+            (count.to_string(), self.n.to_string()),
+            ("Median".to_string(), f(self.median)),
+            (
+                "Middle 80%".to_string(),
+                format!("{} to {}", num(self.p10), f(self.p90)),
+            ),
+        ];
+        let off = self.below + self.above;
+        if off > 0 {
+            rows.push(("Off the scale".to_string(), off.to_string()));
+        }
+        if self.peaks.len() > 1 {
+            let at: Vec<String> = self.peaks.iter().map(|&x| f(x)).collect();
+            rows.push(("Peaks".to_string(), at.join(" and ")));
+        }
+        rows
+    }
+}
+
 /// Seconds of beats in each "2 s" value: the amplitude's window, which
 /// [`crate::analysis::AnalysisConfig`] takes by default.
 pub const STRETCH_S: f64 = 2.0;
@@ -552,5 +587,40 @@ mod tests {
         assert!(d.summary.contains("median -"), "{}", d.summary);
         // The screen copy the MCP view writes is this line (#1431).
         assert_eq!(d.screen_summary, screen);
+    }
+
+    /// The facts box's rows carry the line's figures, with a true minus,
+    /// and leave out the values off the scale and the peaks when there
+    /// are none (#1528).
+    #[test]
+    fn the_fact_rows_carry_the_lines_figures() {
+        let v: Vec<f64> = (0..60).map(|i| -11.0 + f64::from(i % 7)).collect();
+        let d = distribution(&v, RATE, "2 s", 0.5).unwrap();
+        let rows = d.fact_rows(RATE);
+        let names: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+        assert_eq!(&names[..3], ["2 s stretches", "Median", "Middle 80%"]);
+        assert_eq!(rows[0].1, "60");
+        assert_eq!(rows[1].1, "\u{2212}8.0 s/d");
+        assert!(
+            rows[2].1.starts_with('\u{2212}') && rows[2].1.contains(" to \u{2212}"),
+            "{rows:?}"
+        );
+        assert!(rows[2].1.ends_with(" s/d") && !rows[2].1.contains("s/d to"));
+        let off = d.below + d.above;
+        assert_eq!(names.contains(&"Off the scale"), off > 0);
+        assert_eq!(names.contains(&"Peaks"), d.peaks.len() > 1);
+        let readings = distribution(&v, RATE, "readings", 10.0).unwrap();
+        assert_eq!(readings.fact_rows(RATE)[0].0, "Readings");
+        // Two states: the peaks row names both.
+        let two: Vec<f64> = (0..200)
+            .map(|i| if i % 2 == 0 { 5.0 } else { 15.0 } + f64::from(i % 3) * 0.1)
+            .collect();
+        let d = distribution(&two, RATE, "readings", 10.0).unwrap();
+        if d.peaks.len() > 1 {
+            let rows = d.fact_rows(RATE);
+            let peaks = &rows.last().unwrap();
+            assert_eq!(peaks.0, "Peaks");
+            assert!(peaks.1.contains(" s/d and "), "{rows:?}");
+        }
     }
 }

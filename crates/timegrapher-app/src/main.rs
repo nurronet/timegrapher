@@ -22,6 +22,7 @@ mod awake;
 mod calibre_ui;
 mod desktop;
 mod export;
+mod fact_box;
 mod fields;
 mod guide;
 mod guided;

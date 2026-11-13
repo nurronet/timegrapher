@@ -1332,8 +1332,12 @@ bend, or an S across the line. **Cumulative** draws the share of values at
 or below each value on a plain scale. Neither keeps the time order, so the
 strip and the charts show when a change happens. The scale leaves out the
 most extreme 0.5% at each end so stray readings can't squeeze the rest
-together, and the line above gives the count, the median, the middle 80%,
-the outliers left off and the peaks when there is more than one. The
+together. Each plot's title names its reading, and the position counted
+when the take has positions; a facts box in the plot's top left gives
+the count, the median, the middle 80%, the values off the scale when
+there are any and the peaks when there is more than one. The beat error's
+source is a grey chip under its title, with its caveats in the chip's
+hover. The
 statistics are in `timegrapher_core::histogram`, so the CLI and reports can
 share them.
 

@@ -1,6 +1,7 @@
 //! The Distributions pane: how each reading's values spread over the take.
 
 use super::*;
+use crate::fact_box::{widest, FactBox};
 use crate::strength::{self, Grid, Strength};
 
 /// What core's readings for the Distributions pane were read for: the
@@ -119,21 +120,24 @@ impl TimegrapherApp {
             }
         }
         let (values, kind, color, label, source) = self.hist_values(reading, short, pal);
-        if let Some(selected) = source {
-            if let Some(source) = selected.beat_error_source {
-                ui.label(
-                    RichText::new(timegrapher_core::session::beat_error_source_label(Some(
-                        source,
-                    )))
-                    .small()
-                    .color(pal.text_secondary),
-                );
-            }
-            for caveat in selected.caveats() {
-                if let Some(text) = caveat.long(None) {
-                    ui.label(RichText::new(text).small().color(pal.text_secondary));
-                }
-            }
+        // The title line: the series, and the one position counted when
+        // the take has positions, as the toolbar doesn't name it (#1528).
+        let only = (!self.session.stretches().is_empty()).then(|| self.position.name());
+        let title = match only {
+            Some(p) => format!("{} \u{b7} {p} only", steady::title(reading)),
+            None => steady::title(reading).to_string(),
+        };
+        ui.label(theme::caption(&title).color(pal.text_secondary));
+        // The beat error's source in a grey chip under it, core's caveats
+        // in the chip's hover (#1528).
+        if let Some(src) = source.as_ref().and_then(|s| s.beat_error_source) {
+            let label = timegrapher_core::session::beat_error_source_label(Some(src));
+            let caveats: Vec<String> = source
+                .iter()
+                .flat_map(|s| s.caveats())
+                .filter_map(|c| c.long(None))
+                .collect();
+            theme::chip(ui, label, label, &caveats, ui.available_width());
         }
         let step = if label == "2 s" {
             dist::STRETCH_S
@@ -142,23 +146,13 @@ impl TimegrapherApp {
         };
         let Some(d) = dist::distribution(&values, kind, label, step) else {
             ui.label(
-                RichText::new(format!(
-                    "{}: not enough readings yet",
-                    steady::title(reading)
-                ))
-                .small()
-                .color(pal.text_secondary),
+                RichText::new("Not enough readings yet")
+                    .small()
+                    .color(pal.text_secondary),
             );
             return;
         };
-        let only = (!self.session.stretches().is_empty()).then(|| self.position.name());
-        let line = format!(
-            "{}: {}",
-            steady::title(reading),
-            d.screen_line(kind, " in the session", only)
-        );
-        ui.add(egui::Label::new(RichText::new(&line).small().color(pal.text_secondary)).truncate())
-            .on_hover_text(line.clone());
+        let facts = facts_box(ui, steady::title(reading), d.fact_rows(kind));
         let (x_lo, x_hi) = (d.edges[0], d.edges[d.edges.len() - 1]);
         let unit_owned = kind.suffix.to_string();
         let cumulative = self.hist_cumulative;
@@ -183,9 +177,9 @@ impl TimegrapherApp {
             .y_axis_min_width(SIDE_AXIS_W)
             .default_x_bounds(x_lo, x_hi);
         if cumulative {
-            return cumulative_plot(ui, plot, &values, (x_lo, x_hi), color);
+            return cumulative_plot(ui, plot, &values, (x_lo, x_hi), color, facts);
         }
-        probability_paper(ui, plot, &values, d.normal_line, (x_lo, x_hi), color);
+        probability_paper(ui, plot, &values, d.normal_line, (x_lo, x_hi), color, facts);
     }
 
     /// Keeps core's readings for the pane ([`DistReadings`]) up to date
@@ -348,6 +342,7 @@ fn cumulative_plot(
     values: &[f64],
     (x_lo, x_hi): (f64, f64),
     color: Color32,
+    mut facts: FactBox,
 ) {
     use timegrapher_core::histogram as hist;
     // The share of values at or below each value, as a step line.
@@ -374,6 +369,9 @@ fn cumulative_plot(
         .default_y_bounds(0.0, 100.0)
         .show(ui, |p| {
             grid.draw(p, pal);
+            facts.plot_h = p.transform().frame().height();
+            facts.tops = pts.clone();
+            p.add(facts);
             p.line(
                 Line::new("share at or below", pts)
                     .color(color)
@@ -392,6 +390,7 @@ fn probability_paper(
     normal_line: Option<timegrapher_core::distribution::NormalLine>,
     (x_lo, x_hi): (f64, f64),
     color: Color32,
+    mut facts: FactBox,
 ) {
     use timegrapher_core::histogram as hist;
     let pal = theme::pal(ui);
@@ -437,6 +436,9 @@ fn probability_paper(
         .default_y_bounds(-z_top, z_top)
         .show(ui, |p| {
             grid.draw(p, pal);
+            facts.plot_h = p.transform().frame().height();
+            facts.tops = pts.clone();
+            p.add(facts);
             // The line one steady state would follow: a call-out, dashed.
             if let Some(l) = line {
                 let s = strength::stroke(Strength::CallOut, pal);
@@ -454,6 +456,33 @@ fn probability_paper(
                     .filled(true),
             );
         });
+}
+
+/// A series' facts box in the top left of its plot, which a rising
+/// curve leaves clear: core's rows ([`Distribution::fact_rows`],
+/// #1528), moving to the right or shedding rows from the bottom where
+/// the values run under it.
+///
+/// [`Distribution::fact_rows`]: timegrapher_core::distribution::Distribution::fact_rows
+fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>) -> FactBox {
+    let pal = theme::pal(ui);
+    let held = ui.id().with(("distribution facts", name));
+    FactBox {
+        base: egui_plot::PlotItemBase::new(format!("{name} facts")),
+        name_w: widest(ui, rows.iter().map(|r| r.0.as_str())),
+        value_w: widest(ui, rows.iter().map(|r| r.1.as_str())),
+        short_name_w: 0.0,
+        short_value_w: 0.0,
+        rows,
+        plot_h: 0.0,
+        tops: Vec::new(),
+        held,
+        was: ui.ctx().data(|d| d.get_temp(held)),
+        fill: ui.visuals().extreme_bg_color.gamma_multiply(0.8),
+        name_color: pal.text_secondary,
+        value_color: pal.text,
+        keep: None,
+    }
 }
 
 /// A distribution's value axis: every grid line and label alike, at
