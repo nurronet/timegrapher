@@ -410,3 +410,57 @@ fn noise_over(watch: &Audio, seed: u64) -> Audio {
         sample_rate: watch.sample_rate,
     }
 }
+
+/// Cases near the window rule (#1432), seeds 3141 to 3149 run once: a
+/// watch fading in over its first seconds under the stand's noise, the
+/// same after a lead of noise, and a plain noise lead, where windows over
+/// the step hold good beats in only some of their parts. Each reads the
+/// watch at its rate within 0.3 s/d of the watch alone, and any lead
+/// named ends within one rate window of where the watch is fully in.
+#[test]
+fn a_watch_fading_in_or_after_noise_reads_as_the_watch() {
+    use timegrapher_core::measure::RATE_WINDOW_S;
+    let cases = [
+        (18_000, 0.0, 10.0, 3141),
+        (28_800, 0.0, 20.0, 3142),
+        (14_400, 0.0, 30.0, 3143),
+        (18_000, 60.0, 10.0, 3144),
+        (28_800, 60.0, 20.0, 3145),
+        (21_600, 60.0, 30.0, 3146),
+        (18_000, 60.0, 0.0, 3147),
+        (19_800, 60.0, 0.0, 3148),
+        (28_800, 60.0, 0.0, 3149),
+    ];
+    for (bph, noise_s, fade_s, seed) in cases {
+        let what = format!("{bph} bph fading in over {fade_s} s after {noise_s} s ({seed})");
+        let alone = watch_at(bph, 90.0);
+        let want = analyze(&alone, &AnalysisConfig::default()).summary;
+        let mut faded = alone.clone();
+        let fs = f64::from(faded.sample_rate);
+        for (i, v) in faded.samples.iter_mut().enumerate() {
+            let t = i as f64 / fs;
+            if t < fade_s {
+                *v *= (t / fade_s) as f32;
+            }
+        }
+        let quiet = Audio {
+            samples: Vec::new(),
+            sample_rate: faded.sample_rate,
+        };
+        let led = noise_before(noise_s, &quiet, seed);
+        let mut samples = led.samples;
+        samples.extend_from_slice(&noise_over(&faded, seed + 100).samples);
+        let audio = Audio {
+            samples,
+            sample_rate: faded.sample_rate,
+        };
+        let got = analyze(&audio, &AnalysisConfig::default()).summary;
+        assert_eq!(got.bph, bph, "{what}");
+        assert!(got.watch_heard, "{what}: {:?}", got.caveats);
+        let (r, w) = (got.rate_s_per_day.unwrap(), want.rate_s_per_day.unwrap());
+        assert!((r - w).abs() <= 0.3, "{what}: rate {r} against {w}");
+        if let Some(lead) = lead_left_out(&got.caveats) {
+            assert!(lead <= noise_s + fade_s + RATE_WINDOW_S, "{what}: lead {lead}");
+        }
+    }
+}

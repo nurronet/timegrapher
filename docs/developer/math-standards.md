@@ -113,7 +113,7 @@ One idea, one word (decided 29 Oct, R7): every entry below is a **cut** of some 
 |---|---|---|
 | **Rate fit** | One straight line through every good beat's time against its number, with Tick and Tock offset by the beat error. Its slope gives the rate. It is fitted twice more without beats over 5 robust SD from the line. | `timing.rs:163` |
 | **2 s window** | 2 s of beats, laid end to end. For each side, the sound of its good beats (3 or more) is averaged into one shape, and the unlock and drop are found on it. It gives amplitude for Tick and Tock, and beat error from the unlock and from the drop. | `amplitude.rs:296` |
-| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a beat in every 2 s part and no cut. It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
+| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a good beat (one the fit times from) in every 2 s part and no cut (#1432). It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
 | **Reading** | The figures over one span: rate from the rate fit; amplitude and unlock beat error as the median of its 2 s windows; each with its ± and caveats. | `session::measure_masked` |
 | **Bin** | A 10 s piece of true time, laid end to end. A bin is whole when it reaches into no cut and every 2 s part holds a beat. Power Reserve counts whole bins as the time read. | `Cuts::bins` |
 | **Series** | Readings in time order, for charts and Steadiness tests. | `steadiness.rs` |
@@ -239,7 +239,7 @@ What each figure needs before it is shown today, and what happens when data is m
 |---|---|---|---|
 | Any timing fit | 6 good beats | No figure | `timing.rs:99` |
 | Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing.rs:211` |
-| 10 s rate window | a beat in every 2 s part, no hole | Window left out | `clean.rs:326` |
+| 10 s rate window | a good beat in every 2 s part, no hole | Window left out | `clean.rs:326` |
 | Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs:353` |
 | Amplitude reading | 1 window | No figure | `session.rs:583` |
 | Any ± | 3 values | No ± | `confidence.rs:129` |

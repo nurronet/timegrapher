@@ -369,7 +369,8 @@ Each reading is:
   and Tock `amplitude_odd_deg`);
 - jitter, and the median and the 5th to 95th percentile of rate in 10 s
   windows: how steady the rate is. A 10 s window is used only when each
-  2 s of it holds a beat and it reaches into no cut; it needs no beat at
+  2 s of it holds a good beat (one the fit times from) and it reaches
+  into no cut (#1432); it needs no beat at
   or after its end, so a stretch of exactly 10 s has one. The headline rate is the fit over
   every beat (over the stretches between cuts, as above), the average the
   hands keep; where the rate wanders with dips (the Yacht-Master crown
