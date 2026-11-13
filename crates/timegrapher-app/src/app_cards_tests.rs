@@ -247,7 +247,7 @@ fn a_short_pane_names_the_plots_it_has_no_room_for() {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    fit = stacked(ui, [true; 3], STACKED_MIN_H, |ui, k| {
+                    fit = stacked(ui, [true; 3], (STACKED_MIN_H, false), |ui, k, _| {
                         drawn.push((k, ui.max_rect().height()));
                     });
                 });

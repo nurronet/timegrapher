@@ -326,15 +326,98 @@ fn a_replayed_take_matches_session() {
     );
 }
 
+/// The takes live is checked on against a file's reading: the ETA bare,
+/// not in its holder, which reads unreliably either way
+/// (docs/research/validation.md).
+const LIVE_TAKES: [&str; 4] = [
+    "daytona4130_DU_30min",
+    "ym42_DD_30min",
+    "aquanaut324_DU_30min",
+    "eta2824_bare_DU_30min",
+];
+
+/// Live against a file's reading of the same take, like with like (#1327):
+/// over the same interval, from the latest cut either has to live's last
+/// settled beat. Live reads its first chunk again with a template built as
+/// the file builds it, so both read the whole take with the same template.
 #[test]
-#[ignore = "gap 4: real live/whole-file interval, settlement and tracking equivalence unresolved; historical observations, not remeasured: (Daytona beat error from the unlock 0.19 against 0.36 ms; ETA holder amplitude 324° against 332° at lift 52°, measured before analyze shared the stream's beats, beat error from the drop 0.56 against 0.13 ms; Patek both beat errors' signs flipped); comparator already uses beat-error magnitudes (docs/research/validation.md)"]
 fn live_matches_analyze_on_real_takes() {
-    for path in corpus_files() {
+    for path in corpus_takes(&LIVE_TAKES) {
         let a = load(&path).unwrap();
-        let s = analyze(&a, &AnalysisConfig::default()).summary;
-        let r = pushed(&a, 4800).reading(a.duration());
-        assert_none(&path.display().to_string(), live_vs_analyze(&r, &s));
+        // Pushed as `pushed` does, timing each push: reading the first
+        // chunk again (#1327) is spread over the pushes after it.
+        let mut l = LiveAnalyzer::new(a.sample_rate, LiveConfig::default());
+        let (mut slowest, mut usual) = (0.0f64, Vec::new());
+        for c in a.samples.chunks(4800) {
+            let t = std::time::Instant::now();
+            l.push(c);
+            let took = t.elapsed().as_secs_f64();
+            slowest = slowest.max(took);
+            usual.push(took);
+        }
+        usual.sort_by(f64::total_cmp);
+        eprintln!(
+            "{}: pushes of 0.1 s took {:.4} s at the median, {:.4} s at most; built again at {:?} s",
+            path.display(),
+            usual[usual.len() / 2],
+            slowest,
+            l.template_switch_s()
+        );
+        assert!(
+            l.template_switch_s().is_some(),
+            "{}: not built again",
+            path.display()
+        );
+        assert!(
+            !l.gathering(),
+            "{}: the sound gathered is kept",
+            path.display()
+        );
+        let log = stream(&path, 47.0);
+        let end = l.reading(a.duration()).time_s;
+        let last = |v: &[f64]| v.iter().copied().filter(|&b| b < end).fold(0.0, f64::max);
+        let from = last(l.breaks()).max(last(&log.jumps));
+        let r = l.reading_at(end, end - from);
+        let m = session::measure(&log, None, from, end);
+        let what = format!("{} over {from:.2} to {end:.2} s", path.display());
+        eprintln!(
+            "{what}: rate {:?} against {:?}, amplitude {:?} against {:?}, \
+             beat error (unlock) {:?} against {:?}, (drop) {:?} against {:?}",
+            r.rate_s_per_day,
+            m.rate_s_per_day,
+            r.amplitude_deg,
+            m.amplitude_deg,
+            r.beat_error_unlock_ms,
+            m.beat_error_unlock_ms,
+            r.beat_error_ms,
+            m.beat_error_ms
+        );
+        assert_none(&what, live_vs_session(&r, &m));
     }
+}
+
+/// A live reading against session's of the same interval, beat errors by
+/// size, as [`live_vs_analyze`].
+fn live_vs_session(r: &LiveReading, m: &Measurement) -> Vec<String> {
+    [
+        close("rate", r.rate_s_per_day, m.rate_s_per_day, RATE),
+        close("amplitude", r.amplitude_deg, m.amplitude_deg, AMPLITUDE),
+        close(
+            "beat error (unlock)",
+            size(r.beat_error_unlock_ms),
+            size(m.beat_error_unlock_ms),
+            BEAT_ERROR,
+        ),
+        close(
+            "beat error (drop)",
+            size(r.beat_error_ms),
+            size(m.beat_error_ms),
+            BEAT_ERROR,
+        ),
+    ]
+    .into_iter()
+    .filter_map(Result::err)
+    .collect()
 }
 
 #[test]
@@ -646,10 +729,16 @@ fn a_calibre_then_auto_at_the_found_rate_keeps_every_reading() {
 }
 
 fn corpus_files() -> Vec<PathBuf> {
+    corpus_takes(&REAL_TAKES)
+}
+
+/// [`corpus_files`] for the takes `ids`.
+fn corpus_takes(ids: &[&str]) -> Vec<PathBuf> {
     let root = std::env::var_os("TIMEGRAPHER_CORPUS").map(PathBuf::from);
-    corpus_files_at(
+    corpus_takes_at(
         root.as_deref(),
         std::env::var_os("TIMEGRAPHER_REQUIRE_CORPUS").is_some(),
+        ids,
     )
     .unwrap_or_else(|e| panic!("required real fixtures: {e}"))
 }
@@ -657,6 +746,15 @@ fn corpus_files() -> Vec<PathBuf> {
 /// Resolve and authenticate exact fixture names before running any comparison.
 /// Explicitly supplied corpora never silently shrink to the available subset.
 fn corpus_files_at(root: Option<&Path>, required: bool) -> Result<Vec<PathBuf>, String> {
+    corpus_takes_at(root, required, &REAL_TAKES)
+}
+
+/// [`corpus_files_at`] for the takes `ids`.
+fn corpus_takes_at(
+    root: Option<&Path>,
+    required: bool,
+    ids: &[&str],
+) -> Result<Vec<PathBuf>, String> {
     let Some(root) = root else {
         if required {
             return Err("TIMEGRAPHER_CORPUS is not set".into());
@@ -687,7 +785,7 @@ fn corpus_files_at(root: Option<&Path>, required: bool) -> Result<Vec<PathBuf>, 
         timegrapher_core::archive::sha256_hex(&bytes)
     );
     let mut files = Vec::new();
-    for id in REAL_TAKES {
+    for &id in ids {
         let members: Vec<_> = takes.iter().filter(|t| t["id"] == id).collect();
         if members.len() != 1
             || !matches!(members[0]["tier"].as_str(), Some("referenced" | "paired"))

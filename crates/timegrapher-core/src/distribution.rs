@@ -204,34 +204,121 @@ impl Distribution {
         only: Option<&str>,
         sign: fn(String) -> String,
     ) -> String {
-        let d = kind.decimals;
-        let f = |x: f64| sign(format!("{x:.d$}{}", kind.suffix));
+        let g = self.figures(kind, sign);
         let per = if self.values == "2 s" {
             "2-second stretches"
         } else {
             "readings"
         };
         let mut line = format!(
-            "{} {per}{over} · median {} · middle 80% {} to {}",
+            "{} {per}{over} · median {}{u} · middle 80% {}{u} to {}{u}",
             self.n,
-            f(self.median),
-            f(self.p10),
-            f(self.p90)
+            g.median,
+            g.p10,
+            g.p90,
+            u = g.suffix
         );
         if let Some(p) = only {
             line += &format!(" · {p} only");
         }
-        let off = self.below + self.above;
-        if off > 0 {
+        if let Some(off) = g.off {
             let s = crate::measure::plural(off);
             line += &format!(" · {off} outlier{s} off the scale");
         }
-        if self.peaks.len() > 1 {
-            let at: Vec<String> = self.peaks.iter().map(|&x| f(x)).collect();
-            line += &format!(" · {} peaks, at {}", self.peaks.len(), at.join(" and "));
+        if let Some(at) = g.peaks {
+            line += &format!(" · {} peaks, at {}", at.len(), at.join(" and "));
         }
         line
     }
+
+    /// The figures the summary line and the facts box both give, each
+    /// number through `sign`: the median and the middle 80%'s ends
+    /// without their unit, the values off the scale when there are any,
+    /// and the peaks, with their unit, when there is more than one.
+    fn figures(&self, kind: Kind, sign: fn(String) -> String) -> Figures {
+        let d = kind.decimals;
+        let num = |x: f64| sign(format!("{x:.d$}"));
+        let off = self.below + self.above;
+        Figures {
+            median: num(self.median),
+            p10: num(self.p10),
+            p90: num(self.p90),
+            suffix: kind.suffix,
+            off: (off > 0).then_some(off),
+            peaks: (self.peaks.len() > 1).then(|| {
+                self.peaks
+                    .iter()
+                    .map(|&x| format!("{}{}", num(x), kind.suffix))
+                    .collect()
+            }),
+        }
+    }
+
+    /// The figures the app's facts box shows on the plot, as `(name,
+    /// value)` rows with a true minus (#1528): the count, the median, the
+    /// middle 80%, then the values off the scale and the peaks, each only
+    /// when there are any (two peaks or more). The same figures as
+    /// [`Distribution::screen_line`], from the same [`Figures`].
+    pub fn fact_rows(&self, kind: Kind) -> Vec<(String, String)> {
+        let g = self.figures(kind, |x| crate::figure_text::true_minus(&x));
+        let u = g.suffix;
+        let count = if self.values == "2 s" {
+            FACT_STRETCHES
+        } else {
+            FACT_READINGS
+        };
+        let mut rows = vec![
+            (count.to_string(), self.n.to_string()),
+            (FACT_MEDIAN.to_string(), format!("{}{u}", g.median)),
+            (
+                FACT_MIDDLE.to_string(),
+                format!("{} to {}{u}", g.p10, g.p90),
+            ),
+        ];
+        if let Some(off) = g.off {
+            rows.push((FACT_OFF.to_string(), off.to_string()));
+        }
+        if let Some(at) = g.peaks {
+            rows.push((FACT_PEAKS.to_string(), at.join(" and ")));
+        }
+        rows
+    }
+
+    /// Which of `rows`, [`Distribution::fact_rows`], a box with too
+    /// little room sheds first, in turn (Hugh, #1528), by name in
+    /// [`FACT_SHED`]: the peaks, then the middle 80%, then the count.
+    /// The median and the values off the scale are never in it: they are
+    /// what a short plot must still say.
+    pub fn fact_shed(rows: &[(String, String)]) -> Vec<usize> {
+        FACT_SHED
+            .iter()
+            .filter_map(|name| rows.iter().position(|r| r.0 == *name))
+            .collect()
+    }
+}
+
+/// The facts box's row names ([`Distribution::fact_rows`]).
+const FACT_READINGS: &str = "Readings";
+const FACT_STRETCHES: &str = "2 s stretches";
+const FACT_MEDIAN: &str = "Median";
+const FACT_MIDDLE: &str = "Middle 80%";
+const FACT_OFF: &str = "Off the scale";
+const FACT_PEAKS: &str = "Peaks";
+
+/// The rows a facts box sheds when short of room, in turn
+/// ([`Distribution::fact_shed`]); the median and the values off the
+/// scale are not among them.
+pub const FACT_SHED: [&str; 4] = [FACT_PEAKS, FACT_MIDDLE, FACT_READINGS, FACT_STRETCHES];
+
+/// A distribution's figures as text, for [`Distribution::line`] and
+/// [`Distribution::fact_rows`].
+struct Figures {
+    median: String,
+    p10: String,
+    p90: String,
+    suffix: &'static str,
+    off: Option<usize>,
+    peaks: Option<Vec<String>>,
 }
 
 /// Seconds of beats in each "2 s" value: the amplitude's window, which
@@ -552,5 +639,63 @@ mod tests {
         assert!(d.summary.contains("median -"), "{}", d.summary);
         // The screen copy the MCP view writes is this line (#1431).
         assert_eq!(d.screen_summary, screen);
+    }
+
+    /// The facts box's rows carry the line's figures, with a true minus,
+    /// and leave out the values off the scale and the peaks when there
+    /// are none (#1528).
+    #[test]
+    fn the_fact_rows_carry_the_lines_figures() {
+        let v: Vec<f64> = (0..60).map(|i| -11.0 + f64::from(i % 7)).collect();
+        let d = distribution(&v, RATE, "2 s", 0.5).unwrap();
+        let rows = d.fact_rows(RATE);
+        let names: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+        assert_eq!(&names[..3], ["2 s stretches", "Median", "Middle 80%"]);
+        assert_eq!(rows[0].1, "60");
+        assert_eq!(rows[1].1, "\u{2212}8.0 s/d");
+        assert!(
+            rows[2].1.starts_with('\u{2212}') && rows[2].1.contains(" to \u{2212}"),
+            "{rows:?}"
+        );
+        assert!(rows[2].1.ends_with(" s/d") && !rows[2].1.contains("s/d to"));
+        let off = d.below + d.above;
+        assert_eq!(names.contains(&"Off the scale"), off > 0);
+        assert_eq!(names.contains(&"Peaks"), d.peaks.len() > 1);
+        // Too little room sheds the middle 80% before the count, and never
+        // the median or the values off the scale.
+        let shed = Distribution::fact_shed(&rows);
+        let shed_names: Vec<&str> = shed.iter().map(|&i| rows[i].0.as_str()).collect();
+        assert_eq!(
+            &shed_names[shed_names.len() - 2..],
+            ["Middle 80%", "2 s stretches"]
+        );
+        assert!(!shed_names.contains(&"Median") && !shed_names.contains(&"Off the scale"));
+        let readings = distribution(&v, RATE, "readings", 10.0).unwrap();
+        assert_eq!(readings.fact_rows(RATE)[0].0, "Readings");
+        // Two states: the peaks row names both.
+        let mut seed = 1u64;
+        let mut u = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let two: Vec<f64> = (0..2000)
+            .map(|i| {
+                let mid = if i % 2 == 0 { -5.0 } else { 5.0 };
+                let (a, b) = (u(), u());
+                mid + (-2.0 * a.ln()).sqrt() * (std::f64::consts::TAU * b).cos()
+            })
+            .collect();
+        let d = distribution(&two, RATE, "readings", 10.0).unwrap();
+        assert_eq!(d.peaks.len(), 2, "{:?}", d.peaks);
+        let rows = d.fact_rows(RATE);
+        let peaks = &rows.last().unwrap();
+        assert_eq!(peaks.0, "Peaks");
+        let shed = Distribution::fact_shed(&rows);
+        assert_eq!(rows[shed[0]].0, "Peaks", "{shed:?}");
+        assert_eq!(shed.len(), 3);
+        assert!(peaks.1.contains(" s/d and "), "{rows:?}");
+        assert!(peaks.1.starts_with('\u{2212}'), "{rows:?}");
     }
 }
