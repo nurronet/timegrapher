@@ -185,7 +185,11 @@ impl SeriesKind {
         let k = match unit {
             "s/d" => SeriesKind::Rate,
             "deg" => SeriesKind::Amplitude,
-            _ => SeriesKind::BeatError,
+            "ms" => SeriesKind::BeatError,
+            other => {
+                debug_assert!(false, "a size in an unknown unit: {other}");
+                SeriesKind::BeatError
+            }
         };
         k.fmt_size(v)
     }
