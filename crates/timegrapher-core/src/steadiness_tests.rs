@@ -882,6 +882,32 @@ fn a_long_take_names_the_cycle_inside_a_slower_one() {
     );
 }
 
+/// A rate that bends with the amplitude, flattest near 245°, still gets
+/// no fitted curve and no turn: the headline is the slope and the ends
+/// (Peter, 13 Nov).
+#[test]
+fn the_isochronism_headline_names_no_turn() {
+    let mut z = Noise(5);
+    let n = 26 * 360;
+    let amp: Vec<f64> = (0..n)
+        .map(|i| 270.0 - 52.0 * i as f64 / n as f64 + 2.0 * z.next())
+        .collect();
+    let rate: Vec<f64> = amp
+        .iter()
+        .map(|a| 0.05 * (a - 245.0).powi(2) + 1.5 * z.next())
+        .collect();
+    let c = isochronism_curve(
+        &grid(rate, 10.0),
+        &grid(amp, 10.0),
+        &vec![4.0; n],
+        &Config::default(),
+    )
+    .unwrap();
+    assert!(!c.headline.contains("changes least"), "{}", c.headline);
+    assert!(c.headline.contains("The rate reads"), "{}", c.headline);
+    assert!(c.headline.ends_with("°."), "{}", c.headline);
+}
+
 #[test]
 fn isochronism_curve_and_wind_down_follow_the_run_down() {
     // 26 h of 10 s readings: amplitude falls from 270° to 218°, and

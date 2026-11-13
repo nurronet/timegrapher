@@ -5,11 +5,10 @@
 //! and the walk under it (#741) is core's [`walk_view`], as the chat app's
 //! card draws it.
 
-use crate::marks;
-use crate::strength::{self, Grid, Strength};
+use crate::strength::{self, Grid};
 use crate::theme::{self, Icon};
 use eframe::egui::{self, Align2, Color32, Pos2, RichText, Stroke};
-use egui_plot::{Line, Plot, PlotPoint, PlotTransform, Points, VLine};
+use egui_plot::{Line, Plot, PlotPoint, PlotTransform, Points};
 use timegrapher_core::chart_scale::{axis_number, round_step};
 use timegrapher_core::figure_text::{fixed_text, true_minus};
 use timegrapher_core::steadiness::IsochronismCurve;
@@ -45,7 +44,7 @@ pub fn view_choice(ui: &mut egui::Ui, view: &mut View) {
                 View::Curve,
                 Icon::IsoCurve,
                 "Curve",
-                "The median rate in each 2° of amplitude, and the curve through them",
+                "The median rate in each 2° of amplitude, with bars over its middle half",
             ),
             (
                 View::Walk,
@@ -203,21 +202,10 @@ fn axis_names(ui: &egui::Ui, plot: egui::Rect, frame: egui::Rect) {
 /// The line under the headline naming what the chart draws.
 fn caption(c: &IsochronismCurve) -> String {
     // The slope and its amplitudes are the headline's: said once.
-    let mut s = format!(
-        "Dots: the median rate in each {:.0}° of amplitude, with bars over its middle half · \
-         Line: the curve through them",
+    format!(
+        "Dots: the median rate in each {:.0}° of amplitude, with bars over its middle half",
         c.bin_deg
-    );
-    if let Some(t) = c.turn_deg {
-        s += &format!(" · Turn: where the curve turns, {t:.0}°");
-    }
-    s
-}
-
-/// The rate at amplitude `a` on the quadratic.
-fn curve_at(c: &IsochronismCurve, a: f64) -> f64 {
-    let x = a - c.curve_centre_deg;
-    c.curve[0] + c.curve[1] * x + c.curve[2] * x * x
+    )
 }
 
 /// A rate on the axis: a bare number with as few decimals as the grid
@@ -239,8 +227,8 @@ struct Frame {
 /// never under [`GUTTER`].
 fn gutter(ui: &egui::Ui, curve: Option<&IsochronismCurve>, walk: Option<&WalkView>) -> f32 {
     let spans = curve
-        .and_then(curve_and_bounds)
-        .map(|b| b.2)
+        .and_then(curve_bounds)
+        .map(|b| b.1)
         .into_iter()
         .chain(walk.map(|w| walk_bounds(w).1));
     let body = egui::TextStyle::Body.resolve(ui.style());
@@ -262,103 +250,38 @@ fn gutter(ui: &egui::Ui, curve: Option<&IsochronismCurve>, walk: Option<&WalkVie
 
 fn chart(ui: &mut egui::Ui, c: &IsochronismCurve, h: f32, frame: Frame) {
     let pal = theme::pal(ui);
-    let Some((curve, x_bounds, y_bounds)) = curve_and_bounds(c) else {
+    let Some((x_bounds, y_bounds)) = curve_bounds(c) else {
         return;
     };
     let (x_bounds, y_bounds, grid) = axes(frame.amp.unwrap_or(x_bounds), y_bounds);
     let (head, foot) = (2.0 * name_row(ui), name_row(ui));
     let (h, centre) = shaped(ui, h - head - foot, frame.gutter);
-    ui.add_space(centre);
-    // The turn is named in a lane of one row above the plot, as every
-    // named line is (see `marks`); on a short plot, inside along its top.
-    let names_id = ui.id().with("turn");
-    let lane_h = marks::ROW_H + marks::LANE_GAP;
-    let inside = c.turn_deg.is_some()
-        && marks::short(
-            ui,
-            names_id.with("short"),
-            h.min(ui.available_height()) - lane_h,
-        );
-    let lane = if c.turn_deg.is_some() && !inside {
-        lane_h
-    } else {
-        0.0
-    };
-    // The lane, and room above it for the rate axis's name.
-    ui.add_space(head.max(lane));
-    // What a name inside keeps clear of: the curve, the dots and the bars'
-    // tops.
-    let tops: Vec<[f64; 2]> = curve
-        .iter()
-        .copied()
-        .chain(c.bins.iter().map(|b| [b.amplitude_deg, b.rate_q75]))
-        .collect();
-    let names: Vec<(f64, String, marks::Rank)> = c
-        .turn_deg
-        .map(|t| (t, "Turn".to_string(), marks::Rank::Strong))
-        .into_iter()
-        .collect();
-    let fill = ui.visuals().extreme_bg_color.gamma_multiply(0.8);
-    let h = plot_h(h + head - head.max(lane));
+    ui.add_space(centre + head);
     let resp =
         chart_plot("isochronism", &grid, (h, frame.gutter), x_bounds, y_bounds).show(ui, |p| {
             grid.draw(p, pal);
-            chart_items(p, c, curve, pal);
-            if inside {
-                p.add(marks::InsideNames {
-                    base: egui_plot::PlotItemBase::new("turn name".into()),
-                    names: names.clone(),
-                    tops: tops.clone(),
-                    fill,
-                });
-            }
+            chart_items(p, c, pal);
         });
     axis_names(ui, resp.response.rect, *resp.transform.frame());
     ui.add_space(foot);
-    let hover = |t: f64| format!("Turn: {t:.0}°");
-    if inside {
-        let placed = marks::inside_placed(ui, &resp.transform, &names, &tops);
-        let hover_of = |_: &str| c.turn_deg.map_or_else(String::new, hover);
-        marks::inside_hovers(ui, *resp.transform.frame(), &placed, &hover_of, names_id);
-    } else if let Some(t) = c.turn_deg {
-        let turn = marks::Named {
-            x: resp.transform.position_from_point_x(t),
-            name: "Turn".into(),
-            rank: marks::Rank::Strong,
-            ink: pal.text_secondary,
-            hover: hover(t),
-        };
-        marks::lane_above_one(ui, *resp.transform.frame(), &[turn], names_id);
-    }
 }
 
 /// A low and high bound on one axis.
 type Span = (f64, f64);
 
-/// The fitted curve across the bins' amplitudes, and the chart's
-/// amplitude and rate bounds; none with no bins.
-fn curve_and_bounds(c: &IsochronismCurve) -> Option<(Vec<[f64; 2]>, Span, Span)> {
-    let (Some(first), Some(last)) = (c.bins.first(), c.bins.last()) else {
-        return None;
-    };
-    let (a_lo, a_hi) = (first.amplitude_deg, last.amplitude_deg);
-    let curve: Vec<[f64; 2]> = (0..=60)
-        .map(|i| {
-            let a = a_lo + (a_hi - a_lo) * i as f64 / 60.0;
-            [a, curve_at(c, a)]
-        })
-        .collect();
-    // Scale to the bars and the curve, padded by 15% as the charts are.
+/// The chart's amplitude and rate bounds, from its bins; none with no
+/// bins.
+fn curve_bounds(c: &IsochronismCurve) -> Option<(Span, Span)> {
+    // Scale to the bars, padded by 15% as the charts are.
     let (lo, hi) = c
         .bins
         .iter()
         .flat_map(|b| [b.rate_q25, b.rate_q75])
-        .chain(curve.iter().map(|p| p[1]))
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
             (l.min(v), h.max(v))
         });
     let amps: Vec<f64> = c.bins.iter().map(|b| b.amplitude_deg).collect();
-    Some((curve, curve_amp(&amps, c.bin_deg)?, rate_padded(lo, hi)))
+    Some((curve_amp(&amps, c.bin_deg)?, rate_padded(lo, hi)))
 }
 
 /// The chart's plot, `id`, fixed in place, `h` high over the given bounds, on
@@ -400,13 +323,8 @@ fn amp_label(v: f64, range: &std::ops::RangeInclusive<f64>) -> String {
     }
 }
 
-/// The bins' middle halves, the curve, the medians and the turn's line.
-fn chart_items(
-    p: &mut egui_plot::PlotUi,
-    c: &IsochronismCurve,
-    curve: Vec<[f64; 2]>,
-    pal: &theme::Palette,
-) {
+/// The bins' middle halves and their medians.
+fn chart_items(p: &mut egui_plot::PlotUi, c: &IsochronismCurve, pal: &theme::Palette) {
     let colour = pal.trace_rate;
     for b in &c.bins {
         p.line(
@@ -418,11 +336,6 @@ fn chart_items(
             .width(strength::DATA_W),
         );
     }
-    p.line(
-        Line::new("curve", curve)
-            .color(colour)
-            .width(strength::DATA_W),
-    );
     p.points(
         Points::new(
             "median",
@@ -434,10 +347,6 @@ fn chart_items(
         .color(colour)
         .radius(3.0_f32),
     );
-    if let Some(t) = c.turn_deg {
-        let s = strength::stroke(Strength::CallOut, pal);
-        p.vline(VLine::new("turn", t).color(s.color).width(s.width));
-    }
 }
 
 /// How near the pointer must be to a dot, in points, for its hover.
@@ -501,7 +410,7 @@ fn walk_part(ui: &mut egui::Ui, w: &WalkView, h: f32, frame: Frame) {
 /// One amplitude range for the curve and the walk: the span of both
 /// (core's [`walk_amp`]).
 fn shared_amp(c: &IsochronismCurve, w: &WalkView) -> Option<Span> {
-    let (_, amp, _) = curve_and_bounds(c)?;
+    let (amp, _) = curve_bounds(c)?;
     Some(walk_amp(&w.dots, Some(amp)))
 }
 
@@ -542,12 +451,14 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let mut steps = steps(w);
     steps.sort_by_key(|s| !s.3);
     let frame = *t.frame();
+    let mut drawn = Vec::new();
     for (from, to, (t0, t1), thin) in steps {
         // A step into or out of a dot off the scale is a stub from the
         // dot on it (Hugh, 13 Nov: a full step read as data).
         let Some((a, b, (t0, t1))) = drawn_step(frame, pos(from), pos(to), (t0, t1)) else {
             continue;
         };
+        drawn.push((a, b));
         // In short runs, so its colour moves from one dot's to the next's.
         let runs = 8;
         for k in 0..runs {
@@ -573,34 +484,44 @@ fn paint_walk(ui: &egui::Ui, t: &PlotTransform, w: &WalkView) {
     let (Some(start), Some(end)) = (dots.first(), dots.last()) else {
         return;
     };
-    ring(*start, 7.0, 0.0);
-    p.circle(*end, 6.5, colour(1.0), Stroke::new(2.0_f32, bg));
+    ring(*start, START_RING, 0.0);
+    p.circle(*end, END_DOT, colour(1.0), Stroke::new(2.0_f32, bg));
     let font = egui::FontId::proportional(12.0);
     // Each name on a halo of the plot's background, so a trail that
     // crosses it where the walk knots leaves it readable (Walter's walk of
     // #1148).
-    let name = |at: Pos2, align: Align2, text: &str| {
-        let g = p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
-        // Kept inside the plot, so a name near an edge never sits on an
-        // axis label (Walter's walk of #1496: "8.4 h" on "120").
-        let r = keep_inside(align.anchor_size(at, g.size()), t.frame().shrink(2.0));
-        // Opaque, so a trail under a name never shows through it (Hugh,
-        // 13 Nov: "Start" sat on the purple trail).
-        p.rect_filled(r.expand(3.0), 3.0, bg);
+    let galley = |text: &str| p.layout_no_wrap(text.to_string(), font.clone(), pal.text);
+    // Opaque, so a trail under a name never shows through it (Hugh,
+    // 13 Nov: "Start" sat on the purple trail).
+    let name = |r: egui::Rect, g| {
+        p.rect_filled(r.expand(NAME_PAD), 3.0, bg);
         p.galley(r.min, g, pal.text);
     };
-    name(
-        *start + egui::vec2(-10.0, -10.0),
-        Align2::RIGHT_BOTTOM,
-        WALK_START,
-    );
-    // The end's hour off the trail, as the beads' are, past its larger
-    // dot (Walter's walk of #1148: below it, the trail crossed it).
-    let (side, align) = bead_side(&dots, dots.len() - 1);
-    name(*end + 14.0 * side, align, &w.last_text);
+    // Kept inside the plot, so a name near an edge never sits on an axis
+    // label (Walter's walk of #1496: "8.4 h" on "120").
+    let inside = frame.shrink(2.0);
+    // The start's and the end's names where they cover no dot, stub or
+    // step (Hugh, #1542: the end's name hid a stub).
+    // Each mark's outer edge: the start's ring and the end's dot with
+    // half their strokes.
+    let marks = [
+        (*start, START_RING + 1.25, WALK_START),
+        (*end, END_DOT + 1.0, w.last_text.as_str()),
+    ];
+    for (at, radius, text) in marks {
+        let g = galley(text);
+        name(place_name(at, radius, g.size(), frame, &dots, &drawn), g);
+    }
     for b in &w.beads {
         let (side, align) = bead_side(&dots, b.dot);
-        name(dots[b.dot] + 11.0 * side, align, &b.text);
+        let g = galley(&b.text);
+        name(
+            keep_inside(
+                align.anchor_size(dots[b.dot] + 11.0 * side, g.size()),
+                inside,
+            ),
+            g,
+        );
     }
 }
 
@@ -700,6 +621,61 @@ fn span_of(from: Pos2, to: Pos2, a: Pos2, b: Pos2, (t0, t1): (f64, f64)) -> Opti
     let len = from.distance(to);
     let at = |q: Pos2| (q.distance(from) / len) as f64;
     (len > 0.0).then(|| (t0 + (t1 - t0) * at(a), t0 + (t1 - t0) * at(b)))
+}
+
+/// The start's ring's and the end's dot's radii, points.
+const START_RING: f32 = 7.0;
+const END_DOT: f32 = 6.5;
+
+/// How far a name's box reaches past its text, points.
+const NAME_PAD: f32 = 3.0;
+
+/// How far inside the plot's frame a name's box must sit, points, so it
+/// never meets an axis (Hugh, #1542: "7.8 h" broke the y-axis line).
+const NAME_FRAME_PT: f32 = 4.0;
+
+/// The room between a name's box and its own mark, points (Hugh, #1542:
+/// the "h" touched the end's dot).
+const NAME_MARK_PT: f32 = 3.0;
+
+/// Where a name `size` big goes beside its mark at `at`, `radius` to its
+/// outer edge (Hugh, #1542): to the right, the left, above or below, its
+/// box [`NAME_MARK_PT`] clear of the mark. A place counts only when its
+/// box lies [`NAME_FRAME_PT`] inside `frame`; of those, the first that
+/// covers no dot of `dots` and no drawn step of `steps`, else the one that
+/// covers the fewest. With none inside, the first, moved inside.
+fn place_name(
+    at: Pos2,
+    radius: f32,
+    size: egui::Vec2,
+    frame: egui::Rect,
+    dots: &[Pos2],
+    steps: &[(Pos2, Pos2)],
+) -> egui::Rect {
+    let gap = radius + NAME_MARK_PT + NAME_PAD;
+    let room = frame.shrink(NAME_FRAME_PT + NAME_PAD);
+    let places = [
+        (Align2::LEFT_CENTER, egui::vec2(gap, 0.0)),
+        (Align2::RIGHT_CENTER, egui::vec2(-gap, 0.0)),
+        (Align2::CENTER_BOTTOM, egui::vec2(0.0, -gap)),
+        (Align2::CENTER_TOP, egui::vec2(0.0, gap)),
+    ]
+    .map(|(align, off)| align.anchor_size(at + off, size));
+    let covered = |r: &egui::Rect| {
+        let r = r.expand(NAME_PAD);
+        dots.iter().filter(|d| r.contains(**d)).count()
+            + steps
+                .iter()
+                .filter(|(a, b)| crate::marks::crosses(r, &[*a, *b]))
+                .count()
+    };
+    // `min_by_key` keeps the first of equals, so a clear place in the
+    // order above wins.
+    places
+        .into_iter()
+        .filter(|r| room.contains_rect(*r))
+        .min_by_key(covered)
+        .unwrap_or_else(|| keep_inside(places[0], room))
 }
 
 /// `r` moved the least way to lie inside `frame`, where it fits.
@@ -807,10 +783,6 @@ mod tests {
             s_per_day_per_deg_se: Some(0.02),
             rate_change_s_per_day: Some(12.0),
             reliability: Some(0.9),
-            curve_centre_deg: 250.0,
-            curve: [16.8, 0.2, -0.015],
-            curve_explained: 0.95,
-            turn_deg: Some(256.7),
             headline: "The rate falls as the amplitude does.".into(),
         }
     }
@@ -818,14 +790,17 @@ mod tests {
     #[test]
     fn draws_a_curve_and_says_why_when_it_is_missing() {
         let curve = run_down();
-        assert!(caption(&curve).contains("where the curve turns, 257°"));
+        // The bins only: no fitted curve and no turn (Peter, 13 Nov).
+        assert_eq!(
+            caption(&curve),
+            "Dots: the median rate in each 2° of amplitude, with bars over its middle half"
+        );
         // The slope and its amplitudes only in the headline.
         assert!(
             !caption(&curve).contains("per degree"),
             "{}",
             caption(&curve)
         );
-        assert!((curve_at(&curve, 250.0) - 16.8).abs() < 1e-12);
         // Bare numbers, a true minus, no minus zero (Hugh's F1).
         assert_eq!(rate_label(-0.0001, 0.5), "0.0");
         assert_eq!(rate_label(0.0, 0.5), "0.0");
@@ -849,10 +824,10 @@ mod tests {
         }
     }
 
-    /// The turn is named "Turn" above the plot, over its line, clear of
-    /// the rate labels.
+    /// The curve view draws the bins' bars and medians and nothing fitted
+    /// through them: no line, and no turn named (Peter, 13 Nov).
     #[test]
-    fn the_turn_is_named_above_the_plot() {
+    fn the_curve_view_draws_no_fitted_curve_and_no_turn() {
         let curve = run_down();
         let ctx = egui::Context::default();
         theme::install(&ctx);
@@ -867,82 +842,26 @@ mod tests {
             egui::CentralPanel::default()
                 .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
         });
-        let texts: Vec<(String, egui::Rect)> = out
+        let texts: Vec<String> = out
             .shapes
             .iter()
             .filter_map(|c| match &c.shape {
-                egui::Shape::Text(t) => Some((
-                    t.galley.text().to_string(),
-                    t.galley.rect.translate(t.pos.to_vec2()),
-                )),
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
                 _ => None,
             })
             .collect();
-        let turn = texts.iter().find(|t| t.0 == "Turn").expect("Turn is named");
-        let rates: Vec<_> = texts.iter().filter(|t| is_rate_label(t)).collect();
-        assert!(!rates.is_empty(), "{texts:?}");
-        // Above the plot: the top rate label is centred on its top edge,
-        // so "Turn" ends above every label's middle and on none.
-        assert!(
-            rates
-                .iter()
-                .all(|r| r.1.center().y >= turn.1.bottom() && !r.1.intersects(turn.1)),
-            "{texts:?}"
-        );
-        // Over its line: 256.7° sits right of the middle of 236° to 264°.
-        let x = turn.1.center().x;
-        assert!(x > 350.0 && x < 700.0, "{turn:?}");
-    }
-
-    /// On a short plot the lane gives way: "Turn" goes inside, along the
-    /// plot's top (not above the highest rate label), or where the curve
-    /// leaves it no room, to its line's hover.
-    #[test]
-    fn on_a_short_plot_the_turn_leaves_the_lane() {
-        let curve = run_down();
-        let ctx = egui::Context::default();
-        theme::install(&ctx);
-        let mut texts: Vec<(String, egui::Rect)> = Vec::new();
-        // Twice: the short switch keeps what it was last frame.
-        for _ in 0..2 {
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(700.0, 160.0),
-                )),
-                ..Default::default()
-            };
-            let out = ctx.run(input, |ctx| {
-                egui::CentralPanel::default()
-                    .show(ctx, |u| super::ui(u, Some(&curve), None, View::Curve));
-            });
-            texts = out
-                .shapes
-                .iter()
-                .filter_map(|c| match &c.shape {
-                    egui::Shape::Text(t) => Some((
-                        t.galley.text().to_string(),
-                        t.galley.rect.translate(t.pos.to_vec2()),
-                    )),
-                    _ => None,
-                })
-                .collect();
-        }
-        let turn = texts.iter().find(|t| t.0 == "Turn");
-        let top_rate = texts
+        assert!(!texts.iter().any(|t| t.contains("Turn")), "{texts:?}");
+        // Each bar is a two-point line; a fitted curve had 61 points.
+        let longest = out
+            .shapes
             .iter()
-            .filter(|t| is_rate_label(t))
-            .map(|t| t.1.top())
-            .fold(f32::INFINITY, f32::min);
-        assert!(top_rate.is_finite(), "{texts:?}");
-        if let Some(turn) = turn {
-            assert!(turn.1.top() > top_rate - 8.0, "{texts:?}");
-        }
-    }
-
-    /// A rate axis label: a bare number in the gutter left of the plot.
-    fn is_rate_label(t: &(String, egui::Rect)) -> bool {
-        t.0.replace('−', "-").parse::<f64>().is_ok() && t.1.right() < GUTTER + 16.0
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Path(p) => Some(p.points.len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(longest < 10, "a line of {longest} points");
     }
 
     /// A walk on core's 5 min bins: six points, then a stretch left out,
@@ -1043,6 +962,49 @@ mod tests {
         assert_eq!(keep_inside(r(-5.0, 95.0), frame), r(0.0, 90.0));
         assert_eq!(keep_inside(r(90.0, -3.0), frame), r(80.0, 0.0));
         assert_eq!(keep_inside(r(40.0, 40.0), frame), r(40.0, 40.0));
+    }
+
+    /// The start's and the end's names go right, left, above or below
+    /// their dot, in the first place clear of dots and steps; else where
+    /// they cover the fewest (Hugh, #1542).
+    #[test]
+    fn a_name_takes_the_first_clear_place_beside_its_dot() {
+        let frame = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        let (at, size) = (egui::pos2(100.0, 100.0), egui::vec2(30.0, 12.0));
+        let right = egui::Rect::from_min_size(egui::pos2(111.0, 94.0), size);
+        let left = egui::Rect::from_min_size(egui::pos2(59.0, 94.0), size);
+        let above = egui::Rect::from_min_size(egui::pos2(85.0, 77.0), size);
+        let below = egui::Rect::from_min_size(egui::pos2(85.0, 111.0), size);
+        let place =
+            |dots: &[Pos2], steps: &[(Pos2, Pos2)]| place_name(at, 5.0, size, frame, dots, steps);
+        assert_eq!(place(&[], &[]), right);
+        // A stub running right from the dot (Walter's walk of #1496).
+        let stub_right = (at, egui::pos2(116.0, 100.0));
+        assert_eq!(place(&[], &[stub_right]), left);
+        let stub_left = (at, egui::pos2(84.0, 100.0));
+        assert_eq!(place(&[], &[stub_right, stub_left]), above);
+        let up = (at, egui::pos2(100.0, 70.0));
+        assert_eq!(place(&[], &[stub_right, stub_left, up]), below);
+        // None clear: the fewest covered, the first of equals.
+        let down = (at, egui::pos2(100.0, 130.0));
+        let dot_left = egui::pos2(70.0, 100.0);
+        assert_eq!(
+            place(&[dot_left], &[stub_right, stub_left, up, down]),
+            right
+        );
+        // A place counts only with its box 4 pt inside the frame (Hugh:
+        // "7.8 h" on the left broke the y-axis): near the left edge with a
+        // stub to the right, above.
+        let near = egui::pos2(45.0, 100.0);
+        let stub = (near, egui::pos2(61.0, 100.0));
+        let r = place_name(near, 5.0, size, frame, &[], &[stub]);
+        assert_eq!(r, egui::Rect::from_min_size(egui::pos2(30.0, 77.0), size));
+        // In a corner with no place inside, the first, moved inside.
+        let edge = place_name(egui::pos2(195.0, 195.0), 5.0, size, frame, &[], &[]);
+        assert!(frame.shrink(7.0).contains_rect(edge), "{edge:?}");
+        // The box clears its mark by 3 pt: radius, then 3 pt, then the
+        // box's own 3 pt.
+        assert_eq!(place(&[], &[]).left() - at.x, 5.0 + 3.0 + 3.0);
     }
 
     /// A step to a dot off the scale is drawn as its stub, coloured over
@@ -1163,15 +1125,12 @@ mod tests {
         );
         let t = texts(&walk());
         assert!(!t.iter().any(|t| t.starts_with("Thin:")), "{t:?}");
-        assert!(!t.iter().any(|t| t.starts_with("Faint points")), "{t:?}");
+        assert!(!t.iter().any(|t| t.starts_with("Off the scale")), "{t:?}");
         // A faint dot far off the scale is counted in the key (Hugh,
         // 13 Nov).
         w.dots[2].amplitude_deg += 1000.0;
         let t = texts(&w);
-        assert!(
-            t.iter().any(|t| t == "Faint points off the scale: 1"),
-            "{t:?}"
-        );
+        assert!(t.iter().any(|t| t == "Off the scale: 1"), "{t:?}");
     }
 
     /// The Walk view draws the walk with core's hint, its dots in viridis
@@ -1248,7 +1207,7 @@ mod tests {
     #[test]
     fn the_curve_and_the_walk_share_the_amplitude_axis() {
         let (curve, w) = (run_down(), walk());
-        let (_, (c_lo, c_hi), _) = curve_and_bounds(&curve).unwrap();
+        let ((c_lo, c_hi), _) = curve_bounds(&curve).unwrap();
         let ((w_lo, w_hi), _) = walk_bounds(&w);
         assert_ne!((c_lo, c_hi), (w_lo, w_hi), "the test needs two ranges");
         assert_eq!(
@@ -1449,7 +1408,10 @@ mod tests {
             .find(|c| c.radius == 6.5 && c.fill == colour(1.0))
             .expect("the end's dot");
         let name = |n: &str| texts.iter().find(|t| t.0 == n).unwrap().1;
-        assert!(name("Start").max.x <= start.x && name("Start").max.y <= start.y);
+        // Beside its ring, not on it (where, by #1542's rule: tested in
+        // a_name_takes_the_first_clear_place_beside_its_dot).
+        let first = name("Start");
+        assert!(first.distance_to_pos(start) > 7.0, "{first:?}");
         let last = name(&w.last_text);
         assert!(last.distance_to_pos(end.center) > end.radius, "{last:?}");
         // Each bead's name and the end's sit clear of every dot, so never
