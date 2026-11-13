@@ -1049,23 +1049,13 @@ fn readings_plot(
     );
     let hover = resp.inner.filter(|_| resp.response.hovered());
     if let Some(x) = hover.or(over) {
-        paint_pointer(ui, &resp.transform, x, pal);
+        let painter = ui.painter_at(*resp.transform.frame());
+        strength::time_line(&painter, &resp.transform, x, Strength::Axis, pal);
         let value = crate::app::nearest_at(&near, x).map(|j| drawn[j].readout(k));
         let time = hover.map(|x| readout_time(x, r.opts.joined_in));
         paint_readout(ui, title_rect, (time, value), colour);
     }
     hover
-}
-
-/// The pointer's time across a plot at axis strength, on every row as on
-/// the Charts (Hugh, #1063).
-fn paint_pointer(ui: &egui::Ui, t: &egui_plot::PlotTransform, x: f64, pal: &theme::Palette) {
-    let frame = *t.frame();
-    let px = t.position_from_point_x(x);
-    if px >= frame.left() && px <= frame.right() {
-        ui.painter_at(frame)
-            .vline(px, frame.y_range(), strength::stroke(Strength::Axis, pal));
-    }
 }
 
 /// The time under the pointer as Readings Over Time's readout writes
@@ -1079,7 +1069,10 @@ fn readout_time(x: f64, joined_in: Option<&str>) -> String {
 
 /// Readings Over Time's readout on its title's line, after the title:
 /// the time (on the row under the pointer only), then the reading drawn
-/// nearest it in the series' colour, as a Charts lane writes them.
+/// nearest it in the series' colour, as a Charts lane writes them, each
+/// in a slot as wide as its digits as zeros (`app::lane_width`). A
+/// part that would run past the row's right edge is left out whole, so
+/// a narrow pane never shows half a figure (Hugh on #1277).
 fn paint_readout(
     ui: &egui::Ui,
     title_rect: egui::Rect,
@@ -1092,18 +1085,17 @@ fn paint_readout(
     let pal = theme::pal(ui);
     let font = egui::TextStyle::Small.resolve(ui.style());
     let p = ui.painter();
-    let y = title_rect.center().y;
-    let mut x = title_rect.right() + 16.0;
+    let right = ui.max_rect().right();
+    let top = title_rect.center().y - font.size / 2.0;
+    let mut x = title_rect.right() + crate::app::LANE_AFTER_TITLE;
     for (text, ink) in [(time, pal.text), (value, pal.axis_ink(colour))] {
-        let Some(text) = text else { continue };
-        let r = p.text(
-            egui::pos2(x, y),
-            egui::Align2::LEFT_CENTER,
-            true_minus(&text),
-            font.clone(),
-            ink,
-        );
-        x = r.right() + 12.0;
+        let Some(text) = text.map(|t| true_minus(&t)) else {
+            continue;
+        };
+        if x + crate::app::lane_width(p, &text, &font, true) > right {
+            break;
+        }
+        x += crate::app::lane_text(p, (x, top), &text, (&font, ink), true) + crate::app::LANE_GAP;
     }
 }
 

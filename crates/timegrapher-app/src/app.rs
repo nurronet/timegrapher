@@ -47,7 +47,7 @@ use timegrapher_core::steadiness::SeriesKind;
 
 mod charts;
 use charts::chart_key;
-pub use charts::paint_key;
+pub use charts::{lane_text, lane_width, paint_key, LANE_AFTER_TITLE, LANE_GAP};
 pub use poise_pane::PoiseView;
 pub use position::Position;
 mod dialogs;

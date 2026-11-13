@@ -164,15 +164,20 @@ impl SeriesKind {
         let (gap, u) = unit_after(self.unit());
         format!("{text}{gap}{u}")
     }
-    /// A reading with its unit, at the series' place: the rate signed,
-    /// "+1.2 s/d", the others as they are, "270°", "0.20 ms"; one that
-    /// rounds to zero takes no sign ([`crate::figure_text`]).
+    /// A reading with its unit, at the series' place: "+1.2 s/d",
+    /// "270°", "0.20 ms" ([`Self::number`]).
     pub fn fmt(self, v: f64) -> String {
+        self.with_unit(self.number(v))
+    }
+    /// A reading without its unit, at the series' place: the rate signed,
+    /// "+1.2", the others as they are, "270", "0.20"; one that rounds to
+    /// zero takes no sign ([`crate::figure_text`]).
+    pub fn number(self, v: f64) -> String {
         let d = self.digits();
-        self.with_unit(match self {
+        match self {
             SeriesKind::Rate => crate::figure_text::signed_text(v, d),
             SeriesKind::Amplitude | SeriesKind::BeatError => crate::figure_text::fixed_text(v, d),
-        })
+        }
     }
     /// A within-take difference (a cycle's peak to peak), one place finer
     /// than a reading ([`crate::figure_text::difference_digits`]).

@@ -84,15 +84,15 @@ impl Drawn {
     /// What a drawn point says under the pointer, as the Readings view's
     /// readout writes it (#1277): one reading's value, "+3.2 s/d"; a
     /// band's mean, how many readings it holds and its lowest and
-    /// highest, "+3.2 s/d, mean of 8 from +1.0 s/d to +5.1 s/d".
+    /// highest, the unit once, "+3.2 s/d, mean of 8, +1.0 to +5.1" (Hugh).
     pub fn readout(&self, k: SeriesKind) -> String {
         if self.count > 1 {
             format!(
-                "{}, mean of {} from {} to {}",
+                "{}, mean of {}, {} to {}",
                 k.fmt(self.mean),
                 self.count,
-                k.fmt(self.lo),
-                k.fmt(self.hi)
+                k.number(self.lo),
+                k.number(self.hi)
             )
         } else {
             k.fmt(self.mean)
@@ -1154,7 +1154,7 @@ mod tests {
         };
         assert_eq!(
             band.readout(SeriesKind::Rate),
-            "+3.2 s/d, mean of 8 from +1.0 s/d to +5.1 s/d"
+            "+3.2 s/d, mean of 8, +1.0 to +5.1"
         );
         let amp = Drawn {
             t: 0.0,
@@ -1164,6 +1164,16 @@ mod tests {
             count: 1,
         };
         assert_eq!(amp.readout(SeriesKind::Amplitude), "272°");
+        let amp_band = Drawn {
+            count: 3,
+            lo: 269.6,
+            hi: 274.2,
+            ..amp
+        };
+        assert_eq!(
+            amp_band.readout(SeriesKind::Amplitude),
+            "272°, mean of 3, 270 to 274"
+        );
         let be = Drawn {
             t: 0.0,
             mean: 0.204,
