@@ -13,12 +13,15 @@
 
 use crate::strength::{self, Zero};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Vec2};
+use sweep::{Geom, Sweep};
 use timegrapher_core::beats::Beat;
 use timegrapher_core::breaks::Break;
 use timegrapher_core::chart_scale::{axis_number, round_step, steady_ends};
 use timegrapher_core::clock::ClockFit;
 use timegrapher_core::library::length_text;
 pub use timegrapher_core::timing::Anchor;
+
+mod sweep;
 
 /// Colours of the ticks (even beats) and tocks (odd beats).
 pub fn side_colors(dark: bool) -> [Color32; 2] {
@@ -40,6 +43,10 @@ pub struct StripView {
     /// Time runs left to right (newest on the right) instead of down the
     /// strip (newest at the top).
     pub horizontal: bool,
+    /// The paper is still and the pen sweeps along it, back to the start
+    /// every `span_s` ([`Sweep::Still`]), instead of the paper moving.
+    #[serde(default)]
+    pub still: bool,
 }
 
 /// The most beats drawn to a point along the strip.
@@ -159,45 +166,6 @@ fn scale_ms((lo, hi, _): Scale, v: f64, half: f64) -> f64 {
 fn ticks((lo, hi, step): Scale) -> impl Iterator<Item = f64> {
     let n = ((hi - lo) / step).round() as i64;
     (0..=n).map(move |k| lo + k as f64 * step)
-}
-
-/// Places points on the strip from (lead in ms, time in s).
-struct Geom {
-    r: Rect,
-    half: f64,
-    span: f64,
-    end: f64,
-    horizontal: bool,
-}
-
-impl Geom {
-    /// The time at a point on the strip.
-    fn time_at(&self, p: Pos2) -> f64 {
-        let r = self.r;
-        let back = if self.horizontal {
-            (r.right() - p.x) / r.width().max(1.0)
-        } else {
-            (p.y - r.top()) / r.height().max(1.0)
-        };
-        self.end - back as f64 * self.span
-    }
-
-    fn pos(&self, ms: f64, t: f64) -> Pos2 {
-        let r = self.r;
-        let across = (ms / self.half) as f32;
-        let back = ((self.end - t) / self.span) as f32;
-        if self.horizontal {
-            Pos2::new(
-                r.right() - back * r.width(),
-                r.center().y - across * r.height() / 2.0,
-            )
-        } else {
-            Pos2::new(
-                r.center().x + across * r.width() / 2.0,
-                r.top() + back * r.height(),
-            )
-        }
-    }
 }
 
 /// The rate reading to draw over the beats it was fitted to.
@@ -1020,17 +988,23 @@ pub fn draw_strip(
     if view.horizontal {
         crate::theme::note_time_span(ui.ctx(), r.x_range());
     }
+    let g = Geom {
+        r,
+        half: view.half_width_ms,
+        span: view.span_s,
+        end: end_s,
+        horizontal: view.horizontal,
+        sweep: if view.still {
+            Sweep::Still
+        } else {
+            Sweep::Moving
+        },
+    };
     let f = Frame {
         painter,
         outer: resp.rect,
         lane,
-        g: Geom {
-            r,
-            half: view.half_width_ms,
-            span: view.span_s,
-            end: end_s,
-            horizontal: view.horizontal,
-        },
+        g,
         view,
         extras,
         vis,
@@ -1038,7 +1012,7 @@ pub fn draw_strip(
         font,
         row_h,
         cols,
-        oldest,
+        oldest: g.oldest(),
     };
     let mut input = StripInput::default();
     let drags = f.pointer(ui, &resp, &mut input);
@@ -1048,7 +1022,12 @@ pub fn draw_strip(
     if let Some(anchor) = anchor {
         f.paint_beats(beats, period_s, anchor, true);
     }
-    f.paint_layers(&drags);
+    // Stretches and lines a lap at a time on still paper, so none runs
+    // across the wrap or the blank ahead of the pen.
+    let laps = f.laps();
+    for lap in &laps {
+        lap.paint_layers(&drags);
+    }
     f.paint_grid(&ms_lines, &time_lines);
     f.paint_key();
     f.paint_scales(&overlays);
@@ -1056,8 +1035,10 @@ pub fn draw_strip(
         return input;
     };
     f.paint_beats(beats, period_s, anchor, false);
-    f.paint_overlay_lines(&overlays);
-    f.paint_rate_line(beats, period_s, anchor, step);
+    for lap in &laps {
+        lap.paint_overlay_lines(&overlays);
+        lap.paint_rate_line(beats, period_s, anchor, step);
+    }
     f.paint_cursor();
     input
 }
@@ -1131,6 +1112,7 @@ fn strip_rects(
 }
 
 /// One frame of the strip: where it draws, and what with.
+#[derive(Clone)]
 struct Frame<'a> {
     painter: egui::Painter,
     outer: Rect,
@@ -1166,6 +1148,20 @@ struct Drags {
 }
 
 impl Frame<'_> {
+    /// This frame a lap at a time ([`Geom::laps`]): each laid out without
+    /// wrapping and drawing only where its lap shows. Moving paper is one.
+    fn laps(&self) -> Vec<Self> {
+        self.g
+            .laps()
+            .into_iter()
+            .map(|(g, share)| Frame {
+                painter: self.painter.with_clip_rect(self.g.clip(self.outer, share)),
+                g,
+                ..self.clone()
+            })
+            .collect()
+    }
+
     /// The time at `p`, kept on the strip.
     fn at(&self, p: Option<Pos2>) -> Option<f64> {
         p.map(|p| self.g.time_at(p).clamp(self.oldest, self.g.end))
@@ -1302,9 +1298,11 @@ impl Frame<'_> {
             }
             if zoom != 1.0 {
                 input.span_factor = 1.0 / zoom as f64;
+                // Still paper zooms about the pen: a time's place on it
+                // is its place in its lap, which a new Length moves.
                 input.zoom_at = resp
                     .hover_pos()
-                    .filter(|p| r.contains(*p))
+                    .filter(|p| r.contains(*p) && g.sweep == Sweep::Moving)
                     .map(|p| g.time_at(p));
             }
         }
@@ -2164,6 +2162,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let masked = [(40.0, 60.0)];
         let extras = Extras {
@@ -2280,6 +2279,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let track = [
             (0.0, 50.0, "Dial Up (DU)", "DU"),
@@ -2432,6 +2432,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 240.0,
                 horizontal,
+                still: false,
             };
             let extras = Extras {
                 gutter: 46.0,
@@ -2479,6 +2480,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 100.0,
                 horizontal,
+                still: false,
             };
             let extras = Extras {
                 gutter: 46.0,
@@ -2545,6 +2547,7 @@ mod tests {
             half_width_ms: 10.0,
             span_s: 100.0,
             horizontal: true,
+            still: false,
         };
         let track = [(0.0, f64::INFINITY, "Crown Up (CU, 3H)", "CU")];
         let masked = [(12.0, 20.0)];
@@ -2626,6 +2629,7 @@ mod tests {
                 half_width_ms: 10.0,
                 span_s: 100.0,
                 horizontal: true,
+                still: false,
             };
             let track = [
                 (0.0, 50.0, "Dial Up (DU)", "DU"),
@@ -2907,6 +2911,7 @@ mod tests {
                 span: 60.0,
                 end: 100.0,
                 horizontal,
+                sweep: Sweep::Moving,
             };
             for t in [40.0, 55.5, 100.0] {
                 assert!((g.time_at(g.pos(3.0, t)) - t).abs() < 1e-3);
@@ -2925,6 +2930,7 @@ mod tests {
                 span: 60.0,
                 end: 100.0,
                 horizontal,
+                sweep: Sweep::Moving,
             };
             let m = [(50.0, 60.0), (60.5, 70.0)];
             assert_eq!(

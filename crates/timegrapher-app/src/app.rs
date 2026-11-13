@@ -2761,7 +2761,7 @@ impl TimegrapherApp {
 
     /// With Fit on, the strip's length is the session so far.
     fn follow_fit(&mut self) {
-        if self.strip_fit {
+        if self.strip_fitted() {
             self.strip_end = None;
             self.strip.set_span(self.strip_end_s());
         }
