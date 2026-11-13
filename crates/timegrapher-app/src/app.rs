@@ -3518,12 +3518,14 @@ fn chart_time_label(t: f64, step: f64, r: &std::ops::RangeInclusive<f64>) -> Str
 /// One plot for each reading `shown`, one above the other, sharing the
 /// height left in `ui` evenly. A pane too short for them all draws the
 /// first ones at a readable height and names the rest, rather than
-/// squeezing every plot flat or spilling out of the pane.
+/// squeezing every plot flat or spilling out of the pane: in a line under
+/// the plots, or with `chip`, as words `draw` puts in a grey chip under
+/// the first plot's title (#1528): what isn't shown, and what to do.
 fn stacked(
     ui: &mut egui::Ui,
     shown: [bool; 3],
-    least: f32,
-    mut draw: impl FnMut(&mut egui::Ui, SeriesKind),
+    (least, chip): (f32, bool),
+    mut draw: impl FnMut(&mut egui::Ui, SeriesKind, Option<&(String, String)>),
 ) -> [bool; 3] {
     let kinds: Vec<SeriesKind> = steady::SERIES
         .into_iter()
@@ -3531,19 +3533,23 @@ fn stacked(
         .filter_map(|(k, on)| on.then_some(k))
         .collect();
     let (gap, note) = (6.0, STACKED_NOTE_H);
+    // Each gap also takes the layout's spacing either side of it, so the
+    // last plot's axis isn't cut by the pane's foot.
+    let step_gap = gap + 2.0 * ui.spacing().item_spacing.y;
     let room = ui.available_height();
-    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * gap + note;
+    let fits = |n: usize| n as f32 * least + (n as f32 - 1.0) * step_gap + note;
     let mut n = kinds.len();
     while n > 1 && fits(n) > room {
         n -= 1;
     }
     let left_out = &kinds[n..];
-    let room = if left_out.is_empty() {
+    let room = if left_out.is_empty() || chip {
         room
     } else {
         room - note
     };
-    let h = ((room - gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
+    let left = (!left_out.is_empty()).then(|| no_room_words(&kinds[..n], left_out));
+    let h = ((room - step_gap * (n as f32 - 1.0)) / n.max(1) as f32).max(24.0);
     let w = ui.available_width();
     for (i, &k) in kinds[..n].iter().enumerate() {
         if i > 0 {
@@ -3555,31 +3561,12 @@ fn stacked(
             |ui| {
                 ui.set_min_size(Vec2::new(w, h));
                 ui.set_max_height(h);
-                draw(ui, k);
+                draw(ui, k, left.as_ref().filter(|_| chip && i == 0));
             },
         );
     }
-    if !left_out.is_empty() {
-        let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
-        // The switches are pictures: say which picture turns which off.
-        let switches: Vec<String> = kinds[..n]
-            .iter()
-            .map(|&k| {
-                let picture = match k {
-                    SeriesKind::Rate => "the hare",
-                    SeriesKind::Amplitude => "the swing",
-                    SeriesKind::BeatError => "the seesaw",
-                };
-                format!("{picture} ({})", steady::title(k))
-            })
-            .collect();
-        let line = no_room(
-            &names.join(" and "),
-            &format!(
-                "Make the pane taller, or turn off {}.",
-                switches.join(" or ")
-            ),
-        );
+    if let Some((what, remedy)) = left.as_ref().filter(|_| !chip) {
+        let line = no_room(what, remedy);
         let pal = theme::pal(ui);
         ui.add(egui::Label::new(RichText::new(line).small().color(pal.text_secondary)).truncate());
     }
@@ -3602,8 +3589,39 @@ const SHORT_PLOT_GIVE: f32 = 2.0;
 
 /// The line in place of plots with no room: what is not shown, then the
 /// remedy.
+/// What stacked plots leave out for want of room, `left_out`, in a few
+/// words ("Beat Error not shown: no room"), and what to do: turn off a
+/// plot that is `shown`, by the picture on its switch.
+fn no_room_words(shown: &[SeriesKind], left_out: &[SeriesKind]) -> (String, String) {
+    let names: Vec<&str> = left_out.iter().map(|&k| steady::title(k)).collect();
+    // The switches are pictures: say which picture turns which off.
+    let switches: Vec<String> = shown
+        .iter()
+        .map(|&k| {
+            let picture = match k {
+                SeriesKind::Rate => "the hare",
+                SeriesKind::Amplitude => "the swing",
+                SeriesKind::BeatError => "the seesaw",
+            };
+            format!("{picture} ({})", steady::title(k))
+        })
+        .collect();
+    (
+        names.join(" and "),
+        format!(
+            "Make the pane taller, or turn off {}.",
+            switches.join(" or ")
+        ),
+    )
+}
+
 fn no_room(what: &str, remedy: &str) -> String {
-    format!("{what} not shown: no room. {remedy}")
+    format!("{}. {remedy}", no_room_short(what))
+}
+
+/// [`no_room`] without the remedy, for a chip.
+fn no_room_short(what: &str) -> String {
+    format!("{what} not shown: no room")
 }
 /// The line under stacked plots naming those with no room.
 const STACKED_NOTE_H: f32 = 18.0;

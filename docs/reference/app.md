@@ -1284,7 +1284,8 @@ the swing and the seesaw in the pane's toolbar show or hide the Rate,
 Amplitude and Beat Error charts; the charts shown share the pane's
 height, and at least one stays on. A pane too short for every chart draws
 the first ones at a readable height and names the rest at its foot ("Beat
-Error not shown: no room"); the Distributions pane does the same. Each
+Error not shown: no room"); the Distributions pane names them in a grey
+chip under its first plot's title, what to do in the chip's hover. Each
 reading keeps its colour across
 the app (rate magenta, amplitude violet, beat error amber), so a second line
 of the same reading is told apart by its dashes: amplitude from the ticks
@@ -1348,8 +1349,12 @@ bend, or an S across the line. **Cumulative** draws the share of values at
 or below each value on a plain scale. Neither keeps the time order, so the
 strip and the charts show when a change happens. The scale leaves out the
 most extreme 0.5% at each end so stray readings can't squeeze the rest
-together, and the line above gives the count, the median, the middle 80%,
-the outliers left off and the peaks when there is more than one. The
+together. Each plot's title names its reading, and the position counted
+when the take has positions; a facts box in the plot's top left gives
+the count, the median, the middle 80%, the values off the scale when
+there are any and the peaks when there is more than one. The beat error's
+source is a grey chip under its title, with its caveats in the chip's
+hover. The
 statistics are in `timegrapher_core::histogram`, so the CLI and reports can
 share them.
 
