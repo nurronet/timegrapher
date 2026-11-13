@@ -102,7 +102,12 @@ same amplitudes, so a degree stays put when you switch.
   the middle 80% of the range.
 - **The walk** takes the median rate of the 10 s readings and the median
   amplitude of the 2 s windows in each 5 minutes; a 5 minutes with under
-  half of either is left out, never filled. Past 250 of them, neighbouring
+  10% of either read is left out, never filled, and one under 60% is drawn
+  faint ("Thin" in the key). The full dots set the axes, so a faint one
+  far off is cut at the edge and counted in the key ("Faint points off the
+  scale"). Where the rate goes on 15 minutes or more past
+  the last dot with no amplitude read, as at the end of a run-down, a line
+  above the plot says so: the rate is on the Paper Strip. Past 250 of them, neighbouring
   5 minutes are joined, 10, 15 … minutes a dot, so
   there are at most 250.
 
