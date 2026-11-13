@@ -99,7 +99,15 @@ impl TimegrapherApp {
                 ui.separator();
             }
             let mut view = self.view;
-            theme::segmented(ui, &mut view, &VIEWS);
+            // The ERP's place shows once an ERP is set up, or while it is on
+            // show: without one it only takes room from the icons.
+            let show_erp = self.erp.configured() || view == View::Erp;
+            let shown: Vec<_> = VIEWS
+                .iter()
+                .filter(|v| v.0 != View::Erp || show_erp)
+                .copied()
+                .collect();
+            theme::segmented(ui, &mut view, &shown);
             self.view = view;
             ui.add_space(6.0);
             ui.separator();

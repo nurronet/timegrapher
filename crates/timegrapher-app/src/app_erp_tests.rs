@@ -574,6 +574,32 @@ fn the_erp_settings_text_fields_are_not_squeezed() {
 
 // ---- the Bench's ERP card ----
 
+/// How many times the window paints "ERP" on a line of its own.
+fn erp_words(app: &mut TimegrapherApp) -> usize {
+    frame_text(app)
+        .lines()
+        .filter(|l| l.trim() == "ERP")
+        .count()
+}
+
+#[test]
+fn the_erp_has_a_place_in_the_mode_switch_only_once_it_is_set_up() {
+    // Not set up: the switch is Bench | Watches, so the pane icons keep their room.
+    let mut bare = bare_app(&temp_dir("no-switch"));
+    bare.erp.ensure_loaded();
+    bare.view = View::Watches;
+    assert_eq!(erp_words(&mut bare), 0, "{}", frame_text(&mut bare));
+    // Reached by its key all the same, its view shows its place in the switch.
+    bare.view = View::Erp;
+    assert_eq!(erp_words(&mut bare), 1, "{}", frame_text(&mut bare));
+    // Set up: Bench | Watches | ERP.
+    let erp = start_erp();
+    let (mut app, dir) = set_up("switch", &erp);
+    app.view = View::Watches;
+    assert_eq!(erp_words(&mut app), 1, "{}", frame_text(&mut app));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn the_bench_has_no_erp_card_until_the_erp_is_set_up() {
     let mut app = bare_app(&temp_dir("no-card"));

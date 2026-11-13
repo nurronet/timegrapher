@@ -56,6 +56,9 @@ mod dialogs;
 mod distributions;
 mod dock;
 mod erp;
+// The help's own test reads the texts by name (help.rs, every_help_text).
+#[cfg(test)]
+pub(crate) use erp::{ERP_HELP, ERP_VIEW_HELP};
 mod erp_card;
 mod erp_enhanced;
 mod library_folder;

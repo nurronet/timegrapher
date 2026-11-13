@@ -48,24 +48,30 @@ pub(super) const MEASUREMENT_TYPES: [&str; 5] = [
 ];
 pub(super) const TEMPERATURES: [&str; 4] = ["Room / 23C", "Cold / 8C", "Warm / 38C", "Custom"];
 
-pub(super) const ERP_HELP: &[&str] = &[
-    "The LN ERP keeps your inventory, work orders and certificates. Here the station says where \
-     the ERP is and who it is, and signs the operator in, so a result sent from the ERP view is \
-     recorded against the right watch and the right person.",
-    "The API key and secret belong to this station's account in the ERP, which an administrator \
-     makes. The Station ID must match the station's record there. The secret is kept in a file \
-     that only your account should read.",
-    "The station signs each result with its own key, made once and registered with the ERP. \
-     Sign in with the Operator ID and PIN the ERP gives you: the ERP then vouches for you, and \
-     the results are recorded as Attested. Without a sign-in they are recorded as Invalid.",
-    "The settings are shared with the timegrapher-erp command line program.",
+pub(crate) const ERP_HELP: &[&str] = &[
+    "Where the LN ERP is and who this station is, so a result sent from the ERP view is recorded \
+     against the right watch and the right person.",
+    "## The Station",
+    "- The API key and secret belong to this station's account in the ERP, which an administrator \
+     makes.",
+    "- The Station ID must match the station's record there.",
+    "- The secret is kept in a file that only your account should read.",
+    "## Signing",
+    "- The station signs each result with its own key, made once and registered with the ERP.",
+    "- Sign in with the Operator ID and PIN the ERP gives you: the ERP then vouches for you and \
+     records the results as Attested.",
+    "- Without a sign-in the results are recorded as Invalid.",
+    "- The settings are shared with the timegrapher-erp command line program.",
 ];
 
-const ERP_VIEW_HELP: &[&str] = &[
-    "Search the ERP for a movement or watch by its serial, label, part or work order. Pick one to \
-     see what the ERP knows about it.",
-    "A note typed here goes with the next results sent, then clears. Send puts the Positions \
-     Test on the Bench into the ERP, one result for each position read.",
+pub(crate) const ERP_VIEW_HELP: &[&str] = &[
+    "Searches the LN ERP for a movement or watch, and sends the Positions Test on the Bench to it.",
+    "## Finding One",
+    "- Type a serial, label, part or work order. Pick a result to see what the ERP knows about it.",
+    "## Sending",
+    "- A note typed here goes with the next results sent, then clears.",
+    "- Send puts the Positions Test on the Bench into the ERP, one result for each position read.",
+    "- Sign in first with your Operator ID and PIN: the ERP then records the results as Attested.",
 ];
 
 /// A line of status: what happened, and whether it went wrong.

@@ -846,6 +846,8 @@ mod tests {
             ("LIBRARY_HELP", own(crate::settings_window::LIBRARY_HELP)),
             ("MANAGE_HELP", own(crate::calibre_ui::MANAGE_HELP)),
             ("watches::HELP", own(crate::watches::HELP)),
+            ("ERP_HELP", own(crate::app::ERP_HELP)),
+            ("ERP_VIEW_HELP", own(crate::app::ERP_VIEW_HELP)),
         ]
     }
 
