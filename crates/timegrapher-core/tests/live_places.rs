@@ -57,6 +57,8 @@ fn a_live_figure_keeps_its_place_as_its_plus_minus_moves() {
             }
         }
     }
-    // Most seconds carried a ± to hold to the rule.
-    assert!(amplitudes > 500 && rates > 300, "{amplitudes} {rates}");
+    // Most seconds carried a ± to hold to the rule: the amplitude's from
+    // about its first minute, the rate's from about its fifth, once the
+    // take holds the 30 values each takes its scatter from (#1470).
+    assert!(amplitudes > 500 && rates > 250, "{amplitudes} {rates}");
 }

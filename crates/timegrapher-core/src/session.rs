@@ -571,6 +571,65 @@ pub fn stretch_windows<'w>(
         .collect()
 }
 
+/// How far either side of a reading its ± looks for the values it
+/// borrows its noise from when it holds too few (#1470), s: an hour. Noise
+/// from further away describes a different state of the watch
+/// (math-standards section 7); it also keeps a figure whose windows
+/// rarely give a value (an unlock seldom found) from searching a long
+/// take end to end at every reading.
+pub const BORROW_LOOK_S: f64 = 3600.0;
+
+/// The windows `fetch(a, b)` gives for the take from `a` to `b` (s), over
+/// the least reach either side of a reading from `from_s` to `to_s` that
+/// gives `enough`: back first, as far as the take's start, then on past
+/// the reading towards `end_s`, the take's end (#1470). Each reach starts
+/// at `first_s` and doubles, up to [`BORROW_LOOK_S`].
+pub fn nearest_windows<T>(
+    (from_s, to_s, end_s): (f64, f64, f64),
+    first_s: f64,
+    fetch: impl Fn(f64, f64) -> Vec<T>,
+    enough: impl Fn(&[T]) -> bool,
+) -> Vec<T> {
+    let reach = |at: &dyn Fn(f64) -> (f64, f64), done: &dyn Fn(f64) -> bool| {
+        let mut look = first_s;
+        loop {
+            let (a, b) = at(look);
+            let w = fetch(a, b);
+            if enough(&w) || done(look) || look >= BORROW_LOOK_S {
+                return (w, look);
+            }
+            look *= 2.0;
+        }
+    };
+    let back = |look: f64| ((from_s - look).max(0.0), to_s);
+    let (w, look) = reach(&back, &|look| from_s - look <= 0.0);
+    if enough(&w) || to_s >= end_s {
+        return w;
+    }
+    let a = back(look).0;
+    reach(&|on| (a, (to_s + on).min(end_s)), &|on| to_s + on >= end_s).0
+}
+
+/// Whether enough of a figure's values are among `windows` to borrow its
+/// noise from: [`crate::confidence::MIN_NOISE_VALUES`] of each of the
+/// amplitude and the unlock beat error.
+pub fn noise_enough(windows: &[&AmplitudeWindow]) -> bool {
+    let n = crate::confidence::MIN_NOISE_VALUES;
+    windows.iter().filter(|w| w.mean().is_some()).count() >= n
+        && windows
+            .iter()
+            .filter(|w| w.beat_error_unlock_ms.is_some())
+            .count()
+            >= n
+}
+
+/// Whether enough rate windows are among `windows` to borrow the rate's
+/// noise from: every other one, as [`crate::confidence::rate_se`] takes
+/// them, [`crate::confidence::MIN_NOISE_VALUES`] times.
+pub fn rate_noise_enough(windows: &[WindowFit]) -> bool {
+    windows.len().div_ceil(2) >= crate::confidence::MIN_NOISE_VALUES
+}
+
 /// Whether the 2 s window `w` belongs to the stretch from `from_s` to
 /// `to_s` (seconds on the windows' own clock): its midpoint lies in the
 /// stretch, from `from_s` up to but not at `to_s`, so each window belongs
@@ -723,7 +782,7 @@ pub fn window_part_s(amp: &[AmplitudeWindow]) -> f64 {
     amp.first().map_or(2.0, |w| w.end_s - w.start_s)
 }
 
-use crate::measure::{RATE_WINDOW_S, RATE_WINDOW_STEP_S};
+use crate::measure::{RATE_SE_MIN_S, RATE_WINDOW_S, RATE_WINDOW_STEP_S};
 
 /// The 10 s windows, one every 5 s, that a stretch from `from_s` to
 /// `to_s` (true time) is read in for its rates and its timing scatter.
@@ -1150,9 +1209,38 @@ pub fn measure_masked(
         confidence: None,
         caveats: Vec::new(),
     };
-    let a = crate::measure::assess(
+    // The take's windows nearest the stretch, to borrow the ±'s noise
+    // from where it holds too few values (#1470).
+    let span = (from_s, to_s, log.duration_s);
+    let take_rate = nearest_windows(
+        span,
+        RATE_SE_MIN_S,
+        |a, b| {
+            let near = holes.beats(&log.beats[stretch_beats(&log.beats, a, b)]);
+            scatter_windows(&holes, &near, log.bph, map(a), map(b), part)
+        },
+        rate_noise_enough,
+    );
+    let take_amp = nearest_windows(
+        span,
+        2.0 * RATE_SE_MIN_S,
+        |a, b| {
+            log.amplitude_windows
+                .iter()
+                .filter(|w| window_in(w, a, b))
+                .filter(|w| holes.clear(map(w.start_s), map(w.end_s)))
+                .collect()
+        },
+        |w: &[&AmplitudeWindow]| noise_enough(w),
+    );
+    let take = crate::measure::TakeWindows {
+        rate: &take_rate,
+        amplitude: &take_amp,
+    };
+    let a = crate::measure::assess_in(
         &windows,
         &amp,
+        take,
         &crate::measure::Context {
             watch_heard: m.watch_heard,
             no_watch_reason: no_watch.unwrap_or_default(),

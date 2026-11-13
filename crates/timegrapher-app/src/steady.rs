@@ -17,7 +17,7 @@ use egui_plot::{
 };
 use serde::{Deserialize, Serialize};
 use timegrapher_core::figure_text::true_minus;
-use timegrapher_core::library::length_text;
+use timegrapher_core::library::{base_digits, length_text};
 use timegrapher_core::live::LiveAnalyzer;
 use timegrapher_core::longrun;
 use timegrapher_core::longterm::{Fold, Grid, LongConfig, Search};
@@ -374,7 +374,14 @@ pub fn compute_with(
 /// period when found.
 fn stats_line(c: &SeriesCheck) -> String {
     let (sp, u) = steadiness::unit_after(c.unit);
-    // A true minus sign, as in the readings.
+    // At the series' own place, as its readings are written (#1470); a
+    // true minus sign, as in the readings.
+    let places = match c.series {
+        SeriesKind::Rate => base_digits::RATE,
+        SeriesKind::Amplitude => base_digits::AMPLITUDE,
+        SeriesKind::BeatError => base_digits::BEAT_ERROR,
+    };
+    let at = |v: f64| true_minus(&format!("{v:.places$}"));
     let n = |v: f64| true_minus(&format!("{v:.2}"));
     let signed = |v: f64| true_minus(&format!("{v:+.2}"));
     let mut parts = vec![format!("Tested on {}", counted(c.readings, c.step_s))];
@@ -385,13 +392,13 @@ fn stats_line(c: &SeriesCheck) -> String {
         ));
     }
     if let Some(m) = c.median {
-        parts.push(format!("median {}{sp}{u}", n(m)));
+        parts.push(format!("median {}{sp}{u}", at(m)));
     }
     if let Some(sd) = c.sd {
-        parts.push(format!("SD {}{sp}{u}", n(sd)));
+        parts.push(format!("SD {}{sp}{u}", at(sd)));
     }
     if let Some(st) = c.short_term_sd {
-        parts.push(format!("±{}{sp}{u} reading to reading", n(st)));
+        parts.push(format!("±{}{sp}{u} reading to reading", at(st)));
     }
     if let Some(a) = &c.autocorrelation {
         let lag1 = a.lag_s.iter().zip(&a.r).find(|(l, _)| **l > 0.0);
