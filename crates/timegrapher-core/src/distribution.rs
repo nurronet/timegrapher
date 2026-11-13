@@ -286,9 +286,9 @@ impl Distribution {
 
     /// Which of `rows`, [`Distribution::fact_rows`], a box with too
     /// little room sheds first, in turn (Hugh, #1528), by name in
-    /// [`FACT_SHED`]: the middle 80%, then the peaks, the median and the
-    /// count. The values off the scale are never shed before them: they
-    /// say the plot leaves values out.
+    /// [`FACT_SHED`]: the peaks, then the middle 80%, then the count.
+    /// The median and the values off the scale are never in it: they are
+    /// what a short plot must still say.
     pub fn fact_shed(rows: &[(String, String)]) -> Vec<usize> {
         FACT_SHED
             .iter()
@@ -305,16 +305,10 @@ const FACT_MIDDLE: &str = "Middle 80%";
 const FACT_OFF: &str = "Off the scale";
 const FACT_PEAKS: &str = "Peaks";
 
-/// The rows a facts box sheds first when short of room, in turn
-/// ([`Distribution::fact_shed`]); the values off the scale are not among
-/// them, so they go last.
-pub const FACT_SHED: [&str; 5] = [
-    FACT_MIDDLE,
-    FACT_PEAKS,
-    FACT_MEDIAN,
-    FACT_READINGS,
-    FACT_STRETCHES,
-];
+/// The rows a facts box sheds when short of room, in turn
+/// ([`Distribution::fact_shed`]); the median and the values off the
+/// scale are not among them.
+pub const FACT_SHED: [&str; 4] = [FACT_PEAKS, FACT_MIDDLE, FACT_READINGS, FACT_STRETCHES];
 
 /// A distribution's figures as text, for [`Distribution::line`] and
 /// [`Distribution::fact_rows`].
@@ -667,14 +661,15 @@ mod tests {
         let off = d.below + d.above;
         assert_eq!(names.contains(&"Off the scale"), off > 0);
         assert_eq!(names.contains(&"Peaks"), d.peaks.len() > 1);
-        // Too little room sheds the middle 80% first and keeps the
-        // values off the scale longest.
+        // Too little room sheds the middle 80% before the count, and never
+        // the median or the values off the scale.
         let shed = Distribution::fact_shed(&rows);
-        assert_eq!(shed[0], 2);
-        assert_eq!(rows[shed[0]].0, "Middle 80%");
-        if let Some(off) = names.iter().position(|n| *n == "Off the scale") {
-            assert!(!shed.contains(&off), "{shed:?}");
-        }
+        let shed_names: Vec<&str> = shed.iter().map(|&i| rows[i].0.as_str()).collect();
+        assert_eq!(
+            &shed_names[shed_names.len() - 2..],
+            ["Middle 80%", "2 s stretches"]
+        );
+        assert!(!shed_names.contains(&"Median") && !shed_names.contains(&"Off the scale"));
         let readings = distribution(&v, RATE, "readings", 10.0).unwrap();
         assert_eq!(readings.fact_rows(RATE)[0].0, "Readings");
         // Two states: the peaks row names both.
@@ -698,8 +693,8 @@ mod tests {
         let peaks = &rows.last().unwrap();
         assert_eq!(peaks.0, "Peaks");
         let shed = Distribution::fact_shed(&rows);
-        assert_eq!(rows[shed[1]].0, "Peaks", "{shed:?}");
-        assert_eq!(shed.len(), 4);
+        assert_eq!(rows[shed[0]].0, "Peaks", "{shed:?}");
+        assert_eq!(shed.len(), 3);
         assert!(peaks.1.contains(" s/d and "), "{rows:?}");
         assert!(peaks.1.starts_with('\u{2212}'), "{rows:?}");
     }

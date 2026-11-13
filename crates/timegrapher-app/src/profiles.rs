@@ -319,6 +319,7 @@ fn fact_boxes(ui: &egui::Ui, facts: &[Option<[String; 4]>]) -> [FactBox; 2] {
                 .is_some()
                 .then_some(keep_rows as fn(f32, usize) -> Vec<usize>),
             shed: Vec::new(),
+            flow: false,
         }
     };
     [fact_box(0), fact_box(1)]
@@ -1073,6 +1074,7 @@ mod tests {
             value_color: Color32::BLACK,
             keep: Some(keep_rows),
             shed: Vec::new(),
+            flow: false,
         };
         let frame = egui::Rect::from_min_size(egui::pos2(50.0, 30.0), egui::vec2(800.0, 150.0));
         let r = b.rect(frame, 4);
@@ -1179,6 +1181,7 @@ mod tests {
             value_color: Color32::BLACK,
             keep: Some(keep_rows),
             shed: Vec::new(),
+            flow: false,
         };
         assert_eq!(b.rect(frame, 1).bottom(), 54.0);
         // First drawn, or drawn in the left corner last frame: the left.

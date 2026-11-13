@@ -385,7 +385,8 @@ fn cumulative_plot(
     }
     let pal = theme::pal(ui);
     let grid = Grid::new(value_grid, |g| theme::even_grid(g, 30.0, &[]));
-    grid.on(plot)
+    let r = grid
+        .on(plot)
         .y_axis_formatter(|m, _| {
             if m.value < -1e-9 || m.value > 100.0 + 1e-9 {
                 String::new()
@@ -398,13 +399,14 @@ fn cumulative_plot(
             grid.draw(p, pal);
             facts.plot_h = p.transform().frame().height();
             facts.tops = pts.clone();
-            p.add(facts);
+            p.add(facts.clone());
             p.line(
                 Line::new("share at or below", pts)
                     .color(color)
                     .width(1.8_f32),
             );
         });
+    shed_hover(&r, &facts);
 }
 
 /// A distribution on probability paper: the share at or below each value
@@ -437,7 +439,8 @@ fn probability_paper(
     let grid = Grid::new(value_grid, move |g: egui_plot::GridInput| {
         probability_grid(8.0 / g.base_step_size, z_top)
     });
-    grid.on(plot)
+    let r = grid
+        .on(plot)
         .y_axis_formatter(|m, _| {
             PROBABILITY_MARKS
                 .iter()
@@ -449,7 +452,7 @@ fn probability_paper(
             grid.draw(p, pal);
             facts.plot_h = p.transform().frame().height();
             facts.tops = pts.clone();
-            p.add(facts);
+            p.add(facts.clone());
             // The line one steady state would follow: a call-out, dashed.
             if let Some(l) = line {
                 let s = strength::stroke(Strength::CallOut, pal);
@@ -467,6 +470,25 @@ fn probability_paper(
                     .filled(true),
             );
         });
+    shed_hover(&r, &facts);
+}
+
+/// The rows a short plot's facts box leaves out, in a hover over the
+/// box: every row, so nothing it sheds is lost (Hugh, #1528).
+fn shed_hover(r: &egui_plot::PlotResponse<()>, facts: &FactBox) {
+    let (shown, rect) = facts.layout(&r.transform);
+    if shown.len() == facts.rows.len() || shown.is_empty() {
+        return;
+    }
+    let over = r.response.hover_pos().is_some_and(|p| rect.contains(p));
+    if over {
+        let words: Vec<String> = facts
+            .rows
+            .iter()
+            .map(|(n, v)| format!("{n}: {v}"))
+            .collect();
+        r.response.clone().on_hover_text(words.join("\n"));
+    }
 }
 
 /// A series' facts box in the top left of its plot, which a rising
@@ -496,6 +518,7 @@ fn facts_box(ui: &egui::Ui, name: &str, rows: Vec<(String, String)>, shed: Vec<u
         value_color: pal.text,
         keep: None,
         shed,
+        flow: true,
     }
 }
 
@@ -566,10 +589,11 @@ mod source_tests {
             .all(|g| g.step_size * 14.0 >= 30.0));
     }
 
-    /// A box short of room sheds core's rows in core's order: the middle
-    /// 80% first, the values off the scale last (Hugh, #1528).
+    /// A box short of room flows its rows into two columns, then sheds
+    /// core's rows in core's order, never the median or the values off
+    /// the scale (Hugh, #1528).
     #[test]
-    fn a_short_box_sheds_the_middle_80_first() {
+    fn a_short_box_flows_into_two_columns_then_sheds() {
         let v: Vec<f64> = (0..400)
             .map(|i| f64::from(i % 50) * 0.1 + if i % 97 == 0 { 40.0 } else { 0.0 })
             .collect();
@@ -587,17 +611,32 @@ mod source_tests {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let shed = timegrapher_core::distribution::Distribution::fact_shed(&rows);
                 let b = facts_box(ui, "Rate", rows.clone(), shed);
-                let frame =
-                    egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, 72.0));
-                let t = egui_plot::PlotTransform::new(
-                    frame,
-                    egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
-                    egui::Vec2b::new(false, false),
-                );
+                let at = |h: f32| {
+                    egui_plot::PlotTransform::new(
+                        egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(600.0, h)),
+                        egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0]),
+                        egui::Vec2b::new(false, false),
+                    )
+                };
                 let names =
                     |k: Vec<usize>| k.iter().map(|&i| rows[i].0.clone()).collect::<Vec<_>>();
-                // Room for three rows: the middle 80% goes.
-                assert_eq!(names(b.shown(&t)), ["Readings", "Median", "Off the scale"]);
+                // Room for four rows: one column.
+                let tall = at(100.0);
+                assert_eq!(b.shown(&tall).len(), 4);
+                let one = b.rect(*tall.frame(), 4);
+                // Room for three: all four flow into two columns of two,
+                // twice as wide, half as tall.
+                let short = at(72.0);
+                assert_eq!(b.shown(&short).len(), 4);
+                let two = b.rect(*short.frame(), 4);
+                assert!(
+                    two.width() > 1.9 * (one.width() - 2.0 * crate::fact_box::FACT_PAD),
+                    "{one:?} {two:?}"
+                );
+                assert!(two.height() < one.height(), "{one:?} {two:?}");
+                // Room for one: two columns of one keep the median and the
+                // values off the scale.
+                assert_eq!(names(b.shown(&at(40.0))), ["Median", "Off the scale"]);
             });
         });
     }

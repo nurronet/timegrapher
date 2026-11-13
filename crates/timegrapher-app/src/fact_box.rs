@@ -43,6 +43,10 @@ pub(crate) struct FactBox {
     /// With no `keep`, the rows to shed first when not all fit, in turn;
     /// the others go after them from the bottom up.
     pub(crate) shed: Vec<usize>,
+    /// With no `keep`, a plot too short for every row in one column flows
+    /// them into two, side by side, before shedding any (Hugh, #1528):
+    /// for a wide, short plot.
+    pub(crate) flow: bool,
 }
 
 /// The box's distance from the plot's corner, points.
@@ -58,6 +62,8 @@ pub(crate) const FACT_GAP: f32 = 16.0;
 /// How much further from the trace a facts box must be to take a layout
 /// other than the one last drawn, points.
 pub(crate) const FACT_HOLD: f32 = 6.0;
+/// Between a box's two columns, when its rows flow into two.
+pub(crate) const FACT_COLUMN_GAP: f32 = 20.0;
 /// The facts' type size.
 pub(crate) const FACT_SIZE: f32 = 12.0;
 
@@ -73,13 +79,32 @@ impl FactBox {
             (self.name_w, self.value_w)
         };
         let pad = self.pad(rows);
+        let cols = self.columns(frame, rows);
+        let tall = rows.div_ceil(cols);
+        let cols = cols as f32;
         egui::Rect::from_min_size(
             frame.min + egui::vec2(FACT_INSET, FACT_INSET),
             egui::vec2(
-                name_w + FACT_GAP + value_w + 2.0 * pad,
-                rows as f32 * self.row_h(rows) + 2.0 * pad,
+                cols * (name_w + FACT_GAP + value_w) + (cols - 1.0) * FACT_COLUMN_GAP + 2.0 * pad,
+                tall as f32 * self.row_h(rows) + 2.0 * pad,
             ),
         )
+    }
+
+    /// The rows of one column at the full spacing that fit in `frame`.
+    fn fit_rows(frame: egui::Rect) -> usize {
+        let room = frame.height() - 2.0 * FACT_INSET - 2.0 * FACT_PAD;
+        (room / FACT_ROW).floor().max(0.0) as usize
+    }
+
+    /// How many columns `rows` of the box take in `frame`: two where they
+    /// [`Self::flow`] and one column can't hold them.
+    fn columns(&self, frame: egui::Rect, rows: usize) -> usize {
+        if self.flow && self.keep.is_none() && rows > Self::fit_rows(frame) {
+            2
+        } else {
+            1
+        }
     }
 
     /// Whether `rows` of the box take its short form.
@@ -123,6 +148,8 @@ impl FactBox {
         let fit_frame = room(frame.bottom() - FACT_INSET, pad, row);
         match self.keep {
             Some(keep) => keep(self.plot_h, fit_frame),
+            // Two columns hold twice as many.
+            None if self.flow => self.kept(2 * fit_frame),
             None => self.kept(fit_frame),
         }
     }
@@ -228,14 +255,22 @@ impl egui_plot::PlotItem for FactBox {
         let row = self.row_h(shown.len());
         shapes.push(egui::Shape::rect_filled(r, 6.0, self.fill));
         let font = egui::FontId::proportional(FACT_SIZE);
+        // Down the first column, then the second, when they flow.
+        let tall = shown
+            .len()
+            .div_ceil(self.columns(*transform.frame(), shown.len()));
+        let col_w =
+            (r.width() - 2.0 * pad + FACT_COLUMN_GAP) / shown.len().div_ceil(tall.max(1)) as f32;
         for (i, (name, value)) in shown.iter().map(|&k| &self.rows[k]).enumerate() {
-            let y = r.top() + pad + (i as f32 + 0.5) * row;
+            let y = r.top() + pad + ((i % tall) as f32 + 0.5) * row;
+            let left = r.left() + pad + (i / tall) as f32 * col_w;
+            let right = left + col_w - FACT_COLUMN_GAP;
             ui.fonts_mut(|f| {
                 let g = f.layout_no_wrap(name.clone(), font.clone(), self.name_color);
-                let at = egui::pos2(r.left() + pad, y - g.size().y / 2.0);
+                let at = egui::pos2(left, y - g.size().y / 2.0);
                 shapes.push(egui::Shape::galley(at, g, self.name_color));
                 let g = f.layout_no_wrap(value.clone(), font.clone(), self.value_color);
-                let at = egui::pos2(r.right() - pad - g.size().x, y - g.size().y / 2.0);
+                let at = egui::pos2(right - g.size().x, y - g.size().y / 2.0);
                 shapes.push(egui::Shape::galley(at, g, self.value_color));
             });
         }
