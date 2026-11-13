@@ -839,6 +839,7 @@ mod tests {
             ("SCOPE", own(SCOPE)),
             ("POSITIONS_TEST", own(&POSITIONS_TEST)),
             ("DYNAMIC_POISE", own(&DYNAMIC_POISE)),
+            ("COMPLICATION", own(&COMPLICATION)),
             ("ISOCHRONISM", own(&ISOCHRONISM)),
             ("HISTOGRAMS", own(&HISTOGRAMS)),
             ("power_reserve", power_reserve("Current Position")),

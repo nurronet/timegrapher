@@ -24,13 +24,14 @@
 //! A difference is named (lower, slower, larger) only when it stands clear
 //! of zero by [`CLEAR_SE`] of its ±, the guide's 2 SE; otherwise it reads
 //! as no clear change, with the figure and ± still given. The difference is
-//! written at its inputs' place ([`base_digits`]): a derived value keeps
+//! written at its inputs' place ([`base_digits`](crate::figure_text::base_digits)): a derived value keeps
 //! the significant figures of its inputs (Peter, 13 Nov 2026).
 
 use crate::confidence::{clear_of_zero, CLEAR_SE};
-use crate::figure_text::{base_digits, figure_with_pm};
+use crate::figure_text::figure_with_pm;
 use crate::poise::Term;
 use crate::session::Measurement;
+use crate::steadiness::{unit_after, SeriesKind};
 
 /// One stretch of the test: the complication off or on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,11 +150,19 @@ pub fn middle(m: &Measurement) -> f64 {
 /// What the run's three stretches, `stretches` in order Off, On, Off,
 /// found for `q`. None until all three are in, or when one lacks the
 /// figure or On isn't between the Offs.
-pub fn change(q: Quantity, stretches: &[Measurement]) -> Option<Change> {
+pub fn change(q: SeriesKind, stretches: &[Measurement]) -> Option<Change> {
     let [a, b, c] = stretches else {
         return None;
     };
-    let fig = |m: &Measurement| q.figure(&figures(m));
+    debug_assert!(
+        a.start_s <= a.end_s
+            && a.end_s <= b.start_s
+            && b.start_s <= b.end_s
+            && b.end_s <= c.start_s
+            && c.start_s <= c.end_s,
+        "the stretches are in order and none overlaps another (Norm)"
+    );
+    let fig = |m: &Measurement| figure(q, &figures(m));
     let off = off_at(fig(a)?, middle(a), fig(c)?, middle(c), middle(b))?;
     let on_less_off = difference([
         (fig(a), middle(a)),
@@ -163,83 +172,56 @@ pub fn change(q: Quantity, stretches: &[Measurement]) -> Option<Change> {
     Some(Change { off, on_less_off })
 }
 
-/// Which figure a finding is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Quantity {
-    Amplitude,
-    Rate,
-    BeatError,
+/// The three figures, in the order the table and the plots give them:
+/// amplitude first, as the drop in it is what a complication test is
+/// most often for (Peter, 13 Nov 2026). Each one's name, unit, place and
+/// sign are [`SeriesKind`]'s.
+pub const SHOWN: [SeriesKind; 3] = [
+    SeriesKind::Amplitude,
+    SeriesKind::Rate,
+    SeriesKind::BeatError,
+];
+
+/// This figure of a stretch's [`Figures`].
+pub fn figure(q: SeriesKind, f: &Figures) -> Option<Figure> {
+    match q {
+        SeriesKind::Amplitude => f.amplitude,
+        SeriesKind::Rate => f.rate,
+        SeriesKind::BeatError => f.beat_error,
+    }
 }
 
-impl Quantity {
-    /// The three, in the order the table and the plots give them:
-    /// amplitude first, as the drop in it is what a complication test is
-    /// most often for (Peter, 13 Nov 2026).
-    pub const ALL: [Quantity; 3] = [Quantity::Amplitude, Quantity::Rate, Quantity::BeatError];
+/// The figure's unit as it follows a number: "°" close up, " s/d" and
+/// " ms" spaced ([`unit_after`]).
+pub fn unit_text(q: SeriesKind) -> String {
+    let (gap, u) = unit_after(q.unit());
+    format!("{gap}{u}")
+}
 
-    /// This figure of a stretch's [`Figures`].
-    pub fn figure(self, f: &Figures) -> Option<Figure> {
-        match self {
-            Quantity::Amplitude => f.amplitude,
-            Quantity::Rate => f.rate,
-            Quantity::BeatError => f.beat_error,
-        }
-    }
+/// The figure's unit as a table's heading writes it: "°", "s/d", "ms".
+pub fn unit_head(q: SeriesKind) -> &'static str {
+    unit_after(q.unit()).1
+}
 
-    /// The figure's unit, as a table's heading writes it.
-    pub fn unit_head(self) -> &'static str {
-        match self {
-            Quantity::Amplitude => "°",
-            Quantity::Rate => "s/d",
-            Quantity::BeatError => "ms",
-        }
-    }
+/// A stretch's figure with its ± and unit, as a point's hover gives it:
+/// "280 ± 1°", "+4.0 ± 0.3 s/d" (the rate signed).
+pub fn figure_text(q: SeriesKind, f: Figure) -> String {
+    let text = figure_with_pm(f.value, f.se, q.digits(), q == SeriesKind::Rate);
+    format!("{text}{}", unit_text(q))
+}
 
-    /// Whether the figure is written with its sign: the rate is.
-    pub fn signed(self) -> bool {
-        self == Quantity::Rate
-    }
-
-    /// The figure's name, as each plot's title starts.
-    pub fn name(self) -> &'static str {
-        match self {
-            Quantity::Amplitude => "Amplitude",
-            Quantity::Rate => "Rate",
-            Quantity::BeatError => "Beat Error",
-        }
-    }
-
-    /// The unit after a figure: none for degrees, which take the ° sign.
-    fn unit(self) -> &'static str {
-        match self {
-            Quantity::Amplitude => "°",
-            Quantity::Rate => " s/d",
-            Quantity::BeatError => " ms",
-        }
-    }
-
-    /// The figure's place ([`base_digits`]).
-    pub fn digits(self) -> usize {
-        match self {
-            Quantity::Amplitude => base_digits::AMPLITUDE,
-            Quantity::Rate => base_digits::RATE,
-            Quantity::BeatError => base_digits::BEAT_ERROR,
-        }
-    }
-
-    /// The words for a difference below and above zero.
-    fn ways(self) -> (&'static str, &'static str) {
-        match self {
-            Quantity::Amplitude => ("lower", "higher"),
-            Quantity::Rate => ("slower", "faster"),
-            Quantity::BeatError => ("smaller", "larger"),
-        }
+/// The words for a difference below and above zero.
+fn ways(q: SeriesKind) -> (&'static str, &'static str) {
+    match q {
+        SeriesKind::Amplitude => ("lower", "higher"),
+        SeriesKind::Rate => ("slower", "faster"),
+        SeriesKind::BeatError => ("smaller", "larger"),
     }
 }
 
 /// On less Off as the table writes it: signed, at the figure's place, with
 /// its ± rounded up: "-5 ± 1" (a surface sets the true minus).
-pub fn difference_text(q: Quantity, d: Term) -> String {
+pub fn difference_text(q: SeriesKind, d: Term) -> String {
     figure_with_pm(d.value, d.se, q.digits(), true)
 }
 
@@ -251,25 +233,41 @@ pub fn differs(d: Term) -> bool {
 /// A plot's finding in words, after its name: "5 ± 1° lower with the
 /// complication on" when the difference stands clear of zero, else "no
 /// clear change, +0.01 ± 0.02 ms" (Norm: "no change" would overclaim).
-pub fn finding_text(q: Quantity, d: Term) -> String {
-    if !differs(d) {
-        return format!("no clear change, {}{}", difference_text(q, d), q.unit());
+/// With no ± to weigh it by, the figure and why there is no verdict:
+/// "-10.0 s/d, no ± yet (too few readings)" (Hugh).
+pub fn finding_text(q: SeriesKind, d: Term) -> String {
+    let unit = unit_text(q);
+    if d.se.is_none() {
+        return format!("{}{unit}, {NO_PM_YET}", difference_text(q, d));
     }
-    let (less, more) = q.ways();
+    if !differs(d) {
+        return format!("no clear change, {}{unit}", difference_text(q, d));
+    }
+    let (less, more) = ways(q);
     let way = if d.value < 0.0 { less } else { more };
     let size = figure_with_pm(d.value.abs(), d.se, q.digits(), false);
-    format!("{size}{} {way} with the complication on", q.unit())
+    format!("{size}{unit} {way} with the complication on")
 }
 
-/// The method behind the findings, for the pane's Info.
+/// Why a difference with no ± gets no verdict, in Hugh's words: a ± needs
+/// [`crate::confidence::MIN_NOISE_VALUES`] values near the stretch, which
+/// a short take (the rate's, under about five minutes) doesn't yet hold.
+pub const NO_PM_YET: &str = "no ± yet (too few readings)";
+
+/// The method behind the findings, for the pane's Info: a one-line
+/// answer, then the ±, then when a change is named, as short paragraphs
+/// split by blank lines (Hugh).
 pub fn method_note() -> String {
     format!(
-        "{DIFFERENCE_NAME} is the On stretch less the two Off stretches either side of it, \
-         joined in a straight line at the On stretch's middle: with the stretches evenly \
-         spaced, their mean. So a steady run-down drops out. Its ± adds the stretches' own ±s \
-         as independent errors, √(SE On² + (SE Off₁² + SE Off₂²)/4) when evenly spaced. A \
-         change is named only when it stands {CLEAR_SE:.0} ± clear of zero; otherwise it reads \
-         as no clear change."
+        "{DIFFERENCE_NAME} is the On stretch less the mean of the Offs either side.\n\n\
+         Strictly, the Offs are joined in a straight line and read at the On stretch's \
+         middle; with the stretches evenly spaced, that is their mean. A steady run-down \
+         drops out.\n\n\
+         Its ± adds the stretches' own ±s as independent errors: \
+         √(SE On² + (SE Off₁² + SE Off₂²)/4) when evenly spaced.\n\n\
+         A change is named only when it is more than {CLEAR_SE:.0} times its ± from zero; \
+         otherwise it reads as no clear change. With no ± yet, the figure is given without \
+         a verdict."
     )
 }
 
@@ -358,7 +356,7 @@ mod tests {
             se: Some(1.0),
         };
         assert_eq!(
-            finding_text(Quantity::Amplitude, amp),
+            finding_text(SeriesKind::Amplitude, amp),
             "5 ± 1° lower with the complication on"
         );
         let rate = Term {
@@ -366,7 +364,7 @@ mod tests {
             se: Some(0.5),
         };
         assert_eq!(
-            finding_text(Quantity::Rate, rate),
+            finding_text(SeriesKind::Rate, rate),
             "1.9 ± 0.5 s/d slower with the complication on"
         );
         let be = Term {
@@ -374,7 +372,7 @@ mod tests {
             se: Some(0.02),
         };
         assert_eq!(
-            finding_text(Quantity::BeatError, be),
+            finding_text(SeriesKind::BeatError, be),
             "no clear change, +0.01 ± 0.02 ms"
         );
         let up = Term {
@@ -382,10 +380,32 @@ mod tests {
             se: Some(0.1),
         };
         assert_eq!(
-            finding_text(Quantity::BeatError, up),
+            finding_text(SeriesKind::BeatError, up),
             "0.30 ± 0.10 ms larger with the complication on"
         );
-        assert_eq!(difference_text(Quantity::Amplitude, amp), "-5 ± 1");
+        assert_eq!(difference_text(SeriesKind::Amplitude, amp), "-5 ± 1");
+    }
+
+    /// With no ± the finding gives the figure and why there is no
+    /// verdict, never "no clear change" (Hugh).
+    #[test]
+    fn a_difference_with_no_pm_gets_no_verdict() {
+        let rate = Term {
+            value: -10.0,
+            se: None,
+        };
+        let text = finding_text(SeriesKind::Rate, rate);
+        assert_eq!(text, "-10.0 s/d, no ± yet (too few readings)");
+        assert!(!text.contains("change"));
+    }
+
+    /// The Info note says when a change is named in words a reader can
+    /// parse, with the number from [`CLEAR_SE`] (Norm).
+    #[test]
+    fn the_method_note_states_the_rule_plainly() {
+        let note = method_note();
+        assert!(note.contains("more than 2 times its ± from zero"), "{note}");
+        assert!(note.split("\n\n").count() >= 3, "short paragraphs");
     }
 
     /// Exactly 2 SE is not clear: the guide's gate is strict.

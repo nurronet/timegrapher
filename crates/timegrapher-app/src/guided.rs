@@ -16,6 +16,7 @@ use timegrapher_core::clock::ClockFit;
 use timegrapher_core::figure_text::base_digits::{AMPLITUDE, BEAT_ERROR, RATE};
 use timegrapher_core::figure_text::{fixed_text, signed_text, true_minus};
 use timegrapher_core::session::{self, Measurement, Reading, SourcedFigures};
+use timegrapher_core::steadiness::SeriesKind;
 use timegrapher_core::stream::BeatLog;
 use timegrapher_core::{complication, poise};
 
@@ -1324,18 +1325,9 @@ fn table_grid(
 /// difference with its ±. `status` names what the next row is doing while
 /// the test runs, and `live` its figures so far.
 fn complication_grid(ui: &mut egui::Ui, t: &Test, status: Option<String>, live: Option<&FreeCell>) {
-    use complication::Quantity;
     let pal = theme::pal(ui);
     let readings = t.readings_so_far();
     let measurements: Vec<Measurement> = readings.iter().map(|r| r.measurement.clone()).collect();
-    let text = |q: Quantity, f: Option<complication::Figure>| {
-        let v = f.map(|f| f.value);
-        if q.signed() {
-            signed(v, q.digits())
-        } else {
-            plain(v, q.digits())
-        }
-    };
     egui::Grid::new("complication")
         .num_columns(4)
         .spacing(Vec2::new(GAP, 5.0))
@@ -1351,8 +1343,14 @@ fn complication_grid(ui: &mut egui::Ui, t: &Test, status: Option<String>, live: 
                     ui.label(theme::caption("Stretch").color(pal.text_secondary));
                 },
             );
-            for q in Quantity::ALL {
-                column_head(ui, FIGURE_W, q.name(), q.unit_head(), complication_hint(q));
+            for q in complication::SHOWN {
+                column_head(
+                    ui,
+                    FIGURE_W,
+                    q.title(),
+                    complication::unit_head(q),
+                    complication_hint(q),
+                );
             }
             ui.end_row();
             let mut status = status;
@@ -1361,8 +1359,13 @@ fn complication_grid(ui: &mut egui::Ui, t: &Test, status: Option<String>, live: 
                 if let Some(r) = readings.get(i) {
                     let f = complication::figures(&r.measurement);
                     ui.label(RichText::new(label).color(pal.text));
-                    for q in Quantity::ALL {
-                        right(ui, text(q, q.figure(&f)), false, pal.text);
+                    for q in complication::SHOWN {
+                        let cell = right(ui, figure_cell(q, &f), false, pal.text);
+                        if q == SeriesKind::BeatError {
+                            // Its source, as the Positions table hovers it.
+                            let src = r.measurement.beat_error_source;
+                            cell.on_hover_text(session::beat_error_source_label(src));
+                        }
                     }
                 } else {
                     match (status.take(), live) {
@@ -1396,7 +1399,7 @@ fn complication_grid(ui: &mut egui::Ui, t: &Test, status: Option<String>, live: 
                         .color(pal.text),
                 )
                 .on_hover_text(complication::method_note());
-                for q in Quantity::ALL {
+                for q in complication::SHOWN {
                     let d = complication::change(q, &measurements).map_or_else(
                         || "—".to_string(),
                         |c| true_minus(&complication::difference_text(q, c.on_less_off)),
@@ -1408,15 +1411,21 @@ fn complication_grid(ui: &mut egui::Ui, t: &Test, status: Option<String>, live: 
         });
 }
 
+/// A stretch's figure as the table and Copy write it: core's number at
+/// the series' place, the rate signed ([`SeriesKind::number`]).
+fn figure_cell(q: SeriesKind, f: &complication::Figures) -> String {
+    complication::figure(q, f).map_or_else(|| "—".to_string(), |f| true_minus(&q.number(f.value)))
+}
+
 /// A Complication Test column's hover.
-fn complication_hint(q: complication::Quantity) -> &'static str {
+fn complication_hint(q: SeriesKind) -> &'static str {
     match q {
-        complication::Quantity::Amplitude => {
+        SeriesKind::Amplitude => {
             "The balance's swing, from the lift angle set. A complication that loads the \
              going train lowers it."
         }
-        complication::Quantity::Rate => "Seconds a day gained (+) or lost (−)",
-        complication::Quantity::BeatError => {
+        SeriesKind::Rate => "Seconds a day gained (+) or lost (−)",
+        SeriesKind::BeatError => {
             "As a size, from the unlock, or from the drop where the unlock isn't found."
         }
     }
@@ -1426,31 +1435,28 @@ fn complication_hint(q: complication::Quantity) -> &'static str {
 /// a row for each stretch, then On less Off with its ±. Fields are split
 /// by `sep`.
 fn complication_text(test: &Test, sep: char) -> String {
-    use complication::Quantity;
     let readings = test.readings_so_far();
     let mut out = "Stretch".to_string();
-    for q in Quantity::ALL {
-        out.push_str(&format!("{sep}{} ({})", q.name(), q.unit_head()));
+    for q in complication::SHOWN {
+        out.push_str(&format!(
+            "{sep}{} ({})",
+            q.title(),
+            complication::unit_head(q)
+        ));
     }
     out.push('\n');
     for (i, r) in readings.iter().enumerate() {
         let f = complication::figures(&r.measurement);
         out.push_str(test.step_code(i));
-        for q in Quantity::ALL {
-            let v = q.figure(&f).map(|f| f.value);
-            let t = if q.signed() {
-                signed(v, q.digits())
-            } else {
-                plain(v, q.digits())
-            };
-            out.push_str(&format!("{sep}{t}"));
+        for q in complication::SHOWN {
+            out.push_str(&format!("{sep}{}", figure_cell(q, &f)));
         }
         out.push('\n');
     }
     let m: Vec<Measurement> = readings.iter().map(|r| r.measurement.clone()).collect();
     if m.len() == complication::ORDER.len() {
         out.push_str(complication::DIFFERENCE_NAME);
-        for q in Quantity::ALL {
+        for q in complication::SHOWN {
             let d = complication::change(q, &m).map_or_else(
                 || "—".to_string(),
                 |c| true_minus(&complication::difference_text(q, c.on_less_off)),
@@ -1458,11 +1464,11 @@ fn complication_text(test: &Test, sep: char) -> String {
             out.push_str(&format!("{sep}{d}"));
         }
         out.push('\n');
-        for q in Quantity::ALL {
+        for q in complication::SHOWN {
             if let Some(c) = complication::change(q, &m) {
                 out.push_str(&format!(
                     "{}: {}\n",
-                    q.name(),
+                    q.title(),
                     true_minus(&complication::finding_text(q, c.on_less_off))
                 ));
             }

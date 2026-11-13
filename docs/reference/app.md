@@ -832,8 +832,13 @@ the Offs joined dashed, a ring where On would sit with the complication
 off and a bracket from it to On. A track over them names each stretch,
 lighter while it settles. Each plot's title gives core's finding, such
 as "Amplitude · 20 ± 1° lower with the complication on"; a change is
-named only when it stands clear of zero by twice its ±, else it reads
-"no clear change". **Info** shows core's note on the method and the ±.
+named only when it is more than twice its ± from zero, else it reads
+"no clear change". A figure with no ± yet (the rate's needs about five
+minutes of take) gets no verdict: "Rate · −10.0 s/d, no ± yet (too few
+readings)". Hovering a point gives its figure. **Info** shows core's
+note on the method and the ±, in short paragraphs. The key under the
+plots drops whole parts, last first, where the pane is narrow; over the
+table, the plots keep a fixed height so the table shows under them.
 Copy writes the watch, the position, the table and the findings.
 
 **Power Reserve.** The Power Reserve pane, a hidden tab beside the

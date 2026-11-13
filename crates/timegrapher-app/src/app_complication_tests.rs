@@ -80,21 +80,22 @@ fn measured(name: &str) -> (TimegrapherApp, std::path::PathBuf, impl Sized) {
 /// table and the findings.
 #[test]
 fn a_complication_test_finds_the_drop_with_it_on() {
-    use timegrapher_core::complication::{self, Quantity};
+    use timegrapher_core::complication;
+    use timegrapher_core::steadiness::SeriesKind;
     let (app, base, tx) = measured("run");
     assert!(!app.guided_running(), "ended after the third");
     let kept = app.complication_test().expect("the table stays");
     let readings = kept.readings.as_ref().unwrap();
     assert_eq!(readings.len(), 3);
     let m: Vec<_> = readings.iter().map(|r| r.measurement.clone()).collect();
-    let amp = complication::change(Quantity::Amplitude, &m).unwrap();
+    let amp = complication::change(SeriesKind::Amplitude, &m).unwrap();
     assert!(
         (amp.on_less_off.value + 20.0).abs() < 3.0,
         "{:?}",
         amp.on_less_off
     );
     assert!(complication::differs(amp.on_less_off));
-    let rate = complication::change(Quantity::Rate, &m).unwrap();
+    let rate = complication::change(SeriesKind::Rate, &m).unwrap();
     assert!(
         (rate.on_less_off.value + 10.0).abs() < 1.5,
         "{:?}",
@@ -114,9 +115,10 @@ fn a_complication_test_finds_the_drop_with_it_on() {
         text.contains("\nAmplitude: 20 ± 1° lower with the complication on\n"),
         "{text}"
     );
-    // The synthetic take's rate has no ±, so its change is never named.
+    // The synthetic take's rate has no ±, so it gets no verdict either
+    // way: the figure, and why (Hugh).
     assert!(
-        text.contains("\nRate: no clear change, −10.0 s/d\n"),
+        text.contains("\nRate: −10.0 s/d, no ± yet (too few readings)\n"),
         "{text}"
     );
     drop(tx);

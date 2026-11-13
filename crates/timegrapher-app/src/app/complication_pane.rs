@@ -7,9 +7,11 @@
 
 use super::*;
 use timegrapher_core::chart_scale;
-use timegrapher_core::complication::{self, Change, Quantity};
+use timegrapher_core::complication::{self, Change};
 use timegrapher_core::figure_text::true_minus;
+use timegrapher_core::library::length_text;
 use timegrapher_core::session::Measurement;
+use timegrapher_core::steadiness::SeriesKind;
 
 /// The table's width: the stretch's name and its three figures.
 const TABLE_W: f32 = 400.0;
@@ -20,16 +22,20 @@ const INFO_BESIDE_W: f32 = 1180.0;
 /// Each plot's least height, the track's over them, and the time axis's
 /// under them, points.
 const PLOT_MIN_H: f32 = 110.0;
+/// Each plot's height over the table on a narrow pane: room to read, and
+/// the table still in view under them (Walter).
+const PLOT_OVER_H: f32 = 150.0;
 const TRACK_H: f32 = 16.0;
 const AXIS_H: f32 = 34.0;
 /// A plot's margins: left for its numbers, top for its title and the
 /// room its top number takes above its line.
-const LEFT: f32 = 54.0;
+const LEFT: f32 = 70.0;
 const RIGHT: f32 = 14.0;
 const TITLE_H: f32 = 30.0;
-/// The room under a plot's lowest line, for its number, before the next
-/// plot's title.
-const FOOT_H: f32 = 14.0;
+/// The room under a plot's lowest line: half its number's height, then
+/// the 12 points the Charts lanes leave before the next plot's title
+/// (Hugh).
+const FOOT_H: f32 = 20.0;
 /// A point's radius, its ± bar's width, and the ring's radius.
 const DOT_R: f32 = 4.2;
 const BAR_W: f32 = 1.5;
@@ -39,10 +45,15 @@ const BRACKET: f32 = 8.0;
 /// The Offs' dashed line: its dashes and gaps, points.
 const DASH: f32 = 6.0;
 const DASH_GAP: f32 = 4.0;
-/// The time axis's steps to choose from, seconds, and how many marks it
-/// wants at most.
-const TIME_STEPS: [f32; 9] = [15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0];
+/// The least span of a plot's scale, in places of its figure: five
+/// steps of 1° or 0.1 s/d, never ticks of 0.02° (Walter).
+const MIN_SPAN_PLACES: f32 = 5.0;
+/// How many marks the time axis wants at most.
 const TIME_MARKS: f32 = 6.0;
+/// How near the pointer must come to a point for its figure, points.
+const HOVER_R: f32 = 8.0;
+/// The gap between the key's parts, points.
+const KEY_GAP: f32 = 14.0;
 
 /// One stretch on the plots: its middle, seconds from the test's start,
 /// and its measurement.
@@ -170,7 +181,13 @@ fn complication_body(
         info_beside_w: INFO_BESIDE_W,
         rule_h: 3.0 * PLOT_MIN_H,
     };
-    let plots = |ui: &mut egui::Ui| plots_block(ui, test, now, bottom);
+    // Over the table, on a narrow pane, the plots take their least height
+    // so the table shows under them (Walter).
+    let side_w = ui.available_width() - TABLE_W - test_body::GAP;
+    let plots = |ui: &mut egui::Ui| {
+        let over = ui.available_width() > side_w + 1.0;
+        plots_block(ui, test, now, (!over).then_some(bottom));
+    };
     test_body::test_body(
         ui,
         ("complication pane", &layout),
@@ -202,27 +219,44 @@ fn info_panel(ui: &mut egui::Ui) {
     let pal = theme::pal(ui);
     ui.spacing_mut().item_spacing.y = 4.0;
     ui.label(theme::caption("Complication").color(pal.text_secondary));
-    ui.add(
-        egui::Label::new(
-            RichText::new(complication::method_note())
-                .small()
-                .color(pal.text),
-        )
-        .wrap()
-        .selectable(true),
-    );
+    // Core's short paragraphs, each its own label (Hugh).
+    for para in complication::method_note().split("\n\n") {
+        ui.add(
+            egui::Label::new(RichText::new(para).small().color(pal.text))
+                .wrap()
+                .selectable(true),
+        );
+        ui.add_space(4.0);
+    }
 }
 
 /// The three plots on one time axis, with the track naming each stretch
 /// over them and the key under them, in the room left above `bottom`.
-fn plots_block(ui: &mut egui::Ui, test: Option<&guided::Test>, now: Option<f64>, bottom: f32) {
+fn plots_block(
+    ui: &mut egui::Ui,
+    test: Option<&guided::Test>,
+    now: Option<f64>,
+    bottom: Option<f32>,
+) {
     let w = ui.available_width().max(PLOTS_MIN_W);
     let key_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-    let room = bottom - ui.cursor().top() - TRACK_H - AXIS_H - key_h;
-    let plot_h = (room / 3.0).max(PLOT_MIN_H);
+    let plot_h = bottom.map_or(PLOT_OVER_H, |bottom| {
+        let room = bottom - ui.cursor().top() - TRACK_H - AXIS_H - key_h;
+        (room / 3.0).max(PLOT_MIN_H)
+    });
     let h = TRACK_H + 3.0 * plot_h + AXIS_H;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
-    draw_plots(ui, rect, plot_h, test, now);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, h), egui::Sense::hover());
+    let tips = draw_plots(ui, rect, plot_h, test, now);
+    // Each point's figure, on hover, as the key says.
+    if let Some(p) = resp.hover_pos() {
+        let near = tips
+            .iter()
+            .filter(|(at, _)| at.distance(p) <= HOVER_R)
+            .min_by(|a, b| a.0.distance(p).total_cmp(&b.0.distance(p)));
+        if let Some((_, text)) = near {
+            resp.on_hover_text_at_pointer(text.as_str());
+        }
+    }
     plot_key(ui);
 }
 
@@ -240,31 +274,31 @@ fn time_span(test: &guided::Test, now: Option<f64>) -> (f64, f64) {
     (t0, end.max(t0 + least))
 }
 
-/// The time axis's step, seconds: the first of [`TIME_STEPS`] that gives
-/// no more than [`TIME_MARKS`] marks over `span`.
+/// The time axis's step, seconds: the first of the app's time steps
+/// ([`theme::TIME_STEPS`]), in whole seconds, that gives no more than
+/// [`TIME_MARKS`] marks over `span`.
 fn time_step(span: f64) -> f64 {
     let most = f64::from(TIME_MARKS);
-    TIME_STEPS
+    let whole = theme::TIME_STEPS
         .iter()
-        .map(|&s| f64::from(s))
+        .copied()
+        .filter(|s| s.fract() == 0.0);
+    whole
+        .clone()
         .find(|s| span / s <= most)
-        .unwrap_or_else(|| f64::from(TIME_STEPS[TIME_STEPS.len() - 1]))
+        .or_else(|| whole.clone().next_back())
+        .unwrap_or(span)
 }
 
-/// Seconds as the axis writes them: "2:30".
-fn min_s(t: f64) -> String {
-    let s = t.round() as i64;
-    format!("{}:{:02}", s / 60, s % 60)
-}
-
-/// The three plots, the track over them and the time axis under them.
+/// The three plots, the track over them and the time axis under them;
+/// each point drawn, with its figure for the hover.
 fn draw_plots(
     ui: &egui::Ui,
     rect: egui::Rect,
     plot_h: f32,
     test: Option<&guided::Test>,
     now: Option<f64>,
-) {
+) -> Vec<(egui::Pos2, String)> {
     let pal = theme::pal(ui);
     let painter = ui.painter_at(rect);
     let left = rect.left() + LEFT;
@@ -295,7 +329,7 @@ fn draw_plots(
         painter.text(
             egui::pos2(at, plots_bottom + 4.0),
             egui::Align2::CENTER_TOP,
-            min_s(k * step),
+            length_text(k * step),
             egui::FontId::proportional(11.0),
             pal.text_secondary,
         );
@@ -308,7 +342,8 @@ fn draw_plots(
         egui::FontId::proportional(11.0),
         pal.text_secondary,
     );
-    for (i, q) in Quantity::ALL.into_iter().enumerate() {
+    let mut tips = Vec::new();
+    for (i, q) in complication::SHOWN.into_iter().enumerate() {
         let top = plots_top + i as f32 * plot_h;
         let area = egui::Rect::from_min_max(
             egui::pos2(left, top + TITLE_H),
@@ -319,8 +354,9 @@ fn draw_plots(
         }
         let change = complication::change(q, &measurements);
         plot_title(&painter, egui::pos2(rect.left(), top), q, change, pal);
-        draw_one(&painter, area, (q, &points, change), &x, pal);
+        tips.extend(draw_one(&painter, area, (q, &points, change), &x, pal));
     }
+    tips
 }
 
 /// The track over the plots: each stretch named, faint while it settles.
@@ -340,8 +376,12 @@ fn draw_track(
                 egui::Rect::from_min_max(egui::pos2(x(a), top), egui::pos2(x(b), top + TRACK_H));
             painter.rect_filled(r, 2.0, c);
         };
-        // Lighter while it settles (Hugh's spec).
-        band(settle_from, from, pal.text_tertiary);
+        // Lighter while it settles, in the strip's proportion (Hugh's spec).
+        band(
+            settle_from,
+            from,
+            pal.control.gamma_multiply(strip::SETTLE_OF_MEASURED),
+        );
         band(from, to, pal.control);
         painter.text(
             egui::pos2(x(settle_from) + 4.0, top + TRACK_H / 2.0),
@@ -358,11 +398,11 @@ fn draw_track(
 fn plot_title(
     painter: &egui::Painter,
     at: egui::Pos2,
-    q: Quantity,
+    q: SeriesKind,
     change: Option<Change>,
     pal: &theme::Palette,
 ) {
-    let name = painter.layout_no_wrap(q.name().to_string(), theme::semibold(13.0), pal.text);
+    let name = painter.layout_no_wrap(q.title().to_string(), theme::semibold(13.0), pal.text);
     let w = name.size().x;
     painter.galley(at, name, pal.text);
     if let Some(c) = change {
@@ -380,28 +420,28 @@ fn plot_title(
 }
 
 /// The figure's colour on the plots, as the readings take it everywhere.
-fn ink(q: Quantity, pal: &theme::Palette) -> egui::Color32 {
+fn ink(q: SeriesKind, pal: &theme::Palette) -> egui::Color32 {
     match q {
-        Quantity::Amplitude => pal.trace_amplitude,
-        Quantity::Rate => pal.trace_rate,
-        Quantity::BeatError => pal.trace_beat_error,
+        SeriesKind::Amplitude => pal.trace_amplitude,
+        SeriesKind::Rate => pal.trace_rate,
+        SeriesKind::BeatError => pal.trace_beat_error,
     }
 }
 
 /// One plot: its scale's lines and numbers, each stretch at its middle
 /// with its ±, the Offs joined dashed, and once all three are in the ring
 /// where On would sit with the complication off and the bracket from it to
-/// On.
+/// On. Gives each point and its figure for the hover.
 fn draw_one(
     painter: &egui::Painter,
     area: egui::Rect,
-    (q, points, change): (Quantity, &[Point<'_>], Option<Change>),
+    (q, points, change): (SeriesKind, &[Point<'_>], Option<Change>),
     x: &dyn Fn(f64) -> f32,
     pal: &theme::Palette,
-) {
+) -> Vec<(egui::Pos2, String)> {
     let figs: Vec<(f64, complication::Figure)> = points
         .iter()
-        .filter_map(|p| Some((p.t, q.figure(&complication::figures(p.m))?)))
+        .filter_map(|p| Some((p.t, complication::figure(q, &complication::figures(p.m))?)))
         .collect();
     let mut values: Vec<f64> = figs
         .iter()
@@ -412,9 +452,18 @@ fn draw_one(
         .collect();
     values.extend(change.map(|c| c.off.value));
     let grid = egui::Stroke::new(1.0_f32, pal.separator);
+    if let (Some(&a), Some(&b)) = (
+        values.iter().min_by(|a, b| a.total_cmp(b)),
+        values.iter().max_by(|a, b| a.total_cmp(b)),
+    ) {
+        // At least five places of the figure, about the middle.
+        let least = f64::from(MIN_SPAN_PLACES) * 10f64.powi(-(q.digits() as i32));
+        let mid = (a + b) / 2.0;
+        values.extend([mid - least / 2.0, mid + least / 2.0]);
+    }
     let Some((lo, hi)) = chart_scale::data_range(&values) else {
         painter.hline(area.x_range(), area.bottom(), grid);
-        return;
+        return Vec::new();
     };
     let (lo, hi, step) = chart_scale::round_ends(lo, hi);
     let y = |v: f64| area.bottom() - ((v - lo) / (hi - lo)) as f32 * area.height();
@@ -423,13 +472,13 @@ fn draw_one(
         let v = lo + k as f64 * step;
         painter.hline(area.x_range(), y(v), grid);
         let mut label = true_minus(&chart_scale::axis_number(v, step));
-        if q.signed() && v > 0.0 {
+        if q == SeriesKind::Rate && v > 0.0 {
             label = format!("+{label}");
         }
         painter.text(
             egui::pos2(area.left() - 6.0, y(v)),
             egui::Align2::RIGHT_CENTER,
-            format!("{label}{}", unit_after(q)),
+            format!("{label}{}", complication::unit_text(q)),
             egui::FontId::proportional(11.0),
             pal.text_secondary,
         );
@@ -454,8 +503,10 @@ fn draw_one(
         painter.line_segment([egui::pos2(r, a), egui::pos2(r, b)], quiet);
         painter.line_segment([egui::pos2(r - 3.0, b), egui::pos2(r, b)], quiet);
     }
+    let mut tips = Vec::new();
     for &(t, f) in &figs {
         let p = egui::pos2(x(t), y(f.value));
+        tips.push((p, true_minus(&complication::figure_text(q, f))));
         if let Some(e) = f.se {
             let (a, b) = (
                 egui::pos2(p.x, y(f.value + e)),
@@ -465,47 +516,115 @@ fn draw_one(
         }
         painter.circle(p, DOT_R, colour, egui::Stroke::new(1.5_f32, pal.card));
     }
+    tips
 }
 
-/// The unit after an axis number: the degree sign close up, others spaced.
-fn unit_after(q: Quantity) -> &'static str {
-    match q {
-        Quantity::Amplitude => "°",
-        Quantity::Rate => " s/d",
-        Quantity::BeatError => " ms",
+/// One part of the key under the plots: its mark and its words.
+#[derive(Clone, Copy)]
+enum KeyMark {
+    Dot,
+    Dash,
+    Ring,
+    Bracket,
+}
+
+/// The key's parts, in the order they drop from the end when the row has
+/// no room (Hugh's spec, mock version 8).
+const KEY: [(KeyMark, &str); 4] = [
+    (
+        KeyMark::Dot,
+        "Each stretch (bars: its ±, hover for the figure)",
+    ),
+    (KeyMark::Dash, "Offs joined"),
+    (KeyMark::Ring, "Where On would sit with it off"),
+    (KeyMark::Bracket, "The difference"),
+];
+
+/// How many of the key's parts fit in `room`, each `widths` wide with
+/// [`KEY_GAP`] between: whole parts only, the last dropped first.
+fn key_parts_that_fit(widths: &[f32], room: f32) -> usize {
+    let mut used = 0.0;
+    for (i, w) in widths.iter().enumerate() {
+        used += w + if i > 0 { KEY_GAP } else { 0.0 };
+        if used > room {
+            return i;
+        }
+    }
+    widths.len()
+}
+
+/// The key under the plots, for all three, on one row: whole parts, the
+/// last dropped first where the row has no room.
+fn plot_key(ui: &mut egui::Ui) {
+    let pal = theme::pal(ui);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let mark_w = 2.0 * RING_R + 8.0;
+    let galleys: Vec<_> = KEY
+        .iter()
+        .map(|&(_, words)| {
+            ui.painter()
+                .layout_no_wrap(words.to_string(), font.clone(), pal.text_secondary)
+        })
+        .collect();
+    let widths: Vec<f32> = galleys.iter().map(|g| mark_w + g.size().x).collect();
+    let room = ui.available_width() - LEFT;
+    let n = key_parts_that_fit(&widths, room);
+    let h = ui.text_style_height(&egui::TextStyle::Body);
+    let (row, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), h), egui::Sense::hover());
+    let painter = ui.painter();
+    let quiet = egui::Stroke::new(1.0_f32, pal.text_secondary);
+    let mut left = row.left() + LEFT;
+    let cy = row.center().y;
+    for ((mark, _), galley) in KEY.iter().zip(galleys).take(n) {
+        let c = egui::pos2(left + RING_R + 1.0, cy);
+        match mark {
+            KeyMark::Dot => {
+                painter.line_segment([c - Vec2::new(0.0, 5.0), c + Vec2::new(0.0, 5.0)], quiet);
+                painter.circle_filled(c, DOT_R - 1.0, pal.text_secondary);
+            }
+            KeyMark::Dash => {
+                painter.line_segment([c - Vec2::new(5.0, 0.0), c - Vec2::new(1.5, 0.0)], quiet);
+                painter.line_segment([c + Vec2::new(1.5, 0.0), c + Vec2::new(5.0, 0.0)], quiet);
+            }
+            KeyMark::Ring => {
+                painter.circle(c, RING_R, pal.card, quiet);
+            }
+            KeyMark::Bracket => {
+                let (a, b) = (c - Vec2::new(0.0, 5.0), c + Vec2::new(0.0, 5.0));
+                painter.line_segment([a - Vec2::new(3.0, 0.0), a], quiet);
+                painter.line_segment([a, b], quiet);
+                painter.line_segment([b - Vec2::new(3.0, 0.0), b], quiet);
+            }
+        }
+        let w = galley.size().x;
+        let at = egui::pos2(left + mark_w, cy - galley.size().y / 2.0);
+        painter.galley(at, galley, pal.text_secondary);
+        left += mark_w + w + KEY_GAP;
     }
 }
 
-/// The key under the plots, for all three.
-fn plot_key(ui: &mut egui::Ui) {
-    let pal = theme::pal(ui);
-    ui.horizontal_wrapped(|ui| {
-        ui.add_space(LEFT);
-        theme::dot(ui, pal.text_secondary);
-        ui.label(
-            RichText::new("Each stretch, with its ±")
-                .small()
-                .color(pal.text_secondary),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The key drops whole parts, the last first, never one cut mid-way.
+    #[test]
+    fn the_key_drops_whole_parts_from_the_end() {
+        let widths = [100.0, 50.0, 80.0, 40.0];
+        assert_eq!(key_parts_that_fit(&widths, 1000.0), 4);
+        assert_eq!(key_parts_that_fit(&widths, 100.0 + KEY_GAP + 50.0), 2);
+        assert_eq!(
+            key_parts_that_fit(&widths, 100.0 + KEY_GAP + 50.0 + KEY_GAP + 79.0),
+            2
         );
-        ui.add_space(12.0);
-        theme::dash(ui, pal.text_secondary, egui::Color32::TRANSPARENT);
-        ui.label(
-            RichText::new("Offs joined")
-                .small()
-                .color(pal.text_secondary),
-        );
-        ui.add_space(12.0);
-        let (r, _) = ui.allocate_exact_size(Vec2::splat(2.0 * RING_R + 2.0), egui::Sense::hover());
-        ui.painter().circle(
-            r.center(),
-            RING_R,
-            pal.card,
-            egui::Stroke::new(1.0_f32, pal.text_secondary),
-        );
-        ui.label(
-            RichText::new("Where On would sit with it off")
-                .small()
-                .color(pal.text_secondary),
-        );
-    });
+        assert_eq!(key_parts_that_fit(&widths, 90.0), 0);
+    }
+
+    /// The axis steps come from the app's one ladder, in whole seconds.
+    #[test]
+    fn the_time_axis_steps_through_the_apps_ladder() {
+        assert_eq!(time_step(180.0), 30.0);
+        assert_eq!(time_step(400.0), 120.0);
+        assert!(theme::TIME_STEPS.contains(&time_step(5000.0)));
+    }
 }
