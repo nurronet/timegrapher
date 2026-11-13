@@ -966,6 +966,18 @@ pub const ISO_ABOUT: &str =
 /// read while its rate goes on ([`WalkView::rate_only_row`]).
 pub const ISO_NO_AMP_AFTER: &str = "No amplitude after";
 
+/// An amplitude in degrees at the figures' own digits
+/// ([`crate::figure_text::base_digits::AMPLITUDE`]).
+fn deg(x: f64) -> String {
+    crate::figure_text::fixed_text(x, crate::figure_text::base_digits::AMPLITUDE)
+}
+
+/// A signed rate at the figures' own digits
+/// ([`crate::figure_text::base_digits::RATE`]).
+fn rate(x: f64) -> String {
+    crate::figure_text::signed_text(x, crate::figure_text::base_digits::RATE)
+}
+
 /// The first and the last bin, lowest amplitude first.
 fn iso_ends(
     c: &crate::steadiness::IsochronismCurve,
@@ -984,8 +996,9 @@ pub fn iso_title(c: &crate::steadiness::IsochronismCurve) -> String {
     };
     let text = match iso_ends(c) {
         Some([a, b]) => format!(
-            "{slope}, {:.0}° to {:.0}°",
-            a.amplitude_deg, b.amplitude_deg
+            "{slope}, {}° to {}°",
+            deg(a.amplitude_deg),
+            deg(b.amplitude_deg)
         ),
         None => slope,
     };
@@ -995,14 +1008,14 @@ pub fn iso_title(c: &crate::steadiness::IsochronismCurve) -> String {
 /// The facts box's rows: the median rate at the lowest and the highest
 /// amplitude, "At 119°" "−40.2 s/d", as the headline reads them.
 pub fn iso_facts(c: &crate::steadiness::IsochronismCurve) -> Vec<(String, String)> {
-    use crate::figure_text::{signed_text, true_minus};
+    use crate::figure_text::true_minus;
     iso_ends(c)
         .into_iter()
         .flatten()
         .map(|b| {
             (
-                format!("At {:.0}°", b.amplitude_deg),
-                true_minus(&format!("{} s/d", signed_text(b.rate_s_per_day, 1))),
+                format!("At {}°", deg(b.amplitude_deg)),
+                true_minus(&format!("{} s/d", rate(b.rate_s_per_day))),
             )
         })
         .collect()
@@ -1012,8 +1025,8 @@ pub fn iso_facts(c: &crate::steadiness::IsochronismCurve) -> Vec<(String, String
 /// (28)", the count the dots drawn.
 pub fn iso_key(c: &crate::steadiness::IsochronismCurve) -> String {
     format!(
-        "Median rate in each {:.0}° of amplitude ({})",
-        c.bin_deg,
+        "Median rate in each {}° of amplitude ({})",
+        deg(c.bin_deg),
         c.bins.len()
     )
 }
@@ -1021,13 +1034,12 @@ pub fn iso_key(c: &crate::steadiness::IsochronismCurve) -> String {
 /// A dot's hover: its amplitude, its median rate, its bar's ends (the
 /// middle half of its readings) and how many readings.
 pub fn iso_bin_hover(b: &crate::steadiness::AmplitudeBin) -> String {
-    use crate::figure_text::{signed_text, true_minus};
-    true_minus(&format!(
-        "{:.0}° · median {} s/d · middle half {} to {} s/d · {} readings",
-        b.amplitude_deg,
-        signed_text(b.rate_s_per_day, 1),
-        signed_text(b.rate_q25, 1),
-        signed_text(b.rate_q75, 1),
+    crate::figure_text::true_minus(&format!(
+        "{}° · median {} s/d · middle half {} to {} s/d · {} readings",
+        deg(b.amplitude_deg),
+        rate(b.rate_s_per_day),
+        rate(b.rate_q25),
+        rate(b.rate_q75),
         b.readings
     ))
 }
@@ -1046,9 +1058,9 @@ pub fn iso_info(c: &crate::steadiness::IsochronismCurve, walk: bool) -> Vec<Stri
         )
     } else {
         format!(
-            "{ISO_ABOUT} Each dot is the median rate of the readings in its {:.0}° of amplitude; \
+            "{ISO_ABOUT} Each dot is the median rate of the readings in its {}° of amplitude; \
              its bar spans their middle half.",
-            c.bin_deg
+            deg(c.bin_deg)
         )
     };
     let reliability = c.reliability.map_or(String::new(), |r| {
