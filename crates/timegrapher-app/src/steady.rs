@@ -770,7 +770,7 @@ pub fn draw(
             egui::Stroke::new(1.0_f32, pal.separator),
         );
         ui.scope_builder(egui::UiBuilder::new().max_rect(panel), |ui| {
-            info_panel(ui, &series, status, view, panel.height());
+            info_panel(ui, s, &series, status, view, panel.height());
         });
         ui.scope_builder(egui::UiBuilder::new().max_rect(plots), |ui| {
             rows(ui, s, &series, view, opts);
@@ -790,7 +790,7 @@ pub fn draw(
                         ui.set_width(w - 16.0);
                         let h = (seen.height() - 24.0).max(80.0);
                         ui.set_max_height(h);
-                        info_panel(ui, &series, status, view, h);
+                        info_panel(ui, s, &series, status, view, h);
                     });
                 });
         }
@@ -799,9 +799,12 @@ pub fn draw(
 
 /// The Info panel: what the view shows, then a block for each series
 /// shown under its coloured title (its findings and statistics in full),
-/// then what was tested. It scrolls, and its words can be selected.
+/// then what was tested. It scrolls, and its words can be selected. On
+/// FFT, each series' block also says how much of the grid its spectrum
+/// was read from (#1528), kept off the plot.
 fn info_panel(
     ui: &mut egui::Ui,
+    s: &Steadiness,
     series: &[(usize, &SeriesCheck)],
     status: &str,
     view: View,
@@ -845,6 +848,12 @@ fn info_panel(
                 ui.add(text(&c.screen_headline, pal.text));
             }
             ui.add(text(&stats_line(c), pal.text_secondary));
+            if let Some(support) = (view == View::Fft)
+                .then(|| fft_support(s, c.series))
+                .flatten()
+            {
+                ui.add(text(&support, pal.text_tertiary));
+            }
         }
         if !status.is_empty() {
             ui.add_space(8.0);
@@ -1648,6 +1657,25 @@ fn map_plot(ui: &mut egui::Ui, r: Row<'_>) {
     );
 }
 
+/// Series `k`'s spectrum in the report, when it has one: what the FFT
+/// plot draws and its Info panel's line describes.
+fn spectrum(
+    s: &Steadiness,
+    k: SeriesKind,
+) -> Option<&timegrapher_core::spectrum::AmplitudeSpectrum> {
+    let name = series_name(k);
+    s.report
+        .spectra
+        .iter()
+        .find(|x| x.series == name && !x.period_s.is_empty())
+}
+
+/// How much of the grid series `k`'s spectrum was read from, as core
+/// words it (`SpectrumSupport::description`): for the FFT Info panel.
+fn fft_support(s: &Steadiness, k: SeriesKind) -> Option<String> {
+    spectrum(s, k).map(|sp| sp.support.description())
+}
+
 /// A series' name in the report's spectra and maps.
 fn series_name(k: SeriesKind) -> &'static str {
     match k {
@@ -1690,13 +1718,7 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
         pal,
         ..
     } = r;
-    let name = series_name(k);
-    let Some(sp) = s
-        .report
-        .spectra
-        .iter()
-        .find(|x| x.series == name && !x.period_s.is_empty())
-    else {
+    let Some(sp) = spectrum(s, k) else {
         return note(ui, "The spectrum needs a longer session.");
     };
     // Rate's spectrum is of the beat timing, in ms: drawn unless
@@ -1712,11 +1734,6 @@ fn fft_plot(ui: &mut egui::Ui, r: Row<'_>) {
     if pts.len() < 2 {
         return note(ui, "The spectrum needs a longer session.");
     }
-    ui.label(
-        RichText::new(sp.support.description())
-            .small()
-            .color(pal.text_tertiary),
-    );
     let ((x_lo, x_hi), (y_lo, y_hi)) = (span(&pts, 0), span(&pts, 1));
     let top = y_hi + (y_hi - y_lo).max(0.5) * 0.05;
     let (gap, unit) = if as_rate {

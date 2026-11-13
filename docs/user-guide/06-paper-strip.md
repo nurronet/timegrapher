@@ -4,7 +4,7 @@ The Paper Strip draws one dot for every beat, the way a printing
 timegrapher marks its paper. It shows what the readings summarise: how
 steadily the watch keeps time, beat by beat.
 
-![The Paper Strip on an opened take, marks 1 to 14](images/paper-strip.png)
+![The Paper Strip on an opened take, marks 1 to 15](images/paper-strip.png)
 
 ## Reading the Strip
 
@@ -47,6 +47,7 @@ wrapped round a drum. So the strip's **Width** is its zoom.
 | 7 | **Mask** | Leaves stretches out of the readings. See [Masking](#masking). | To take a knock or a handling stretch out of every reading. |
 | 8 | **Position Brush** | Marks a stretch as one position. See [The Position Brush](#the-position-brush). | To correct the position after the fact. |
 | 9 | **Direction** | **Across** (time left to right, the default) or **Down** (newest at the top, as on the open tg program). | Down, if you're used to a printed strip: a gaining watch leans right as it rises. |
+| 15 | **Still Paper** | Off, the paper slides along under the pen, the newest beats at its edge. On, the paper stays put and the pen sweeps along it. See [Still Paper](#still-paper). Kept between runs. | To read a live trace without it moving under your eye. |
 | 10 | **Export** | Saves the strip as a PNG or SVG picture. | To share it, or put it in a report. |
 
 **Opening a take** turns Fit on and sets the width to the narrowest listed
@@ -55,6 +56,40 @@ thousand at each end left out), so the whole take shows at once.
 **Listen, or a new test,** then brings back the width, length and Fit the
 strip had before the take was opened. A width or length you changed by
 hand meanwhile stays as you set it.
+
+## Still Paper
+
+![Still Paper on, 1 min 18 s into a Quick Listen with a Length of 30 s, marks 1 to 3](images/paper-strip-still.png)
+
+**What it shows:** the same beats, with the paper held still. The pen
+sweeps along the strip and starts again at the start every Length, as a
+scope draws, wiping the last lap just ahead of it.
+
+**Why you'd use it:** on moving paper every dot slides along all the
+time. On still paper a dot stays where it was drawn, so the eye can rest
+on the trace while you turn the watch or regulate it, and each lap is
+drawn over the same place as the last.
+
+| Mark | Part | What it shows |
+| --- | --- | --- |
+| 1 | **Still Paper** | The switch, lit while on. |
+| 2 | The pen | The newest beat, with a blank, 4% of the strip, wiped just ahead of it. |
+| 3 | The last lap | Still on the paper ahead of the blank, until the pen comes round to it. |
+
+- **Where a beat goes:** laps start at the take's 0:00, so with a Length
+  of 30 s each lap starts on a whole half minute. The time labels give
+  the take time of the ink under them, so they jump at the blank.
+- **Lines and bands** (the Rate Line, the guides, masks, the track) are
+  drawn a lap at a time, and none runs across the blank.
+- **Looking back, paused, or on an opened take,** the pen is at the
+  strip's end. Dragging or the wheel moves it through time, as on moving
+  paper. Zooming time changes the Length about the pen.
+- **Fit** is greyed while the paper is still: there is nothing to fit.
+
+**In the picture** a Quick Listen is 1 min 18 s in, with a Length of
+30 s. The pen is in its third lap, from 1:00 to 1:18. Ahead of the blank
+is the end of the lap before, from about 0:49 to 1:00, and the
+amplitude line from that lap carries on where the pen hasn't reached.
 
 ## Moving Around
 

@@ -186,10 +186,10 @@ const POSITIONS = /*POSITIONS*/null;
 // The heading for a reading with no regular beat: core's measure::NO_WATCH_TITLE,
 // as the app writes it (#510).
 const NO_BEAT_TITLE = /*NO_BEAT_TITLE*/null;
-// Each figure's decimals with no ± to follow: core's library::base_digits
-// (rate 1, amplitude 0, beat error 2, jitter 0), filled in by the server.
-// A figure with a ± takes the decimals the server gives beside it
-// (library::figure_digits, #510 K3).
+// Each figure's decimals: core's library::base_digits (rate 1, amplitude
+// 0, beat error 2, jitter 0), filled in by the server. A figure with a ±
+// takes the decimals the server gives beside it (library::figure_digits),
+// the same fixed place (#1470).
 const BASE_DIGITS = /*BASE_DIGITS*/null;
 
 function esc(s) {

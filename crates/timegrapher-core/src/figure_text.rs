@@ -1,5 +1,5 @@
 //! A figure as text, the one rule every surface writes it by: its sign,
-//! its ± and its decimals (math guide section 11; #806, #815, #510 K3).
+//! its ± and its place (math guide section 11; #806, #815, #1470).
 //! Core keeps full precision and JSON is never rounded; only text is, once,
 //! here.
 
@@ -60,10 +60,6 @@ pub fn figure_minus(text: &str) -> String {
         .collect()
 }
 
-/// The most decimals a figure or its ± is written to: below 0.001 a ± is
-/// far inside any clock or lift-angle accuracy (#510 K3).
-pub const MAX_DIGITS: usize = 3;
-
 /// Each figure's base decimals, with no ± to follow (the math guide's
 /// section 11): what [`figure_digits`] starts from.
 pub mod base_digits {
@@ -83,48 +79,39 @@ pub mod base_digits {
     pub const SLOPE: usize = 2;
 }
 
-/// How many decimals a figure is written to (#510 K3, "decimals follow
-/// the ±"): with a ± (`se` positive and finite), the ±'s own decimals as
-/// [`pm_text`] writes them, so value and ± always carry the same; with
-/// none, the figure's `base` (the math guide's section 11: rate 1, rate
-/// p05 to p95 0, amplitude 0, beat error 2, jitter 0, clock 1). Never fewer
-/// than `base`, however wide the ±, and no more than [`MAX_DIGITS`] beyond
-/// that.
-pub fn figure_digits(se: Option<f64>, base: usize) -> usize {
-    let Some(se) = se.filter(|se| se.is_finite() && *se > 0.0) else {
-        return base;
-    };
-    let mut d = base;
-    while d < MAX_DIGITS && se * 10f64.powi(d as i32) < 0.95 {
-        d += 1;
-    }
-    d
+/// How many decimals a figure is written to: its place in the math
+/// guide's section 11, `base` ([`base_digits`]), whatever its ± (Peter, 12
+/// Nov, #1470). The ± measures repeatability only; the lift angle and the
+/// sound card's clock limit accuracy to about these places, so a narrow ±
+/// adds no decimals (this replaces #510 K3's "decimals follow the ±" for
+/// text). `se` is taken so every caller says what it has; it never moves
+/// the place.
+pub fn figure_digits(_se: Option<f64>, base: usize) -> usize {
+    base
 }
 
-/// A standard error as every surface writes it after "±": to
-/// [`figure_digits`] decimals, at least `digits` and more, up to
-/// [`MAX_DIGITS`], until its first figure that isn't zero shows (#806). So
-/// with `digits` 0 an amplitude's 0.4° reads `0.4` and 1.4° reads `1`;
-/// with 1, a rate's 0.04 s/d reads `0.04`. One that still rounds to zero
-/// at the cap reads `<0.001`, never `0.000`. `None` when it isn't a
-/// positive, finite number.
+/// A standard error as every surface writes it after "±": at the figure's
+/// place (`digits`, [`base_digits`]), rounded up, and never below one unit
+/// of the place (#1470). So an amplitude's 0.3° reads `1`, a rate's
+/// 0.04 s/d `0.1`, a beat error's 0.011 ms `0.02`. Rounding an uncertainty
+/// up is the safe direction. `None` when it isn't a positive, finite
+/// number.
 pub fn pm_text(se: f64, digits: usize) -> Option<String> {
     if !(se.is_finite() && se > 0.0) {
         return None;
     }
-    let d = figure_digits(Some(se), digits);
-    let text = format!("{se:.d$}");
-    if text.bytes().all(|b| b == b'0' || b == b'.') {
-        return Some(format!("<{:.d$}", 10f64.powi(-(d as i32))));
-    }
-    Some(text)
+    let units = 10f64.powi(digits as i32);
+    // A ± already at a place (0.1 at 1 decimal) stays there: the
+    // tolerance takes up the float error of the scaling, far under a
+    // unit.
+    let up = (se * units - 1e-9).ceil().max(1.0);
+    Some(format!("{:.digits$}", up / units))
 }
 
-/// A figure as text to the decimals its ± calls for ([`figure_digits`],
-/// #510 K3: decimals follow the ±), from the figure's `base` decimals
-/// with no ± ([`base_digits`]). `signed` writes a rate's or clock's sign,
-/// none on a zero ([`signed_text`]); else a zero takes no minus
-/// ([`fixed_text`]). `se` is the figure's standard error, if it has one.
+/// A figure as text at its place (`base`, [`base_digits`], #1470).
+/// `signed` writes a rate's or clock's sign, none on a zero
+/// ([`signed_text`]); else a zero takes no minus ([`fixed_text`]). `se` is
+/// the figure's standard error, if it has one; it never moves the place.
 pub fn figure(v: f64, se: Option<f64>, base: usize, signed: bool) -> String {
     let d = figure_digits(se, base);
     if signed {
@@ -134,8 +121,8 @@ pub fn figure(v: f64, se: Option<f64>, base: usize, signed: bool) -> String {
     }
 }
 
-/// A figure and, where it has one, its ± after it, each to the same
-/// decimals ([`figure`], [`pm_text`]): "+1.23 ± 0.04".
+/// A figure and, where it has one, its ± after it, each at the figure's
+/// place ([`figure`], [`pm_text`]): "+1.2 ± 0.1".
 pub fn figure_with_pm(v: f64, se: Option<f64>, base: usize, signed: bool) -> String {
     let pm = se
         .and_then(|e| pm_text(e, base))
@@ -194,89 +181,63 @@ mod tests {
         assert_eq!(figure_minus("-1.2 s/d"), format!("{m}1.2 s/d"));
     }
 
-    /// One rule for the ± on every surface (#806): the case the MCP view
-    /// got wrong is 0.4° of amplitude, which reads 0.4, not 0 or 1.
+    /// The ± at the figure's place, rounded up, never below one unit of
+    /// it (#1470): the acceptance cases 0.3 → 1°, 0.04 → 0.1 s/d and
+    /// 0.011 → 0.02 ms.
     #[test]
-    fn a_standard_error_shows_its_first_figure() {
-        assert_eq!(pm_text(0.4, 0).as_deref(), Some("0.4"));
-        assert_eq!(pm_text(0.94, 0).as_deref(), Some("0.9"));
-        assert_eq!(pm_text(0.96, 0).as_deref(), Some("1"));
-        assert_eq!(pm_text(1.4, 0).as_deref(), Some("1"));
-        assert_eq!(pm_text(0.04, 1).as_deref(), Some("0.04"));
-        assert_eq!(pm_text(0.3, 1).as_deref(), Some("0.3"));
-        assert_eq!(pm_text(0.012, 2).as_deref(), Some("0.01"));
-        assert_eq!(pm_text(0.004, 2).as_deref(), Some("0.004"));
-        // At the cap, a ± that still rounds to zero is under the last
-        // decimal, never 0.000 (#510 K3).
-        assert_eq!(pm_text(0.0001, 0).as_deref(), Some("<0.001"));
-        assert_eq!(pm_text(0.0006, 0).as_deref(), Some("0.001"));
-        assert_eq!(pm_text(0.0, 1), None);
-        assert_eq!(pm_text(f64::NAN, 1), None);
-    }
-
-    /// Decimals follow the ± (#510 K3): value and ± carry the same
-    /// decimals, never fewer than the figure's base, at most three.
-    #[test]
-    fn a_figure_takes_its_plus_minus_decimals() {
-        // Rate, base 1.
-        assert_eq!(figure_digits(Some(0.007), 1), 3);
-        assert_eq!(figure_digits(Some(0.04), 1), 2);
-        assert_eq!(figure_digits(Some(0.3), 1), 1);
-        assert_eq!(figure_digits(Some(25.0), 1), 1, "never fewer than the base");
-        // Amplitude, base 0.
-        assert_eq!(figure_digits(Some(0.4), 0), 1);
-        assert_eq!(figure_digits(Some(1.4), 0), 0);
-        // At most three, however small the ±.
-        assert_eq!(figure_digits(Some(1e-6), 0), 3);
-        // No ±: the base.
-        for se in [
-            None,
-            Some(0.0),
-            Some(-1.0),
-            Some(f64::NAN),
-            Some(f64::INFINITY),
-        ] {
-            assert_eq!(figure_digits(se, 2), 2);
-        }
-        // The value and its ± carry the same decimals.
-        for (se, base) in [(0.007, 1), (0.4, 0), (25.0, 1), (0.012, 2), (0.0001, 0)] {
-            let d = figure_digits(Some(se), base);
-            let pm = pm_text(se, base).unwrap();
-            let pm_d = pm.split_once('.').map_or(0, |(_, f)| f.len());
-            assert_eq!(pm_d, d, "{se} at base {base}: ± {pm}");
-        }
-        assert_eq!(signed_text(5.0, figure_digits(Some(0.007), 1)), "+5.000");
-    }
-
-    /// A figure carries its ±'s decimals, from its base where there is no
-    /// ±; a signed zero takes no sign, an unsigned one no minus.
-    #[test]
-    fn a_figure_is_written_to_its_plus_minus_decimals() {
+    fn a_standard_error_is_rounded_up_at_its_figures_place() {
         use base_digits as base;
-        assert_eq!(figure(1.234, None, base::RATE, true), "+1.2");
-        assert_eq!(figure(1.234, Some(0.3), base::RATE, true), "+1.2");
-        assert_eq!(figure(1.234, Some(0.04), base::RATE, true), "+1.23");
+        assert_eq!(pm_text(0.3, base::AMPLITUDE).as_deref(), Some("1"));
+        assert_eq!(pm_text(0.04, base::RATE).as_deref(), Some("0.1"));
+        assert_eq!(pm_text(0.011, base::BEAT_ERROR).as_deref(), Some("0.02"));
+        // Up, not to the nearest.
+        assert_eq!(pm_text(1.2, base::AMPLITUDE).as_deref(), Some("2"));
+        assert_eq!(pm_text(0.31, base::RATE).as_deref(), Some("0.4"));
+        // One already at the place stays there, float error and all.
+        assert_eq!(pm_text(0.1, base::RATE).as_deref(), Some("0.1"));
+        assert_eq!(pm_text(0.3, base::RATE).as_deref(), Some("0.3"));
+        assert_eq!(pm_text(0.07, base::BEAT_ERROR).as_deref(), Some("0.07"));
+        assert_eq!(pm_text(2.0, base::AMPLITUDE).as_deref(), Some("2"));
+        // Never under one unit, however small.
+        assert_eq!(pm_text(1e-9, base::AMPLITUDE).as_deref(), Some("1"));
+        assert_eq!(pm_text(0.0001, base::BEAT_ERROR).as_deref(), Some("0.01"));
+        assert_eq!(pm_text(25.04, base::RATE).as_deref(), Some("25.1"));
+        assert_eq!(pm_text(0.0, 1), None);
+        assert_eq!(pm_text(-0.2, 1), None);
+        assert_eq!(pm_text(f64::NAN, 1), None);
+        assert_eq!(pm_text(f64::INFINITY, 1), None);
+    }
+
+    /// A figure is written at its place whatever its ± (#1470): the
+    /// amplitude Peter saw as 148.94° ± 0.01° reads 149° ± 1°.
+    #[test]
+    fn a_figure_is_written_at_its_place_whatever_its_plus_minus() {
+        use base_digits as base;
+        for se in [None, Some(0.0001), Some(0.04), Some(0.3), Some(25.0)] {
+            assert_eq!(figure_digits(se, 2), 2, "{se:?}");
+            assert_eq!(figure(1.234, se, base::RATE, true), "+1.2", "{se:?}");
+            assert_eq!(figure(285.37, se, base::AMPLITUDE, false), "285");
+            assert_eq!(figure(0.1234, se, base::BEAT_ERROR, false), "0.12");
+        }
+        assert_eq!(
+            figure_with_pm(148.94, Some(0.01), base::AMPLITUDE, false),
+            "149 ± 1"
+        );
+        assert_eq!(
+            figure_with_pm(11.43, Some(0.04), base::RATE, true),
+            "+11.4 ± 0.1"
+        );
+        assert_eq!(
+            figure_with_pm(0.1234, Some(0.011), base::BEAT_ERROR, false),
+            "0.12 ± 0.02"
+        );
         assert_eq!(figure(-0.04, Some(0.3), base::RATE, true), "0.0");
-        assert_eq!(
-            figure_with_pm(1.234, Some(0.04), base::RATE, true),
-            "+1.23 ± 0.04"
-        );
-        assert_eq!(figure(285.37, Some(1.4), base::AMPLITUDE, false), "285");
-        assert_eq!(figure(285.37, Some(0.4), base::AMPLITUDE, false), "285.4");
-        assert_eq!(
-            figure_with_pm(285.37, Some(0.4), base::AMPLITUDE, false),
-            "285.4 ± 0.4"
-        );
-        assert_eq!(figure(0.1234, None, base::BEAT_ERROR, false), "0.12");
-        assert_eq!(
-            figure(0.1234, Some(0.004), base::BEAT_ERROR, false),
-            "0.123"
-        );
-        assert_eq!(
-            figure_with_pm(0.1234, Some(0.0001), base::BEAT_ERROR, false),
-            "0.123 ± <0.001"
-        );
         assert_eq!(figure(-0.2, None, base::AMPLITUDE, false), "0");
+        // No ±: the value alone.
         assert_eq!(figure_with_pm(3.0, None, base::RATE, true), "+3.0");
+        assert_eq!(
+            figure_with_pm(3.0, Some(f64::NAN), base::RATE, true),
+            "+3.0"
+        );
     }
 }

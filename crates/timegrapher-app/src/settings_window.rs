@@ -610,6 +610,6 @@ mod tests {
         assert_eq!(ppm_words(-0.01, None), "0.0 ppm");
         assert_eq!(ppm_words(12.3, None), "12.3 ppm fast");
         assert_eq!(ppm_words(-12.3, None), "12.3 ppm slow");
-        assert_eq!(ppm_words(-12.34, Some(0.05)), "12.34 ppm slow");
+        assert_eq!(ppm_words(-12.34, Some(0.05)), "12.3 ppm slow");
     }
 }
