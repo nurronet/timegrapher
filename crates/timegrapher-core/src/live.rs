@@ -1023,7 +1023,13 @@ impl LiveAnalyzer {
         // it is fitted whole and its beat error's sign does not turn.
         let crate::session::StretchFits { fit, figures, .. } =
             crate::session::stretch_fits(&self.beats[lo..hi], bph, &[], &wins);
-        let (take_rate, take_amp) = self.take_windows(&st, bph, end_s);
+        let (run_from, rate_windows) = self.run_rate_windows(&st, bph, end_s);
+        // The take's windows the ±s borrow their noise from (#1470): the
+        // run's own rate windows when they hold enough.
+        let take_rate = (!crate::session::rate_noise_enough(&rate_windows))
+            .then(|| self.take_rate_windows(&st, bph, run_from, &rate_windows));
+        let take_rate = take_rate.as_deref().unwrap_or(&rate_windows);
+        let take_amp = self.take_amplitude_windows(&st, end_s);
         let amplitude_error_deg =
             crate::confidence::amplitude_windows_se(wins.iter().copied(), &take_amp, |w| w.mean());
         let Verdict {
@@ -1038,10 +1044,16 @@ impl LiveAnalyzer {
         let sided = |v: Option<f64>| heard(v).filter(|_| sided);
         let clipped_fraction = st.clipped_fraction();
         let take = measure::TakeWindows {
-            rate: &take_rate,
+            rate: take_rate,
             amplitude: &take_amp,
         };
-        let assessment = self.assess_at(&st, (&wins, take), bph, no_watch, (end_s, average_s));
+        let assessment = self.assess_at(
+            &st,
+            (&rate_windows, &wins, take),
+            bph,
+            no_watch,
+            (end_s, average_s),
+        );
         let mut caveats = assessment.caveats;
         let beat_error_ms = sided(fit.map(|f| f.beat_error_ms));
         let beat_error_unlock_ms = sided(figures.beat_error_unlock_ms);
@@ -1222,64 +1234,85 @@ impl LiveAnalyzer {
         }
     }
 
-    /// The take's windows up to `end_s` nearest it, outside the masks and
-    /// across its cuts, that a reading's ± borrows its noise from where it
-    /// holds too few values (#1470): its rate windows and its amplitude
-    /// windows.
-    fn take_windows(
+    /// The beats from `from_s` up to the stretch's end: no window
+    /// [`Cuts::windows`] lays from `from_s` reads an earlier one.
+    fn beats_from(&self, st: &Stretch, from_s: f64) -> &[Beat] {
+        let lo = self.beats[..st.hi].partition_point(|b| b.time < from_s);
+        &self.beats[lo..st.hi]
+    }
+
+    /// The rate's 10 s windows over the run so far: the latest unbroken
+    /// run of beats, back to a break, up to RATE_RUN_S; and where the run
+    /// starts.
+    fn run_rate_windows(
         &self,
         st: &Stretch,
         bph: Option<u32>,
         end_s: f64,
-    ) -> (Vec<WindowFit>, Vec<&AmplitudeWindow>) {
-        let span = (end_s, end_s, end_s);
-        let rate = bph.map_or_else(Vec::new, |b| {
+    ) -> (f64, Vec<WindowFit>) {
+        let floor = st.from.min(end_s - RATE_RUN_S);
+        let from = floor.max(st.holes.run_cut(&self.beats, floor, end_s));
+        let windows = bph.map_or_else(Vec::new, |b| {
+            st.holes
+                .windows(self.beats_from(st, from), b, from, end_s, 10.0, 5.0, GAP_S)
+        });
+        (from, windows)
+    }
+
+    /// The take's rate windows nearest a reading whose run from `run_from`
+    /// holds the windows `run`, outside the masks and across its cuts,
+    /// that the rate's ± borrows its noise from where the run holds too
+    /// few (#1470): those before the run, ending by its start, then the
+    /// run's own. All lie on the take's one tiling (#636).
+    fn take_rate_windows(
+        &self,
+        st: &Stretch,
+        bph: Option<u32>,
+        run_from: f64,
+        run: &[WindowFit],
+    ) -> Vec<WindowFit> {
+        bph.map_or_else(Vec::new, |b| {
             crate::session::nearest_windows(
-                span,
-                measure::RATE_SE_MIN_S,
+                (run_from, run_from, run_from),
+                // A short reach first: the run most often holds nearly
+                // all of the values.
+                measure::RATE_SE_MIN_S / 2.5,
                 |a, _| {
-                    st.holes
-                        .windows(&self.beats[..st.hi], b, a, end_s, 10.0, 5.0, GAP_S)
+                    let beats = self.beats_from(st, a);
+                    let mut w = st.holes.windows(beats, b, a, run_from, 10.0, 5.0, GAP_S);
+                    w.extend_from_slice(run);
+                    w
                 },
                 crate::session::rate_noise_enough,
             )
-        });
-        let amp = crate::session::nearest_windows(
-            span,
+        })
+    }
+
+    /// The take's amplitude windows up to `end_s` nearest it, as
+    /// [`Self::take_rate_windows`] for the amplitude and beat error.
+    fn take_amplitude_windows(&self, st: &Stretch, end_s: f64) -> Vec<&AmplitudeWindow> {
+        crate::session::nearest_windows(
+            (end_s, end_s, end_s),
             2.0 * measure::RATE_SE_MIN_S,
             |a, _| crate::session::stretch_windows(&st.holes, self.amp_within(a, end_s), a, end_s),
             |w: &[&AmplitudeWindow]| crate::session::noise_enough(w),
-        );
-        (rate, amp)
+        )
     }
 
-    /// The confidence and caveats of the reading over `st`, its ± borrowing
+    /// The confidence and caveats of the reading over `st`, from the run's
+    /// rate windows and the stretch's amplitude windows, its ± borrowing
     /// noise from `take`.
     fn assess_at(
         &self,
         st: &Stretch,
-        (wins, take): (&[&AmplitudeWindow], measure::TakeWindows),
+        (rate_windows, wins, take): (&[WindowFit], &[&AmplitudeWindow], measure::TakeWindows),
         bph: Option<u32>,
         no_watch: Option<NoWatchReason>,
         (end_s, average_s): (f64, f64),
     ) -> measure::Assessment {
-        // The rate's ± from 10 s windows over the run so far (the latest
-        // unbroken run of beats, back to a break, up to RATE_RUN_S), scaled
-        // to the averaging time by `measure`.
-        let rate_windows = bph.map_or_else(Vec::new, |b| {
-            let floor = st.from.min(end_s - RATE_RUN_S);
-            st.holes.windows(
-                &self.beats[..st.hi],
-                b,
-                floor.max(st.holes.run_cut(&self.beats, floor, end_s)),
-                end_s,
-                10.0,
-                5.0,
-                GAP_S,
-            )
-        });
+        // The rate's ± is scaled to the averaging time by `measure`.
         measure::assess_in(
-            &rate_windows,
+            rate_windows,
             wins,
             take,
             &measure::Context {

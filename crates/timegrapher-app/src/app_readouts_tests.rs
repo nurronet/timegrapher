@@ -991,7 +991,8 @@ fn tick_and_tock_take_the_amplitudes_decimals() {
 /// place, as its figure (#1114, #1470).
 #[test]
 fn the_amplitude_hover_gives_tick_and_tock_the_live_decimals() {
-    let mut app = synthetic(60.0, 5.0);
+    // Past the 30 amplitude windows the ± takes its scatter from (#1470).
+    let mut app = synthetic(90.0, 5.0);
     let r = app.reading().expect("a reading");
     let (Some(a), Some(b), Some(se)) = (
         r.amplitude_even_deg,
