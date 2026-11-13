@@ -2051,11 +2051,9 @@ fn sound_length(dir: &Path, m: &Manifest) -> Option<f64> {
 /// How long a take kept as its analysis ran, from the analysis's own
 /// header (its sound, which gave the length, is gone).
 fn kept_length(dir: &Path) -> Option<f64> {
-    let header = dir
-        .join(crate::analysis_take::DIR)
-        .join(crate::analysis_take::HEADER);
-    let v: serde_json::Value = serde_json::from_slice(&fs::read(header).ok()?).ok()?;
-    v.get("duration_s")?.as_f64().filter(|s| *s > 0.0)
+    crate::analysis_take::read_header(dir)
+        .ok()
+        .map(|h| h.duration_s)
 }
 
 /// What a take folder says about itself.

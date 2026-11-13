@@ -783,7 +783,10 @@ pub fn read(take: &Path) -> io::Result<Stored> {
     read_with_limit(take, MAX_ANALYSIS_FILE)
 }
 
-fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
+/// The header of `analysis/` in the take folder `take`, checked and
+/// brought up to [`FORMAT`] as a whole read would: quick, it reads none
+/// of the beats.
+pub fn read_header(take: &Path) -> io::Result<Header> {
     let dir = take.join(DIR);
     let text = fs::read_to_string(dir.join(HEADER))
         .map_err(|e| io::Error::new(e.kind(), format!("{DIR}/{HEADER}: {e}")))?;
@@ -809,6 +812,12 @@ fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
         header.format = FORMAT.into();
     }
     check_header(&header).map_err(|e| invalid(format!("{DIR}/{HEADER}: {e}")))?;
+    Ok(header)
+}
+
+fn read_with_limit(take: &Path, limit: u64) -> io::Result<Stored> {
+    let dir = take.join(DIR);
+    let header = read_header(take)?;
     let gunzip = |name: &str| -> io::Result<Vec<u8>> {
         let file = fs::File::open(dir.join(name))
             .map_err(|e| io::Error::new(e.kind(), format!("{DIR}/{name}: {e}")))?;
