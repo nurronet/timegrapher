@@ -2660,6 +2660,8 @@ mod tests {
             beat_error_source: Some(timegrapher_core::session::BeatErrorSource::Unlock),
         };
         let full = crate::guided::FullWind {
+            wind_h: None,
+            against: None,
             format: crate::guided::RESULTS_FORMAT.into(),
             began_utc: String::new(),
             began_unix: 0.0,
@@ -2757,6 +2759,8 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let full = FullWind {
+                wind_h: None,
+                against: None,
                 format: RESULTS_FORMAT.into(),
                 began_utc: String::new(),
                 began_unix: 0.0,

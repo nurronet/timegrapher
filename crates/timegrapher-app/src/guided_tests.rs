@@ -26,10 +26,12 @@ fn the_full_wind_tests_offered_are_those_from_12_to_36_hours_ago() {
     let dir = std::env::temp_dir().join(format!("tg-full-wind-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let now = 1_800_000_000.0;
-    let keep = |name: &str, hours: f64| {
+    let keep = |name: &str, hours: f64, wind_h: Option<f64>| {
         let take = dir.join(name);
         std::fs::create_dir_all(&take).unwrap();
         let f = FullWind {
+            wind_h,
+            against: None,
             format: RESULTS_FORMAT.into(),
             began_utc: String::new(),
             began_unix: now - hours * 3600.0,
@@ -50,11 +52,13 @@ fn the_full_wind_tests_offered_are_those_from_12_to_36_hours_ago() {
         std::fs::write(take.join(RESULTS_FILE), f.to_json()).unwrap();
     };
     assert_eq!(full_winds_in(&dir, now), [], "no takes folder");
-    keep("a", 40.0);
-    keep("b", 6.0);
+    keep("a", 40.0, None);
+    keep("b", 6.0, None);
     assert_eq!(full_winds_in(&dir, now), [], "too old and too new");
-    keep("c", 30.0);
-    keep("d", 20.0);
+    keep("c", 30.0, None);
+    keep("d", 20.0, None);
+    // A 24 hour half's results, though in the window, are never offered.
+    keep("e", 25.0, Some(24.0));
     let found: Vec<f64> = full_winds_in(&dir, now)
         .iter()
         .map(|f| f.hours_ago(now))
@@ -75,6 +79,8 @@ fn a_full_wind_choice_says_when_and_what_it_measured() {
         beat_error_source: None,
     };
     let mut f = FullWind {
+        wind_h: None,
+        against: None,
         format: RESULTS_FORMAT.into(),
         began_utc: "2026-10-27T18:58:04.120Z".into(),
         began_unix: 0.0,
@@ -104,6 +110,16 @@ fn a_zero_reads_without_a_sign() {
 /// The pane drawn for `test` in `phase` with `live` figures: each
 /// piece of text and where it is.
 fn drawn(test: &Test, phase: Phase, live: Option<&FreeCell>) -> Vec<(String, egui::Rect)> {
+    drawn_with(Some(test), Some(phase), None, live)
+}
+
+/// [`drawn`] for any test, or none with an opened take's `saved` results.
+fn drawn_with(
+    test: Option<&Test>,
+    phase: Option<Phase>,
+    saved: Option<&FullWind>,
+    live: Option<&FreeCell>,
+) -> Vec<(String, egui::Rect)> {
     let ctx = egui::Context::default();
     theme::install(&ctx);
     let mut found = Vec::new();
@@ -112,9 +128,10 @@ fn drawn(test: &Test, phase: Phase, live: Option<&FreeCell>) -> Vec<(String, egu
             egui::CentralPanel::default().show(ctx, |ui| {
                 pane(
                     ui,
-                    Some(test),
-                    Some(phase),
+                    test,
+                    phase,
                     None,
+                    saved,
                     None,
                     live,
                     20.0,
@@ -542,11 +559,37 @@ fn six_positions_read_their_own_rates() {
     );
     let csv = comparison_text(&c, ',');
     assert!(csv.starts_with("Position,\"Rate at Full Wind, s/d\",\"Rate at 24.0 h, s/d\""));
-    // A 24 hour half is not kept in place of the full-wind one.
-    let mut half = Test::after(full);
-    assert!(half.wind_h().unwrap() > 0.0);
-    half.readings = Some(later);
-    assert!(half.kept(&about).is_none());
+    // A 24 hour half keeps its own rows, the hours since full wind and
+    // the results it was set against, and reads back to the same
+    // comparison from the file alone.
+    let mut half = Test::after(full.clone());
+    let h = half.wind_h().unwrap();
+    assert!(h > 0.0);
+    half.readings = Some(later.clone());
+    let kept = half.kept(&about).unwrap();
+    assert_eq!(
+        (kept.wind_h, kept.against.as_deref()),
+        (Some(h), Some(&full))
+    );
+    let saved = FullWind::from_json(&kept.to_json()).unwrap();
+    assert_eq!(saved, kept);
+    let run = comparison(&full, h, &later).unwrap();
+    let again = saved_comparison(&saved).unwrap();
+    assert_eq!(
+        (again.hours, again.im, again.ie),
+        (run.hours, run.im, run.ie)
+    );
+    assert_eq!(again.rows.len(), 6);
+    for ((a, x), (b, y)) in run.rows.iter().zip(&again.rows) {
+        assert_eq!(a, b);
+        for (x, y) in x.iter().zip(y) {
+            assert!((x.unwrap() - y.unwrap()).abs() < 1e-9, "{a}: {x:?} {y:?}");
+        }
+    }
+    // A full-wind test's results have nothing to compare, and its file
+    // carries neither key.
+    assert!(saved_comparison(&full).is_none());
+    assert!(!full.to_json().contains("wind_h"));
     // Its text carries the comparison and the hours since full wind.
     let csv = export_text(&half, &about, ',');
     assert!(csv.contains("Hours After Full Wind,"));
@@ -953,4 +996,55 @@ fn the_poise_banner_turns_the_watch_45_degrees_by_the_hour() {
     assert_eq!(title, "7:30 Up (2 of 8)");
     assert_eq!(Kind::Poise.code(Position::CrownLeft), "6H");
     assert_eq!(Kind::Positions.code(Position::CrownLeft), "CL");
+}
+
+/// An opened 24 hour half's take shows the run again from its saved
+/// results alone: its own table under the hours since full wind, and
+/// the comparison with the full-wind results it was set against.
+#[test]
+fn an_opened_24_hour_half_shows_its_table_and_comparison() {
+    let row = |position: &str, rate: f64, amp: f64| KeptRow {
+        position: position.into(),
+        rate_s_per_day: Some(rate),
+        amplitude_deg: Some(amp),
+        beat_error_ms: None,
+        beat_error_source: None,
+    };
+    let full = FullWind {
+        format: RESULTS_FORMAT.into(),
+        began_utc: "2026-11-12T08:00:00.000Z".into(),
+        began_unix: 1_794_470_400.0,
+        watch: "W".into(),
+        calibre: String::new(),
+        bph: Some(28800),
+        lift_angle_deg: Some(52.0),
+        settle_s: None,
+        measure_s: None,
+        positions: vec![row("DU", 2.0, 300.0), row("CD", 6.0, 270.0)],
+        wind_h: None,
+        against: None,
+    };
+    let later = FullWind {
+        began_unix: full.began_unix + 24.5 * 3600.0,
+        positions: vec![row("DU", 5.0, 260.0), row("CD", 12.0, 240.0)],
+        wind_h: Some(24.5),
+        against: Some(Box::new(full.clone())),
+        ..full.clone()
+    };
+    let c = saved_comparison(&later).unwrap();
+    assert_eq!(c.rows.len(), 2);
+    assert_eq!(c.rows[0].1[2], Some(3.0));
+    assert_eq!(c.rows[1].1[5], Some(-30.0));
+    let texts: Vec<String> = drawn_with(None, None, Some(&later), None)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect();
+    for want in [
+        "This Test, 24.5 h After Full Wind",
+        "Full Wind Against 24.5 Hours",
+        "Rate at 24.5 h",
+    ] {
+        assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");
+    }
+    assert!(!texts.iter().any(|t| t == "This Take"), "not read again");
 }

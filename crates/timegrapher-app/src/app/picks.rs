@@ -93,7 +93,11 @@ impl TimegrapherApp {
     pub(super) fn read_full_wind(&mut self, path: &Path) -> Option<guided::FullWind> {
         let read = std::fs::read_to_string(path)
             .map_err(|e| e.to_string())
-            .and_then(|t| guided::FullWind::from_json(&t));
+            .and_then(|t| guided::FullWind::from_json(&t))
+            .and_then(|f| match f.wind_h {
+                Some(_) => Err("these are a 24 hour half's results, not a full-wind test's".into()),
+                None => Ok(f),
+            });
         match read {
             Ok(f) => Some(f),
             Err(e) => {
