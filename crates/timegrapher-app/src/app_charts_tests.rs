@@ -56,7 +56,8 @@ fn rate_distribution_counts_two_second_stretches() {
     assert!(r.values.len() > n);
     // The pane follows Values for rate too.
     app.hist_readings = false;
-    let ctx = egui::Context::default();
+    // The app's fonts: the pane's title line is in its semibold.
+    let ctx = themed();
     let _ = ctx.run(Default::default(), |ctx| {
         egui::CentralPanel::default().show(ctx, |ui| app.histogram(ui, SeriesKind::Rate));
     });
@@ -102,23 +103,29 @@ fn the_charts_and_distributions_draw_the_readings_turned_on() {
     // At first only the rate: no amplitude or beat error plot in
     // either pane.
     assert_eq!((app.chart_series, app.dist_series), (RATE_ONLY, RATE_ONLY));
-    let text = draw(&mut app);
-    assert!(text.contains("Rate"), "{text}");
-    for t in ["Beat Error:", "Amplitude:", "From the Unlock", "From Tick"] {
-        assert!(!text.contains(t), "{t}: {text}");
+    let one = draw(&mut app);
+    assert!(one.contains("Rate"), "{one}");
+    for t in ["From the Unlock", "From Tick"] {
+        assert!(!one.contains(t), "{t}: {one}");
     }
+    // A series' name on a line of its own: its plot's title, its axis or
+    // its switch.
+    let named = |text: &str, name: &str| text.lines().filter(|l| *l == name).count();
     // All three turned on.
     app.chart_series = [true; 3];
     app.dist_series = [true; 3];
     let text = draw(&mut app);
-    for t in [
-        "Charts",
-        "Distributions",
-        "s/d",
-        "Beat Error:",
-        "Amplitude:",
-    ] {
+    for t in ["Charts", "Distributions", "s/d"] {
         assert!(text.contains(t), "{t}: {text}");
+    }
+    // Each pane names the two readings turned on over its plots: the
+    // Charts on their axes, the Distributions in their title lines
+    // (#1528).
+    for name in ["Amplitude", "Beat Error"] {
+        assert!(
+            named(&text, name) >= named(&one, name) + 2,
+            "{name}: {one}\n---\n{text}"
+        );
     }
     // Rates in s/d, as everywhere else (#815).
     assert!(!text.contains("s/day"), "{text}");
@@ -388,10 +395,9 @@ fn time_labels(text: &str) -> Vec<f64> {
         .collect()
 }
 
-/// The values box writes a point to the decimals its card does (Walter's
-/// walk of #1057, #1063): an amplitude of 269.5° with a ± of 0.3° reads
-/// 269.5, not 270; with no ± it takes the base decimals; a rate keeps
-/// its sign and a true minus.
+/// The values box writes a point as its card does (Walter's walk of
+/// #1057, #1063): at the figure's place, with a ± or without (#1470); a
+/// rate keeps its sign and a true minus.
 #[test]
 fn the_values_box_writes_figures_as_the_cards_do() {
     use super::charts::line_value;
@@ -413,12 +419,13 @@ fn the_values_box_writes_figures_as_the_cards_do() {
     let amp: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, 269.46]).collect();
     let se: fn(&TrendPoint) -> Option<f64> = |p| p.amplitude_error_deg;
     let at = |x| line_value(&amp, se, (x, &trend), base_digits::AMPLITUDE, false);
-    assert_eq!(at(1.0).as_deref(), Some("269.5"));
+    // At the amplitude's place, 1°, with a ± or without (#1470).
+    assert_eq!(at(1.0).as_deref(), Some("269"));
     assert_eq!(at(9.0).as_deref(), Some("269"));
     let rate: Vec<[f64; 2]> = trend.iter().map(|p| [p.t, -1.234]).collect();
     let se: fn(&TrendPoint) -> Option<f64> = |p| p.rate_error_s_per_day;
     let r = line_value(&rate, se, (0.0, &trend), base_digits::RATE, true);
-    assert_eq!(r.as_deref(), Some("\u{2212}1.23"));
+    assert_eq!(r.as_deref(), Some("\u{2212}1.2"));
 }
 
 /// The pointer over a chart reads every chart's lines in their lanes
@@ -975,15 +982,23 @@ fn joined_readings_over_time_keeps_its_own_span_and_width() {
     });
 }
 
-/// A slow watch's Distributions line gives its figures with a true minus
-/// and keeps "2-second" as it is written (#1416).
+/// A slow watch's Distributions facts box gives its figures with a true
+/// minus (#1416), in rows on the plot rather than a line above it
+/// (#1528).
 #[test]
-fn the_distributions_line_gives_negative_figures_a_true_minus() {
+fn the_distributions_facts_give_negative_figures_a_true_minus() {
     let spread = |t: f64| 0.7 * (((t / 10.0) as usize * 7) % 30) as f64 / 29.0;
     let mut app = synthetic_varying(300.0, -12.0, spread);
     app.update_dist_readings(None);
     let ctx = themed();
-    let mut text = String::new();
+    fn texts(shape: &egui::Shape, into: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => into.push(t.galley.text().to_string()),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, into)),
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
     for _ in 0..3 {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -995,15 +1010,27 @@ fn the_distributions_line_gives_negative_figures_a_true_minus() {
         let out = ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| app.histogram(ui, SeriesKind::Rate));
         });
-        text = painted_text(&out);
+        all.clear();
+        out.shapes.iter().for_each(|c| texts(&c.shape, &mut all));
     }
-    let line = text
-        .lines()
-        .find(|l| l.contains(" · median "))
-        .unwrap_or_else(|| panic!("{text}"));
-    assert!(line.contains("median \u{2212}"), "{line}");
-    assert!(line.contains(" to \u{2212}"), "{line}");
-    assert!(!line.contains(" -"), "{line}");
+    // The title line, then the box's names and values; no summary line.
+    assert!(all.iter().any(|t| t == "Rate"), "{all:?}");
+    for name in ["Readings", "Median", "Middle 80%"] {
+        assert!(all.iter().any(|t| t == name), "{name}: {all:?}");
+    }
+    assert!(!all.iter().any(|t| t.contains(" · median ")), "{all:?}");
+    let median = all
+        .iter()
+        .find(|t| t.starts_with('\u{2212}') && t.ends_with(" s/d") && !t.contains(" to "))
+        .unwrap_or_else(|| panic!("{all:?}"));
+    assert!(!median.contains('-'), "{median}");
+    let middle = all
+        .iter()
+        .find(|t| t.contains(" to "))
+        .unwrap_or_else(|| panic!("{all:?}"));
+    assert!(middle.starts_with('\u{2212}'), "{middle}");
+    assert!(middle.contains(" to \u{2212}"), "{middle}");
+    assert!(!middle.contains(" -"), "{middle}");
 }
 
 /// A watch running slow puts the Charts' rate scale and the

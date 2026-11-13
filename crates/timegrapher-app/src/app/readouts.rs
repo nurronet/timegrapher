@@ -144,8 +144,8 @@ pub(super) fn amplitude_figure(r: &LiveReading) -> Option<String> {
     Some(format!("{f}°"))
 }
 
-/// The Amplitude card's hover on Tick's and Tock's own amplitudes, to the
-/// decimals of the figure beside them (its ±'s, as the CLI writes them).
+/// The Amplitude card's hover on Tick's and Tock's own amplitudes, at the
+/// amplitude's place, as the figure beside them and the CLI (#1470).
 pub(super) fn sides_text(tick: f64, tock: f64, se: Option<f64>) -> String {
     let deg = |x| figure(x, se, base::AMPLITUDE, false);
     format!(
@@ -625,8 +625,8 @@ impl TimegrapherApp {
             &facts,
             (None, c.short),
         );
-        // Whole degrees, unless the ± is under a degree: a decimal only
-        // where the beats can say it (decimals follow the ±, #510 K3).
+        // Whole degrees, whatever the ±, its ± rounded up to a whole
+        // degree (#1470).
         let amp_pm = r.and_then(|r| r.amplitude_error_deg);
         let unit = amp_pm
             .and_then(|e| pm_text(e, base::AMPLITUDE))
@@ -882,8 +882,8 @@ impl TimegrapherApp {
                 f.rate_error_s_per_day
             );
             if let Some(c) = kept {
-                // How far apart the two are, to the decimals the gap's own
-                // ± calls for: each measure's added in squares (#1271).
+                // How far apart the two are, at the clock's place; the gap's
+                // ± adds each measure's in squares (#1271, #1470).
                 let off = (f.ppm - c.ppm).abs();
                 let sd = gap_sd(Some(f.ppm_sd), c.ppm_sd);
                 hint += &format!(
@@ -1450,8 +1450,8 @@ impl TimegrapherApp {
             "Listen, on the Listen card, listens to the watch on the microphone without \
              picking a watch; Save keeps what it heard. For a watch's history, pick it on \
              the Calibre card's title, or in the Watches view, then Listen, \
-             Positions Test or Power Reserve Test, and each take is saved into it. New \
-             Watch… adds one.",
+             Positions Test, Dynamic Poise Test or Power Reserve Test, and each take is \
+             saved into it. New Watch… adds one.",
         );
         line(
             ui,

@@ -141,7 +141,7 @@ impl TimegrapherApp {
     pub(super) fn listen_after_ask(&mut self) {
         self.masks_let_go = true;
         match self.guided_after_ask.take() {
-            Some(half) => self.start_guided(half),
+            Some((kind, half)) => self.start_guided_test(kind, half),
             None => self.start_microphone(),
         }
         self.masks_let_go = false;
@@ -2252,6 +2252,12 @@ impl TimegrapherApp {
     /// One block of a capture, or a break core's gap rule found before the
     /// next: saved and read.
     fn take_live(&mut self, l: Live) -> Result<(), CaptureFailure> {
+        let taken = self.take_block(l);
+        self.follow_rebuild();
+        taken
+    }
+
+    fn take_block(&mut self, l: Live) -> Result<(), CaptureFailure> {
         let (Some(cap), Some(live)) = (self.capture.as_ref(), self.live.as_mut()) else {
             return Ok(());
         };

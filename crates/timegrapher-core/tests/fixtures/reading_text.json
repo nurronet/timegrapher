@@ -20,7 +20,7 @@
         }
       }
     },
-    "text": "rate +6.01 \u00b1 0.04 s/d, amplitude 273.60 \u00b1 0.06\u00b0, beat error 0.400 \u00b1 0.002 ms"
+    "text": "rate +6.0 \u00b1 0.1 s/d, amplitude 274 \u00b1 1\u00b0, beat error 0.40 \u00b1 0.01 ms"
   },
   {
     "position": "XX",

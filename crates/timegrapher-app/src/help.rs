@@ -217,6 +217,12 @@ pub const STRIP: &[&str] = &[
      (live, the newest beat stays at the edge; looking back, the time under the pointer \
      stays put), and Alt (Option on a Mac) and the wheel the width. Drag across to slide the trace; \
      double-click for the newest beats, centred.",
+    "Still Paper (the sheet with a wrapping trace, after Direction) keeps the paper put \
+     while the pen sweeps along it and starts again at the start every Length, wiping \
+     the last lap just ahead of it, as a scope draws. Off, the paper slides along under \
+     the pen, the newest beats at its edge. The time under each stretch of ink is \
+     written beside it. On still paper, dragging moves the pen through time the same way \
+     it moves moving paper.",
     "Mask leaves stretches out of the readings, such as a bump of the stand: with it \
      on, drag along the strip over the beats to mask them (the pointer is a cross), \
      drag a masked stretch's edge to move it (a two-way arrow at the edge), drag with the right button to look back, and click a masked stretch to \
@@ -330,6 +336,40 @@ pub static POSITIONS_TEST: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
         "Save as CSV… and Copy write the watch's name, its calibre, beat rate and lift angle, \
      when the test began and its times, then the table, and in the 24 hour half both \
      tests side by side. Copy puts tabs between the columns, for a spreadsheet."
+            .into(),
+    ])
+});
+
+pub static DYNAMIC_POISE: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    use timegrapher_core::poise;
+    worded(vec![
+        "New Test sets the test up on a clear Bench, and Start Test on the Listen card \
+     starts it. It leads the watch through the eight upright positions, 45° apart, from 9H \
+     at the top, turning it the same way round each time: 9H, 7H30, 6H, 4H30, 3H, 1H30, \
+     12H and 10H30. Each settles and is measured for the times under Settle and Each \
+     Position, which the Positions Test shares; the banner says which hour to turn to the \
+     top, and before the first is in it gives the amplitude so far. The Current Position \
+     card turns to 10 for the test."
+            .into(),
+        format!(
+            "The table gives each position's rate, its difference from the mean, amplitude \
+     and beat error, then the means. The picture has each rate at the hour that was at \
+     the top, with its ±. Once {} positions are in, the wave the rate makes once round is \
+     fitted to them and drawn in grey with its fastest hour, and the line over the \
+     picture states its size and fastest hour. View draws the same as a plot or round a \
+     watch face.",
+            poise::MIN_SHOWN
+        ),
+        format!(
+            "The line under it is inferred: where the balance's heavy spot hangs when the wave \
+     is fastest, from each position's own amplitude. Poise moves the rate least at {}° \
+     amplitude and the other way above it, so where any position may be near it the line \
+     says the heavy spot is not stated. Info gives the fit in full, with the wave's \
+     twice-round terms, and the amplitudes that show the heavy spot.",
+            timegrapher_core::figure_text::fixed_text(poise::NULL_AMPLITUDE_DEG, 1)
+        ),
+        "Copy writes the watch, its calibre, the table and the fit in words, with tabs \
+     between the columns for a spreadsheet."
             .into(),
     ])
 });

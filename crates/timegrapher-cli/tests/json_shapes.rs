@@ -253,7 +253,7 @@ fn session_keeps_its_fields() {
         assert!(line.contains(&format!(" ± {t}{unit}")), "{t}{unit}: {line}");
     }
     // The whole file's rate, amplitude and beat error carry as many
-    // decimals as their ± (decimals follow the ±, #510 K3).
+    // decimals as their ± (both at the figure's place, #1470).
     let decimals = |t: &str| t.split_once('.').map_or(0, |(_, d)| d.len());
     for head in ["Rate         ", "Amplitude    ", "Beat error   "] {
         let line = text[at("Whole file ")..]

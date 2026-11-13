@@ -566,15 +566,15 @@ fn the_sentence_states_the_wave_then_the_heavy_spot() {
     assert_eq!(f.text, f.sentence());
     assert_eq!(
         f.text,
-        "Once-round wave over 4 upright positions: 384.1 ± 1.4 s/d each way from the mean, \
-         fastest at 180.6 ± 0.2° (nearest 6H at the top). Twice-round terms: cos 2α +25.9 ± \
-         1.0 s/d. Amplitude 180°. Heavy spot hangs lowest with 6H at the top (180.6 ± 0.2°). The \
+        "Once-round wave over 4 upright positions: 384.1 ± 1.5 s/d each way from the mean, \
+         fastest at 181 ± 1° (nearest 6H at the top). Twice-round terms: cos 2α +25.9 ± \
+         1.0 s/d. Amplitude 180°. Heavy spot hangs lowest with 6H at the top (181 ± 1°). The \
          heavy spot is from the fit at each position's own amplitude, so it rests on the lift \
          angle."
     );
     assert_eq!(
         f.short_text,
-        "Once-round wave: 384.1 ± 1.4 s/d each way, fastest near 6H at the top · at 180°"
+        "Once-round wave: 384.1 ± 1.5 s/d each way, fastest near 6H at the top · at 180°"
     );
     for p in &mut pts {
         p.amplitude_deg = Some(260.0);
@@ -582,7 +582,7 @@ fn the_sentence_states_the_wave_then_the_heavy_spot() {
     let f = fit(&pts, None).unwrap();
     assert!(
         f.heavy_text
-            .starts_with("Heavy spot hangs lowest with 12H at the top (0.6 ± 0.2°)"),
+            .starts_with("Heavy spot hangs lowest with 12H at the top (1 ± 1°)"),
         "above 219.5° the heavy spot is opposite the fastest hour: {}",
         f.heavy_text
     );
@@ -603,6 +603,26 @@ fn the_curve_is_the_measured_wave() {
         assert!(close(r, rate(deg), 1e-9), "{deg} {r}");
     }
     assert!(close(c[2].1, 19.0, 1e-9), "fastest at 90°");
+}
+
+/// The fastest point is the curve's top, and the slowest its bottom
+/// half way round: each its hour and its rate.
+#[test]
+fn the_fastest_point_is_the_waves_top() {
+    let rate = |deg: f64| -3.0 + 5.0 * (deg - 270.0).to_radians().cos();
+    let pts: Vec<Point> = (0..8)
+        .map(|i| pt(45.0 * f64::from(i), rate(45.0 * f64::from(i)), 0.5))
+        .collect();
+    let (deg, top) = fit(&pts, None).unwrap().fastest();
+    assert!(
+        close(deg, 270.0, 1e-6) && close(top, 2.0, 1e-9),
+        "{deg} {top}"
+    );
+    let (deg, bottom) = fit(&pts, None).unwrap().slowest();
+    assert!(
+        close(deg, 90.0, 1e-6) && close(bottom, -8.0, 1e-9),
+        "{deg} {bottom}"
+    );
 }
 
 /// Writes the fits the UX mock-ups are drawn from, when asked:
@@ -648,8 +668,8 @@ fn poise_samples() {
 /// --bph 28800`). They ran at 224–237°, inside the null band, so only the
 /// measured wave is stated; the amplitude is 13° lower crown up, which is
 /// named because it aliases into that wave.
-#[test]
-fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
+/// The corpus YM42 take's four verticals, at 224–237°.
+fn ym42_verticals() -> Vec<Point> {
     let rows = [
         (90.0, -15.99, 0.83, 223.8, 0.68),
         (180.0, 68.16, 2.29, 236.7, 0.43),
@@ -666,7 +686,12 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
             amplitude_se: Some(ams),
         })
         .collect();
-    let f = fit(&pts, None).unwrap();
+    pts
+}
+
+#[test]
+fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
+    let f = fit(&ym42_verticals(), None).unwrap();
     assert!(matches!(f.withheld, Some(Withheld::NullBand { .. })));
     assert!(f.heavy_spot.is_none());
     assert!(matches!(
@@ -682,4 +707,69 @@ fn the_corpus_ym42_verticals_state_the_wave_and_withhold_the_heavy_spot() {
         "{}",
         f.short_text
     );
+}
+
+/// In the band the words say each fact once (Hugh, #1499): the range in
+/// the heavy spot's line only, its caveat apart from it for a pane's
+/// chip, and beside the band's note no second word on 219.5°.
+#[test]
+fn in_the_band_each_fact_is_said_once() {
+    let f = fit(&ym42_verticals(), None).unwrap();
+    let (spot, caveat) = (f.heavy_spot_line(), f.caveat_line());
+    assert_eq!(
+        spot,
+        "At 224–237°, poise barely moves the rate. Heavy spot not stated."
+    );
+    assert!(
+        caveat.starts_with("Amplitude also changes once round"),
+        "{caveat}"
+    );
+    assert_eq!(f.heavy_text, format!("{spot} {caveat}"));
+    assert_eq!(f.text.matches("224–237").count(), 1, "{}", f.text);
+    let least = "least at 219.5° amplitude";
+    assert!(f.text.contains(least), "{}", f.text);
+    let beside = f.sentence_beside_note();
+    assert!(!beside.contains(least), "{beside}");
+    assert!(null_band_note().contains(least));
+    assert!(f.text.starts_with(&beside), "{beside}");
+}
+
+/// The band's edges are where `in_null_band` turns with no ±, and the
+/// words a pane shows round them come from the same constants.
+#[test]
+fn the_null_bands_edges_and_words_follow_its_rule() {
+    let (lo, hi) = null_band_deg();
+    assert!(
+        close(lo, 203.24, 0.01) && close(hi, 238.59, 0.01),
+        "{lo} {hi}"
+    );
+    assert!(in_null_band(lo + 0.01, None) && !in_null_band(lo - 0.01, None));
+    assert!(in_null_band(hi - 0.01, None) && !in_null_band(hi + 0.01, None));
+    let note = null_band_note();
+    assert!(
+        note.contains("219.5°") && note.contains("203°") && note.contains("239°"),
+        "{note}"
+    );
+    assert_eq!(amplitude_now_text(184.4, None), "Amplitude now 184°");
+    assert_eq!(
+        amplitude_now_text(226.0, Some(0.6)),
+        "Amplitude now 226 ± 1°: near 219.5°, where poise barely moves the rate"
+    );
+}
+
+/// A reading becomes a point at its hour's angle with core's ±s; lying
+/// flat it is none.
+#[test]
+fn a_reading_gives_its_point_upright_only() {
+    let s = crate::scenarios::steady_red(120.0, 0.0, 7);
+    let log = crate::scenarios::beat_log(&s, 7);
+    let m = crate::session::measure(&log, None, 0.0, log.duration_s);
+    use crate::session::Position as P;
+    let p = point(P::H4h30, &m).unwrap();
+    assert_eq!(p.angle_deg, 135.0);
+    assert_eq!(Some(p.rate_s_per_day), m.rate_s_per_day);
+    assert_eq!(p.rate_se, m.confidence.and_then(|c| c.rate.se));
+    assert_eq!(p.amplitude_deg, m.amplitude_deg);
+    assert!(p.rate_se.is_some() && p.amplitude_se.is_some());
+    assert!(point(P::CH, &m).is_none() && point(P::CB, &m).is_none());
 }
