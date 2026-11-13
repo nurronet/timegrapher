@@ -340,6 +340,40 @@ pub static POSITIONS_TEST: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+pub static DYNAMIC_POISE: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    use timegrapher_core::poise;
+    worded(vec![
+        "New Test sets the test up on a clear Bench, and Start Test on the Listen card \
+     starts it. It leads the watch through the eight upright positions, 45° apart, from 9H \
+     at the top, turning it the same way round each time: 9H, 7H30, 6H, 4H30, 3H, 1H30, \
+     12H and 10H30. Each settles and is measured for the times under Settle and Each \
+     Position, which the Positions Test shares; the banner says which hour to turn to the \
+     top, and before the first is in it gives the amplitude so far. The Current Position \
+     card turns to 10 for the test."
+            .into(),
+        format!(
+            "The table gives each position's rate, its difference from the mean, amplitude \
+     and beat error, then the means. The picture has each rate at the hour that was at \
+     the top, with its ±. Once {} positions are in, the wave the rate makes once round is \
+     fitted to them and drawn in grey with its fastest hour, and the line over the \
+     picture states its size and fastest hour. View draws the same as a plot or round a \
+     watch face.",
+            poise::MIN_SHOWN
+        ),
+        format!(
+            "The line under it is inferred: where the balance's heavy spot hangs when the wave \
+     is fastest, from each position's own amplitude. Poise moves the rate least at {}° \
+     amplitude and the other way above it, so where any position may be near it the line \
+     says the heavy spot is not stated. Info gives the fit in full, with the wave's \
+     twice-round terms, and the amplitudes that show the heavy spot.",
+            timegrapher_core::figure_text::fixed_text(poise::NULL_AMPLITUDE_DEG, 1)
+        ),
+        "Copy writes the watch, its calibre, the table and the fit in words, with tabs \
+     between the columns for a spreadsheet."
+            .into(),
+    ])
+});
+
 pub static ISOCHRONISM: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     worded(vec![
         "How the rate changes with the amplitude as the mainspring lets down: a watch whose \
