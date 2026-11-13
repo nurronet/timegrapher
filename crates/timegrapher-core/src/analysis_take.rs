@@ -1108,7 +1108,11 @@ fn parse_culled(text: &str, windows: &mut [AmplitudeWindow]) -> Result<(), Strin
         if w.culled_ms.is_some() {
             return Err(format!("window {i} is listed twice"));
         }
-        w.set_culled([side(f[1], f[2])?, side(f[3], f[4])?]);
+        let c = [side(f[1], f[2])?, side(f[3], f[4])?];
+        if c == [None, None] {
+            return Err(bad());
+        }
+        w.set_culled(c);
     }
     Ok(())
 }
@@ -2071,6 +2075,7 @@ mod tests {
             "999,-21.5,0.25,,",
             "1,x,0.25,,",
             "1,-21.5,0.25,,\n1,,,-21.5,0.25",
+            "1,,,,\n1,-21.5,0.25,,",
         ] {
             let text = format!("{CULLED_COLUMNS}\n{row}\n");
             fs::write(dir.join(DIR).join(CULLED), gzip(text.as_bytes()).unwrap()).unwrap();

@@ -609,9 +609,7 @@ impl LiveAnalyzer {
         crate::clock::ppm_of_scale((c.map(to) - c.map(from)) / (to - from))
     }
 
-    /// Change the lift angle: each window is read again from its edges at
-    /// the new lift and gated there, as a kept take is
-    /// ([`amplitude::relift`], #1333); the profiles scale with the lift.
+    /// Change the lift angle: windows read again at it as a kept take's ([`amplitude::relift`]).
     pub fn set_lift(&mut self, lift_deg: f64) {
         let old = self.cfg.analysis.amplitude.lift_deg;
         if lift_deg > 0.0 && lift_deg != old {
