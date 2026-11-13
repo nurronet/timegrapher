@@ -836,6 +836,7 @@ fn derived_join_keeps_amplitude_sides_on_the_renumbered_beats() {
             odd_unlock_ms: Some(-4.0),
             even_drop_ms: Some(0.1),
             odd_drop_ms: Some(0.5),
+            culled_ms: None,
         };
         log.amplitude_windows = vec![
             window(start - 1.0, start + 1.0),
@@ -1016,6 +1017,7 @@ fn the_beat_error_view_gives_sizes_where_its_sign_turns() {
                     odd_unlock_ms: None,
                     even_drop_ms: None,
                     odd_drop_ms: None,
+                    culled_ms: None,
                 }
             })
             .collect();
