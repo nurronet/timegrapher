@@ -535,13 +535,20 @@ impl TimegrapherApp {
             return;
         }
         let Some(now) = now else { return };
+        self.apply_guided_action(action, now);
+    }
+
+    /// A guided test's banner button, from either test's pane (#1563):
+    /// the step it asks for, then the strip's not-used and measured
+    /// stretches and the mask follow the test.
+    pub(super) fn apply_guided_action(&mut self, action: guided::Action, now: f64) {
         let Some(mut test) = self.guided.take() else {
             return;
         };
         match action {
             // Noted in the take like a position picked by hand, so its
-            // session.json follows the test. After the sixth there is no
-            // Next: the test ends by itself.
+            // session.json follows the test. After the last stop there is
+            // no Next: the test ends by itself.
             guided::Action::Next => {
                 if let Some(p) = test.advance(now) {
                     self.change_position(p);
