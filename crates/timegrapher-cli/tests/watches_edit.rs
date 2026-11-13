@@ -164,6 +164,16 @@ fn takes_are_added_moved_kept_as_analysis_and_deleted() {
         &["watches", "add-take", "Pepsi", added.to_str().unwrap()],
     );
     assert!(e.contains("already in your watches"), "{e}");
+    // A session file that doesn't read is no take to add.
+    let broken = base.join("2026-11-12 09.00 Dial Up");
+    take(&broken);
+    std::fs::write(broken.join("session.toml"), "bph = \"fast\"\n").unwrap();
+    let e = refused(
+        &base,
+        &["watches", "add-take", "Pepsi", broken.to_str().unwrap()],
+    );
+    assert!(e.contains("session file doesn't read"), "{e}");
+    assert_eq!(show(&base, "Pepsi")["takes"].as_array().unwrap().len(), 1);
     // Moved to another watch.
     let doc = ok(
         &base,

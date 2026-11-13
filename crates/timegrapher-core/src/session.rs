@@ -44,9 +44,25 @@ pub enum Position {
     H3,
     /// 12 o'clock up: crown right (CR, PR), as the watch is worn upright.
     H12,
+    /// Half past one up (1H30): a 45° stop between 12H and 3H (#1473).
+    H1h30,
+    /// Half past four up (4H30), between 3H and 6H.
+    H4h30,
+    /// Half past seven up (7H30), between 6H and 9H.
+    H7h30,
+    /// Half past ten up (10H30), between 9H and 12H.
+    H10h30,
 }
 
-const ALIASES: [(Position, &[&str]); 6] = [
+/// The hour at the top on each half hour, from 12H at 0° clockwise in
+/// 15° steps: "12H", "12H30", "1H" … "11H30". The upright positions' codes
+/// and [`crate::poise::hour_code`] both read it, so an hour is named once.
+pub const HOUR_CODES: [&str; 24] = [
+    "12H", "12H30", "1H", "1H30", "2H", "2H30", "3H", "3H30", "4H", "4H30", "5H", "5H30", "6H",
+    "6H30", "7H", "7H30", "8H", "8H30", "9H", "9H30", "10H", "10H30", "11H", "11H30",
+];
+
+const ALIASES: [(Position, &[&str]); 10] = [
     (Position::CH, &["ch", "du", "dialup", "faceup", "fu"]),
     (Position::CB, &["cb", "dd", "dialdown", "facedown", "fd"]),
     (
@@ -65,6 +81,10 @@ const ALIASES: [(Position, &[&str]); 6] = [
         Position::H12,
         &["12h", "cr", "pr", "crownright", "pendantright", "stemright"],
     ),
+    (Position::H1h30, &["1h30", "130up"]),
+    (Position::H4h30, &["4h30", "430up"]),
+    (Position::H7h30, &["7h30", "730up"]),
+    (Position::H10h30, &["10h30", "1030up"]),
 ];
 
 impl Position {
@@ -78,14 +98,72 @@ impl Position {
         Position::H12,
     ];
 
+    /// The eight upright stops, 45° apart, in the order the stand turns
+    /// them for a Dynamic Poise test: 9H, 7H30, 6H … 10H30.
+    pub const UPRIGHT: [Position; 8] = [
+        Position::H9,
+        Position::H7h30,
+        Position::H6,
+        Position::H4h30,
+        Position::H3,
+        Position::H1h30,
+        Position::H12,
+        Position::H10h30,
+    ];
+
+    /// The four 45° stops, in hour order.
+    pub const HALF_HOURS: [Position; 4] = [
+        Position::H1h30,
+        Position::H4h30,
+        Position::H7h30,
+        Position::H10h30,
+    ];
+
+    /// All ten: [`Position::ALL`], then the four 45° stops.
+    pub const TEN: [Position; 10] = [
+        Position::CH,
+        Position::CB,
+        Position::H9,
+        Position::H6,
+        Position::H3,
+        Position::H12,
+        Position::H1h30,
+        Position::H4h30,
+        Position::H7h30,
+        Position::H10h30,
+    ];
+
+    /// The angle of the hour at the top, degrees clockwise from 12H; none
+    /// lying flat.
+    pub fn top_deg(self) -> Option<f64> {
+        let half_hours = match self {
+            Position::CH | Position::CB => return None,
+            Position::H12 => 0,
+            Position::H1h30 => 3,
+            Position::H3 => 6,
+            Position::H4h30 => 9,
+            Position::H6 => 12,
+            Position::H7h30 => 15,
+            Position::H9 => 18,
+            Position::H10h30 => 21,
+        };
+        Some(15.0 * f64::from(half_hours))
+    }
+
+    /// Whether this is one of the four 45° stops.
+    pub fn is_half_hour(self) -> bool {
+        Position::HALF_HOURS.contains(&self)
+    }
+
+    /// Witschi's code: CH and CB lying, and the hour at the top standing,
+    /// from [`HOUR_CODES`].
     pub fn code(self) -> &'static str {
         match self {
             Position::CH => "CH",
             Position::CB => "CB",
-            Position::H9 => "9H",
-            Position::H6 => "6H",
-            Position::H3 => "3H",
-            Position::H12 => "12H",
+            p => p
+                .top_deg()
+                .map_or("", |deg| HOUR_CODES[(deg / 15.0) as usize]),
         }
     }
 
@@ -97,6 +175,10 @@ impl Position {
             Position::H6 => "crown left",
             Position::H3 => "crown up",
             Position::H12 => "crown right",
+            Position::H1h30 => "1:30 up",
+            Position::H4h30 => "4:30 up",
+            Position::H7h30 => "7:30 up",
+            Position::H10h30 => "10:30 up",
         }
     }
 
@@ -109,6 +191,10 @@ impl Position {
             Position::H6 => "Crown Left",
             Position::H3 => "Crown Up",
             Position::H12 => "Crown Right",
+            Position::H1h30 => "1:30 Up",
+            Position::H4h30 => "4:30 Up",
+            Position::H7h30 => "7:30 Up",
+            Position::H10h30 => "10:30 Up",
         }
     }
 
@@ -121,16 +207,18 @@ impl Position {
 
     /// The name as the app and the text report show it: "Crown Up (CU,
     /// 3H)", the common code with Witschi's beside it, or "Dial Up (DU)"
-    /// where Witschi's is a letter code. JSON keeps [`Position::label`].
+    /// where Witschi's is a letter code, or "1:30 Up (1H30)" where the two
+    /// are one. JSON keeps [`Position::label`].
     pub fn display_label(self) -> String {
-        if self.code().starts_with(|c: char| c.is_ascii_digit()) {
+        if self.common() != self.code() && self.code().starts_with(|c: char| c.is_ascii_digit()) {
             format!("{} ({}, {})", self.name(), self.common(), self.code())
         } else {
             format!("{} ({})", self.name(), self.common())
         }
     }
 
-    /// The short name most hobby timegraphers use.
+    /// The short name most hobby timegraphers use; the 45° stops have
+    /// none but their hour code.
     pub fn common(self) -> &'static str {
         match self {
             Position::CH => "DU",
@@ -139,6 +227,7 @@ impl Position {
             Position::H6 => "CL",
             Position::H3 => "CU",
             Position::H12 => "CR",
+            p => p.code(),
         }
     }
 
@@ -162,8 +251,9 @@ impl Position {
     }
 
     /// The position named in a file name such as `ym42_DU_48000-01.flac`.
-    /// The letter names match in any case; 3H, 6H, 9H and 12H only in
-    /// capitals, so that a duration like `2h` or `12h` is not read as one.
+    /// The letter names match in any case; 3H, 6H, 9H, 12H and the 45°
+    /// stops (1H30 …) only in capitals, so that a duration like `2h` or
+    /// `12h` is not read as one.
     pub fn from_file_name(name: &str) -> Option<Position> {
         let tokens: Vec<&str> = name
             .split(|c: char| !c.is_ascii_alphanumeric())
@@ -177,12 +267,11 @@ impl Position {
             }
         });
         letters.or_else(|| {
-            tokens.iter().find_map(|t| match *t {
-                "3H" => Some(Position::H3),
-                "6H" => Some(Position::H6),
-                "9H" => Some(Position::H9),
-                "12H" => Some(Position::H12),
-                _ => None,
+            tokens.iter().find_map(|t| {
+                Position::TEN
+                    .into_iter()
+                    .filter(|p| p.is_vertical())
+                    .find(|p| p.code() == *t)
             })
         })
     }

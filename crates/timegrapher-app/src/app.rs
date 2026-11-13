@@ -48,6 +48,7 @@ use timegrapher_core::steadiness::SeriesKind;
 mod charts;
 use charts::chart_key;
 pub use charts::paint_key;
+pub use position::Position;
 mod dialogs;
 mod distributions;
 mod dock;
@@ -61,6 +62,7 @@ mod pane_export;
 mod pane_room;
 mod paper_strip;
 mod picks;
+mod position;
 mod positions_test;
 mod power_reserve_pane;
 mod readings_strip;
@@ -494,98 +496,6 @@ fn move_kept(dir: &Path, parent: &Path) -> Result<PathBuf, String> {
 enum CaptureFailure {
     Recording(String),
     Input(String),
-}
-
-/// The six standard test positions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Position {
-    DialUp,
-    DialDown,
-    CrownUp,
-    CrownDown,
-    CrownLeft,
-    CrownRight,
-}
-
-impl Position {
-    /// A position by any name the session files take: DU, CH, "dial up"…
-    pub(crate) fn from_name(s: &str) -> Option<Position> {
-        Self::of_core(timegrapher_core::session::Position::parse(s)?)
-    }
-
-    /// The window's position for core's, by its common code.
-    pub(crate) fn of_core(p: timegrapher_core::session::Position) -> Option<Position> {
-        let common = p.common();
-        Position::ALL.into_iter().find(|p| p.code() == common)
-    }
-
-    pub const ALL: [Position; 6] = [
-        Position::DialUp,
-        Position::DialDown,
-        Position::CrownUp,
-        Position::CrownDown,
-        Position::CrownLeft,
-        Position::CrownRight,
-    ];
-
-    pub fn code(self) -> &'static str {
-        match self {
-            Position::DialUp => "DU",
-            Position::DialDown => "DD",
-            Position::CrownUp => "CU",
-            Position::CrownDown => "CD",
-            Position::CrownLeft => "CL",
-            Position::CrownRight => "CR",
-        }
-    }
-
-    /// Witschi's name: the hour that points up for a crown position, CH
-    /// and CB (cadran haut, cadran bas) lying flat.
-    pub fn witschi(self) -> &'static str {
-        match self {
-            Position::DialUp => "CH",
-            Position::DialDown => "CB",
-            Position::CrownUp => "3H",
-            Position::CrownDown => "9H",
-            Position::CrownLeft => "6H",
-            Position::CrownRight => "12H",
-        }
-    }
-
-    /// How the watch lies, for its picture on the Current Position card.
-    fn lying(self) -> crate::icons::Lying {
-        use crate::icons::Lying;
-        match self {
-            Position::DialUp => Lying::DialUp,
-            Position::DialDown => Lying::DialDown,
-            Position::CrownUp => Lying::Hour(3),
-            Position::CrownDown => Lying::Hour(9),
-            Position::CrownLeft => Lying::Hour(6),
-            Position::CrownRight => Lying::Hour(12),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Position::DialUp => "Dial Up (DU)",
-            Position::DialDown => "Dial Down (DD)",
-            Position::CrownUp => "Crown Up (CU, 3H)",
-            Position::CrownDown => "Crown Down (CD, 9H)",
-            Position::CrownLeft => "Crown Left (CL, 6H)",
-            Position::CrownRight => "Crown Right (CR, 12H)",
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Position::DialUp => "Dial Up",
-            Position::DialDown => "Dial Down",
-            Position::CrownUp => "Crown Up",
-            Position::CrownDown => "Crown Down",
-            Position::CrownLeft => "Crown Left",
-            Position::CrownRight => "Crown Right",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1030,8 +940,11 @@ const CALIBRE_COMPACT_W: f32 = 126.0;
 /// and the lift side by side.
 const TWO_FIELDS_W: f32 = CALIBRE_ROOMY_W - 2.0 * 16.0;
 /// The Current Position card's picture, and on a compact card.
-const POSITION_PIC: f32 = 66.0;
+const POSITION_PIC: f32 = 46.0;
 const POSITION_PIC_COMPACT: f32 = 40.0;
+/// The picture on the card at 10, and its two rows of buttons' height.
+const POSITION_PIC_TEN: f32 = 30.0;
+const POSITION_ROW_TEN: f32 = 22.0;
 /// The Listen card's buttons.
 const LISTEN_BUTTON: f32 = 40.0;
 
@@ -1981,6 +1894,9 @@ pub struct TimegrapherApp {
     stop_test_ask: bool,
     /// Seconds of settling and of measuring in each position, for the
     /// next test.
+    /// The Current Position card offers ten positions, the four 45°
+    /// stops too, rather than six (its 6 | 10 switch, kept).
+    ten_positions: bool,
     guided_settle_s: f64,
     guided_measure_s: f64,
     /// Look for a newer release each time the app starts.
@@ -2389,6 +2305,7 @@ impl TimegrapherApp {
             steady_info: self.steady_info.unset,
             steady_info_set: self.steady_info.saved(),
             positions_settle_s: self.guided_settle_s,
+            ten_positions: self.ten_positions,
             positions_measure_s: self.guided_measure_s,
             scope: self.scope_view,
             panes: Some(self.panes.clone()),
@@ -2446,6 +2363,7 @@ impl TimegrapherApp {
             steady_info_set,
             positions_settle_s,
             positions_measure_s,
+            ten_positions,
             scope,
             panes,
             panes_dragged,
@@ -2470,6 +2388,7 @@ impl TimegrapherApp {
         (self.watch_list_shows, self.after_save_command) = (watch_list_shows, after_save_command);
         self.settings_last = Tab::from_key(&settings_section);
         self.listen_at_open = listen_at_open;
+        self.ten_positions = ten_positions;
         (self.mic_set_up, self.setup_declined) = (mic_set_up, setup_declined);
         self.agc_on = agc_on;
         // A layout from before the panes moved starts afresh.
@@ -2592,6 +2511,7 @@ impl TimegrapherApp {
             test_ready: None,
             stop_test_ask: false,
             guided_settle_s: guided::SETTLE_S,
+            ten_positions: false,
             guided_measure_s: guided::MEASURE_S,
             check_at_start: true,
             keep_awake: true,
@@ -3526,7 +3446,8 @@ impl Default for WatchSetup {
 }
 
 /// The position a recording's file or folder name carries, as a word of
-/// its own: `reverso_DU_01.flac` is dial up.
+/// its own: `reverso_DU_01.flac` is dial up, `ym42_7H30.flac` is 7:30 up
+/// (the hour codes in capitals, so `2h` stays a duration).
 fn position_in_name(path: &Path) -> Option<Position> {
     let name = path.file_stem()?.to_str()?;
     let words: Vec<&str> = name
@@ -3535,10 +3456,11 @@ fn position_in_name(path: &Path) -> Option<Position> {
         .collect();
     let found: Vec<Position> = words
         .iter()
-        .filter(|w| w.len() == 2)
         .filter_map(|w| {
             let up = w.to_ascii_uppercase();
-            Position::ALL.into_iter().find(|p| p.code() == up)
+            Position::TEN.into_iter().find(|p| {
+                (w.len() == 2 && p.code() == up) || (p.core().is_vertical() && p.witschi() == *w)
+            })
         })
         .collect();
     // Exactly one, or it is no guess at all.
@@ -4116,41 +4038,8 @@ impl TimegrapherApp {
                 self.run_menu_command(ctx, c);
             }
         }
-        // Keys 1 to 6, alone, put the watch in a position: never with a
-        // modifier held, nor in the Watches view, nor while a field is
-        // being typed in, nor behind a dialog. The modifiers are the key
-        // event's own, as a shortcut's are: one pressed and let go within
-        // a frame is gone from the frame's by the time it is read.
-        let dialog = ctx.memory(|m| m.top_modal_layer().is_some());
-        if self.view == View::Bench && !ctx.wants_keyboard_input() && !dialog {
-            let keys = [
-                egui::Key::Num1,
-                egui::Key::Num2,
-                egui::Key::Num3,
-                egui::Key::Num4,
-                egui::Key::Num5,
-                egui::Key::Num6,
-            ];
-            let pressed = ctx.input(|i| {
-                i.events.iter().find_map(|e| match e {
-                    egui::Event::Key {
-                        key,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } if modifiers.is_none() => keys.iter().position(|k| k == key),
-                    _ => None,
-                })
-            });
-            if let Some(p) = pressed
-                .map(|n| Position::ALL[n])
-                .filter(|_| self.position_editable())
-            {
-                if p != self.position {
-                    self.change_position(p);
-                }
-            }
-        }
+        // The position keys (U, D and the hour digits), alone.
+        self.position_keys(ctx);
         egui::CentralPanel::default()
             .frame(bar.inner_margin(egui::Margin {
                 left: 12,
