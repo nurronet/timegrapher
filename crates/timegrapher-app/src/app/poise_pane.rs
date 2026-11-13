@@ -47,6 +47,9 @@ const LEAN: f32 = 0.3;
 /// The key's line length, points, and the room round a backed label.
 const KEY_LINE: f32 = 14.0;
 const BACKING: f32 = 2.0;
+/// A small label's height, points: a ring's rate this near the mean's
+/// name is left out.
+const LABEL_H: f32 = 14.0;
 
 /// The upright stops round the face, 45° apart, and the step between.
 fn hours() -> (usize, f64) {
@@ -553,8 +556,9 @@ fn draw_plot(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
             painter.extend(egui::Shape::dashed_line(&line, dotted, 1.0, 3.0));
             backed(
                 &painter,
-                // Between two stops, so no point sits on it.
-                egui::pos2(x(between(0.0)), y(*m) - 3.0),
+                // Above the line at the slowest hour, where the wave is
+                // below it (Hugh, #1499).
+                egui::pos2(x(f.slowest().0), y(*m) - 3.0),
                 egui::Align2::CENTER_BOTTOM,
                 name,
                 pal,
@@ -715,7 +719,14 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
         outer,
         scale: rate_scale(pic),
     };
-    dial_grid(&painter, &dial, pal, !pic.points.is_empty());
+    // The slowest point's bearing once there is a wave; till then, between
+    // two stops.
+    let numbers = (!pic.points.is_empty()).then(|| {
+        let bearing = pic.fit.map_or(between(0.0), |f| f.slowest().0);
+        let mean_r = pic.fit.and(pic.mean.as_ref()).map(|m| dial.radius(m.0));
+        (bearing, mean_r)
+    });
+    dial_grid(&painter, &dial, pal, numbers);
     painter.text(
         rect.right_top() + Vec2::new(-4.0, 4.0),
         egui::Align2::RIGHT_TOP,
@@ -747,7 +758,15 @@ fn draw_dial(ui: &egui::Ui, rect: egui::Rect, pic: &Picture<'_>) {
 
 /// The dial's rings at the scale's round rates, with their numbers, and
 /// a spoke and name for each upright hour.
-fn dial_grid(painter: &egui::Painter, dial: &Dial, pal: &theme::Palette, numbers: bool) {
+/// `numbers`: the bearing the rings' rates go on, and the mean ring's
+/// radius, whose name goes there too, so a rate that would sit on it is
+/// left out.
+fn dial_grid(
+    painter: &egui::Painter,
+    dial: &Dial,
+    pal: &theme::Palette,
+    numbers: Option<(f64, Option<f32>)>,
+) {
     let small = egui::FontId::proportional(11.0);
     let grid = egui::Stroke::new(1.0_f32, pal.separator);
     let (lo, hi, step) = dial.scale;
@@ -756,14 +775,17 @@ fn dial_grid(painter: &egui::Painter, dial: &Dial, pal: &theme::Palette, numbers
         let v = lo + k as f64 * step;
         let r = dial.radius(v);
         painter.circle_stroke(dial.centre, r, grid);
-        if !numbers {
+        let Some((bearing, mean_r)) = numbers else {
+            continue;
+        };
+        if mean_r.is_some_and(|m| (m - r).abs() < LABEL_H) {
             continue;
         }
-        // Each ring's rate on a bearing between two stops, on the
-        // pane's background so the wave never crosses it (Hugh, #1499).
+        // Each ring's rate on the slowest point's bearing, inside the
+        // wave, on the pane's background (Hugh, #1499).
         backed(
             painter,
-            dial.at(between(0.0), r),
+            dial.at(bearing, r),
             egui::Align2::CENTER_CENTER,
             &chart_scale::axis_number(v, step),
             pal,
@@ -822,7 +844,7 @@ fn dial_wave(
     if let Some((m, name)) = mean {
         backed(
             painter,
-            dial.at(between(180.0), dial.radius(*m)),
+            dial.at(f.slowest().0, dial.radius(*m)),
             egui::Align2::CENTER_CENTER,
             name,
             pal,

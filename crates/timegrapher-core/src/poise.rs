@@ -711,6 +711,17 @@ impl PoiseFit {
         )
     }
 
+    /// The measured wave's slowest point, (angle 0–360°, rate s/d): half
+    /// way round from [`PoiseFit::fastest`], where a picture's labels sit
+    /// clear of the wave.
+    pub fn slowest(&self) -> (f64, f64) {
+        let w = &self.wave;
+        (
+            (w.peak_deg.value + 180.0).rem_euclid(360.0),
+            w.mean.value - w.size.value,
+        )
+    }
+
     /// The measured wave at `steps` + 1 evenly spaced angles from 0° to
     /// 360°, (angle, rate s/d): the one source of the drawn curve, on a
     /// line or round a dial.

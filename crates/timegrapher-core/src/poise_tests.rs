@@ -605,7 +605,8 @@ fn the_curve_is_the_measured_wave() {
     assert!(close(c[2].1, 19.0, 1e-9), "fastest at 90°");
 }
 
-/// The fastest point is the curve's top: its hour and its rate.
+/// The fastest point is the curve's top, and the slowest its bottom
+/// half way round: each its hour and its rate.
 #[test]
 fn the_fastest_point_is_the_waves_top() {
     let rate = |deg: f64| -3.0 + 5.0 * (deg - 270.0).to_radians().cos();
@@ -616,6 +617,11 @@ fn the_fastest_point_is_the_waves_top() {
     assert!(
         close(deg, 270.0, 1e-6) && close(top, 2.0, 1e-9),
         "{deg} {top}"
+    );
+    let (deg, bottom) = fit(&pts, None).unwrap().slowest();
+    assert!(
+        close(deg, 90.0, 1e-6) && close(bottom, -8.0, 1e-9),
+        "{deg} {bottom}"
     );
 }
 
