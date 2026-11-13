@@ -1132,9 +1132,8 @@ fn a_take_saved_under_a_former_calibre_name_picks_the_new_one() {
     assert_eq!(app.cal.recent.first(), Some(&c.calibre));
 }
 
-/// The kept clock reads to the decimals its ± calls for, as the timed
-/// one beside it does, and so does how far apart the two are (#1271):
-/// never one fixed decimal for one and two for the other.
+/// The kept clock reads at the clock's place, 0.1 ppm, as the timed one
+/// beside it does, and so does how far apart the two are (#1271, #1470).
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -1151,21 +1150,17 @@ fn a_kept_clocks_decimals_follow_its_plus_minus() {
         source: "measure".into(),
     };
     let words = app.clock_words(None, Some(&kept));
-    assert_eq!(words.value, "0.84 ppm fast");
-    assert!(
-        words.hint.contains("runs 0.84 ppm fast ("),
-        "{}",
-        words.hint
-    );
+    assert_eq!(words.value, "0.8 ppm fast");
+    assert!(words.hint.contains("runs 0.8 ppm fast ("), "{}", words.hint);
     let mut timed = timegrapher_core::clock::ClockFit::fixed(1.2, 1200.0);
     timed.ppm_sd = 0.05;
     let words = app.clock_words(Some(&timed), Some(&kept));
-    assert_eq!(words.value, "1.20 ppm fast");
+    assert_eq!(words.value, "1.2 ppm fast");
     assert!(
-        words.hint.contains("runs 0.84 ppm fast, kept 2026-10-12")
+        words.hint.contains("runs 0.8 ppm fast, kept 2026-10-12")
             && words
                 .hint
-                .contains("This timing is 0.36 ppm from it, 0.031 seconds"),
+                .contains("This timing is 0.4 ppm from it, 0.0 seconds"),
         "{}",
         words.hint
     );

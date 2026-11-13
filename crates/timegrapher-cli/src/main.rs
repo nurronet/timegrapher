@@ -1603,9 +1603,8 @@ fn print_summary(
         opt(s.rate_p05, 1),
         opt(s.rate_p95, 1)
     );
-    // Tick and Tock have no ± of their own, so they take the decimals of
-    // the amplitude beside them (decimals follow the ±, #510 K3): never
-    // 269.53 beside a Tick of 270.
+    // Tick and Tock have no ± of their own; they are at the amplitude's
+    // place, as the figure beside them (#1470).
     let side = |x: Option<f64>| {
         x.map_or("-".into(), |x| {
             figure(x, s.amplitude_se_deg, base_digits::AMPLITUDE, false)
@@ -1628,10 +1627,9 @@ fn print_summary(
 }
 
 /// The rate, corrected for the card's clock where it can be, and the beat
-/// error, each with its ± and to the decimals the ± calls for (core's
-/// `figure_with_pm`: decimals follow the ±, #510 K3). The rate on the
-/// card's clock and the beat error from the drop take the same decimals
-/// as the figure beside them.
+/// error, each with its ± at the figure's place (core's `figure_with_pm`,
+/// #1470). The rate on the card's clock and the beat error from the drop
+/// take the same place as the figure beside them.
 fn print_rate(s: &timegrapher_core::analysis::Summary, clock: Option<&(f64, String)>) {
     let c = s.confidence.as_ref();
     if let Some(f) = &s.overall {

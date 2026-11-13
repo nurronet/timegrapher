@@ -1383,8 +1383,7 @@ pub struct TrendReading {
     pub beat_error_unlock_ms: Option<f64>,
     pub beat_error_ms: Option<f64>,
     /// Each figure's standard error, as its card shows it after "±", so
-    /// a chart writes a point to the decimals its card does (#510 K3,
-    /// #1063): the rate's, the amplitude's (Tick's and Tock's take the
+    /// a chart's values box and the card agree (#1063, #1470): the rate's, the amplitude's (Tick's and Tock's take the
     /// same, as on the card) and the beat error from the unlock's.
     pub rate_error_s_per_day: Option<f64>,
     pub amplitude_error_deg: Option<f64>,
