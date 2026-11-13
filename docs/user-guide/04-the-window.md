@@ -175,7 +175,9 @@ In Watches, all but Bench and Watches are dimmed.
 
 | Key | Does |
 | --- | --- |
-| **1** to **6** | Sets the position: DU, DD, CU, CD, CL, CR (dial up, dial down, and crown up, down, left and right). On the Bench, while listening or before anything is on show. Not while typing, behind a dialog, or while a Positions Test or Power Reserve Test runs. |
+| **U**, **D** | Sets the position lying flat: Dial Up (DU), Dial Down (DD). On the Bench, while listening or before anything is on show. Not while typing, behind a dialog, or while a Positions Test or Power Reserve Test runs. |
+| **3**, **6**, **9**, **2** | Sets the position standing, by the last digit of the hour at the top: Crown Up (CU, 3H), Crown Left (CL, 6H), Crown Down (CD, 9H), Crown Right (CR, 12H). As U and D. |
+| **1**, **4**, **7**, **0** | Sets a 45° stop in the same way: 1:30 Up (1H30), 4:30 Up, 7:30 Up, 10:30 Up, and turns the Current Position card to **10**. As U and D. |
 | **Esc** | Puts down the Position Brush or the Mask tool. |
 | **Ctrl+1**, **Ctrl+2** | Bench, Watches. |
 | **Ctrl+O** | Open Recording. |

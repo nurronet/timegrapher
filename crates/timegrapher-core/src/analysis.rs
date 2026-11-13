@@ -237,9 +237,111 @@ pub struct Analysis {
 pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let fs = audio.sample_rate as f64;
     let env = envelope(&audio.samples, fs, &cfg.envelope);
-    let guessed = beats::guess_bph(&env, fs);
-    let bph = cfg.bph.unwrap_or(guessed);
-    let (log, lead_s) = read_take(audio, cfg, bph);
+    let first_guess = beats::guess_bph(&env, fs);
+    let bph = cfg.bph.unwrap_or(first_guess);
+    let (log, lead_s) = read_take(audio, cfg, Some(bph));
+    // The rate heard is guessed where the watch starts, after any lead of
+    // noise, which is not taken for a rate (#1423).
+    let after_lead =
+        lead_s.map(|t| beats::guess_bph(&env[((t * fs) as usize).min(env.len())..], fs));
+    let guessed = match cfg.bph {
+        Some(_) => after_lead.unwrap_or(first_guess),
+        None => bph,
+    };
+    let first = analyze_read(audio, cfg, &env, (log, lead_s), (bph, guessed));
+    let doubted = !first.summary.watch_heard || after_lead.is_some_and(|g| g != bph);
+    if cfg.bph.is_some() || !doubted {
+        return first;
+    }
+    // No watch at the rate guessed from the first 10 s of sound, or a
+    // watch after a lead that sounds like another rate: those 10 s can be
+    // a lead of stand noise before a slow watch (#1423). The recording is
+    // read again at the rate it sounds like where the watch starts or,
+    // with no watch heard, at the rate guessed as session reads a file,
+    // afresh at each chunk's sound until a watch is heard.
+    let settled = match after_lead {
+        Some(g) if g != bph => g,
+        _ => read_take(audio, cfg, None).0.bph,
+    };
+    if settled == bph {
+        return first;
+    }
+    let again = read_take(audio, cfg, Some(settled));
+    let again = analyze_read(audio, cfg, &env, again, (settled, settled));
+    if reads_better(&again.summary, &first.summary) {
+        again
+    } else {
+        first
+    }
+}
+
+/// Whether a second read of a recording (`again`, at another rate) is
+/// kept over the first (#1423): when it hears a watch and the first does
+/// not. When both do: the read that kept the larger share of the beats
+/// its span holds ([`kept_share`]), by more than 2 standard errors of the
+/// difference; within that, at exactly 2:1, the higher rate, as a read at
+/// half the watch's rate keeps every other beat at a full share; else the
+/// one whose rate fit's residuals (robust SD, seconds, over the beats
+/// kept) are smaller. A read at a harmonic of the watch's rate sets beats
+/// on the wrong sound or between beats, or keeps only the cleanest few.
+/// A tie keeps the first.
+pub fn reads_better(again: &Summary, first: &Summary) -> bool {
+    if !again.watch_heard {
+        return false;
+    }
+    if !first.watch_heard {
+        return true;
+    }
+    let (Some((k2, n2)), Some((k1, n1))) = (kept_of(again), kept_of(first)) else {
+        return again.overall.is_some() && first.overall.is_none();
+    };
+    // The pooled share as Agresti and Coull adjust it, so a share near 1
+    // never has a standard error of 0.
+    let p = (k1 + k2 + 2.0) / (n1 + n2 + 4.0);
+    let se = (p * (1.0 - p) * (1.0 / n1 + 1.0 / n2)).sqrt();
+    let diff = k2 / n2 - k1 / n1;
+    if diff.abs() > 2.0 * se {
+        return diff > 0.0;
+    }
+    if again.bph == 2 * first.bph || first.bph == 2 * again.bph {
+        return again.bph > first.bph;
+    }
+    let sd = |s: &Summary| s.overall.map_or(f64::INFINITY, |f| f.jitter_us);
+    sd(again) < sd(first)
+}
+
+/// The share of the beats a read's span holds at its rate that its rate
+/// fit kept: kept beats over the span after any lead times `bph`/3600,
+/// plus 1 for the beats at both ends, at most 1.
+pub fn kept_share(s: &Summary) -> Option<f64> {
+    kept_of(s).map(|(k, n)| k / n)
+}
+
+/// A read's beats kept by its rate fit (at most as many as it holds), and
+/// the beats its span after any lead holds at its rate, counting the
+/// beats at both ends as the kept ones are counted.
+fn kept_of(s: &Summary) -> Option<(f64, f64)> {
+    let lead = s.caveats.iter().find_map(|c| match c {
+        crate::measure::Caveat::LeadLeftOut { seconds } => Some(*seconds),
+        _ => None,
+    });
+    let span = s.duration_s - lead.unwrap_or(0.0);
+    let held = crate::beats::expected_beats(span, s.bph) + 1.0;
+    s.overall
+        .filter(|_| span > 0.0)
+        .map(|f| ((f.beats_used as f64).min(held), held))
+}
+
+/// [`analyze`] of a recording read at `bph` (`log`, with any lead of
+/// noise left out up to `lead_s`), `guessed` the rate it sounds like.
+fn analyze_read(
+    audio: &Audio,
+    cfg: &AnalysisConfig,
+    env: &[f32],
+    (log, lead_s): (crate::stream::BeatLog, Option<f64>),
+    (bph, guessed): (u32, u32),
+) -> Analysis {
+    let fs = audio.sample_rate as f64;
     let from_s = lead_s.unwrap_or(0.0);
     // Under 10 s the beats' averaged sound says whether a watch is heard.
     let beat_sound = log.beat_sound(&log.beats, &cfg.amplitude);
@@ -284,7 +386,7 @@ pub fn analyze(audio: &Audio, cfg: &AnalysisConfig) -> Analysis {
     let caveats = assessment.caveats;
     let shape = watch_heard.then(|| {
         let beat_s = crate::timing::beat_period_s(fits.overall.as_ref(), bph);
-        let r = crate::shape::analyze(&env, fs, &beats, beat_s, &Default::default());
+        let r = crate::shape::analyze(env, fs, &beats, beat_s, &Default::default());
         crate::shape::Measures::of(&r, &fits.clear)
     });
     let mut summary = Summary {
@@ -515,7 +617,7 @@ fn beats_span(beats: &[Beat]) -> f64 {
 fn read_take(
     audio: &Audio,
     cfg: &AnalysisConfig,
-    bph: u32,
+    bph: Option<u32>,
 ) -> (crate::stream::BeatLog, Option<f64>) {
     // The beats and the amplitude windows come from the chunked stream,
     // the one beat pipeline every reading of a recording rests on (session,
@@ -524,10 +626,7 @@ fn read_take(
         &audio.samples,
         audio.sample_rate,
         &crate::stream::StreamConfig {
-            analysis: AnalysisConfig {
-                bph: Some(bph),
-                ..cfg.clone()
-            },
+            analysis: AnalysisConfig { bph, ..cfg.clone() },
             ..Default::default()
         },
     );

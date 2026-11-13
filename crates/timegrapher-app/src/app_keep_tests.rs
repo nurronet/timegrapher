@@ -1513,6 +1513,10 @@ fn positions_are_read_from_file_names() {
     assert_eq!(p("/x/ym42_dd_30min/ym42-cl.wav"), Some(Position::CrownLeft));
     assert_eq!(p("ducks.flac"), None);
     assert_eq!(p("du_then_dd.flac"), None);
+    // The hour codes, in capitals: the 45° stops have no other.
+    assert_eq!(p("ym42_7H30_48000.wav"), Some(Position::Up7h30));
+    assert_eq!(p("rolex_6H.wav"), Some(Position::CrownLeft));
+    assert_eq!(p("run_12h.flac"), None);
 }
 
 /// Wait for the analysis being kept, then for the take being opened.

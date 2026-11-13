@@ -113,7 +113,7 @@ One idea, one word (decided 29 Oct, R7): every entry below is a **cut** of some 
 |---|---|---|
 | **Rate fit** | One straight line through every good beat's time against its number, with Tick and Tock offset by the beat error. Its slope gives the rate. It is fitted twice more without beats over 5 robust SD from the line. | `timing.rs:163` |
 | **2 s window** | 2 s of beats, laid end to end. For each side, the sound of its good beats (3 or more) is averaged into one shape, and the unlock and drop are found on it. It gives amplitude for Tick and Tock, and beat error from the unlock and from the drop. | `amplitude.rs:296` |
-| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a beat in every 2 s part and no cut. It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
+| **10 s rate window** | A rate fit over 10 s of beats, one every 5 s, so neighbours overlap by half. It needs a good beat (one the fit times from) in every 2 s part and no cut (#1432). It gives the rate's ±, its 5% to 95% band, jitter and the rate chart. | `Cuts::windows` |
 | **Reading** | The figures over one span: rate from the rate fit; amplitude and unlock beat error as the median of its 2 s windows; each with its ± and caveats. | `session::measure_masked` |
 | **Bin** | A 10 s piece of true time, laid end to end. A bin is whole when it reaches into no cut and every 2 s part holds a beat. Power Reserve counts whole bins as the time read. | `Cuts::bins` |
 | **Series** | Readings in time order, for charts and Steadiness tests. | `steadiness.rs` |
@@ -233,28 +233,68 @@ Today there are five rules (#636):
 
 ## 7. Minimum data
 
-What each figure needs before it is shown today, and what happens when data is missing. Decided (R3): these counts give way to a gate on each figure's ±; this section is rewritten after the four method fixes. Counts stay only where a method breaks below them.
+This section lists what each figure needs before it is shown, and what happens when data is missing. Decided (R3): these counts give way to a gate on each figure's ± once the four method fixes are in. Counts stay only where a method breaks below them.
 
-| Figure or step | Needs | With less | Where |
-|---|---|---|---|
-| Any timing fit | 6 good beats | No figure | `timing.rs:99` |
-| Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing.rs:211` |
-| 10 s rate window | a beat in every 2 s part, no hole | Window left out | `clean.rs:326` |
-| Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs:353` |
-| Amplitude reading | 1 window | No figure | `session.rs:583` |
-| Any ± | 3 values | No ± | `confidence.rs:129` |
-| Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` |
-| Unlock beat error, sign agreement | its windows' share on the median's side no more than max(0.18, 3 √(q(1 − q)/n)) short of p = Φ(\|median\| / robust SD), q being p or the observed share, whichever varies more; not judged with under 3 windows or no spread (#1439) | No unlock figure: the drop's beat error, its caveat saying the unlock was inconsistent | `confidence::unlock_inconsistent` |
-| Beats found | 95% of expected | Caveat, figure kept | `confidence.rs:18` |
-| Span heard | 10 s | Caveat, figure kept | `measure.rs:33` |
-| Positions Test row | 10 s in position | No row | `session.rs:1026` |
-| Distribution | 3 values | None | `distribution.rs:125` |
-| Isochronism bin | 10 readings | Bin left out | `steadiness.rs:2633` |
-| Steadiness reading | every fine window in it, of the series' one source (#1364) | Reading left out | `steadiness.rs:2557` |
-| Clock correction | 10 log entries, SE ≤ 20 ppm | Card clock, caveat | `clock.rs:169` |
-| Power Reserve stop | 600 s with no run of 8 good beats | Run goes on | `power_reserve.rs:24` |
+### Rules for every threshold (Peter, 13 Nov)
 
-- **Breach (decided 29 Oct):** no rule yet ties a reading to the share of its windows that were usable; see Decisions. #645.
+Peter asked for these rules after the isochronism walk was found dropping 5 min bins below 50% of their windows, while the strip and cards keep figures down to 10%. Every such threshold belongs in core, and two thresholds for one purpose are acceptable only with a defensible reason.
+
+1. **Named, in core, once.** Every threshold that withholds, culls, greys or caveats a figure is a named constant in core. The app, CLI and MCP read it and never restate the number. A literal in a comparison is a finding.
+2. **One question, one threshold.** The question "is there enough of this figure's data?" gets the same floors on every surface. A summary read from windows or readings (a card, a table cell, a walk point, a bin, an hour) is withheld under `confidence::MIN_WINDOW_SHARE` (10%) of its nominal values, greyed under `confidence::MIN_WINDOW_COVERAGE` (60%), and has no ± under `confidence::MIN_VALUES` (3).
+3. **Raw values and summaries.** A raw value, such as one 2 s window's amplitude or one 10 s reading's rate, is drawn whenever it exists. A summary over a span follows rule 2. That is why the strip can show points near the end of a run-down while the card for the same span shows a dash. This is the one defensible way two plots of the same data may differ, and the surface says so.
+4. **A second threshold needs a reason a method gives.** A different floor is allowed only where the method breaks below it, for example a straight-line fit needs enough beats, or an autocorrelation needs enough pairs. Each row below states that reason. A number with no reason is a finding (13 Nov audit, below).
+5. **Changing a threshold** is a math PR: it gets a Norm gate, it needs a corpus run listing every figure the change moves, and it updates this table.
+
+### What each figure needs
+
+| Figure or step | Needs | With less | Constant | Why this number |
+|---|---|---|---|---|
+| Any timing fit | 6 good beats | No figure | `timing.rs` `solve` (literal; finding T4) | Not recorded beyond the fit's 3 unknowns (finding T8) |
+| Rate from a stretch between cuts | beats spanning 10 s | Stretch left out | `timing::MIN_PIECE_S` | One 10 s bin; a few seconds of beats give a rate several s/d out (its doc) |
+| 10 s rate window | a good beat in every 2 s part, no hole | Window left out | `clean.rs` | The window tiling: a hole would make the window shorter than it says, and the fit times from good beats only, so good beats in only part of it would read the scatter of that part alone (#1432) |
+| Amplitude, one side of a 2 s window | 3 good beats | That side missing | `amplitude.rs` | Not recorded (finding T8) |
+| Amplitude reading | 1 window, then the 10% floor below | No figure | `session.rs` | A median needs one value; the share floor does the real gating |
+| Window figure (amplitude, Tick, Tock, unlock beat error) | 10% of the reading's nominal kept windows (#1429) | No figure, its caveat kept | `confidence::MIN_WINDOW_SHARE` | Under a tenth, a median is set by the few windows that found the sound, which near a run-down's end may be noise (#1429) |
+| Any figure read from windows | 60% of nominal | Greyed, caveat with the count | `confidence::MIN_WINDOW_COVERAGE` | Set in R3; no reason recorded beyond the figure covering most of its span (finding T8) |
+| Any ± | 3 values | No ± | `confidence::MIN_VALUES` | A robust spread needs at least 3 values |
+| ± noise | 30 values, borrowed from the latest when short (decided 12 Nov, #1470) | — | `confidence::MIN_NOISE_VALUES` (to be built) | A robust SD from 5 values is wild; about 30 make it steady (section 11) |
+| Unlock beat error, sign agreement | its windows' share on the median's side no more than max(0.18, 3 √(q(1 − q)/n)) short of p = Φ(\|median\| / robust SD), q being p or the observed share, whichever varies more; not judged with under 3 windows or no spread (#1439) | No unlock figure: the drop's beat error, its caveat saying the unlock was inconsistent | `confidence::MAX_SIGN_SHORTFALL`, `confidence::unlock_inconsistent` | Set on the corpus's healthy readings, with 3 of 3,084 falling back (#1458) |
+| Beats found | 95% of expected | Caveat, figure kept | `confidence::MIN_BEAT_FRACTION` | Not recorded (finding T8) |
+| Span heard | 10 s | Caveat, figure kept | `measure.rs` | One rate window |
+| Positions Test row | 10 s in position | No row | `session::POSITION_MIN_S` | One rate window |
+| Distribution | 3 values | None | `distribution.rs` | `MIN_VALUES` |
+| Isochronism bin | 10 readings | Bin left out | `steadiness::ISO_MIN_READINGS` | A median of 10 has a ± about two fifths of one reading's spread (1.25/√10); the number itself is not recorded (finding T8) |
+| Isochronism curve | 3 bins | No curve | `steadiness::ISO_MIN_BINS` | A curve through fewer than 3 bins is a line or a point |
+| Isochronism slope (errors in variables) | reliability λ ≥ 0.5, 30 pairs | No slope, a caveat | `amplitude_slope::MIN_RELIABILITY` | Below λ = 0.5 the correction multiplies the slope by more than 2, so the noise in x sets the answer (#651) |
+| Isochronism walk point | as any window figure: 10% withhold, 60% grey, per series (ruled 12 Nov) | Point left out or faint | `confidence::MIN_WINDOW_SHARE`, `MIN_WINDOW_COVERAGE` | Rule 2; it was 50% as a literal (finding T1) |
+| Isochronism walk | 3 points | No card | `steady_views::WALK_MIN_POINTS` | Fewer can't show a direction |
+| Autocorrelation lag, Ljung–Box | 30 pairs | Lag not read | `steadiness` `MIN_PAIRS` | Below 30 pairs a lag's correlation strays by over a third under independent readings |
+| Steadiness tests | 300 s of beats (30 rate readings) | Not run | `joined::MIN_S` | `MIN_PAIRS` worth of readings |
+| Steadiness reading | every fine window in it, from the series' one source (#1364) | Reading left out | `steadiness.rs` | Readings are compared with each other, so each must cover what it says |
+| Wheel lines: a size window or turn | 90% of its readings, no hole over 5 s | Left out | `wheel_lines` `MIN_SHARE`, `MAX_HOLE_S` | A fold averages by phase, and a hole puts one phase short; stricter than 60% because the shape, not a level, is read (reason to be confirmed on the corpus, finding T7) |
+| Clock correction | 10 log entries, SE ≤ 20 ppm | Card clock, caveat | `clock::MIN_POINTS`, `clock::MAX_SD_PPM` | Count: not recorded (finding T8). 20 ppm: about the crystal error that leaving the correction out leaves in (its doc) |
+| Power Reserve stop | 600 s with no run of 8 good beats | Run goes on | `power_reserve.rs` | Not recorded (finding T8) |
+| Power Reserve hour | a whole hour, span ≥ 3,599 s | Labelled as the last part hour | `power_reserve::Hour::whole` | A second's slack for the sums that make it |
+| Poise wave shown | 5 positions; direction only when its size clears 2 SE | "Fitted once 5 positions are measured"; no direction | `poise::MIN_SHOWN`, `poise::CLEAR_SE` | 3 fix the wave, 2 more check it; a direction inside the noise is noise |
+| Heavy spot | every amplitude outside 219.5° ± (2 SE + 8%) | Withheld, chip | `poise::NULL_AMPLITUDE_DEG`, `NULL_BAND_SHARE` | The poise effect is near zero there; 8% covers a catalogue lift error (one measured: 7.3%) |
+| Noise lead left out | 20 s of watch after it | Nothing left out, no watch | `session::LEAD_WATCH_MIN_S` | Two whole scatter windows (its doc) |
+| Unlock coverage listed in findings | 60% | Finding listed | `session::UNLOCK_COVERAGE_LISTED` (finding T2) | Must be `MIN_WINDOW_COVERAGE` |
+| Measurement time listed in findings | 40 s | Finding listed | `session::SHORT_MEASURE_S` | Witschi's "≥40 s measurement time" (D40e, 2025) |
+
+- **Breach (decided 29 Oct):** no rule yet ties a reading to the share of its windows that were usable; see Decisions. #645. (The 10% and 60% floors above now cover window figures.)
+
+### Audit, 13 Nov: thresholds to fix
+
+Each item below breaks rule 1, 2 or 4. Each gets an issue. None changes a figure except T1.
+
+- **T1. Walk 50% (`walk::walk`, `2 * r.len() < per_bin`).** A literal that differs from rule 2. To be fixed to 10%/60% in Ike's PR.
+- **T2. `session::UNLOCK_COVERAGE_LISTED` 0.6** restates `confidence::MIN_WINDOW_COVERAGE`. Use the one constant.
+- **T3. "30 readings" written seven times as a literal** (`steadiness_beat_error.rs`, `amplitude_slope.rs` twice, `analysis.rs` period search, `steady_views.rs` beat error search twice: in `searches` and in the views builder, and `steadiness.rs`'s structure search with its 120 s, also a literal) beside `MIN_PAIRS` and `joined::MIN_S`. Make it one named constant with `MIN_PAIRS`'s reason, or name each with its own reason.
+- **T4. The app's strip rate line needs 6 beats** (`strip.rs` `RateLine`), restating the timing fit's 6 in `timing.rs` `solve`. Name the fit's minimum in core and use it in both.
+- **T5. The anchor's 16 beats** are written in the app (`take_io.rs`) and the CLI (`record_cmd.rs`). Use one core constant.
+- **T6. The app's "no watch yet" waits 6 s** (`readouts.rs` `no_watch_yet`), a literal in the app. Move it to core with its reason.
+- **T7. Unnamed method minima:** histogram 3 and 4, a raster quantile 4, steadiness 4 and 10, diagnose 8, shape 10, the long-run slow-out 4. These are method minima, but they need names and reasons. The wheel-lines 90% needs its reason confirmed on the corpus.
+- **T8. Thresholds with no recorded reason**, marked in the table: the timing fit's 6 beats, the 3 beats per side, 60% coverage, 95% beats found, the isochronism bin's 10, the clock's 10 entries, and the Power Reserve's 600 s and 8 beats. Each needs a reason from the method or a corpus check that the number is not arbitrary in effect, recorded here. Until then they stand, because changing one moves figures.
 
 ---
 
