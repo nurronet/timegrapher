@@ -763,6 +763,12 @@ fn rows(
     let n = series.len().max(1);
     let gap = 10.0;
     let (w, h) = (ui.available_width(), ui.available_height());
+    // The time under the pointer on any row's Readings Over Time: every
+    // row reads it, those above the one under it a frame late, as the
+    // Charts' lanes do (#1277).
+    let over_id = egui::Id::new(READINGS_OVER);
+    let was: Option<f64> = ui.ctx().data(|d| d.get_temp(over_id)).flatten();
+    let mut over = None;
     // Each gap also takes the layout's spacing either side of it.
     let step_gap = gap + 2.0 * ui.spacing().item_spacing.y;
     let fits = |count: usize, room: f32| (room - step_gap * (count as f32 - 1.0)) / count as f32;
@@ -780,7 +786,7 @@ fn rows(
                 for (k, &(i, c)) in series.iter().enumerate() {
                     ui.allocate_ui(Vec2::new(ui.available_width(), row_h), |ui| {
                         ui.set_min_height(row_h);
-                        row(ui, s, i, c, view, opts);
+                        over = over.or(row(ui, (s, i, c), view, opts, was));
                     });
                     if k + 1 < n {
                         ui.add_space(gap);
@@ -796,12 +802,20 @@ fn rows(
                 ui.allocate_ui(Vec2::new(col_w, h), |ui| {
                     ui.set_width(col_w);
                     ui.set_min_height(h);
-                    ui.vertical(|ui| row(ui, s, i, c, view, opts));
+                    let drawn_row = ui.vertical(|ui| row(ui, (s, i, c), view, opts, was));
+                    over = over.or(drawn_row.inner);
                 });
             }
         });
     }
+    if over != was {
+        ui.ctx().data_mut(|d| d.insert_temp(over_id, over));
+        ui.ctx().request_repaint();
+    }
 }
+
+/// Where [`rows`] keeps the time under the pointer on Readings Over Time.
+const READINGS_OVER: &str = "steadiness readings over";
 
 /// An x-axis label made by `text`, left off within 18 pt of the plot's
 /// right edge, where it would run past the plot into what is beside it.
@@ -840,19 +854,30 @@ fn level_lines(c: &SeriesCheck) -> Vec<[[f64; 2]; 2]> {
         })
 }
 
-/// One series' title and plot. Its findings and statistics are in the
-/// Info panel.
-fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View, opts: Opts) {
+/// One series' title and plot, and the time under the pointer on its
+/// Readings Over Time; `over` is that time on any row. Its findings and
+/// statistics are in the Info panel.
+fn row(
+    ui: &mut egui::Ui,
+    (s, i, c): (&Steadiness, usize, &SeriesCheck),
+    view: View,
+    opts: Opts,
+    over: Option<f64>,
+) -> Option<f64> {
     let pal = theme::pal(ui);
     // A map's key names its series ("Timing Swing (ms)"), so the map
     // takes the title's line for its picture.
-    if !view.is_map() {
-        ui.label(theme::caption(title(c.series)).color(pal.text_secondary));
-    }
+    let title_rect = if view.is_map() {
+        egui::Rect::NOTHING
+    } else {
+        ui.label(theme::caption(title(c.series)).color(pal.text_secondary))
+            .rect
+    };
     // Too few readings: no tests ran, so there is nothing to draw; the
     // headline says how many it needs.
     if c.autocorrelation.is_none() {
-        return note(ui, &c.screen_headline);
+        note(ui, &c.screen_headline);
+        return None;
     }
     let k = c.series;
     let colour = series_colour(k, pal);
@@ -887,7 +912,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         pal,
     };
     match view {
-        View::Readings => readings_plot(ui, r),
+        View::Readings => return readings_plot(ui, r, (title_rect, over)),
         View::Periods => periods_plot(ui, r),
         View::Cycle => cycle_plot(ui, r),
         View::Autocorrelation => autocorrelation_plot(ui, r),
@@ -896,6 +921,7 @@ fn row(ui: &mut egui::Ui, s: &Steadiness, i: usize, c: &SeriesCheck, view: View,
         View::Stft | View::Wavelet => map_plot(ui, r),
         View::Fft => fft_plot(ui, r),
     }
+    None
 }
 
 /// What every view of a series' row draws with.
@@ -914,8 +940,15 @@ struct Row<'a> {
     pal: &'static theme::Palette,
 }
 
-/// The readings over the session, with the level changes and the two levels.
-fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
+/// The readings over the session, with the level changes and the two
+/// levels; the time under the pointer on it. While the pointer is over
+/// any row's, the time there and the reading drawn nearest it are read
+/// out beside the title (`title_rect`), as the Charts' lanes do (#1277).
+fn readings_plot(
+    ui: &mut egui::Ui,
+    r: Row<'_>,
+    (title_rect, over): (egui::Rect, Option<f64>),
+) -> Option<f64> {
     let Row {
         s,
         i,
@@ -931,6 +964,7 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
     let g = &s.grids[i];
     let drawn = steady_views::thin_readings(g);
     let pts: Vec<[f64; 2]> = drawn.iter().map(|d| [d.t, d.mean]).collect();
+    let near = pts.clone();
     // A long series is drawn in chunks, each the band from its lowest
     // reading to its highest, on the scale of the readings themselves: a
     // band reaching past it is clipped at the plot's edge (#1034).
@@ -1003,14 +1037,74 @@ fn readings_plot(ui: &mut egui::Ui, r: Row<'_>) {
                 p.hline(call_out(HLine::new("state", v), dashed, pal));
             }
         }
+        p.pointer_coordinate().map(|at| at.x)
     });
+    let frame = *resp.transform.frame();
     crate::app::paint_key(
         ui.painter(),
-        resp.transform.frame().to_owned(),
+        frame,
         &[(key.as_str(), colour, None)],
         (ui, f32::NEG_INFINITY),
         pal,
     );
+    let hover = resp.inner.filter(|_| resp.response.hovered());
+    if let Some(x) = hover.or(over) {
+        paint_pointer(ui, &resp.transform, x, pal);
+        let value = crate::app::nearest_at(&near, x).map(|j| drawn[j].readout(k));
+        let time = hover.map(|x| readout_time(x, r.opts.joined_in));
+        paint_readout(ui, title_rect, (time, value), colour);
+    }
+    hover
+}
+
+/// The pointer's time across a plot at axis strength, on every row as on
+/// the Charts (Hugh, #1063).
+fn paint_pointer(ui: &egui::Ui, t: &egui_plot::PlotTransform, x: f64, pal: &theme::Palette) {
+    let frame = *t.frame();
+    let px = t.position_from_point_x(x);
+    if px >= frame.left() && px <= frame.right() {
+        ui.painter_at(frame)
+            .vline(px, frame.y_range(), strength::stroke(Strength::Axis, pal));
+    }
+}
+
+/// The time under the pointer as Readings Over Time's readout writes
+/// it: the time on its axis, and while a position's stretches are joined
+/// end to end, whose time it is, "4:12 in DD", as the axis title says
+/// ("Time in DD", Hugh on #1256 and #1277).
+fn readout_time(x: f64, joined_in: Option<&str>) -> String {
+    let t = length_text(x);
+    joined_in.map_or_else(|| t.clone(), |code| format!("{t} in {code}"))
+}
+
+/// Readings Over Time's readout on its title's line, after the title:
+/// the time (on the row under the pointer only), then the reading drawn
+/// nearest it in the series' colour, as a Charts lane writes them.
+fn paint_readout(
+    ui: &egui::Ui,
+    title_rect: egui::Rect,
+    (time, value): (Option<String>, Option<String>),
+    colour: Color32,
+) {
+    if !title_rect.is_positive() {
+        return;
+    }
+    let pal = theme::pal(ui);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let p = ui.painter();
+    let y = title_rect.center().y;
+    let mut x = title_rect.right() + 16.0;
+    for (text, ink) in [(time, pal.text), (value, pal.axis_ink(colour))] {
+        let Some(text) = text else { continue };
+        let r = p.text(
+            egui::pos2(x, y),
+            egui::Align2::LEFT_CENTER,
+            true_minus(&text),
+            font.clone(),
+            ink,
+        );
+        x = r.right() + 12.0;
+    }
 }
 
 /// Readings Over Time's time axis against the strip's: ending where the
